@@ -1,0 +1,43 @@
+"""python -m controller [--fake-arm | --real-arm] [--port 8000] [--setting surgical]"""
+import argparse
+from pathlib import Path
+
+import uvicorn
+from dotenv import load_dotenv
+
+load_dotenv(Path(__file__).resolve().parent.parent / ".env")
+
+from . import core  # noqa: E402
+from .core import Controller  # noqa: E402
+from .server import make_app  # noqa: E402
+
+
+def main() -> None:
+    p = argparse.ArgumentParser(prog="python -m controller")
+    g = p.add_mutually_exclusive_group()
+    g.add_argument("--fake-arm", action="store_true", help="default")
+    g.add_argument("--real-arm", action="store_true")
+    p.add_argument("--port", type=int, default=8000)
+    p.add_argument("--setting", default="surgical", choices=["surgical", "dental", "bench"])
+    p.add_argument("--motion-s", type=float, default=1.0, help="fake arm seconds per motion")
+    p.add_argument("--pull-s", type=float, default=2.0,
+                   help="fake arm: simulated pull after this many seconds at the hand; 0 = wait for got_it")
+    a = p.parse_args()
+
+    if a.real_arm:
+        from arm import real_arm  # Anish's; only the controller imports arm/
+        arm = (getattr(real_arm, "Arm", None) or getattr(real_arm, "RealArm"))()
+    else:
+        from .fake_arm import FakeArm
+        arm = FakeArm(motion_s=a.motion_s, auto_pull_s=a.pull_s or None)
+    arm.connect()
+    ctl = Controller(arm, fake_arm=not a.real_arm, setting_id=a.setting)
+    print(f"controller: {'real' if a.real_arm else 'fake'} arm, setting {a.setting} "
+          f"({ctl.setting['_source']}), ledger {'on' if core.ledger else 'off'}", flush=True)
+    try:
+        uvicorn.run(make_app(ctl), host="0.0.0.0", port=a.port, log_level="warning")
+    finally:
+        arm.disconnect()
+
+
+main()
