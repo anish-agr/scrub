@@ -19,6 +19,7 @@ and research for the NEXT business case.
 | `research/SURGEON_RESEARCH.md` | Retained surgical items, scrub tech shortage, prior robotic scrub nurses, skill assessment. **Check each stat against its source before it goes on a slide** |
 | `research/01-04` | Startup tracks (NEXT, Commit, SideShift), medical go-to-market and FDA path, competitors and market math, 34 build-out ideas |
 | `research/TRACKS.md` | Track and prize descriptions pulled from the hacker guide |
+| `research/isaac-workshop-notes.md` | Perceptron Isaac 0.5 workshop deck as notes: verbatim commands, job quota, inference loop timing, and 16 differences vs docs/ARM.md and PERCEPTRON-ROBOTICS.md |
 | `research/perceptron-mk15-notes.md` | Notes on the Perceptron Mk1.5 API (detect returns pixels, chat uses a 0 to 1000 grid) |
 | `pages/` | Track playbook and startup case pages |
 | `IDEAS-BACKLOG.md` | Long list of feature ideas. Written before we found this repo's plan, so its file paths point at an older prototype. Treat it as ideas only |
