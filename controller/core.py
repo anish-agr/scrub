@@ -227,7 +227,7 @@ class Controller:
                     self.jobs_cv.wait()
                 cmd = self.jobs.popleft()
                 gen = self.gen
-            self.cmd = cmd
+                self.cmd = cmd
             try:
                 if cmd["action"] == "handover":
                     self._handover(cmd, gen)
@@ -368,10 +368,12 @@ class Controller:
                     froze.set()
                     self.arm.freeze()
                     return
-        threading.Thread(target=run, daemon=True).start()
+        th = threading.Thread(target=run, daemon=True)
+        th.start()
 
         def stop() -> bool:
             done.set()
+            th.join()  # no late freeze landing on the next move
             return froze.is_set()
         return stop
 
