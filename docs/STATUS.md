@@ -22,8 +22,10 @@ Agents: the first unchecked box in your person's section is the next task. Tick 
 
 ## Caiden
 
-- [ ] C1 controller on the fake arm, every endpoint
-- [ ] C2 pushed and announced
+- [x] C1 controller on the fake arm, every endpoint
+  - `.venv/bin/python -m controller` (fake arm, port 8000). A curl handover runs finding → picking → checking → moving_to_hand → waiting_for_pull → releasing → homing, all on `WS /events`. Details in `controller/README.md`.
+- [x] C2 pushed and announced
+  - Pushed `ed084b6`. Point vision at `POST :8000/vision/hand` and `/vision/tray`; the dashboard at `WS :8000/events`, `GET /state`, `GET /setting`.
 - [ ] C3 Photon call reaches `voice/`
 - [ ] C4 Gemini commands, stop path, spoken replies
 - [ ] C5 Checkpoint 1 shown
