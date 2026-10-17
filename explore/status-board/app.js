@@ -19,7 +19,7 @@ const SUB = {
   checking: 'Verifying the item is held.', moving_to_hand: 'Handle first, toward the open palm.',
   setting_down: 'Putting the item down at the safe spot.', waiting_for_pull: 'Hold still. Pull to take it, or say "got it".',
   releasing: 'Gripper opening.', homing: 'Arm returning to the home pose.', returning: 'Putting the item back in its slot.',
-  stopped: 'Arm frozen. A new request starts it again.', error: 'The request failed. A person needs to take over.' };
+  stopped: 'Arm frozen. Press Clear stop to open the gripper and go home.', error: 'The request failed. A person needs to take over.' };
 const GOOD = ['handed', 'picked', 'released', 'returned', 'set_down'];
 const BAD = ['missed', 'error', 'stopped'];
 
@@ -169,6 +169,7 @@ function renderCmds() {
 }
 function renderState() {
   const bad = S.step === 'stopped' || S.step === 'error';
+  $('resetBtn').hidden = !bad;
   $('stepBig').textContent = LABEL[S.step] || S.step; $('stepBig').className = 'step-big' + (bad ? ' bad' : '');
   $('stepCode').textContent = 'step: ' + S.step;
   $('stepSub').textContent = S.rejected ? 'Request not accepted: ' + S.rejected : (SUB[S.step] || '');
@@ -274,6 +275,11 @@ async function doStop() {
   catch (e) { say('STOP NOT SENT: cannot reach the controller (' + e.message + '). Cut arm power.', true); }
 }
 $('stopBtn').onclick = doStop;
+/* Clear stop: POST /reset opens the gripper, homes, clears out (409 while busy) */
+$('resetBtn').onclick = async () => {
+  try { await api('POST', '/reset'); say('Reset. Ready.'); refreshState(); }
+  catch (e) { say(e.status === 409 ? 'Cannot reset while the arm is busy.' : 'Reset failed: ' + e.message, true); }
+};
 document.addEventListener('keydown', e => {
   if (e.code !== 'Space' || e.repeat) return;
   e.preventDefault(); doStop();     // space always stops, even if a button has focus
@@ -322,6 +328,7 @@ function mockRoute(method, path, body) {
   if (path === '/setting') { if (!['idle', 'stopped'].includes(M.step)) { const e = new Error('busy'); e.status = 409; throw e; } M.setting = body.setting; M.out = []; M.step = 'idle'; M.item = null; mEmit('step', { item: null }); return mockRoute('GET', '/setting'); }
   if (path === '/lighting') { M.lighting = body.lighting; return { ok: true }; }
   if (path === '/stop') { M.timers.forEach(clearTimeout); M.timers = []; M.queue = []; M.busy = false; M.step = 'stopped'; mEmit('stopped', { say: 'Stopped.' }); return { accepted: true }; }
+  if (path === '/reset') { M.step = 'idle'; M.item = null; M.out = []; mEmit('step', { item: null, say: 'Reset. Ready.' }); return { accepted: true }; }
   if (path.startsWith('/events/recent')) return M.hist.slice(-50);
   if (path === '/stats') {
     const by = {}, ts = []; M.hist.forEach(e => { if (['handed', 'set_down', 'missed'].includes(e.type) && e.item) { const r = by[e.item] || (by[e.item] = { ok: 0, missed: 0 }); e.type === 'missed' ? r.missed++ : r.ok++; if (e.request_to_hand_s) ts.push(e.request_to_hand_s); } });

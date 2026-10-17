@@ -69,3 +69,7 @@ No change needed in `controller/`: CORS is already open (`allow_origins=["*"]`).
 - Check the vision stream URL on the real camera (and that it works as an `<img>`); no tray/hand box overlay is drawn (the stream is shown as is).
 - Test on the real arm and at the venue screen; adjust sizes for the room.
 - Optional: a "clear stop" button once the controller has such an endpoint.
+
+
+## Update: Clear stop
+The board shows a **Clear stop** button when the step is `stopped` or `error`. It calls `POST /reset` (added to the controller in ca2c7f1): the controller opens the gripper, goes home, clears `out` and says "Reset. Ready.". A 409 means the arm is busy. Checked against the real controller: STOP, then Clear stop, returns to `idle`.

@@ -86,6 +86,7 @@ td.none{text-align:left;color:var(--mute);font-weight:500}
 .cols2{display:grid;grid-template-columns:1fr 1fr;gap:0 32px}
 .dock{position:sticky;bottom:0;z-index:5;background:var(--paper);border-top:4px solid var(--ink)}
 .dock .wrap{display:grid;grid-template-columns:1fr auto;gap:20px;align-items:center;padding-top:12px;padding-bottom:12px}
+.reset{background:var(--paper,#fff);color:var(--ink);border:3px solid var(--ink);font-size:20px;min-height:76px;padding:0 20px;font-weight:800;letter-spacing:.04em}
 .stop{background:var(--red);color:#fff;border:3px solid var(--ink);font-size:30px;min-height:76px;min-width:300px;letter-spacing:.08em;font-weight:900}
 .dockmsg{font-size:20px;font-weight:700;overflow-wrap:anywhere}
 .dockmsg.bad{color:var(--red)}
