@@ -1,0 +1,34 @@
+{
+  "id": "dental",
+  "label": "Dental office",
+  "items": [
+    {
+      "id": "mouth_mirror",
+      "name": "mouth mirror",
+      "aliases": ["mirror", "dental mirror", "mouth mirror"],
+      "sharp": false,
+      "slot": null,
+      "pick_instruction": "pick the mouth mirror",
+      "return_instruction": "return the mouth mirror"
+    },
+    {
+      "id": "explorer",
+      "name": "explorer",
+      "aliases": ["probe", "sickle", "sickle probe"],
+      "sharp": false,
+      "slot": null,
+      "pick_instruction": "pick the explorer",
+      "return_instruction": "return the explorer"
+    },
+    {
+      "id": "cotton_pliers",
+      "name": "cotton pliers",
+      "aliases": ["cotton forceps", "college pliers", "dressing pliers", "pliers"],
+      "sharp": false,
+      "slot": null,
+      "pick_instruction": "pick the cotton pliers",
+      "return_instruction": "return the cotton pliers"
+    }
+  ],
+  "return_spot": null
+}
