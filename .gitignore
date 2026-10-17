@@ -1,0 +1,30 @@
+# keys
+.env
+.env.*
+!.env.example
+
+# python
+.venv/
+__pycache__/
+*.pyc
+
+# node
+node_modules/
+dist/
+
+# data, models, recordings (never commit)
+data/
+outputs/
+datasets/
+*.mp4
+*.mov
+*.safetensors
+*.pt
+*.ckpt
+ledger/buffer.jsonl
+
+# local machine
+.DS_Store
+Thumbs.db
+.idea/
+vision/models/
