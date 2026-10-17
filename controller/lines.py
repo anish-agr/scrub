@@ -11,6 +11,9 @@ PATH_BLOCKED = "Something's in the way. Holding."
 OUT_OF_REACH = "That's out of my reach."
 SHOW_HAND = "Hand open, please."
 RESET = "Reset. Ready."
+NEEDS_RESET = "I'm stopped. Reset me first."
+SAY_GOT_IT = "Say got it when you have it."
+SET_DOWN_FAILED = "Couldn't set it down. Holding."
 
 
 def cap(s): return s[:1].upper() + s[1:]

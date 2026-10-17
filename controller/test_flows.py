@@ -8,6 +8,7 @@ from .fake_arm import FakeArm
 
 core.HAND_WAIT_S = 1.0
 core.PULL_WAIT_S = 1.0
+core.TRAY_LAG_S = 0.05
 
 
 class RecordingArm(FakeArm):
@@ -64,6 +65,23 @@ def tray(ctl, item, present):
                    "return_spot": {"item": None, "confidence": 0.0, "box": None}, "t": time.time()})
 
 
+def tray_feed(ctl, stop_evt, item, present=lambda: True):
+    def loop():
+        while not stop_evt.is_set():
+            tray(ctl, item, present())
+            time.sleep(0.05)
+    threading.Thread(target=loop, daemon=True).start()
+
+
+def reset(ctl, timeout=5.0):
+    start = len(ctl.history)
+    ctl.reset()
+    end = time.time() + timeout
+    while time.time() < end and not (ctl.step == "idle" and ctl.cmd is None and not ctl.jobs):
+        time.sleep(0.02)
+    return list(ctl.history)[start:]
+
+
 HANDOVER = {"action": "handover", "item": "hemostat", "source": "keyboard"}
 TESTS = []
 
@@ -117,9 +135,28 @@ def grasp_miss_twice_says_so():
 @test
 def grasp_check_uses_tray_slot():
     ctl, arm = make()
-    tray(ctl, "hemostat", True)  # slot still full after the pick: the grasp failed
+    stop = threading.Event()
+    tray_feed(ctl, stop, "hemostat")  # slot still full after the pick: the grasp failed
     _, evs = run(ctl, HANDOVER)
+    stop.set()
     assert says(evs)[-1] == lines.couldnt_pick("hemostat"), says(evs)
+
+
+@test
+def grasp_check_ignores_tray_from_before_the_pick():
+    ctl, arm = make()
+    tray(ctl, "hemostat", True)  # one TrayState, taken before the arm moved
+    _, evs = run(ctl, HANDOVER)
+    assert "released" in types(evs), says(evs)
+
+
+@test
+def stale_tray_is_ignored():
+    ctl, arm = make()
+    tray(ctl, "hemostat", False)
+    ctl.tray["stale"] = True
+    _, evs = run(ctl, HANDOVER)
+    assert "released" in types(evs), says(evs)
 
 
 @test
@@ -137,6 +174,35 @@ def skill_fails_counts_as_miss():
     arm.force["skill_fail"] = 2
     _, evs = run(ctl, HANDOVER)
     assert says(evs)[-1] == lines.couldnt_pick("hemostat")
+
+
+@test
+def no_load_reading_waits_for_got_it():
+    ctl, arm = make()
+    arm.force["no_load"] = 1  # real arm: gripper_load() raises with no fresh bus reading
+    ctl.submit(dict(HANDOVER))
+    end = time.time() + 5
+    while ctl.step != "waiting_for_pull" and time.time() < end:
+        time.sleep(0.02)
+    time.sleep(0.3)
+    assert ctl.step == "waiting_for_pull" and lines.SAY_GOT_IT in says(ctl.history), ctl.step
+    _, evs = run(ctl, {"action": "got_it", "source": "voice"})
+    assert "released" in types(evs), types(evs)
+
+
+@test
+def pull_detected_when_load_drops():
+    ctl, arm = make(pull_s=None)
+    t0 = [None]
+
+    def load():  # the bus value is signed: a tug can read as a drop
+        if ctl.step != "waiting_for_pull":
+            return 100.0
+        t0[0] = t0[0] or time.time()
+        return -50.0 if time.time() - t0[0] > 0.2 else 100.0
+    arm.gripper_load = load
+    _, evs = run(ctl, HANDOVER)
+    assert "released" in types(evs), types(evs)
 
 
 @test
@@ -183,25 +249,47 @@ def tracking_on_but_no_hand():
 
 
 @test
-def hand_lost_mid_move_freezes_then_retries():
+def set_down_failure_holds_for_reset():
+    ctl, arm = make()
+    arm.set_down_safe_spot = lambda: False  # real arm: didn't reach the safe spot
+    _, evs = run(ctl, {"action": "handover", "item": "scalpel"})
+    assert ctl.step == "error" and says(evs)[-1] == lines.SET_DOWN_FAILED, says(evs)
+    assert "set_down" not in types(evs) and ctl.out == []
+    assert ctl.submit(dict(HANDOVER))["say"] == lines.NEEDS_RESET
+
+
+@test
+def arm_exception_freezes_and_holds():
+    ctl, arm = make()
+
+    def boom():
+        raise RuntimeError("bus timeout")
+    arm.go_carry = boom
+    _, evs = run(ctl, HANDOVER)
+    assert ctl.step == "error" and arm._frozen.is_set() and says(evs)[-1] == lines.ERROR, says(evs)
+
+
+@test
+def hand_lost_mid_move_holds_until_reset():
     ctl, arm = make()
     stop = threading.Event()
     lost_until = [0.0]
     hand_feed(ctl, stop, seen=lambda: time.time() > lost_until[0])
-    arm.moves.clear()
     orig = arm.move_to
 
     def move_and_lose(*a, **kw):  # the hand vanishes during the first move only
         if len(arm.moves) == 0:
-            lost_until[0] = time.time() + 0.4  # well inside HAND_WAIT_S
+            lost_until[0] = time.time() + 0.4
         return orig(*a, **kw)
     arm.move_to = move_and_lose
-    t0 = time.time()
     _, evs = run(ctl, HANDOVER)
     stop.set()
-    assert lines.HAND_LOST in says(evs), says(evs)
-    assert "released" in types(evs), types(evs)
-    assert time.time() - t0 < 6
+    assert says(evs)[-1] == lines.HAND_LOST and ctl.step == "stopped", says(evs)
+    assert arm._frozen.is_set() and len(arm.moves) == 1  # no second move on a latched arm
+    assert ctl.submit(dict(HANDOVER))["say"] == lines.NEEDS_RESET
+    evs = reset(ctl)
+    assert "setting_down" in steps(evs) and ctl.out == ["hemostat"] and arm.pose == "home", steps(evs)
+    assert evs[-1]["say"] == lines.RESET
 
 
 @test
@@ -211,7 +299,7 @@ def path_blocked_freezes():
     hand_feed(ctl, stop, clear=lambda: len(arm.moves) == 0)  # blocks once the arm starts moving
     _, evs = run(ctl, HANDOVER)
     stop.set()
-    assert lines.PATH_BLOCKED in says(evs) and says(evs)[-1] == lines.no_hand("hemostat"), says(evs)
+    assert says(evs)[-1] == lines.PATH_BLOCKED and ctl.step == "stopped", says(evs)
 
 
 @test
@@ -245,8 +333,38 @@ def stop_mid_pick_is_instant():
     assert ctl.step == "stopped" and not ctl.jobs and later == [], later
     assert time.time() - t0 < 1.0
     arm.scale = 0.1
-    _, evs = run(ctl, {"action": "handover", "item": "mayo_scissors"})  # works again after stop
+    r = ctl.submit({"action": "handover", "item": "mayo_scissors"})
+    assert not r["accepted"] and r["say"] == lines.NEEDS_RESET, r  # the arm stays frozen until reset
+    reset(ctl)
+    _, evs = run(ctl, {"action": "handover", "item": "mayo_scissors"})  # works again after reset
     assert "released" in types(evs)
+
+
+def stop_at(step, pull_s=None):
+    ctl, arm = make(pull_s=pull_s)
+    ctl.submit(dict(HANDOVER))
+    end = time.time() + 5
+    while ctl.step != step and time.time() < end:
+        time.sleep(0.005)
+    assert ctl.step == step, ctl.step
+    ctl.submit({"action": "stop"})
+    n = len(ctl.history)
+    time.sleep(0.5)
+    later = [e for e in list(ctl.history)[n:] if e["type"] != "command"]
+    assert ctl.step == "stopped" and later == [], later
+    return ctl, arm
+
+
+@test
+def stop_while_moving_to_the_hand():
+    stop_at("moving_to_hand")
+
+
+@test
+def stop_while_holding_out_then_reset_sets_it_down():
+    ctl, arm = stop_at("waiting_for_pull")
+    evs = reset(ctl)
+    assert "setting_down" in steps(evs) and arm.pose == "home" and ctl.out == ["hemostat"], steps(evs)
 
 
 @test
@@ -258,6 +376,17 @@ def return_and_count():
     _, evs = run(ctl, {"action": "return"})
     assert says(evs)[-1] == "Hemostat back in its slot." and ctl.out == []
     assert not ctl.submit({"action": "return"})["accepted"]
+
+
+@test
+def return_checked_against_the_tray():
+    ctl, arm = make()
+    run(ctl, HANDOVER)
+    stop = threading.Event()
+    tray_feed(ctl, stop, "hemostat", present=lambda: False)  # the slot stays empty after the put-back
+    _, evs = run(ctl, {"action": "return", "item": "hemostat"})
+    stop.set()
+    assert says(evs)[-1] == lines.couldnt_return("hemostat") and ctl.out == ["hemostat"], says(evs)
 
 
 @test
