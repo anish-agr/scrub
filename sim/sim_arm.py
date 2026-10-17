@@ -219,9 +219,27 @@ class SimArm:
         return self._gripper(call, 0.0) and self._cart_move(call, (x, y, ABOVE_Z), 0.12)
 
     def _return_held(self, call, item):
-        if self.holding != item:
+        """Put `item` back in its tray slot: pick it from the return spot (or use the held one)."""
+        slot = scene.slot_position(self.layout, item)
+        if slot is None:
             return False
-        return self._place(call, self.layout["return_spot"])
+        if self.holding and self.holding != item:
+            return False
+        if not self.holding:
+            rx, ry = self.layout["return_spot"]
+            with self.lock:
+                p = self.data.mocap_pos[self._mocap[item]].copy()
+            if not (np.hypot(p[0] - rx, p[1] - ry) < 0.03 and p[2] > 0):
+                return False
+            above, down = (p[0], p[1], ABOVE_Z), (p[0], p[1], PICK_Z)
+            if not (self._gripper(call, 0.0) and self._cart_move(call, above, 0.25)
+                    and self._cart_move(call, down, 0.12) and self._gripper(call, 1.0)):
+                return False
+            with self.lock:
+                self.holding = item
+            if not self._cart_move(call, above, 0.12):
+                return False
+        return self._place(call, slot)
 
     def go_home(self):
         return self._pose_move("home")

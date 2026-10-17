@@ -387,6 +387,10 @@ class Controller:
         return stop
 
     def _wait(self, gen: int, check, timeout: float, say: str | None):
+        """Poll check() until it's truthy; speak `say` only if it isn't already."""
+        r = check()
+        if r:
+            return r
         if say:
             self.emit("step", say=say)
         end = time.time() + timeout
