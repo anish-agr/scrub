@@ -38,3 +38,94 @@ notes. This routing is offline-tested, not yet confirmed with a live grant.
 Signed uploads use a third, unauthenticated client; a 303 is followed by GET
 without replaying upload bytes or headers. Local datasets are read only when
 the operator explicitly invokes `upload`; no dataset was inspected in setup.
+
+## Offline arm / IK (A7, A6)
+
+```text
+python -m unittest discover -s arm -t . -p "test_*.py" -v
+python -m arm --dry-run --self-test
+python -m arm --dry-run --side-image <side.png> --wrist-image <wrist.png>
+python -m arm --dry-run --self-test --latency-ms 450 --max-s 1.2
+```
+
+The last command should exit 1 with `success: false`, `reason: max_s`, and no
+accepted chunks. All commands above use **fake** joints and fake predictions,
+no API key, no camera, no LeRobot import, and no motor connection. `--self-test`
+creates temporary synthetic saved PNGs; it is a protocol test, not a grasp test.
+Saved input images must be 640x480; PNGs are sent to the policy interface.
+
+`Arm` in `real_arm.py` implements the public interface; `move_to` delegates to
+URDF IK and the same 30 Hz sender. The sender owns all bus I/O; the caller of
+`run_skill` is the inference thread. Predict runs synchronously every 15 rows
+on the playback clock. A chunk's rows remain anchored at capture time, not
+arrival time. RTC commits 12 rows, uses a 400 ms acceptance deadline, and
+switches only at `execute_from_index`. Late replies are discarded. Playback
+holds measured position when no chunk covers the current tick. Joint rate
+limiting is reflected in `rtc.committed_actions`; the server must echo those
+rows or the reply is rejected. Gaps after an exhausted chunk reset the session
+before sending a fresh first observation. Missed ticks are not replayed in bursts.
+
+`run_skill` returns true only after a closed-and-still gripper; max_s, freeze,
+and errors return false. This heuristic is not proof of a grasp. In particular,
+an open-gripper return ending at max_s is **not** automatically a successful
+return; that flow needs an independently verified completion condition later.
+
+`freeze()` is nonblocking and latched. The playback thread holds on its next
+available tick; an in-flight HTTP response cannot restart motion. `resume()` is
+an explicit operator rearm outside the base contract. A serial/driver stall can
+delay a hold; this software is not a physical emergency stop. Bus errors latch
+a failure and require reconnecting after inspection. No blind hold write is
+issued after feedback becomes invalid. Disconnect preserves torque to avoid
+dropping a held tool; support the arm, set tools down and power off manually.
+
+The LeRobot adapter uses `use_degrees=True`, named `side`/`wrist` RGB cameras
+at 640x480/30 FPS, no automatic calibration, and `Present_Load` from the Feetech
+bus with `normalize=False` (signed raw motor load, not torque). Missing load
+raises instead of manufacturing a reading. Measured pose moves preserve the
+current gripper value; `set_down_safe_spot()` opens only after arrival.
+
+Source APIs were inspected against LeRobot `v0.4.4`:
+`robots/so_follower/{so_follower,config_so_follower}.py`,
+`cameras/opencv/{camera_opencv,configuration_opencv}.py`, and
+`motors/{motors_bus.py,feetech/tables.py}`. LeRobot is not installed or hardware
+tested here. Install its workshop-approved source checkout with Feetech/camera
+extras in the arm environment, then verify these imports there. The dependency
+file here covers offline tests/client code, not LeRobot's heavy hardware stack.
+
+## Before hardware
+
+`rig.json` is an unmeasured template with `hardware_verified: false`, null
+poses and a null `verified_contract_id`. Do not flip these just to bypass a
+failure. Measure/verify:
+
+- Base transform (our x forward, y left, z up), five joint signs/degree offsets,
+  URDF limits and the new/mid-range zero convention. Old calibration is different.
+- Gripper raw open/closed endpoints; interface returns 0 open / 1 closed while
+  inference receives unconverted raw 0..100, exactly like recording.
+- Home/carry/safe_spot poses (six raw values), handoff box, speeds. Carry and
+  every interpolated handoff position must already lie in the handoff box.
+- Contract from `python -m arm.train contract <deployment-id>`: review joint
+  order/units, absolute targets, cameras, horizon 30, 30 Hz and RTC delay 12;
+  pin the reviewed `contract_id`. A changed contract fails before a grant.
+
+Set these local `.env` variables (never commit it): `PERCEPTRON_TEAM_API_KEY`,
+`PERCEPTRON_DEPLOYMENT_ID`, `SO101_PORT`, `SO101_ROBOT_ID` (default
+`scrub_follower`), `SO101_SIDE_CAMERA` (default 0), `SO101_WRIST_CAMERA` (default 1).
+Camera ids and calibration id must match recording. Then the controller, not
+another script, connects with `python -m controller --real-arm`.
+
+### Handoff to Caiden (no controller/contract edits made here)
+
+1. In `controller/core.py::_reset`, explicitly call optional `arm.resume()`
+   **before** `open_gripper`/`go_home`, only on an operator-authorized reset.
+   A tracking-loss retry must not implicitly clear a latched freeze; request
+   rearm rather than just retrying `move_to`.
+2. In `_wait_for_pull`, catch missing-load `RuntimeError` from both the initial
+   and subsequent `gripper_load()` calls; continue waiting for `got_it` with
+   the existing timeout and generation checks. Do not synthesize a load jump.
+   Check the measured sign and magnitude of load changes before enabling pull.
+3. In `_set_down`, inspect the bool from `set_down_safe_spot()`. If false, do
+   not add the item to `out` or emit successful `set_down`; stop/report failure.
+4. Decide a return-completion condition from tray perception; max_s is a
+   timeout, not proof of successful put-back. Current generic closed-and-still
+   termination can occur before the end of a return trajectory.
