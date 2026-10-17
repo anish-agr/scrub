@@ -14,8 +14,8 @@ Rules that keep us from colliding:
 | Person | Owns | Tools | Agent budget |
 | --- | --- | --- | --- |
 | Anish | `arm/`, the arm and training, `docs/ARM.md`, `docs/PERCEPTRON-ROBOTICS.md`, `docs/PLAN.md`, `docs/TASKS.md`, `docs/PITCH.md` | Claude Pro, Codex | Small. Most of his time is at the arm |
-| Caiden | `controller/`, `voice/`, `docs/CONTRACTS.md`, `.env.example`, `.gitignore` | Claude Max, Cursor Pro, Codex | Largest. Takes overflow jobs |
-| Brandon | `vision/`, `docs/PERCEPTRON.md`, `docs/SLIDES.md`, the Perceptron API key | Cursor Pro | Medium |
+| Caiden | `controller/`, `voice/`, `explore/`, `docs/SLIDES.md`, `docs/CONTRACTS.md`, `.env.example`, `.gitignore` | Claude Max, Cursor Pro, Codex | Largest. Takes overflow jobs |
+| Brandon | `vision/`, `docs/PERCEPTRON.md`, the Perceptron API key | Cursor Pro | Medium |
 | Evan | `dashboard/`, `ledger/`, `settings/`, `docs/DATA-LOG.md`, `docs/DEVPOST.md` | Cursor Pro | Medium |
 
 ## Priority
@@ -101,7 +101,7 @@ Judging is at our table: a 3-minute pitch over a live demo, then questions. The 
 | # | Who | When | Task | Done when |
 | --- | --- | --- | --- | --- |
 | P1 | Anish | Sat evening draft, Sun 6 AM final | `docs/PITCH.md`: the 3-minute script with measured numbers filled in, and the judge Q&A | Script final |
-| P2 | Brandon | Sun by 8 AM | A 5-slide backup deck (Google Slides), outline in `docs/SLIDES.md`: the problem, Scrub, how it works, the success tables, the business case. Used only if the arm fails at judging, and as the video's title cards | Link in the chat |
+| P2 | Caiden | Sun by 8 AM | A 5-slide backup deck (Google Slides), outline in `docs/SLIDES.md`: the problem, Scrub, how it works, the success tables, the business case. Used only if the arm fails at judging, and as the video's title cards | Link in the chat |
 | P3 | Evan | Sun 7 to 9 AM | Demo video (E7) | Uploaded |
 | P4 | Caiden | Sat night | A demo mode on the controller: one key per setting switch, a reset that homes the arm and clears the count. Records a clean backup full run on Sunday morning | Works with the dashboard |
 | P5 | everyone | Sun 9:30 to 10:20 and in line | Rehearse the demo three times. Roles: Anish speaks, Brandon is the clinician, Caiden runs the dashboard and stop key, Evan swaps trays and the lamp | Under 3 minutes twice in a row |
