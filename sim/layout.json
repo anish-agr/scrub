@@ -1,0 +1,21 @@
+{
+  "_doc": "Meters in the arm base frame: x forward, y left, z up. Table top is z=0. Rewrite via PUT /layout or by hand; the scene rebuilds from this.",
+  "setting": "surgical",
+  "table": {"center": [0.25, 0.0], "size": [0.9, 0.8]},
+  "tray": {"center": [0.24, 0.0], "size": [0.10, 0.26]},
+  "slots": [[0.24, -0.08], [0.24, 0.0], [0.24, 0.08]],
+  "setting_items": {
+    "surgical": ["hemostat", "scalpel", "mayo_scissors"],
+    "dental": ["mouth_mirror", "explorer", "cotton_pliers"],
+    "bench": ["needle_nose_pliers", "wire_cutters", "hex_key"]
+  },
+  "return_spot": [0.17, 0.17],
+  "safe_spot": [0.17, -0.18],
+  "hand_zone": [0.28, -0.14, 0.14],
+  "handoff_region": {"min": [0.15, -0.25, 0.06], "max": [0.40, 0.25, 0.30]},
+  "poses": {
+    "home": [0.0, -1.7, 1.55, 0.9, 0.0, 0.0],
+    "carry": [0.0, -0.9, 0.35, 1.48, 0.0, 0.0]
+  },
+  "overhead_cam": {"pos": [0.24, 0.0, 0.75], "fovy": 55}
+}
