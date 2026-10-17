@@ -39,7 +39,8 @@ class Force(BaseModel):
     no_pull: int = 0
 
 
-def make_app(ctl: Controller) -> FastAPI:
+def make_app(ctl: Controller, extra=None) -> FastAPI:
+    """extra(app) adds routes before the dashboard mount at / (which would shadow them)."""
     app = FastAPI(title="Scrub controller")
     app.add_middleware(CORSMiddleware, allow_origins=["*"], allow_methods=["*"], allow_headers=["*"])
 
@@ -124,6 +125,8 @@ def make_app(ctl: Controller) -> FastAPI:
         finally:
             ctl.listeners.remove(entry)
 
+    if extra:
+        extra(app)
     if (DASHBOARD / "index.html").exists():
         app.mount("/", StaticFiles(directory=DASHBOARD, html=True), name="dashboard")
     else:

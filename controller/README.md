@@ -10,7 +10,7 @@ FastAPI on port 8000. Owns the arm and every safety rule. Endpoints and messages
 python3.10 -m venv .venv && .venv/bin/pip install -r controller/requirements.txt   # once, from the repo root
 .venv/bin/python -m controller                # fake arm (default), port 8000, surgical tray
 .venv/bin/python -m controller --real-arm     # imports arm/real_arm.py (class Arm or RealArm)
-.venv/bin/python -m controller --sim-arm      # MuJoCo SO-101 from sim/ (sim/requirements.txt); POST /fake/pull to tug
+.venv/bin/python -m controller --sim-arm      # MuJoCo SO-101 from sim/, see "Testing in the sim" below
 ```
 
 Options: `--port`, `--setting surgical|dental|bench`, `--motion-s 0.2` (fake arm seconds per motion), `--pull-s 2` (fake arm: simulated pull this long after reaching the hand; `0` = wait for `got_it`).
@@ -61,4 +61,19 @@ websocat ws://localhost:8000/events      # or open http://localhost:8000/
 
 `.venv/bin/python -m controller.smoke` runs a full pass against a live controller: every item handed over (simulated pull on fake/sim arms), then the count. `--return` adds put-backs, `--runs 10 --human` is the C8 ten-in-a-row check on the real arm (a person takes each item and resets the tray), `--url` points elsewhere. It prints each line Scrub said, request-to-hand times, and the clean streak.
 
-Known: on `--sim-arm`, "return" fails, because the sim's scripted return needs the item still in the gripper, and items handed out stay off the sim tray. Handover and the scalpel set-down work in the sim.
+## Testing in the sim
+
+`.venv/bin/python -m controller --sim-arm` runs the controller on the MuJoCo arm and, in the same process, the sim server on `--sim-port` (8002): watch it at `http://localhost:8002/web/viewer.html` (Live mode) and use `http://localhost:8002/stream` as a fake camera. Needs `sim/requirements.txt`. Run it in a normal terminal so Ctrl-C works.
+
+`controller/sim_vision.py` stands in for `vision/`: a TrayState every second from where the sim's instruments really are, and a Hand at 10 Hz when switched on. Knobs:
+
+```
+curl -XPOST localhost:8000/sim/hand -H 'content-type: application/json' -d '{"on": true}'        # hand tracking on (default off = saved spot)
+curl -XPOST localhost:8000/sim/hand -H 'content-type: application/json' -d '{"seen": false}'     # lose the hand (try it mid-move)
+curl -XPOST localhost:8000/sim/hand -H 'content-type: application/json' -d '{"path_clear": false}'
+curl -XPOST localhost:8000/sim/hand -H 'content-type: application/json' -d '{"target": [0.25, -0.1, 0.15]}'
+curl -XPOST localhost:8000/sim/return_spot -H 'content-type: application/json' -d '{"item": "hemostat"}'  # clinician sets it down
+curl -XPOST localhost:8000/fake/pull                                                              # clinician tugs
+```
+
+`python -m controller.smoke --return` runs a full pass in the sim, putting items in the return spot itself. The sim's pick is scripted, so it tests the controller, timing, reach and region limits, not the Isaac policy.

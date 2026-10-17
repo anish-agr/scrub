@@ -71,6 +71,8 @@ def main() -> None:
             for item in [i for i in items if i not in sharp]:
                 if a.human:
                     input(f"  put the {item} in the return spot, then press Enter")
+                elif c.post("/sim/return_spot", json={"item": item}).status_code == 200:
+                    time.sleep(1.5)  # sim: the item is in the return spot; let a TrayState see it
                 ok, said, _ = one(c, "return", item, a.human, a.timeout)
                 clean &= ok
                 print(f"  run {run}  {'ok  ' if ok else 'FAIL'}  return   {item:20}         {said}")

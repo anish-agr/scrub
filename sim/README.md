@@ -56,7 +56,7 @@ if args.sim_arm:
 
 - Poses and the handoff region come from `arm/rig.json` if it exists (`home`, `carry`, `safe_spot` as 6 joint radians; `handoff_region` as `{"min":[x,y,z],"max":[x,y,z]}` or `{"x":[a,b],"y":..,"z":..}`), otherwise from `layout.json`. Anish: if your rig.json uses other keys, tell Caiden or change `_pose` / `_region` in `sim_arm.py`.
 - `move_to` returns False outside the handoff region or if IK can't get within 5 mm. Speed is m/s along a straight line, joint steps are capped.
-- `run_skill("pick the hemostat")` (also "return the X" for a held item) is a scripted stand-in: IK above the slot, descend, close, attach, lift. Items are kinematic mocap bodies (no contact physics); the jaw stops at an item-width angle so `gripper_position()` is about 0.75 and `gripper_load()` is the saturated servo force.
+- `run_skill("pick the hemostat")` (also "return the X": picks X from `return_spot` and places it in its tray slot; falls back to placing a held X; False if X is neither there nor held) is a scripted stand-in: IK above the slot, descend, close, attach, lift. Items are kinematic mocap bodies (no contact physics); the jaw stops at an item-width angle so `gripper_position()` is about 0.75 and `gripper_load()` is the saturated servo force.
 - Tool pitch: IK prefers the gripper pointing down (soft constraint) and falls back to position only.
 - Axes: this MJCF's positive `shoulder_pan` swings the gripper toward -y (right). `ik.py` handles that; Anish should check his real-arm sign.
 

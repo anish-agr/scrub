@@ -54,6 +54,31 @@ def test_run_skill_picks_item(arm):
     assert arm.state()["holding"] is None
 
 
+def test_return_picks_from_return_spot_and_slots_it(arm):
+    from sim import scene
+    arm.reload()  # earlier tests moved items
+    arm.go_home()
+    assert arm.run_skill("pick the hemostat")
+    rx, ry = arm.layout["return_spot"]
+    assert arm.move_to(rx, ry, 0.12)
+    arm.open_gripper()  # clinician sets it in the return spot
+    with arm.lock:
+        arm.data.mocap_pos[arm._mocap["hemostat"]][:2] = (rx, ry)
+    assert arm.run_skill("return the hemostat")
+    assert arm.state()["holding"] is None
+    sx, sy = scene.slot_position(arm.layout, "hemostat")
+    with arm.lock:
+        p = arm.data.mocap_pos[arm._mocap["hemostat"]].copy()
+    assert ((p[:2] - (sx, sy)) ** 2).sum() ** 0.5 < 0.02
+    assert arm.gripper_position() < 0.2
+
+
+def test_return_item_still_in_slot_is_false(arm):
+    arm.reload()
+    arm.go_home()
+    assert arm.run_skill("return the scalpel") is False
+
+
 def test_run_skill_rejects_unknown_item(arm):
     assert arm.run_skill("pick the wire cutters") is False  # not in the surgical setting
     assert arm.run_skill("dance") is False

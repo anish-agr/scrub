@@ -1,5 +1,6 @@
 """python -m controller [--fake-arm | --real-arm] [--port 8000] [--setting surgical]"""
 import argparse
+import threading
 from pathlib import Path
 
 import uvicorn
@@ -19,6 +20,7 @@ def main() -> None:
     g.add_argument("--real-arm", action="store_true")
     g.add_argument("--sim-arm", action="store_true", help="MuJoCo SO-101 from sim/ (say got_it to release)")
     p.add_argument("--port", type=int, default=8000)
+    p.add_argument("--sim-port", type=int, default=8002, help="--sim-arm: also serve sim viewer/stream/state here")
     p.add_argument("--setting", default="surgical", choices=["surgical", "dental", "bench"])
     p.add_argument("--motion-s", type=float, default=1.0, help="fake arm seconds per motion")
     p.add_argument("--pull-s", type=float, default=2.0,
@@ -40,7 +42,25 @@ def main() -> None:
     print(f"controller: {'real' if a.real_arm else 'sim' if a.sim_arm else 'fake'} arm, setting {a.setting} "
           f"({ctl.setting['_source']}), ledger {'on' if core.ledger else 'off'}", flush=True)
     try:
-        uvicorn.run(make_app(ctl), host="0.0.0.0", port=a.port, log_level="warning")
+        if a.sim_arm:  # MuJoCo GL needs the main thread: controller API in a thread, frame grabber here
+            from sim.server import Grabber, create_app
+            from .sim_vision import SimVision
+            vision = SimVision(arm, ctl)  # TrayState from the sim, Hand when POST /sim/hand {"on": true}
+            vision.start()
+            grabber = Grabber(arm)
+            sim = uvicorn.Server(uvicorn.Config(create_app(arm, grabber), host="127.0.0.1", port=a.sim_port, log_level="warning"))
+            api = uvicorn.Server(uvicorn.Config(make_app(ctl, vision.routes), host="0.0.0.0", port=a.port, log_level="warning"))
+            for srv in (sim, api):
+                threading.Thread(target=srv.run, daemon=True).start()
+            print(f"sim viewer: http://localhost:{a.sim_port}/web/viewer.html", flush=True)
+            try:
+                grabber.serve(lambda: api.should_exit or sim.should_exit)
+            except KeyboardInterrupt:
+                pass
+            finally:
+                api.should_exit = sim.should_exit = True
+        else:
+            uvicorn.run(make_app(ctl), host="0.0.0.0", port=a.port, log_level="warning")
     finally:
         arm.disconnect()
 
