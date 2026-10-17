@@ -1,0 +1,359 @@
+<!doctype html>
+<!-- Scrub sim viewer. Style: technical drafting / printed shop layout sheet. Plain HTML + ES modules, no build step.
+     Needs to be served (python -m sim, port 8002) because browsers block STL loading over file://. -->
+<html lang="en"><head>
+<meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Scrub arm viewer</title>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;600&family=IBM+Plex+Sans:wght@400;600&display=swap">
+<link rel="icon" href="data:,">
+<link rel="stylesheet" href="style.css">
+<style>
+main{display:grid;grid-template-columns:minmax(0,1fr) 320px;gap:10px;padding:10px;align-items:start}
+#stage{position:relative;border:1px solid var(--rule);background:var(--sheet);height:min(72vh,640px);min-height:320px}
+#stage canvas{display:block;width:100%;height:100%}
+#hud{position:absolute;left:0;bottom:0;font:11px/1.4 var(--mono);padding:4px 8px;background:var(--sheet);border-top:1px solid var(--rule);border-right:1px solid var(--rule)}
+#side{display:flex;flex-direction:column;gap:10px;min-width:0}
+.joint{display:grid;grid-template-columns:96px 1fr 62px;gap:6px;align-items:center;font:11px var(--mono);margin:5px 0}
+.joint input{width:100%;accent-color:var(--ink)}
+.joint span:last-child{text-align:right}
+#log{font:11px/1.45 var(--mono);height:140px;overflow:auto;border:1px solid var(--rule);padding:6px;background:var(--paper)}
+#log div{border-bottom:1px solid var(--faint)}
+#fileNotice{display:none;margin:10px}
+#err{display:none;margin:10px}
+.seg button+button{margin-left:-1px}
+@media (max-width:860px){main{grid-template-columns:minmax(0,1fr)}#stage{height:56vh}}
+</style>
+<script type="importmap">{"imports":{
+ "three":"https://cdn.jsdelivr.net/npm/three@0.164.1/build/three.module.js",
+ "three/examples/jsm/":"https://cdn.jsdelivr.net/npm/three@0.164.1/examples/jsm/",
+ "urdf-loader":"https://unpkg.com/urdf-loader@0.12.3/src/URDFLoader.js"}}</script>
+</head><body>
+<header class="top">
+  <div class="title"><h1>Arm viewer</h1><div class="sub">SO-101 on the work table, base frame in mm</div></div>
+  <nav><a class="on" href="viewer.html">Viewer</a><a href="layout.html">Layout and kit</a></nav>
+  <div class="block">SHEET SC-01 REV A<br>SCALE 1:1 (m)<br><span id="srcline">source: starting</span></div>
+</header>
+
+<div id="fileNotice" class="notice"><b>This page was opened as a file.</b> Browsers block loading the STL meshes over <code>file://</code>.
+ Run <code>python -m sim</code> from the repo root and open <code>http://localhost:8002/web/viewer.html</code>,
+ or run <code>python3 -m http.server 8099</code> from the repo root and open <code>http://localhost:8099/sim/web/viewer.html</code>
+ (the page then looks for the sim API on port 8002 and the models under <code>/sim/models/</code>; add <code>?api=URL</code> to change it).</div>
+<div id="err" class="notice"></div>
+
+<main>
+  <div id="stage"><div id="hud">loading model</div></div>
+  <div id="side">
+    <section class="panel"><h2>Mode</h2><div class="body">
+      <div class="row seg" id="modes">
+        <button data-m="manual" class="on">Sliders</button><button data-m="live">Live /state</button><button data-m="event">Events</button></div>
+      <div id="modeInfo" class="mono" style="font-size:11px;margin-top:8px;color:var(--ink2)">Drag the sliders to pose the arm.</div>
+    </div></section>
+    <section class="panel"><h2>Camera</h2><div class="body"><div class="row seg" id="cams">
+      <button data-c="iso" class="on">Iso</button><button data-c="top">Top</button><button data-c="front">Front</button><button data-c="side">Side</button><button data-c="hand">Hand view</button></div></div></section>
+    <section class="panel"><h2>Joints</h2><div class="body" id="joints"></div></section>
+    <section class="panel"><h2>Handover script</h2><div class="body">
+      <div class="row"><select id="evItem" aria-label="Item"></select><button class="pri" id="runHandover">Run handover</button><button id="runPutBack">Put back</button></div>
+      <div class="row" style="margin-top:6px"><button id="stopBtn">Stop</button><span id="evStep" class="tag">idle</span></div>
+      <div id="log" style="margin-top:8px" aria-live="polite"></div>
+    </div></section>
+  </div>
+</main>
+<footer><span>Scrub sim viewer, DubHacks 2026</span><a href="#">Terms</a><a href="#">Privacy</a></footer>
+
+<script src="common.js"></script>
+<script type="module">
+import * as THREE from 'three';
+import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js';
+import URDFLoader from 'urdf-loader';
+const S = window.SCRUB, $ = id => document.getElementById(id);
+if (S.isFile) $('fileNotice').style.display = 'block';
+const showErr = m => { const e = $('err'); e.style.display = 'block'; e.textContent = m; };
+
+/* ---------- scene (Z up, base frame = world) ---------- */
+THREE.Object3D.DEFAULT_UP.set(0, 0, 1);
+const stage = $('stage');
+const renderer = new THREE.WebGLRenderer({ antialias: true });
+renderer.setPixelRatio(Math.min(devicePixelRatio, 2));
+stage.prepend(renderer.domElement);
+const scene = new THREE.Scene(); scene.background = new THREE.Color('#ebe6d6');
+const camera = new THREE.PerspectiveCamera(40, 1, 0.01, 10); camera.up.set(0, 0, 1);
+const controls = new OrbitControls(camera, renderer.domElement);
+scene.add(new THREE.HemisphereLight(0xffffff, 0x8a8470, 1.1));
+const dl = new THREE.DirectionalLight(0xffffff, 1.6); dl.position.set(0.5, -0.6, 1.2); scene.add(dl);
+
+// table: flat top at z = -0.012 (base plate sits on it), drafting grid in 50 mm squares
+const table = new THREE.Mesh(new THREE.BoxGeometry(0.9, 0.7, 0.012), new THREE.MeshLambertMaterial({ color: '#d9d2bb' }));
+table.position.set(0.28, 0.02, -0.006); scene.add(table);
+{ const g = new THREE.GridHelper(0.9, 18, 0x1d2024, 0xa59f88); g.rotation.x = Math.PI / 2; g.position.set(0.28, 0.02, 0.0005); g.scale.y = 1; scene.add(g); }
+const world = new THREE.Group(); scene.add(world);   // layout items
+
+function resize() {
+  const w = stage.clientWidth, h = stage.clientHeight; renderer.setSize(w, h, false);
+  camera.aspect = w / h; camera.updateProjectionMatrix();
+}
+new ResizeObserver(resize).observe(stage); resize();
+
+const CAMS = {
+  iso: [[0.75, -0.65, 0.5], [0.2, 0.02, 0.08]], top: [[0.22, 0.0, 1.25], [0.22, 0.0, 0]],
+  front: [[1.0, 0.0, 0.25], [0.15, 0, 0.12]], side: [[0.2, -1.0, 0.25], [0.2, 0, 0.12]] };
+function setCam(n) {
+  if (n === 'hand') { const hz = layout.hand_zone; camera.position.set(hz.x + 0.22, hz.y - 0.14, hz.z + 0.12); controls.target.set(0.15, 0.0, 0.06); }
+  else { camera.position.set(...CAMS[n][0]); controls.target.set(...CAMS[n][1]); }
+  if (n === 'top') camera.up.set(1, 0, 0); else camera.up.set(0, 0, 1);
+  controls.update();
+}
+document.querySelectorAll('#cams button').forEach(b => b.onclick = () => {
+  document.querySelectorAll('#cams button').forEach(x => x.classList.toggle('on', x === b)); setCam(b.dataset.c); });
+
+/* ---------- labels ---------- */
+function label(text, color) {
+  const c = document.createElement('canvas'); c.width = 256; c.height = 64; const g = c.getContext('2d');
+  g.fillStyle = '#f5f1e4'; g.fillRect(0, 0, 256, 64); g.strokeStyle = '#1d2024'; g.lineWidth = 3; g.strokeRect(1.5, 1.5, 253, 61);
+  g.fillStyle = color || '#1d2024'; g.font = '600 26px "IBM Plex Mono", monospace'; g.textAlign = 'center'; g.textBaseline = 'middle'; g.fillText(text, 128, 33);
+  const sp = new THREE.Sprite(new THREE.SpriteMaterial({ map: new THREE.CanvasTexture(c), depthTest: false })); sp.scale.set(0.09, 0.0225, 1); sp.renderOrder = 10; return sp;
+}
+
+/* ---------- layout objects ---------- */
+let layout = S.defaultLayout(), itemMeshes = {}, held = null;
+function disc(r, color, z) { const m = new THREE.Mesh(new THREE.CylinderGeometry(r, r, 0.003, 40), new THREE.MeshLambertMaterial({ color })); m.rotation.x = Math.PI / 2; m.position.z = z; return m; }
+function itemMesh(id) {
+  const info = S.itemInfo(id), g = new THREE.Group();
+  const body = new THREE.Mesh(new THREE.BoxGeometry(0.012, 0.085, 0.008), new THREE.MeshLambertMaterial({ color: info.color }));
+  const tip = new THREE.Mesh(new THREE.BoxGeometry(0.016, 0.02, 0.008), new THREE.MeshLambertMaterial({ color: '#1d2024' })); tip.position.y = 0.0525;
+  g.add(body, tip); g.userData.id = id; return g;
+}
+function buildWorld() {
+  world.clear(); itemMeshes = {};
+  const T = layout.tray, tray = new THREE.Group(); tray.position.set(T.x, T.y, 0); tray.rotation.z = (T.yaw_deg || 0) * Math.PI / 180;
+  const base = new THREE.Mesh(new THREE.BoxGeometry(T.d, T.w, 0.006), new THREE.MeshLambertMaterial({ color: '#9aa3a8' })); base.position.z = 0.003; tray.add(base);
+  const wm = new THREE.MeshLambertMaterial({ color: '#7d878c' });
+  [[0, T.w / 2, T.d, 0.004], [0, -T.w / 2, T.d, 0.004]].forEach(w => { const m = new THREE.Mesh(new THREE.BoxGeometry(w[2], w[3], 0.016), wm); m.position.set(w[0], w[1], 0.008); tray.add(m); });
+  [T.d / 2, -T.d / 2].forEach(x => { const m = new THREE.Mesh(new THREE.BoxGeometry(0.004, T.w, 0.016), wm); m.position.set(x, 0, 0.008); tray.add(m); });
+  world.add(tray);
+  layout.slots.forEach((s, i) => {
+    const d = disc(0.022, '#c9c3ae', 0.0075); d.position.x = s.x; d.position.y = s.y; world.add(d);
+    const l = label('S' + (i + 1), '#1d2024'); l.position.set(s.x - 0.055, s.y, 0.03); world.add(l);
+    if (s.item) { const m = itemMesh(s.item); m.position.set(s.x, s.y, 0.012); world.add(m); itemMeshes[s.item] = { mesh: m, home: m.position.clone(), slot: i }; }
+  });
+  const rs = layout.return_spot, sf = layout.safe_spot, hz = layout.hand_zone;
+  let d = disc(rs.r, '#46607a', 0.002); d.position.x = rs.x; d.position.y = rs.y; world.add(d);
+  let l = label('RETURN', '#46607a'); l.position.set(rs.x, rs.y, 0.04); world.add(l);
+  d = disc(sf.r, '#8c3b2e', 0.002); d.position.x = sf.x; d.position.y = sf.y; world.add(d);
+  l = label('SAFE', '#8c3b2e'); l.position.set(sf.x, sf.y, 0.04); world.add(l);
+  // hand zone: wireframe sphere at the hand height + floor ring
+  const hs = new THREE.Mesh(new THREE.SphereGeometry(hz.r, 16, 10), new THREE.MeshBasicMaterial({ color: '#c4501b', wireframe: true, transparent: true, opacity: 0.55 }));
+  hs.position.set(hz.x, hz.y, hz.z); world.add(hs);
+  const ring = new THREE.Mesh(new THREE.RingGeometry(hz.r - 0.003, hz.r, 40), new THREE.MeshBasicMaterial({ color: '#c4501b', side: THREE.DoubleSide })); ring.position.set(hz.x, hz.y, 0.002); world.add(ring);
+  l = label('HAND', '#c4501b'); l.position.set(hz.x, hz.y, hz.z + hz.r + 0.03); world.add(l);
+  // reach ring on the table (estimate)
+  const R = S.maxReach(), pts = []; for (let i = 0; i <= 96; i++) { const a = i / 96 * Math.PI * 2; pts.push(new THREE.Vector3(S.kin.panX + R * Math.cos(a), R * Math.sin(a), 0.001)); }
+  world.add(new THREE.Line(new THREE.BufferGeometry().setFromPoints(pts), new THREE.LineBasicMaterial({ color: '#1d2024' })));
+  fillItemSelect();
+}
+function fillItemSelect() {
+  const sel = $('evItem'), keep = sel.value; sel.innerHTML = '';
+  layout.slots.filter(s => s.item).forEach(s => { const o = document.createElement('option'); o.value = s.item; o.textContent = S.itemInfo(s.item).name; sel.append(o); });
+  if (keep) sel.value = keep;
+}
+
+/* ---------- robot ---------- */
+const JN = ['shoulder_pan', 'shoulder_lift', 'elbow_flex', 'wrist_flex', 'wrist_roll', 'gripper'];
+let HOME = [0, -1.7, 1.55, 0.9, 0, 0.0];
+let robot = null, tcp = null, q = HOME.slice();
+function setQ(v) { q = v.slice(); JN.forEach((n, i) => robot && robot.joints[n] && robot.setJointValue(n, q[i])); syncSliders(); }
+const loader = new URDFLoader();
+loader.packages = S.modelsBase + 'so101/';
+const mat = new THREE.MeshStandardMaterial({ color: '#d9d4c3', roughness: 0.75, metalness: 0.05 });
+const motorMat = new THREE.MeshStandardMaterial({ color: '#2a2d31', roughness: 0.7 });
+let meshCount = 0, meshLoaded = 0;
+loader.loadMeshCb = (path, manager, done) => {
+  meshCount++;
+  loader.defaultMeshLoader(path, manager, (obj, err) => {
+    if (err) console.error('mesh failed', path, err);
+    else { meshLoaded++; obj.traverse(o => { if (o.isMesh) o.material = /sts3215/i.test(path) ? motorMat : mat; }); }
+    done(obj, err);
+  });
+};
+loader.load(S.urdfUrl, r => {
+  robot = r; scene.add(robot); window.__robot = robot;
+  tcp = robot.frames && robot.frames['gripper_frame_link'] || robot.frames['gripper_frame'] || null;
+  setQ(HOME); buildJointUi(); mode('manual');
+  $('hud').textContent = 'model loaded';
+}, null, e => { console.error(e); showErr('Could not load the URDF at ' + S.urdfUrl + '. ' + (S.isFile ? 'See the file:// note above.' : 'Is the models folder served?')); $('hud').textContent = 'model failed'; });
+setTimeout(() => { window.__meshes = [meshLoaded, meshCount]; }, 0);
+window.__meshStats = () => ({ loaded: meshLoaded, requested: meshCount });
+
+function buildJointUi() {
+  const box = $('joints'); box.innerHTML = '';
+  JN.forEach((n, i) => {
+    const j = robot.joints[n], lo = j ? j.limit.lower : -1, hi = j ? j.limit.upper : 1;
+    const row = document.createElement('div'); row.className = 'joint';
+    row.innerHTML = `<span>${n}</span><input type="range" min="${lo}" max="${hi}" step="0.005" value="${q[i]}" aria-label="${n}"><span id="jv${i}"></span>`;
+    row.querySelector('input').oninput = e => { if (curMode !== 'manual') return; q[i] = +e.target.value; setQ(q); };
+    box.append(row);
+  });
+  syncSliders();
+}
+function syncSliders() {
+  document.querySelectorAll('#joints input').forEach((inp, i) => { inp.value = q[i]; const v = $('jv' + i); if (v) v.textContent = (q[i] * 180 / Math.PI).toFixed(0) + ' deg'; });
+}
+
+/* ---------- numeric IK on the loaded model (convention-proof) ---------- */
+const tmp = new THREE.Vector3(), tmp2 = new THREE.Vector3();
+function tcpPos(out) { robot.updateMatrixWorld(true); (tcp || robot.joints.gripper).getWorldPosition(out); return out; }
+function toolDir(out) { robot.updateMatrixWorld(true); const a = robot.joints.wrist_roll.getWorldPosition(tmp2.clone()); return out.copy(tcpPos(new THREE.Vector3())).sub(a).normalize(); }
+function solveIK(target, seed, pitchDown) {
+  const v = seed.slice(), idx = [0, 1, 2, 3], lim = idx.map(i => robot.joints[JN[i]].limit);
+  const apply = () => idx.forEach(i => robot.setJointValue(JN[i], v[i]));
+  const resid = () => { apply(); const p = tcpPos(new THREE.Vector3()), d = toolDir(new THREE.Vector3());
+    return [target.x - p.x, target.y - p.y, target.z - p.z, 0.08 * (pitchDown - d.z)]; };
+  for (let it = 0; it < 60; it++) {
+    const r = resid(); const err = Math.hypot(r[0], r[1], r[2]); if (err < 0.002 && it > 2) break;
+    const J = idx.map(i => { const h = 1e-3, v0 = v[i]; v[i] = v0 + h; const r2 = resid(); v[i] = v0; return r.map((_, k) => (r[k] - r2[k]) / h); });
+    // J[i][k] = d f_k / d v_i (resid = target - f) -> solve (A A^T + l I) y = r with A = df/dv
+    const A = [0, 1, 2, 3].map(k => idx.map((_, i) => J[i][k]));
+    const lam = 0.002, M = A.map((a, i) => A.map((b, j) => a.reduce((s, x, m) => s + x * b[m], 0) + (i === j ? lam : 0)));
+    const y = solve4(M, r);
+    idx.forEach((i, m) => { let dv = 0; for (let k = 0; k < 4; k++) dv += A[k][m] * y[k]; v[i] = Math.min(lim[m].upper, Math.max(lim[m].lower, v[i] + Math.max(-0.25, Math.min(0.25, dv)))); });
+  }
+  const r = resid(); setQ(q);   // restore displayed pose
+  return { q: v, err: Math.hypot(r[0], r[1], r[2]) };
+}
+function solve4(M, b) {
+  const n = 4, a = M.map((row, i) => row.concat([b[i]]));
+  for (let i = 0; i < n; i++) { let p = i; for (let k = i + 1; k < n; k++) if (Math.abs(a[k][i]) > Math.abs(a[p][i])) p = k; [a[i], a[p]] = [a[p], a[i]];
+    for (let k = i + 1; k < n; k++) { const f = a[k][i] / a[i][i]; for (let j = i; j <= n; j++) a[k][j] -= f * a[i][j]; } }
+  const x = Array(n).fill(0); for (let i = n - 1; i >= 0; i--) { let s = a[i][n]; for (let j = i + 1; j < n; j++) s -= a[i][j] * x[j]; x[i] = s / a[i][i]; } return x;
+}
+window.__ik = (x,y,z,p)=>{ const r = solveIK(new THREE.Vector3(x,y,z), HOME.slice(0,5).concat([0]), p===undefined?-0.8:p); robot.updateMatrixWorld(true); return r; };
+async function ikPose(x, y, z, seed, pitch) {
+  // prefer the sim's /reach (authoritative); fall back to local numeric IK
+  try { const r = await S.fetchJSON(`${S.api}/reach?x=${x}&y=${y}&z=${z}`, null, 600); if (r && r.q && r.q.length >= 5) return { q: r.q.slice(0, 5).concat([0]), via: 'sim /reach' }; } catch (e) {}
+  const best = solveIK(new THREE.Vector3(x, y, z), seed.slice(0, 5).concat([0]), pitch === undefined ? -0.8 : pitch);
+  return { q: best.q, err: best.err, via: 'local IK' };
+}
+
+/* ---------- animation ---------- */
+const GRIP_OPEN = 1.1, GRIP_CLOSED = 0.05;
+let animToken = 0;
+const sleep = ms => new Promise(r => setTimeout(r, ms));
+function lerpQ(a, b, t) { return a.map((x, i) => x + (b[i] - x) * t); }
+async function moveTo(target, ms, token) {
+  const from = q.slice(), t0 = performance.now();
+  while (true) {
+    if (token !== animToken) throw new Error('cancelled');
+    const t = Math.min(1, (performance.now() - t0) / ms), e = t * t * (3 - 2 * t);
+    setQ(lerpQ(from, target, e)); updateHeld(); if (t >= 1) return; await new Promise(r => requestAnimationFrame(r));
+  }
+}
+function updateHeld() {
+  if (!held || !robot) return;
+  const p = tcpPos(new THREE.Vector3()); held.position.copy(p); held.position.z -= 0.0; held.rotation.set(0, 0, 0);
+}
+function setGrip(g) { q[5] = GRIP_OPEN + (GRIP_CLOSED - GRIP_OPEN) * g; setQ(q); }
+
+/* ---------- event handling (real or mock) ---------- */
+const logBox = $('log');
+function logLine(t) { const d = document.createElement('div'); d.textContent = t; logBox.prepend(d); while (logBox.children.length > 60) logBox.lastChild.remove(); }
+let chain = Promise.resolve(), tokenForEvents = 0;
+function setStep(s) { $('evStep').textContent = s; }
+const carryQ = () => [0, -0.9, 0.9, 0.9, 0, GRIP_CLOSED];
+async function doPick(id, tk) {
+  const it = itemMeshes[id]; if (!it) { logLine('no such item on tray: ' + id); return; }
+  const h = it.home; setStep('finding');
+  const above = await ikPose(h.x, h.y, h.z + 0.07, q); await moveTo(above.q.concat([]).map((v, i) => i === 5 ? GRIP_OPEN : v), 900, tk);
+  setStep('picking');
+  const down = await ikPose(h.x, h.y, h.z + 0.012, q); await moveTo(down.q.map((v, i) => i === 5 ? GRIP_OPEN : v), 700, tk);
+  setGrip(1); held = it.mesh; world.remove(held); scene.add(held); updateHeld(); await sleep(250);
+  logLine(`picked ${id} (${above.via})`);
+  await moveTo(above.q.map((v, i) => i === 5 ? GRIP_CLOSED : v), 600, tk);
+}
+async function doHandover(id, tk) {
+  await doPick(id, tk);
+  const sharp = S.itemInfo(id).sharp && id === 'scalpel';
+  if (sharp) {
+    setStep('setting_down'); const s = layout.safe_spot, p = await ikPose(s.x, s.y, s.z + 0.03, q);
+    await moveTo(p.q.map((v, i) => i === 5 ? GRIP_CLOSED : v), 1000, tk); setGrip(0); releaseHeld(s.x, s.y, 0.012); logLine('scalpel set down at safe spot'); setStep('set_down');
+  } else {
+    setStep('moving_to_hand'); const hz = layout.hand_zone, p = await ikPose(hz.x, hz.y, hz.z, q, -0.2);
+    await moveTo(p.q.map((v, i) => i === 5 ? GRIP_CLOSED : v), 1300, tk); setStep('waiting_for_pull'); await sleep(900);
+    setStep('releasing'); setGrip(0); releaseHeld(hz.x, hz.y, 0.012); logLine(`released ${id} to hand (item shown on table below hand)`); 
+  }
+  await moveTo(HOME, 1100, tk); setStep('idle');
+}
+function releaseHeld(x, y, z) { if (!held) return; scene.remove(held); held.position.set(x, y, z); world.add(held); held = null; }
+async function doPutBack(id, tk) {
+  const it = itemMeshes[id]; if (!it) return;
+  const m = it.mesh, rs = layout.return_spot; m.position.set(rs.x, rs.y, 0.012); setStep('returning'); logLine(`${id} at return spot`);
+  const a = await ikPose(rs.x, rs.y, 0.03, q); await moveTo(a.q.map((v, i) => i === 5 ? GRIP_OPEN : v), 900, tk);
+  setGrip(1); world.remove(m); scene.add(m); held = m; updateHeld(); await sleep(250);
+  const up = await ikPose(it.home.x, it.home.y, it.home.z + 0.07, q); await moveTo(up.q.map((v, i) => i === 5 ? GRIP_CLOSED : v), 1100, tk);
+  const dn = await ikPose(it.home.x, it.home.y, it.home.z + 0.012, q); await moveTo(dn.q.map((v, i) => i === 5 ? GRIP_CLOSED : v), 600, tk);
+  setGrip(0); releaseHeld(it.home.x, it.home.y, it.home.z); logLine(`${id} back in slot ${it.slot + 1}`);
+  await moveTo(HOME, 1000, tk); setStep('idle');
+}
+function resetItems() { held = null; Object.values(itemMeshes).forEach(i => { if (i.mesh.parent !== world) { i.mesh.parent && i.mesh.parent.remove(i.mesh); world.add(i.mesh); } i.mesh.position.copy(i.home); }); }
+let busy = false;
+function run(fn) {
+  const tk = ++animToken; busy = true; chain = (async () => { try { await fn(tk); } catch (e) { if (e.message !== 'cancelled') { console.error(e); logLine('error: ' + e.message); } } finally { if (tk === animToken) busy = false; } })();
+}
+function stopAll() { animToken++; busy = false; setStep('stopped'); logLine('stop: arm frozen'); }
+$('runHandover').onclick = () => { if (!robot) return; mode('event'); resetItems(); run(tk => doHandover($('evItem').value, tk)); };
+$('runPutBack').onclick = () => { if (!robot) return; mode('event'); run(tk => doPutBack($('evItem').value, tk)); };
+$('stopBtn').onclick = stopAll;
+addEventListener('keydown', e => { if (e.code === 'Space' && !/INPUT|SELECT|BUTTON|TEXTAREA/.test(document.activeElement.tagName)) { e.preventDefault(); stopAll(); } });
+
+/* controller events; if the socket can't open, offer the mock stream */
+let ws = null, wsOK = false;
+function handleEvent(ev) {
+  logLine(`${ev.type}${ev.item ? ' ' + ev.item : ''}${ev.step ? ' [' + ev.step + ']' : ''}${ev.say ? ' "' + ev.say + '"' : ''}`);
+  if (ev.step) setStep(ev.step);
+  const id = ev.item;
+  if (ev.type === 'stopped') { stopAll(); return; }
+  if (!id) return;
+  if (ev.type === 'command' || (ev.type === 'step' && ev.step === 'picking')) { if (!busy && itemMeshes[id]) { resetItems(); run(tk => doHandover(id, tk)); } }
+  else if (ev.type === 'returned' && !busy) run(tk => doPutBack(id, tk));
+}
+function connectWS() {
+  try { ws = new WebSocket(S.controller.replace(/^http/, 'ws') + '/events'); } catch (e) { return mockMode(); }
+  const t = setTimeout(() => { if (!wsOK) { try { ws.close(); } catch (e) {} } }, 2000);
+  ws.onopen = () => { wsOK = true; clearTimeout(t); $('modeInfo').textContent = 'Connected to controller /events. Animating each event.'; $('srcline').textContent = 'source: controller events'; };
+  ws.onmessage = m => { try { handleEvent(JSON.parse(m.data)); } catch (e) {} };
+  ws.onclose = () => { if (curMode === 'event' && !wsOK) mockMode(); wsOK = false; };
+  ws.onerror = () => {};
+}
+function mockMode() { $('modeInfo').textContent = 'No controller on :8000, so the mock stream is used. Press "Run handover" or "Put back".'; $('srcline').textContent = 'source: mock events'; }
+
+/* live polling of /state */
+let pollTimer = null;
+async function poll() {
+  try {
+    const s = await S.fetchJSON(S.api + '/state', null, 800);
+    if (curMode !== 'live') return;
+    if (Array.isArray(s.q)) { const qq = s.q.slice(0, 6); if (qq.length === 5 && typeof s.gripper === 'number') qq.push(GRIP_OPEN + (GRIP_CLOSED - GRIP_OPEN) * s.gripper); setQ(qq); }
+    $('modeInfo').textContent = 'Live from ' + S.api + '/state. holding: ' + (s.holding ?? 'nothing'); $('srcline').textContent = 'source: sim /state';
+  } catch (e) { $('modeInfo').textContent = 'No sim at ' + S.api + '/state yet. Start python -m sim; retrying every second.'; $('srcline').textContent = 'source: none (sim absent)'; }
+}
+let curMode = 'manual';
+function mode(m) {
+  curMode = m; document.querySelectorAll('#modes button').forEach(b => b.classList.toggle('on', b.dataset.m === m));
+  clearInterval(pollTimer); animToken += (m === 'manual' || m === 'live') ? 1 : 0;
+  document.querySelectorAll('#joints input').forEach(i => i.disabled = m !== 'manual');
+  if (m === 'live') { poll(); pollTimer = setInterval(poll, 500); }
+  else if (m === 'event') { if (!ws || ws.readyState > 1) connectWS(); else if (wsOK) {} else mockMode(); mockMode_if(); }
+  else { $('modeInfo').textContent = 'Drag the sliders to pose the arm.'; $('srcline').textContent = 'source: sliders'; }
+}
+function mockMode_if() { if (!wsOK) mockMode(); }
+document.querySelectorAll('#modes button').forEach(b => b.onclick = () => mode(b.dataset.m));
+
+/* ---------- boot ---------- */
+(async () => {
+  await S.loadKinematics();
+  const r = await S.getLayout(); layout = r.layout; if (layout._sim && layout._sim.poses && layout._sim.poses.home) { HOME = layout._sim.poses.home.slice(0, 6); } buildWorld(); setCam('iso'); if (robot) setQ(HOME);
+  $('hud').textContent += ' | layout: ' + r.from;
+  // layout changes made in layout.html arrive through localStorage
+  addEventListener('storage', e => { if (e.key === 'scrub.layout') { layout = S.normalizeLayout(JSON.parse(e.newValue)); buildWorld(); } });
+})();
+renderer.setAnimationLoop(() => { controls.update(); renderer.render(scene, camera); });
+</script>
+</body></html>

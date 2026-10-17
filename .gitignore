@@ -28,3 +28,6 @@ ledger/buffer.jsonl
 Thumbs.db
 .idea/
 vision/models/
+
+# simulation model files (fetched by python -m sim.fetch_model)
+sim/models/
