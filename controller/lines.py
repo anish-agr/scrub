@@ -9,6 +9,7 @@ ERROR = "Something went wrong. Holding."
 HAND_LOST = "Lost your hand. Holding."
 OUT_OF_REACH = "That's out of my reach."
 SHOW_HAND = "Hand open, please."
+RESET = "Reset. Ready."
 
 
 def cap(s): return s[:1].upper() + s[1:]

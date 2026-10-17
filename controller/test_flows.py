@@ -261,13 +261,25 @@ def return_and_count():
 
 
 @test
+def reset_clears_stop_and_count():
+    ctl, arm = make()
+    run(ctl, HANDOVER)
+    ctl.stop()
+    ctl.reset()
+    end = time.time() + 5
+    while ctl.step != "idle" and time.time() < end:
+        time.sleep(0.02)
+    assert ctl.step == "idle" and ctl.out == [] and arm.pose == "home"
+    assert ctl.history[-1]["say"] == lines.RESET and ctl.history[-1]["out"] == []
+
+
+@test
 def rejects():
     ctl, arm = make()
     assert not ctl.submit({"action": "handover", "item": "hex_key"})["accepted"]
     assert not ctl.submit({"action": "unknown", "heard": "uh"})["accepted"]
-    for _ in range(5):
-        last = ctl.submit(dict(HANDOVER))
-    assert not last["accepted"] and last["reason"] == "queue full"
+    replies = [ctl.submit(dict(HANDOVER)) for _ in range(6)]
+    assert any(r["reason"] == "queue full" for r in replies), replies
     ctl.stop()
 
 

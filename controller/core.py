@@ -79,7 +79,8 @@ class Controller:
             "type": type_, "item": kw.pop("item", self.item), "step": self.step, "say": say,
             "request_to_hand_s": kw.pop("request_to_hand_s", None), "retries": kw.pop("retries", None),
             "setting": self.setting["id"], "lighting": self.lighting,
-            "command_id": kw.pop("command_id", cmd["id"] if cmd else None), "t": time.time(),
+            "command_id": kw.pop("command_id", cmd["id"] if cmd else None), "out": list(self.out),
+            "t": time.time(),
         }
         ev.update(kw)
         self.history.append(ev)
@@ -164,6 +165,24 @@ class Controller:
             self.step = "stopped"
         self.emit("stopped", say=lines.STOPPED)
 
+    def reset(self) -> None:
+        """Clear a stop or error: home the arm and clear the count. Raises RuntimeError if busy."""
+        with self.lock:
+            if self.step not in ("idle", "stopped", "error") or self.jobs:
+                raise RuntimeError("busy")
+            self.jobs.append({"id": uuid.uuid4().hex, "action": "reset", "item": None, "received": time.time()})
+            self.jobs_cv.notify()
+
+    def _reset(self, gen: int) -> None:
+        with self.lock:
+            self.out = []
+        self.set_step("homing", item=None)
+        self._call(gen, self.arm.open_gripper)
+        self._call(gen, self.arm.go_home)
+        with self.lock:
+            self.step = "idle"
+        self.emit("step", say=lines.RESET)
+
     def set_setting(self, setting_id: str) -> dict:
         data = settings.load(setting_id)
         with self.lock:
@@ -232,6 +251,8 @@ class Controller:
             try:
                 if cmd["action"] == "handover":
                     self._handover(cmd, gen)
+                elif cmd["action"] == "reset":
+                    self._reset(gen)
                 else:
                     self._return(cmd, gen)
             except Stopped:
