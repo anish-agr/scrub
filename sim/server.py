@@ -101,6 +101,12 @@ def create_app(arm, grabber=None):
     def reach_batch(body: dict = Body(...)):
         return {"results": [_reach(p) for p in body.get("points", [])]}
 
+    @app.post("/scene/reset")
+    def scene_reset():
+        """Put every item back in its slot and the arm at home (a person resetting the tray)."""
+        arm.reload()
+        return {"ok": True}
+
     @app.get("/layout")
     def get_layout():
         return scene.load_layout()

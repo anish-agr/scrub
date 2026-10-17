@@ -195,10 +195,14 @@ class SimArm:
         x, y = slot
         steps = [(x, y, ABOVE_Z), (x, y, PICK_Z)]
         if not (self._gripper(call, 0.0) and self._cart_move(call, steps[0], 0.25)
-                and self._cart_move(call, steps[1], 0.12) and self._gripper(call, 1.0)):
+                and self._cart_move(call, steps[1], 0.12)):
             return False
         with self.lock:
-            self.holding = item
+            self.holding = item  # set before closing so the item stops the jaw, as a real grasp does
+        if not self._gripper(call, 1.0):
+            with self.lock:
+                self.holding = None
+            return False
         return self._cart_move(call, steps[0], 0.12)
 
     def _at_slot(self, item, slot):
