@@ -23,6 +23,21 @@ Owner: Anish. The workshop is the source of truth. Where it differs from below, 
 
 ## Perceptron's format
 
+### A2 capabilities check (Oct 17)
+
+Ran `python -m arm.train capabilities` from `dubhacks-2026`.
+Result: exit 1, `Missing PERCEPTRON_TEAM_API_KEY in the repository .env`.
+There is no root `.env` and the variable is not present in the process
+environment. No request was sent and no live capabilities or quotas have been
+verified. Anish must supply the key locally, then rerun the command; record its
+JSON here before marking A2 complete. Do not paste credentials into chat.
+
+The client/CLI/uploader are implemented; five offline tests pass with
+`python -m unittest arm.test_perceptron -v` (control routes checked against the
+saved OpenAPI, auth isolation, multipart inference, upload hashing/batches,
+303 polling, sanitized errors). No dataset was uploaded or training started.
+A7 and A6 have not started: the requested task order waits for A2's live check.
+
 The dataset format, training and inference calls are in `docs/PERCEPTRON-ROBOTICS.md`. Short version: 30 FPS, cameras named `side` and `wrist` at 640x480, six joint values with the gripper at 0 to 100, and a public Hugging Face repo or a direct upload.
 
 ## Connecting (LeRobot SO-101)
