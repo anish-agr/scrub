@@ -182,8 +182,10 @@ select{height:44px;font:500 12px "IBM Plex Mono",monospace;background:var(--pape
       <h2>5. Export for vision/</h2>
       <div class="row">
         <button id="copy" disabled>Copy JSON</button>
-        <button id="dl" disabled>Download calibration.json</button>
+        <button id="dl" disabled>Download pairs.json</button>
       </div>
+      <label class="row">Marker board height above table, mm <input id="boardH" type="number" value="180" min="0" max="400" step="5" style="width:6em"></label>
+      <p class="note">Then: <code>python -m vision.calibrate --pairs pairs.json</code> writes <code>vision/calibration.json</code>. Measure marker x/y from the shoulder pan axis (x forward, y left).</p>
       <pre id="json">fit first</pre>
     </section>
   </div>
@@ -342,10 +344,15 @@ function renderResult(){
   $('reach').disabled=!(touch&&Hm);
 }
 function exportObj(){
-  return {kind:"image_to_arm_homography",units:"mm",frame:"arm base, x forward, y left, table top z=0",
-    image_size:[W,H],H:Hm,H_inv:Hi,rms_mm:+fit.rms.toFixed(3),max_err_mm:+fit.max.toFixed(3),
+  // Shape read by `python -m vision.calibrate --pairs file.json` (meters, pixels in the camera's own resolution).
+  // Put the markers on a board at hand height: a table-level fit puts the palm target 3 to 6 cm off (parallax).
+  const im=$('cam'),sx=live&&im.naturalWidth?im.naturalWidth/W:1,sy=live&&im.naturalHeight?im.naturalHeight/H:1;
+  const hz=+($('boardH').value||0)/1000;
+  return {image_points:usable().map(r=>[+(r.u*sx).toFixed(2),+(r.v*sy).toFixed(2)]),
+    arm_points:usable().map(r=>[r.x/1000,r.y/1000,hz]),hand_height_m:hz||0.18,
+    image_size:[Math.round(W*sx),Math.round(H*sy)],rms_mm:+fit.rms.toFixed(3),max_err_mm:+fit.max.toFixed(3),
     camera_source:live?live:'MOCK (not a real camera)',fitted_at:new Date().toISOString(),
-    points:usable().map(r=>({name:r.name,pixel:[r.u,r.v],arm_mm:[r.x,r.y],source:r.src,err_mm:+r.err.toFixed(3)}))};
+    names:usable().map(r=>r.name)};
 }
 function renderAll(){renderRows();renderResult();drawOv();}
 
@@ -442,7 +449,7 @@ $('reach').onclick=async()=>{
   }catch(e){out.textContent='sim :8002 is not up. Would ask GET /reach?x='+x.toFixed(3)+'&y='+y.toFixed(3)+'&z='+z.toFixed(3)+' (meters). Nothing sent.';}
 };
 $('copy').onclick=async()=>{try{await navigator.clipboard.writeText($('json').textContent);$('copy').textContent='Copied';setTimeout(()=>$('copy').textContent='Copy JSON',1500);}catch(e){$('copy').textContent='Select text below';}};
-$('dl').onclick=()=>{const a=document.createElement('a');a.href=URL.createObjectURL(new Blob([$('json').textContent],{type:'application/json'}));a.download='calibration.json';a.click();};
+$('dl').onclick=()=>{const a=document.createElement('a');a.href=URL.createObjectURL(new Blob([$('json').textContent],{type:'application/json'}));a.download='pairs.json';a.click();};
 async function stop(){try{await fetch(API+'/stop',{method:'POST'});}catch(e){} $('stop').textContent='STOP sent';setTimeout(()=>$('stop').textContent='STOP',1500);}
 $('stop').onclick=stop;
 addEventListener('keydown',e=>{
@@ -463,7 +470,7 @@ async function init(){
   $('certdate').textContent=new Date().toISOString().slice(0,10);
   $('apis').textContent='vision '+VIS+'  sim '+SIM+'  controller '+API;
   try{const ctl=new AbortController();setTimeout(()=>ctl.abort(),1500);layout=await (await fetch(SIM+'/layout',{signal:ctl.signal})).json();}catch(e){layout=null;}
-  drawBase();renderAll();
+  $('boardH').oninput=()=>renderAll();drawBase();renderAll();
   let ok=await tryStream(VIS+'/stream',2500);
   if(ok)live='vision';else{ok=await tryStream(SIM+'/stream',2500);if(ok)live='sim';}
   const t=$('srctag');

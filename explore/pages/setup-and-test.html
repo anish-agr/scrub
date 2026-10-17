@@ -1,0 +1,168 @@
+<title>Scrub Bring-up Plan</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500&family=Source+Serif+4:opsz,wght@8..60,500;8..60,600&display=swap">
+<style>
+/* Style: paper preflight form (WHO checklist / instrument count sheet). */
+:root{--bg:#f4f1ea;--paper:#fbfaf6;--fg:#1d1f1c;--mute:#5d625a;--rule:#cfc9bb;--ink:#1f4e79;--pass:#2c6e3f;--warn:#9a6400;--fail:#a3271f;--code:#ece7dc}
+@media (prefers-color-scheme:dark){:root:not([data-theme="light"]){--bg:#161816;--paper:#1d201d;--fg:#e6e3da;--mute:#a09d93;--rule:#3a3d38;--ink:#8fb8de;--pass:#7cc48f;--warn:#e0b04f;--fail:#ee7b70;--code:#262a26;color-scheme:dark}}
+:root[data-theme="dark"]{--bg:#161816;--paper:#1d201d;--fg:#e6e3da;--mute:#a09d93;--rule:#3a3d38;--ink:#8fb8de;--pass:#7cc48f;--warn:#e0b04f;--fail:#ee7b70;--code:#262a26;color-scheme:dark}
+*{box-sizing:border-box}
+body{background:var(--bg);color:var(--fg);font:15px/1.55 "IBM Plex Sans",system-ui,sans-serif;padding:24px 16px 48px;font-variant-numeric:tabular-nums}
+.sheet{max-width:920px;margin:0 auto;background:var(--paper);border:1px solid var(--rule);padding:28px clamp(16px,4vw,40px) 36px}
+.form{display:flex;justify-content:space-between;gap:12px;flex-wrap:wrap;font:12px "IBM Plex Mono",monospace;color:var(--mute);text-transform:uppercase;letter-spacing:.06em;border-bottom:2px solid var(--fg);padding-bottom:8px}
+h1{font:600 clamp(26px,4vw,34px)/1.15 "Source Serif 4",Georgia,serif;margin:18px 0 6px;text-wrap:balance}
+h2{font:600 20px/1.25 "Source Serif 4",Georgia,serif;margin:0;text-wrap:balance}
+.lede{color:var(--mute);max-width:68ch;margin:0 0 20px}
+section{border-top:1px solid var(--rule);padding:22px 0 6px}
+.sh{display:flex;align-items:baseline;gap:12px;flex-wrap:wrap;margin-bottom:10px}
+.no{font:500 13px "IBM Plex Mono",monospace;border:1px solid var(--fg);padding:1px 7px}
+.who{font:12px "IBM Plex Mono",monospace;color:var(--mute);text-transform:uppercase;letter-spacing:.06em;margin-left:auto}
+p{max-width:70ch;margin:6px 0 10px}
+code,pre{font-family:"IBM Plex Mono",monospace;font-size:13px}
+code{background:var(--code);padding:1px 5px}
+pre{background:var(--code);padding:10px 12px;overflow-x:auto;margin:8px 0 12px;line-height:1.5}
+table{width:100%;border-collapse:collapse;font-size:14px}
+.tw{overflow-x:auto;margin:6px 0 12px}
+th{text-align:left;font:500 11px "IBM Plex Mono",monospace;text-transform:uppercase;letter-spacing:.06em;color:var(--mute);border-bottom:1px solid var(--fg);padding:6px 8px}
+td{border-bottom:1px solid var(--rule);padding:7px 8px;vertical-align:top}
+td code{white-space:nowrap}
+.st{font:600 11px "IBM Plex Mono",monospace;letter-spacing:.05em;border:1px solid currentColor;padding:1px 6px;white-space:nowrap}
+.pass{color:var(--pass)}.warn{color:var(--warn)}.fail{color:var(--fail)}
+ol.steps{padding-left:22px;margin:6px 0 12px}ol.steps li{margin:6px 0;max-width:70ch}
+.box{border:1px solid var(--fg);padding:12px 14px;margin:10px 0 14px}
+.box b{font-family:"IBM Plex Mono",monospace;font-size:12px;letter-spacing:.06em;text-transform:uppercase}
+.flow{display:flex;flex-wrap:wrap;gap:0;margin:8px 0 12px;font:12px "IBM Plex Mono",monospace}
+.flow span{border:1px solid var(--rule);padding:4px 8px;margin:0 -1px -1px 0}
+footer{margin-top:28px;border-top:1px solid var(--rule);padding-top:10px;font:12px "IBM Plex Mono",monospace;color:var(--mute);display:flex;justify-content:space-between;flex-wrap:wrap;gap:8px}
+</style>
+
+<div class="sheet">
+<div class="form"><span>Scrub / bring-up and test plan</span><span>Form SCR-01 rev. 1 / Sat 17 Oct 2026</span></div>
+<h1>From the sim to a voice handoff on the real arm</h1>
+<p class="lede">The surgeon says "scalpel"; the arm picks it off the tray and hands it over handle first. This sheet is the order to bring each part up, the command that proves it works, and what you should see. Do each stage before the next. Results marked PASS were run on Caiden's laptop today after pulling <code>7798fa7</code>.</p>
+
+<section>
+<div class="sh"><span class="no">0</span><h2>Where we are right now</h2></div>
+<div class="tw"><table>
+<tr><th>Check</th><th>Command</th><th>Result</th></tr>
+<tr><td>Controller, every failure case on the fake arm</td><td><code>.venv/bin/python -m controller.test_flows</code></td><td><span class="st pass">PASS 19/19</span></td></tr>
+<tr><td>Anish's IK and motion preflight</td><td><code>.venv/bin/python -m unittest arm.test_kinematics</code></td><td><span class="st pass">PASS 5/5</span></td></tr>
+<tr><td>Perceptron training client (offline)</td><td><code>.venv/bin/python -m unittest arm.test_perceptron</code></td><td><span class="st pass">PASS 5/5</span></td></tr>
+<tr><td>Vision with a fake camera</td><td><code>.venv/bin/python -m unittest vision.test_vision</code></td><td><span class="st pass">PASS 13/13</span> after installing <code>vision/requirements.txt</code></td></tr>
+<tr><td>Sim</td><td><code>.venv/bin/python -m sim.test_sim</code></td><td><span class="st pass">PASS</span></td></tr>
+<tr><td>Voice compiles</td><td><code>cd voice &amp;&amp; npx tsc --noEmit</code></td><td><span class="st pass">PASS</span></td></tr>
+<tr><td>Full handoffs in the sim, with put-backs</td><td>see stage 1</td><td><span class="st pass">4/4 CLEAN</span> after two sim fixes (pushed <code>2962845</code>)</td></tr>
+<tr><td>Anish's IK compared with the MuJoCo sim</td><td>200 random poses</td><td><span class="st pass">0.0 mm apart</span></td></tr>
+<tr><td>API keys in <code>.env</code> (repo root; already gitignored)</td><td><code>cp .env.example .env</code></td><td><span class="st fail">NONE YET</span> no <code>.env</code> exists</td></tr>
+<tr><td>Real arm, <code>arm/real_arm.py</code> (A6)</td><td></td><td><span class="st fail">NOT WRITTEN</span></td></tr>
+<tr><td>Rig measured (<code>arm/rig.json</code>)</td><td></td><td><span class="st warn">TEMPLATE</span> <code>hardware_verified: false</code>, poses empty</td></tr>
+<tr><td>Camera calibration (<code>vision/calibration.json</code>)</td><td></td><td><span class="st warn">MISSING</span> hand target stays empty until it exists</td></tr>
+</table></div>
+</section>
+
+<section>
+<div class="sh"><span class="no">1</span><h2>Software only: the sim</h2><span class="who">Anyone / works now</span></div>
+<p>This runs the real controller against a MuJoCo SO-101 that picks scripted grasps. It tests the controller, timing, reach and region limits, and the spoken lines. It does not test the Isaac policy.</p>
+<pre>.venv/bin/python -m controller --sim-arm --port 8031 --sim-port 8032
+# watch:   http://localhost:8032/web/viewer.html   (Live mode)
+# camera:  http://localhost:8032/stream
+# run a pass, resetting the tray between runs:
+curl -XPOST localhost:8032/scene/reset; curl -XPOST localhost:8031/reset
+.venv/bin/python -m controller.smoke --url http://localhost:8031 --return</pre>
+<p><b>You should see</b> every item "coming", each put-back "back in its slot", the count "Everything's on the tray", <code>run 1: CLEAN</code>, and about 5.2 s from request to hand.</p>
+<div class="box"><b>Gotchas found today</b>
+<ol class="steps">
+<li>Don't run <code>python -m vision --fake</code> while using <code>--sim-arm</code>. The sim already feeds its own vision, and the fake hand fights it ("Hand open, please. / No hand").</li>
+<li>Port 8000 is in use on this laptop by another process, so use <code>--port</code>.</li>
+<li>After a scalpel handoff the sim scalpel sits at the safe spot. Call <code>POST /scene/reset</code> before the next run (new today).</li>
+</ol></div>
+</section>
+
+<section>
+<div class="sh"><span class="no">2</span><h2>How to watch a request go through</h2><span class="who">Every stage</span></div>
+<p>Every request moves through the same steps, and the controller announces each one on <code>WS /events</code>. Checking a stage means watching this trail and the lines Scrub says.</p>
+<div class="flow"><span>heard</span><span>finding</span><span>picking</span><span>checking</span><span>moving_to_hand</span><span>waiting_for_pull</span><span>releasing</span><span>homing</span><span>idle</span></div>
+<div class="tw"><table>
+<tr><th>Tool</th><th>What it shows</th></tr>
+<tr><td><code>explore/status-board/</code></td><td>Live step, item, what was heard, what Scrub said, Stop and Clear stop. Open <code>index.html?api=http://localhost:8031</code>.</td></tr>
+<tr><td><code>controller.smoke</code></td><td>Prints every spoken line per item, the request-to-hand time and the clean streak. <code>--runs 10 --human --return</code> is the C8 ten-in-a-row check.</td></tr>
+<tr><td>Prototype 40, failure drills</td><td>Forces each failure with <code>POST /fake/force</code> and checks the steps and lines (12/12 pass, incl. hold-until-reset and no-load "got it"). Not during live vision.</td></tr>
+<tr><td><code>GET /state</code>, <code>/events/recent</code>, <code>/stats</code></td><td>Raw truth for scripts and the dashboard.</td></tr>
+</table></div>
+</section>
+
+<section>
+<div class="sh"><span class="no">3</span><h2>Camera</h2><span class="who">Brandon</span></div>
+<ol class="steps">
+<li><code>python -m vision</code> with <code>CAMERA_INDEX</code> in <code>.env</code>. Open <code>http://localhost:8001/</code>. Turn a lamp on. The picture should brighten and stay there (locked exposure).</li>
+<li>Hold a hand under it. The preview draws the palm dot and says open or closed. That is the Hand being posted to <code>/vision/hand</code> about 10 times a second.</li>
+<li>Mount it over the tray, save a frame from <code>/snapshot</code>, then <code>python -m vision.mark_slots --setting surgical --image tray.jpg</code>. Click two corners per slot and the return spot. Send the boxes to Evan for <code>settings/surgical.json</code>.</li>
+<li>Add <code>PERCEPTRON_API_KEY</code>. The tray goes live: each slot reads present or empty, and <code>stale</code> stays false. Lift an instrument and its slot should go empty within about a second.</li>
+</ol>
+</section>
+
+<section>
+<div class="sh"><span class="no">4</span><h2>Which item is which: OCR or not</h2><span class="who">Brandon / decision</span></div>
+<p><b>Recommendation: no OCR.</b> Surgical instruments carry no text a camera can read from overhead. The only markings are tiny laser-etched catalog codes, a few mm tall. Dental tools and bench tools are the same.</p>
+<p>What the code already does is better. <code>vision/tray.py</code> asks Perceptron's detector for the item by name ("scalpel", "hemostat", "mayo scissors"), then checks the detection against that item's slot box. That gives two signals that should agree:</p>
+<div class="tw"><table>
+<tr><th>Signal</th><th>Strength</th><th>Weakness</th></tr>
+<tr><td>Slot position (the tray layout)</td><td>Always available, needs no model</td><td>Wrong if someone puts an item back in the wrong slot</td></tr>
+<tr><td>Perceptron detect by name (in code)</td><td>Sees the actual shape; catches a swapped slot</td><td>About a second per call; needs the key; hemostat and scissors look alike</td></tr>
+<tr><td>Printed ArUco tag in each slot (optional)</td><td>Instant, offline, about 100% reliable; OpenCV already reads them</td><td>Shows the slot is empty, not which item is in it</td></tr>
+</table></div>
+<p>If detect confuses the hemostat and the scissors in testing, add ArUco tags before trying OCR: a tag that becomes visible means "slot empty". Printed text labels would work too, but a tag does the same job with far less effort. Real ORs identify instruments by tray position and count sheets, which is also what Scrub does.</p>
+</section>
+
+<section>
+<div class="sh"><span class="no">5</span><h2>Robot</h2><span class="who">Anish</span></div>
+<ol class="steps">
+<li><b>A3:</b> connect the arm and both cameras, then measure <code>arm/rig.json</code>: joint signs, offsets, the gripper endpoints, and the home, carry and safe-spot poses.</li>
+<li><b>Check the IK on paper first.</b> Anish's kinematics matches the sim exactly, so <code>motion.move_to</code> can be tried against the sim before any servo moves.</li>
+<li><b>Shrink the handoff box.</b> 5 of 80 points in the current box cannot be reached: three directly in front of the base column (x = 0.05) and the two far top corners. Something like min x 0.12 and a max z of 0.30 at the far corners would fix it.</li>
+<li><b>Five-point check (A7):</b> command five points and tape-measure the gripper. Each should land within 2 cm.</li>
+<li><b>A6:</b> write <code>arm/real_arm.py</code> with <code>run_skill</code> running the Isaac policy and <code>move_to</code> using the IK. Then run <code>controller --real-arm</code>. Check early that the frames fit Isaac's 400 ms deadline: about 0.5 MB of PNG at 8 Mbit/s already takes about 500 ms.</li>
+</ol>
+</section>
+
+<section>
+<div class="sh"><span class="no">6</span><h2>Camera to arm</h2><span class="who">Brandon + Anish</span></div>
+<p><b>Calibrate at hand height, not on the table.</b> The homography only holds for one height. Fit it on the table and the palm, about 18 cm up, lands 31 to 57 mm off (sim rehearsal). Fit it at hand height and the error is 1 to 8 mm.</p>
+<ol class="steps">
+<li>Tape 6 to 8 printed markers on a flat board about 18 cm above the table, spread over the handoff area. Or record the gripper tip at that height.</li>
+<li>Measure each marker's x (forward) and y (left) in meters from the arm's shoulder pan axis.</li>
+<li>Open prototype 42 with <code>?vision=http://localhost:8001</code>. Click each marker, type its x and y, and set the board height. Download <code>pairs.json</code>. It scales the pixels to the camera's 1280x720 itself.</li>
+<li><code>python -m vision.calibrate --pairs pairs.json</code> writes <code>vision/calibration.json</code> and prints the max error. It should be under 2 cm (page to tool tested: 1.03 cm on mock clicks).</li>
+<li>Check it: hold a palm still over a tape mark and compare the Hand <code>target</code> with the tape.</li>
+</ol>
+</section>
+
+<section>
+<div class="sh"><span class="no">7</span><h2>Voice</h2><span class="who">Caiden</span></div>
+<ol class="steps">
+<li>Add the Gemini and ElevenLabs keys. Test without a phone with <code>POST /heard</code> on the voice server. "Grab me the kelly" should produce <code>handover hemostat</code>, and the controller's lines are spoken back.</li>
+<li>Add the Photon keys and run <code>npm run tunnel</code>, then <code>npm run dev</code>. Call in and say "scalpel". The status board should show the heard text and the steps (C3/C4).</li>
+<li>"Stop" must freeze the arm from any step. Test it during <code>moving_to_hand</code>.</li>
+</ol>
+</section>
+
+<section>
+<div class="sh"><span class="no">8</span><h2>All together</h2><span class="who">Team</span></div>
+<p>Real arm, overhead camera and phone call, all on one controller. Pass when <code>controller.smoke --runs 10 --human --return</code> reports 10 clean in a row (C8). Then run the failure drills on the fake arm once more before the demo.</p>
+</section>
+
+<section>
+<div class="sh"><span class="no">&#9654;</span><h2>Do this now</h2></div>
+<ol class="steps">
+<li><b>Everyone:</b> <code>git pull</code>, then <code>cp .env.example .env</code>. Brandon posts the Perceptron keys in chat; Caiden adds Gemini, ElevenLabs and Photon. Never commit <code>.env</code>.</li>
+<li><b>Everyone:</b> <code>.venv/bin/python -m pip install -r controller/requirements.txt -r vision/requirements.txt -r sim/requirements.txt -r arm/requirements.txt</code>, then <code>.venv/bin/python -m sim.fetch_model</code>.</li>
+<li><b>Anyone:</b> run stage 1 and keep the sim viewer open as the shared picture of the arm.</li>
+<li><b>Brandon:</b> stage 3 now; it needs only the camera and the key.</li>
+<li><b>Anish:</b> A3 and rig measurement, then the five-point IK check. Tighten the handoff box.</li>
+<li><b>Evan:</b> the three <code>settings/*.json</code> files from Brandon's slot boxes (E1), and the dashboard on the controller's WS.</li>
+<li><b>Caiden:</b> voice keys, then a phone call driving the sim arm. That is the 6 PM checkpoint, and it does not need the real arm.</li>
+</ol>
+</section>
+
+<footer><span>Scrub / DubHacks 2026 / github.com/anish-agr/dubhacks-2026</span><span>Terms / Privacy</span></footer>
+</div>

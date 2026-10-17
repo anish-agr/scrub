@@ -14,7 +14,7 @@ FEATURES:
 - Mock mode when the controller is down: scripted events, every result stamped MOCK (never counted as a real pass).
 - STOP button and Space key (POST /stop).
 SPONSORS: Perceptron Robotics track (shows the failure handling honestly), Track fit on the C6/C8 hardening work.
-BACKEND HOOKS: POST /fake/force {miss_grasp, out_of_region, skill_fail, no_pull}; POST /command; POST /stop; POST /fake/pull (fallback only); POST /vision/hand (hand drills, 10 Hz); GET /state; GET /setting; WS /events. Base URL: ?api=http://host:port, else same origin when served over http, else http://localhost:8000.
+BACKEND HOOKS: POST /fake/force {miss_grasp, out_of_region, skill_fail, no_pull, no_load}; POST /reset (stop and hand-lost hold until reset, 8153bd3); POST /command; POST /stop; POST /fake/pull (fallback only); POST /vision/hand (hand drills, 10 Hz); GET /state; GET /setting; WS /events. Base URL: ?api=http://host:port, else same origin when served over http, else http://localhost:8000.
 STYLE: Paper QA test sheet (Form QA-C6): ruled table, boxed result stamps, Plex Sans/Mono, flat, square corners. Semantic colour only (pass green, fail red, mock amber).
 -->
 <link rel="preconnect" href="https://fonts.googleapis.com">
@@ -161,18 +161,22 @@ const DRILLS=[
  what:'Item is held out, no load jump and no got_it. After 30 s Scrub says it is setting the item down, puts it at the safe spot, homes. Takes about 40 s.',
  force:{no_pull:1}, kind:'plain', slow:true,
  expect:'command finding picking checking picked moving_to_hand waiting_for_pull handed setting_down set_down|Setting the hemostat down. homing idle'},
-{id:'handlost',name:'Hand lost mid-move, then back',
- what:'Hand tracker stops reporting while the arm moves in. Arm freezes ("Lost your hand. Holding."), asks "Hand open, please.", waits for an open hand, then finishes when the hand returns.',
- force:{}, kind:'plain', hand:'lostback',
- expect:'command finding picking checking picked moving_to_hand missed|Lost your hand. Holding. moving_to_hand|Hand open, please. waiting_for_pull handed releasing released homing idle'},
-{id:'handgone',name:'Hand lost and does not return',
- what:'Same, but no hand for 10 s. Scrub sets the item down at the safe spot and says "No hand". Takes about 15 s.',
- force:{}, kind:'plain', hand:'gone', slow:true,
- expect:'command finding picking checking picked moving_to_hand missed|Lost your hand. Holding. moving_to_hand|Hand open, please. setting_down set_down|No hand. Hemostat is at the safe spot. homing idle'},
+{id:'handlost',name:'Hand lost mid-move: hold, then reset',
+ what:'Hand tracker stops reporting while the arm moves in. Arm freezes and holds ("Lost your hand. Holding."), with no automatic retry. POST /reset carries the held item home and sets it at the safe spot; the count keeps it out.',
+ force:{}, kind:'plain', hand:'gone', resetAfter:true,
+ expect:'command finding picking checking picked moving_to_hand stopped|Lost your hand. Holding. homing setting_down idle|Reset. Ready.'},
+{id:'refused',name:'Stopped: commands refused until reset',
+ what:'After a stop, a handover is refused ("I\'m stopped. Reset me first.") and nothing moves. POST /reset returns to idle and the next command works again.',
+ force:{}, kind:'refused',
+ expect:'stopped|Stopped. command|Reset me first homing idle|Reset. Ready. command finding picking checking picked '+TAIL},
 {id:'blocked',name:'Path blocked (second hand crosses)',
- what:'Hand stays seen but path_clear goes false mid-move. Arm freezes, resumes when clear. It says "Something\'s in the way. Holding." (controller f5ee593).',
- force:{}, kind:'plain', hand:'blocked',
- expect:'command finding picking checking picked moving_to_hand missed|Something\'s in the way. Holding. moving_to_hand|Hand open, please. waiting_for_pull handed releasing released homing idle'},
+ what:'Vision reports path_clear false mid-move. Arm freezes and holds ("Something\'s in the way. Holding.") until POST /reset.',
+ force:{}, kind:'plain', hand:'blocked', resetAfter:true,
+ expect:'command finding picking checking picked moving_to_hand stopped|Something\'s in the way. Holding. homing setting_down idle|Reset. Ready.'},
+{id:'noload',name:'No gripper load reading: wait for "got it"',
+ what:'gripper_load is unavailable (as with the Isaac policy), so a pull cannot be felt. Scrub says "Say got it when you have it." and waits for the got_it command.',
+ force:{no_load:1}, kind:'plain', gotIt:true,
+ expect:'command finding picking checking picked moving_to_hand waiting_for_pull handed waiting_for_pull|Say got it when you have it. releasing released homing idle'},
 {id:'stop',name:'STOP mid-move',
  what:'POST /stop while the arm carries to the hand. Arm freezes, one stopped event "Stopped.", state is stopped, and nothing else happens for 2.5 s (no handed, no released).',
  force:{}, kind:'plain', stopAt:true,
@@ -297,6 +301,8 @@ async function mockRun(d,from){
 }
 
 /* ---------- running one drill ---------- */
+async function waitIdle(ms){ const t0=Date.now(); while(Date.now()-t0<ms){ const st=(await http('GET','/state')).j; if(st&&st.step==='idle')return true; await sleep(250);} return false; }
+async function resetIdle(){ const st=(await http('GET','/state')).j; if(st&&st.step==='idle')return true; await http('POST','/reset'); return waitIdle(20000); }
 async function runDrill(d,quiet){
  const row=d.el; const from0=all.length;
  setStamp(d,'run','RUNNING');
@@ -305,14 +311,27 @@ async function runDrill(d,quiet){
  try{
   if(live){
    // precondition: idle, no leftover forces
-   const s=(await http('GET','/state')).j; const s0=s&&s.step;
+   const s=(await http('GET','/state')).j; let s0=s&&s.step;
    if(s&&!['idle','stopped','error'].includes(s.step)){ await http('POST','/stop'); await sleep(900); }
+   if(!(await resetIdle())) ck(false,'could not reset to idle before the drill');
+   s0=((await http('GET','/state')).j||{}).step;
    const f0=(await http('POST','/fake/force',{})).j; const left=f0&&f0.force?Object.values(f0.force).reduce((a,b)=>a+b,0):0;
    if(left){ ck(false,'leftover forced failures before start: '+JSON.stringify(f0.force)+' (they would pollute this drill)'); }
    from=all.length;
    if(d.hand) startFeed();
    if(d.force&&Object.keys(d.force).length){ const r=await http('POST','/fake/force',d.force); ck(r.ok,'POST /fake/force '+JSON.stringify(d.force)+' -> '+r.status); if(!r.ok)throw 'force'; }
-   if(d.kind==='unknown'){
+   if(d.kind==='refused'){
+    await http('POST','/stop'); await sleep(600);
+    const r1=await command({action:'handover',item:items.plain,heard:'drill refused'});
+    ck(r1.j&&r1.j.accepted===false,'handover while stopped refused ('+(r1.j&&r1.j.reason)+')');
+    ck(/reset/i.test((r1.j&&r1.j.say)||''),'says to reset first ('+(r1.j&&r1.j.say)+')');
+    const rr=await http('POST','/reset'); ck(rr.ok,'POST /reset -> '+rr.status);
+    ck(await waitIdle(10000),'step idle after reset');
+    const from2=all.length;
+    const r2=await command({action:'handover',item:items.plain,heard:'drill after reset'});
+    ck(r2.j&&r2.j.accepted===true,'next handover accepted after reset');
+    ck(await untilDone(from2,25000),'handover after reset finished'); await sleep(700);
+   }else if(d.kind==='unknown'){
     const r1=await command({action:'handover',item:'kelly_xl',heard:'grab me the kelly xl'});
     ck(r1.j&&r1.j.accepted===false,'reply 1 accepted:false ('+(r1.j&&r1.j.reason)+')');
     const r2=await command({action:'unknown',heard:'mumble'});
@@ -333,26 +352,36 @@ async function runDrill(d,quiet){
      if(!mv){ ck(false,'never reached moving_to_hand'); }
      else if(d.stopAt){ await sleep(Math.max(80,0.5*scale*1000)); await http('POST','/stop'); ck(true,'POST /stop sent mid-move'); await sleep(2600); }
      else{
-      await sleep(1.5*scale*1000);
+      await sleep(Math.max(60,0.3*scale*1000));
       if(d.hand==='blocked') feed.h.clear=false; else feed.h.seen=false;
       ck(true,'hand '+(d.hand==='blocked'?'path_clear:false':'seen:false')+' posted mid-move');
       if(d.hand!=='gone'){ await sleep(Math.max(900,2*scale*1000)); feed.h.seen=true; feed.h.clear=true; ck(true,'hand restored'); }
      }
     }
+    if(d.gotIt){
+     const w=await waitFor(isStepEv('waiting_for_pull'),15000,from);
+     if(w){ await sleep(800); const g=await command({action:'got_it',heard:'got it'}); ck(g.j&&g.j.accepted!==false,'sent got_it'); }
+    }
     // manual pull fallback if the controller was started with --pull-s 0
-    if(!d.stopAt&&d.id!=='nopull'&&d.id!=='handgone'&&d.id!=='region'&&d.id!=='skill'){
+    if(!d.gotIt&&!d.resetAfter&&!d.stopAt&&d.id!=='nopull'&&d.id!=='handgone'&&d.id!=='region'&&d.id!=='skill'){
      const w=await waitFor(isStepEv('waiting_for_pull'),15000,from);
      if(w){ const rel=await waitFor(e=>e.type==='released',6000,from); if(!rel){ await http('POST','/fake/pull'); ck(true,'no auto pull in 6 s, sent POST /fake/pull (controller likely has --pull-s 0)'); } }
     }
     const done=await untilDone(from,timeout);
     ck(done,'flow reached idle/stopped/error within '+(timeout/1000)+' s');
     await sleep(700);
+    if(d.resetAfter){
+     const st=(await http('GET','/state')).j; ck(st&&st.step==='stopped','holds at stopped until reset (is '+(st&&st.step)+')');
+     const rr=await http('POST','/reset'); ck(rr.ok,'POST /reset -> '+rr.status);
+     ck(await waitIdle(20000),'reset carried the item home and reached idle');
+     await sleep(500);
+    }
    }
    if(feed)feed.stop();
    const f1=(await http('POST','/fake/force',{})).j; const left2=f1&&f1.force?Object.values(f1.force).reduce((a,b)=>a+b,0):0;
    ck(left2===0,'all forced failures consumed'+(left2?' (left: '+JSON.stringify(f1.force)+')':''));
    if(d.stopAt){ const st=(await http('GET','/state')).j; ck(st&&st.step==='stopped','final state step is stopped (is '+(st&&st.step)+')'); }
-   else if(d.kind!=='unknown'){ const st=(await http('GET','/state')).j; ck(st&&st.step==='idle','final state step is idle (is '+(st&&st.step)+')'); }
+   else if(d.kind!=='unknown'&&d.kind!=='refused'){ const st=(await http('GET','/state')).j; ck(st&&st.step==='idle','final state step is idle (is '+(st&&st.step)+')'); }
   }else{
    from=all.length; await mockRun(d,from); ck(true,'scripted replay, nothing was tested');
   }

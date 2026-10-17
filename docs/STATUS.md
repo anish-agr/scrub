@@ -33,7 +33,7 @@ Agents: the first unchecked box in your person's section is the next task. Tick 
 - [ ] C5 Checkpoint 1 shown
   - Ready on the agent side: voice → controller tested locally (`/heard` "grab me the kelly" → `handover hemostat`, lines spoken from events). Needs the team at 6 PM: phone call, Brandon's Hand posts, Evan's dashboard. Dry run: `.venv/bin/python -m controller.smoke --return`.
 - [x] C6 real controller flows and failure cases
-  - `.venv/bin/python -m controller.test_flows` forces each failure on the fake arm: 19/19 pass. Covers grasp check + one retry, wait for pull/`got_it` (30 s), freeze on hand lost or path blocked, slow near the hand, the request-to-hand timer. Force live failures with `POST /fake/force`.
+  - `.venv/bin/python -m controller.test_flows` forces each failure on the fake arm: 28/28 pass. Real-arm safe: stop latches until `POST /reset` (rearms with `resume()`, sets a held item at the safe spot), missing load falls back to `got_it`, failed set-down holds (Anish's arm/README handoff items 1-4). Sim: 3 clean full runs in a row. Covers grasp check + one retry, wait for pull/`got_it` (30 s), freeze on hand lost or path blocked, slow near the hand, the request-to-hand timer. Force live failures with `POST /fake/force`.
 - [ ] C7 end-of-case summary text
 - [ ] C8 ten clean full runs
   - Tool ready: `.venv/bin/python -m controller --real-arm` then `.venv/bin/python -m controller.smoke --runs 10 --human --return` counts the clean streak. Needs `arm/real_arm.py` (A6) and the arm.

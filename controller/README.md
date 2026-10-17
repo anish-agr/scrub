@@ -40,9 +40,13 @@ websocat ws://localhost:8000/events      # or open http://localhost:8000/
 - A `command` event goes out for every command, with extra fields `action`, `heard`, `source`, `accepted`, `reason`.
 - Handover: `finding` (skipped with "I don't see the X" if a fresh TrayState says the slot is empty) → `picking` → `checking` (gripper ≥ 0.95 means it closed on nothing; a fresh TrayState still showing the item also fails) → one retry → `moving_to_hand` (carry pose, then to 8 cm short of the target at speed 0.3, then in at 0.1) → `waiting_for_pull` (load jump over `PULL_LOAD_DELTA`, default 80, or `got_it`; 30 s) → `releasing` → `homing`.
 - Sharp items (`"sharp": true`) go `setting_down` to the safe spot instead: "Scalpel down."
-- Hand tracking counts as running if a Hand arrived in the last 5 s. Then the arm waits up to 10 s for an open, seen hand with a `target` and `path_clear`, and freezes if the hand is lost (older than 0.5 s) or the path blocks while moving; one retry, then it sets the item at the safe spot. The lines differ: "Lost your hand. Holding." vs "Something's in the way. Holding." After a freeze the arm waits for the hand again, so "Hand open, please." can show a second time.
+- **Stop latches.** The real arm stays frozen after `freeze()` until `resume()` (`arm/real_arm.py`), and so does the fake arm. After `stop` or an `error`, handover and return are refused with "I'm stopped. Reset me first." until `POST /reset` (the dashboard's clear-stop button). Reset rearms, homes, and if the gripper still holds an item, sets it at the safe spot instead of opening where it froze.
+- Hand tracking counts as running if a Hand arrived in the last 5 s. Then the arm waits up to 10 s for an open, seen hand with a valid `target` and `path_clear` (else it sets the item down: "No hand."). While moving it freezes if the hand is lost (older than 0.5 s) or the path blocks, and holds like a stop: "Lost your hand. Holding." or "Something's in the way. Holding." No automatic retry; a reset carries the item to the safe spot.
+- An arm exception, or `set_down_safe_spot()` returning False ("Couldn't set it down. Holding."), freezes the arm and goes to `error`.
+- Pull: a load change of more than `PULL_LOAD_DELTA` either way (the bus value is signed; measure it on the real arm), or `got_it`. If `gripper_load()` has no reading, Scrub says "Say got it when you have it." and waits for `got_it`.
+- Grasp check: gripper at or above `GRIPPER_CLOSED` (0.95) means it closed on nothing. The tray check runs after the lift to carry, using only a non-stale TrayState from at least 1 s after the pick. A return counts only if a later TrayState shows the item back in its slot (when tray vision is running).
 - Tracking stays "running" for 5 s after the last Hand post. Fake-hand drills need about a 6 s gap between them, or the next handover waits for a hand instead of using the saved spot.
-- Out of region: if the point 8 cm short of the hand is refused, the arm goes straight to the hand slowly. Only if the hand point itself is refused does it say "That's out of my reach" and set the item down (`/fake/force {"out_of_region": 2}` forces that). With no Hand posts at all it goes to the saved spot (`handoff_spot` in `arm/rig.json`, else `[0.22, -0.10, 0.18]`).
+- Out of region: if the point 8 cm short of the hand is refused (and the hand watcher didn't freeze it), the arm goes straight to the hand slowly. Only if the hand point itself is refused does it say "That's out of my reach" and set the item down (`/fake/force {"out_of_region": 2}` forces that). With no Hand posts at all it goes to the saved spot (`handoff_spot` in `arm/rig.json`, else `[0.22, -0.10, 0.18]`).
 - `return` with no item takes the return-spot item from a fresh TrayState, else the last item out.
 - `count` answers at once, even mid-handover. Up to 3 handovers queue; `stop` clears the queue.
 - Switching trays (`POST /setting`) only works when idle or stopped, and clears `out`.
@@ -53,11 +57,11 @@ websocat ws://localhost:8000/events      # or open http://localhost:8000/
 - `GET /setting`: the current setting file (the voice server can read item ids and aliases here).
 - `GET /events/recent?n=50`: the last events, for a page that loads mid-run.
 - `POST /fake/pull`: simulate the clinician tugging the item (sim arm), otherwise the same as `got_it`.
-- `POST /fake/force` with `{"miss_grasp": 1, "out_of_region": 1, "skill_fail": 1, "no_pull": 1}`: the next fake-arm calls fail that way (testing C6).
+- `POST /fake/force` with `{"miss_grasp": 1, "out_of_region": 1, "skill_fail": 1, "no_pull": 1, "no_load": 1}`: the next fake-arm calls fail that way (testing C6).
 
 ## Tests
 
-`.venv/bin/python -m controller.test_flows` forces every failure case on the fake arm (grasp miss and retry, empty slot, no pull, `got_it`, no hand, hand lost mid-move, path blocked, out of region, stop mid-pick, sharp set-down, return and count, rejects). About 20 s, prints `19/19 passed`.
+`.venv/bin/python -m controller.test_flows` forces every failure case on the fake arm (grasp miss and retry, tray grasp check, stale tray, empty slot, no pull, no load reading, load drop, `got_it`, no hand, hand lost and path blocked holding until reset, failed set-down, arm exception, out of region, stop mid-pick, mid-move and while holding out, sharp set-down, return checked against the tray, count, rejects). About 40 s, prints `28/28 passed`.
 
 ## Full runs (Checkpoint 1, C8)
 
@@ -76,6 +80,7 @@ curl -XPOST localhost:8000/sim/hand -H 'content-type: application/json' -d '{"pa
 curl -XPOST localhost:8000/sim/hand -H 'content-type: application/json' -d '{"target": [0.25, -0.1, 0.15]}'
 curl -XPOST localhost:8000/sim/return_spot -H 'content-type: application/json' -d '{"item": "hemostat"}'  # clinician sets it down
 curl -XPOST localhost:8000/fake/pull                                                              # clinician tugs
+curl -XPOST localhost:8000/sim/scene_reset                                                        # every item back in its slot, then a reset
 ```
 
-`python -m controller.smoke --return` runs a full pass in the sim, putting items in the return spot itself. The sim's pick is scripted, so it tests the controller, timing, reach and region limits, not the Isaac policy.
+`python -m controller.smoke --runs 3 --return` runs full passes in the sim, putting items in the return spot itself and resetting the scene between runs. The sim's pick is scripted, so it tests the controller, timing, reach and region limits, not the Isaac policy.

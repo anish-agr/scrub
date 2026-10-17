@@ -35,7 +35,7 @@ Every part codes against these. Build against fake inputs that match them, and t
 | `WS /events` | | a stream of Events |
 | `GET /` | | the dashboard (static files from `dashboard/`) |
 | `GET /setting` | | the current setting file (optional, added Sat 2 PM) |
-| `POST /reset` | nothing | `{"ok": true}`: clears a stop or error, opens the gripper, homes, clears `out`. 409 if busy (optional) |
+| `POST /reset` | nothing | `{"ok": true}`: clears a stop or error and rearms the arm (`resume()`). Homes; if it still holds an item it sets it at the safe spot, else opens the gripper. Clears `out` (keeps an item it just set down). 409 if busy. After `stop` or `error`, `handover` and `return` are refused (`reason` "stopped: reset first") until a reset |
 | `GET /events/recent?n=50` | | the last n Events, oldest first (optional) |
 
 ## Command (voice, keyboard or dashboard to the controller)
@@ -126,7 +126,7 @@ Every part codes against these. Build against fake inputs that match them, and t
 - `say` is the line the voice server speaks, or `null`. Only the controller writes these lines, so wording lives in one place.
 - Every field except `type` and `t` can be `null`.
 - The voice server speaks Event `say` lines only. The `say` in the `/command` reply repeats the same line, for keyboard and curl use.
-- Optional extra fields on `command` events: `action`, `heard`, `source`, `accepted`, `reason`. Every event carries `out` (the State's list at that moment), so pages don't need to re-read `/state`. On `error` events: `error`.
+- Optional extra fields on `command` events: `action`, `heard`, `source`, `accepted`, `reason`. Every event carries `out` (the State's list at that moment), so pages don't need to re-read `/state`. On `error` events: `error`. On `stopped` events from the hand watcher: `reason` (`hand_lost` or `hand_blocked`); the arm holds the item until a reset.
 
 ## Setting file (`settings/<id>.json`)
 
