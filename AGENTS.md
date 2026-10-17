@@ -24,9 +24,9 @@ Scrub: an SO-101 robot arm that passes instruments by voice. Built Oct 17 to 18,
 
 | Folder or file | Owner |
 | --- | --- |
-| `controller/`, `voice/`, `docs/CONTRACTS.md`, `.env.example`, `.gitignore` | Caiden |
-| `arm/`, `docs/ARM.md`, `docs/PLAN.md`, `docs/TASKS.md`, `docs/PITCH.md` | Anish |
-| `vision/`, `docs/PERCEPTRON.md`, `docs/SLIDES.md` | Brandon |
+| `controller/`, `voice/`, `explore/`, `docs/CONTRACTS.md`, `docs/PITCH.md`, `docs/SLIDES.md`, `.env.example`, `.gitignore` | Caiden |
+| `arm/`, `docs/ARM.md`, `docs/PLAN.md`, `docs/TASKS.md` | Anish |
+| `vision/`, `docs/PERCEPTRON.md` | Brandon |
 | `dashboard/`, `ledger/`, `settings/`, `docs/DATA-LOG.md`, `docs/DEVPOST.md` | Evan |
 | `docs/STATUS.md` | everyone, own section only |
 
