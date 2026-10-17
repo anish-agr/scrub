@@ -53,7 +53,7 @@ footer{margin-top:28px;border-top:1px solid var(--rule);padding-top:10px;font:12
 <tr><td>Voice compiles</td><td><code>cd voice &amp;&amp; npx tsc --noEmit</code></td><td><span class="st pass">PASS</span></td></tr>
 <tr><td>Full handoffs in the sim, with put-backs</td><td>see stage 1</td><td><span class="st pass">4/4 CLEAN</span> after two sim fixes (pushed <code>2962845</code>)</td></tr>
 <tr><td>Anish's IK compared with the MuJoCo sim</td><td>200 random poses</td><td><span class="st pass">0.0 mm apart</span></td></tr>
-<tr><td>API keys in <code>.env</code></td><td><code>cp .env.example .env</code></td><td><span class="st fail">NONE YET</span> no <code>.env</code> exists</td></tr>
+<tr><td>API keys in <code>.env</code> (repo root; already gitignored)</td><td><code>cp .env.example .env</code></td><td><span class="st fail">NONE YET</span> no <code>.env</code> exists</td></tr>
 <tr><td>Real arm, <code>arm/real_arm.py</code> (A6)</td><td></td><td><span class="st fail">NOT WRITTEN</span></td></tr>
 <tr><td>Rig measured (<code>arm/rig.json</code>)</td><td></td><td><span class="st warn">TEMPLATE</span> <code>hardware_verified: false</code>, poses empty</td></tr>
 <tr><td>Camera calibration (<code>vision/calibration.json</code>)</td><td></td><td><span class="st warn">MISSING</span> hand target stays empty until it exists</td></tr>
@@ -127,7 +127,14 @@ curl -XPOST localhost:8032/scene/reset; curl -XPOST localhost:8031/reset
 
 <section>
 <div class="sh"><span class="no">6</span><h2>Camera to arm</h2><span class="who">Brandon + Anish</span></div>
-<p><code>python -m vision.calibrate</code>: move the gripper to 6 to 8 spots on the table and type the pixel and the arm meters for each. It writes <code>vision/calibration.json</code> and prints the max error. It should be under 2 cm. From then on the Hand has a target, and the arm knows where the palm is. Prototype 42 is a click-to-fit version of the same thing.</p>
+<p><b>Calibrate at hand height, not on the table.</b> The homography only holds for one height. Fit it on the table and the palm, about 18 cm up, lands 31 to 57 mm off (sim rehearsal). Fit it at hand height and the error is 1 to 8 mm.</p>
+<ol class="steps">
+<li>Tape 6 to 8 printed markers on a flat board about 18 cm above the table, spread over the handoff area. Or record the gripper tip at that height.</li>
+<li>Measure each marker's x (forward) and y (left) in meters from the arm's shoulder pan axis.</li>
+<li>Open prototype 42 with <code>?vision=http://localhost:8001</code>. Click each marker, type its x and y, and set the board height. Download <code>pairs.json</code>. It scales the pixels to the camera's 1280x720 itself.</li>
+<li><code>python -m vision.calibrate --pairs pairs.json</code> writes <code>vision/calibration.json</code> and prints the max error. It should be under 2 cm (page to tool tested: 1.03 cm on mock clicks).</li>
+<li>Check it: hold a palm still over a tape mark and compare the Hand <code>target</code> with the tape.</li>
+</ol>
 </section>
 
 <section>
