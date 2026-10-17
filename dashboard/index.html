@@ -1,0 +1,80 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Scrub</title>
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <header class="top">
+    <div class="brand">
+      <span class="mark">Scrub</span>
+      <span id="link-pill" class="pill">connecting</span>
+    </div>
+    <div class="pickers">
+      <label>
+        Setting
+        <select id="setting"></select>
+      </label>
+      <label>
+        Lighting
+        <select id="lighting">
+          <option value="bright">bright</option>
+          <option value="normal" selected>normal</option>
+          <option value="dim">dim</option>
+        </select>
+      </label>
+    </div>
+  </header>
+
+  <p id="banner" class="banner" hidden></p>
+
+  <main>
+    <section class="step-card">
+      <p class="kicker">Step</p>
+      <h1 id="step">Idle</h1>
+      <p id="step-item" class="step-item"></p>
+      <dl class="meta">
+        <div><dt>Hand</dt><dd id="hand-seen">—</dd></div>
+        <div><dt>Queue</dt><dd id="queue">0</dd></div>
+        <div><dt>Arm</dt><dd id="arm-mode">—</dd></div>
+        <div><dt>Last handoff</dt><dd id="handoff">—</dd></div>
+      </dl>
+    </section>
+
+    <section class="out-card">
+      <p class="kicker">Out</p>
+      <ul id="out" class="out"></ul>
+    </section>
+
+    <section class="camera-card">
+      <p class="kicker">Camera</p>
+      <div class="camera-frame">
+        <img id="camera" alt="Tray camera" src="http://localhost:8001/stream">
+        <p id="camera-fallback" class="camera-fallback">Camera stream is not up yet.</p>
+      </div>
+    </section>
+
+    <section class="log-card">
+      <p class="kicker">Event log</p>
+      <ol id="log" class="log"></ol>
+    </section>
+
+    <section class="commands">
+      <p class="kicker">Commands</p>
+      <div id="items" class="item-row"></div>
+      <div class="item-row">
+        <button type="button" data-action="return">Return</button>
+        <button type="button" data-action="count">Count</button>
+        <button type="button" data-action="got_it">Got it</button>
+      </div>
+    </section>
+  </main>
+
+  <button id="stop" type="button" class="stop">Stop</button>
+  <p class="stop-hint">Spacebar stops the arm.</p>
+
+  <script src="app.js"></script>
+</body>
+</html>
