@@ -98,6 +98,16 @@ class SimVision:
         def sim_return_spot(body: dict = Body(...)):
             return {"ok": self.place_in_return_spot(body.get("item"))}
 
+        @app.post("/sim/scene_reset")
+        def sim_scene_reset():
+            """A person resetting the tray: every item back in its slot, then a controller reset."""
+            self.arm.reload()
+            try:
+                self.ctl.reset()
+            except RuntimeError:
+                return {"ok": False, "reason": "busy"}
+            return {"ok": True}
+
         @app.get("/sim/vision")
         def sim_vision():
             return self.status()

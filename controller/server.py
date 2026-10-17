@@ -37,6 +37,7 @@ class Force(BaseModel):
     out_of_region: int = 0
     skill_fail: int = 0
     no_pull: int = 0
+    no_load: int = 0
 
 
 def make_app(ctl: Controller, extra=None) -> FastAPI:
@@ -55,7 +56,7 @@ def make_app(ctl: Controller, extra=None) -> FastAPI:
 
     @app.post("/reset")
     async def reset():
-        """Clear a stop: home, open the gripper, clear the count."""
+        """Clear a stop or error: rearm, home, set down a held item, clear the count."""
         try:
             ctl.reset()
         except RuntimeError:

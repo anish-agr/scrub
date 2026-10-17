@@ -83,6 +83,11 @@ def main() -> None:
         print(f"run {run}: {'CLEAN' if clean else 'NOT CLEAN'}  (streak {streak})")
         if a.human and run < a.runs:
             input("reset the tray, then press Enter for the next run")
+        elif run < a.runs and c.post("/sim/scene_reset").status_code == 200:
+            end = time.time() + a.timeout  # sim: tray reset, then wait for the controller's reset
+            while time.time() < end and c.get("/state").json()["step"] != "idle":
+                time.sleep(0.2)
+            time.sleep(1.5)  # let a TrayState see the reset tray
     med = sorted(times)[len(times) // 2] if times else None
     print(f"\n{best} clean in a row (of {a.runs})" + (f", median request-to-hand {med:.1f}s" if med else ""))
     raise SystemExit(0 if best == a.runs else 1)

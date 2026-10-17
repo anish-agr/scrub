@@ -22,10 +22,12 @@ except Exception:  # noqa: BLE001 - run without it
 HAND_STALE_S = 0.5          # contract: older Hand counts as seen: false
 TRACKING_ACTIVE_S = 5.0     # a Hand posted this recently means vision is running
 TRAY_STALE_S = 3.0
+TRAY_LAG_S = 1.0            # a TrayState this soon after the pick may show the tray from before it
 HAND_WAIT_S = 10.0
 PULL_WAIT_S = 30.0
 PULL_DELTA = float(os.environ.get("PULL_LOAD_DELTA", "80"))
-GRIPPER_CLOSED = 0.95       # at or above this the gripper closed on nothing
+GRIPPER_CLOSED = float(os.environ.get("GRIPPER_CLOSED", "0.95"))  # at or above: closed on nothing
+OPEN_MAX = 0.05             # at or below this the gripper is open
 APPROACH_BACK_M = 0.08      # stop this far short at normal speed, then creep in
 SPEED_NORMAL, SPEED_NEAR = 0.3, 0.1
 MAX_QUEUE = 3
@@ -70,10 +72,15 @@ class Controller:
         self.listeners: list = []       # (loop, asyncio.Queue)
         self.cmd = None                 # command being run
         self._ledger_pool = ThreadPoolExecutor(1)
-        threading.Thread(target=self._worker, daemon=True).start()
+        self._flow_gen = 0              # gen of the job the worker is running
+        self._worker_thread = threading.Thread(target=self._worker, daemon=True)
+        self._worker_thread.start()
 
     # ---------- events ----------
     def emit(self, type_: str, say: str | None = None, **kw) -> dict:
+        if (threading.current_thread() is self._worker_thread and self._flow_gen != self.gen
+                and type_ not in ("stopped", "error")):
+            raise Stopped  # a stop landed mid-flow: nothing after it may speak or change the step
         cmd = self.cmd
         ev = {
             "type": type_, "item": kw.pop("item", self.item), "step": self.step, "say": say,
@@ -91,6 +98,8 @@ class Controller:
         return ev
 
     def set_step(self, step: str, item=...) -> None:
+        if threading.current_thread() is self._worker_thread and self._flow_gen != self.gen:
+            raise Stopped
         with self.lock:
             self.step = step
             if item is not ...:
@@ -145,6 +154,8 @@ class Controller:
             return True, None, None
         if action not in ("handover", "return"):
             return False, "unknown command", lines.UNKNOWN
+        if self.step in ("stopped", "error"):
+            return False, "stopped: reset first", lines.NEEDS_RESET  # the arm stays frozen until reset
         if len(self.jobs) >= MAX_QUEUE:
             return False, "queue full", lines.BUSY
         busy = self.step not in ("idle", "stopped", "error") or bool(self.jobs)
@@ -158,9 +169,9 @@ class Controller:
         return True, None, lines.queued(it["name"]) if busy else lines.coming(it["name"])
 
     def stop(self) -> None:
-        self.arm.freeze()  # first, from this thread, no locks needed
+        self.gen += 1      # first, so an arm call failing from the freeze already looks stopped
+        self.arm.freeze()  # then from this thread, no locks needed
         with self.lock:
-            self.gen += 1
             self.jobs.clear()
             self.step = "stopped"
         self.emit("stopped", say=lines.STOPPED)
@@ -174,13 +185,28 @@ class Controller:
             self.jobs_cv.notify()
 
     def _reset(self, gen: int) -> None:
+        """Operator rearm. The real arm stays frozen after a stop until resume(). If it still holds
+        an item, carry it home and set it at the safe spot rather than opening wherever it froze."""
+        resume = getattr(self.arm, "resume", None)
+        if resume:
+            resume()
+        held = self.item
+        holding = OPEN_MAX < self._call(gen, self.arm.gripper_position) < GRIPPER_CLOSED
         with self.lock:
             self.out = []
-        self.set_step("homing", item=None)
-        self._call(gen, self.arm.open_gripper)
-        self._call(gen, self.arm.go_home)
+        self.set_step("homing", item=held if holding else None)
+        self._call(gen, self.arm.go_home)  # saved poses keep the gripper as it is
+        if holding:
+            self.set_step("setting_down")
+            if not self._call(gen, self.arm.set_down_safe_spot):
+                self._fail(lines.SET_DOWN_FAILED, "set_down_safe_spot returned False")
+            with self.lock:
+                self.out = [held] if held else []
+            self._call(gen, self.arm.go_home)
+        else:
+            self._call(gen, self.arm.open_gripper)
         with self.lock:
-            self.step = "idle"
+            self.step, self.item = "idle", None
         self.emit("step", say=lines.RESET)
 
     def set_setting(self, setting_id: str) -> dict:
@@ -218,15 +244,20 @@ class Controller:
 
     def _hand_ready(self) -> dict | None:
         h = self._hand_fresh()
-        if h and h.get("open") and h.get("target") and h.get("path_clear", True):
+        t = h.get("target") if h else None
+        good = isinstance(t, (list, tuple)) and len(t) == 3 and all(isinstance(v, (int, float)) for v in t)
+        if h and h.get("open") and good and h.get("path_clear", True):
             return h
         return None
 
-    def _slot_present(self, item_id: str) -> bool | None:
-        """True/False from a fresh TrayState, None if we don't know."""
-        if not self.tray or time.time() - self.tray_at > TRAY_STALE_S:
+    def _slot_present(self, item_id: str, after: float = 0.0) -> bool | None:
+        """True/False from a fresh TrayState (seen after `after`), None if we don't know."""
+        tray = self.tray
+        if not tray or tray.get("stale") or time.time() - self.tray_at > TRAY_STALE_S:
             return None
-        for s in self.tray.get("slots", []):
+        if float(tray.get("t") or self.tray_at) < after:
+            return None  # from a frame before the arm moved
+        for s in tray.get("slots", []):
             if s.get("item") == item_id:
                 return bool(s.get("present"))
         return None
@@ -247,6 +278,7 @@ class Controller:
                     self.jobs_cv.wait()
                 cmd = self.jobs.popleft()
                 gen = self.gen
+                self._flow_gen = gen
                 self.cmd = cmd
             try:
                 if cmd["action"] == "handover":
@@ -258,9 +290,11 @@ class Controller:
             except Stopped:
                 pass  # stop() already set the step and spoke
             except Exception as e:  # noqa: BLE001 - keep the worker alive
-                with self.lock:
-                    self.step = "error"
-                self.emit("error", say=lines.ERROR, error=repr(e))
+                if self.gen == gen:  # otherwise a stop caused it and already spoke
+                    try:
+                        self._fail(lines.ERROR, repr(e))
+                    except Stopped:
+                        pass
             finally:
                 self.cmd = None
 
@@ -278,21 +312,42 @@ class Controller:
         self._call(gen, self.arm.go_home)
         self.set_step("idle", item=None)
 
+    def _fail(self, say: str, error: str) -> None:
+        """Hold where it is and wait for a reset."""
+        self.arm.freeze()
+        with self.lock:
+            self.jobs.clear()
+            self.step = "error"
+        self.emit("error", say=say, error=error)
+        raise Stopped
+
+    def _hold(self, say: str, reason: str) -> None:
+        """The hand watcher froze the arm: treat it as a stop. Only a reset rearms it (arm/README.md)."""
+        self.gen += 1
+        self.arm.freeze()
+        with self.lock:
+            self.jobs.clear()
+            self.step = "stopped"
+        self.emit("stopped", say=say, reason=reason)
+        raise Stopped
+
     def _pick(self, gen: int, it: dict, instruction: str, want_closed: bool) -> tuple[bool, int]:
         """Run a skill with one retry. Returns (ok, retries)."""
         for attempt in range(2):
             if want_closed or attempt:
                 self.set_step("picking" if want_closed else "returning")
             ran = self._call(gen, self.arm.run_skill, instruction)
+            done_at = time.time()
             if not want_closed:
-                if ran:
+                if ran and self._placed(gen, it, done_at) is not False:
                     return True, attempt
                 continue
             self.set_step("checking")
             closed_on_nothing = self._call(gen, self.arm.gripper_position) >= GRIPPER_CLOSED
-            still_there = self._slot_present(it["id"])
-            if ran and not closed_on_nothing and still_there is not True:
-                return True, attempt
+            if ran and not closed_on_nothing:
+                self._call(gen, self.arm.go_carry)  # lift clear; the tray check rides on this move
+                if self._lifted(gen, it, done_at + TRAY_LAG_S) is not False:
+                    return True, attempt
             if attempt == 0:
                 self.emit("missed", say=lines.retry(it["name"]), retries=1)
                 self._call(gen, self.arm.open_gripper)
@@ -320,8 +375,7 @@ class Controller:
             self._home(gen)
             return
 
-        self.set_step("moving_to_hand")
-        self._call(gen, self.arm.go_carry)
+        self.set_step("moving_to_hand")  # already at the carry pose
         if not self._reach_hand(gen, it):
             return
         self.set_step("waiting_for_pull")
@@ -341,7 +395,8 @@ class Controller:
     def _set_down(self, gen, it, say, elapsed=None, retries=None) -> None:
         """elapsed: a function giving request-to-hand seconds, only for a planned (sharp) set-down."""
         self.set_step("setting_down")
-        self._call(gen, self.arm.set_down_safe_spot)
+        if not self._call(gen, self.arm.set_down_safe_spot):
+            self._fail(lines.SET_DOWN_FAILED, "set_down_safe_spot returned False")
         with self.lock:
             if it["id"] not in self.out:
                 self.out.append(it["id"])
@@ -350,35 +405,32 @@ class Controller:
     def _reach_hand(self, gen: int, it: dict) -> bool:
         """Move to the hand (or the saved spot). Slow near the hand; freeze if the hand is lost
         or the path is blocked. False means the flow already set the item down."""
-        for attempt in range(2):
-            if self._tracking():
-                hand = self._wait(gen, self._hand_ready, HAND_WAIT_S, lines.SHOW_HAND)
-                if hand is None:
-                    self._set_down(gen, it, lines.no_hand(it["name"]), None, None)
-                    self._home(gen)
-                    return False
-                target = list(hand["target"])
-            else:
-                target = _saved_spot()
-            x, y, z = target
-            r = math.hypot(x, y)
-            k = max(0.0, 1 - APPROACH_BACK_M / r) if r else 1.0
-            back = (x * k, y * k, z)  # short of the hand, toward the arm base
-            watch = self._watch_hand() if self._tracking() else None
-            try:
-                ok = self._call(gen, self.arm.move_to, *back, speed=SPEED_NORMAL)
-                if not ok and not (watch and watch(peek=True)):
-                    ok = True  # approach point outside the handoff region: go straight in, slowly
-                ok = ok and self._call(gen, self.arm.move_to, x, y, z, speed=SPEED_NEAR)
-            finally:
-                lost = watch() if watch else None
-            if ok and not lost:
-                return True
-            if lost:
-                self.emit("missed", say=lines.PATH_BLOCKED if lost == "blocked" else lines.HAND_LOST)
-                continue  # wait for the hand again, one more try
-            self.emit("missed", say=lines.OUT_OF_REACH)
-            break
+        if self._tracking():
+            hand = self._wait(gen, self._hand_ready, HAND_WAIT_S, lines.SHOW_HAND)
+            if hand is None:
+                self._set_down(gen, it, lines.no_hand(it["name"]), None, None)
+                self._home(gen)
+                return False
+            target = list(hand["target"])
+        else:
+            target = _saved_spot()
+        x, y, z = target
+        r = math.hypot(x, y)
+        k = max(0.0, 1 - APPROACH_BACK_M / r) if r else 1.0
+        back = (x * k, y * k, z)  # short of the hand, toward the arm base
+        watch = self._watch_hand() if self._tracking() else None
+        try:
+            ok = self._call(gen, self.arm.move_to, *back, speed=SPEED_NORMAL)
+            if not ok and not (watch and watch(peek=True)):
+                ok = True  # approach point outside the handoff region: go straight in, slowly
+            ok = ok and self._call(gen, self.arm.move_to, x, y, z, speed=SPEED_NEAR)
+        finally:
+            lost = watch() if watch else None
+        if lost:  # frozen with the item, near the hand; a reset carries it to the safe spot
+            self._hold(lines.PATH_BLOCKED if lost == "blocked" else lines.HAND_LOST, f"hand_{lost}")
+        if ok:
+            return True
+        self.emit("missed", say=lines.OUT_OF_REACH)
         self._set_down(gen, it, lines.set_down(it["name"]), None, None)
         self._home(gen)
         return False
@@ -426,18 +478,59 @@ class Controller:
             time.sleep(0.05)
         return None
 
+    def _load(self) -> float | None:
+        try:
+            return float(self.arm.gripper_load())
+        except Exception:  # noqa: BLE001 - real arm: no fresh bus reading; got_it still works
+            return None
+
     def _wait_for_pull(self, gen: int) -> bool:
+        """A load change either way (the bus value is signed) or got_it. Never a made-up load."""
         self.got_it.clear()
-        base = self._call(gen, self.arm.gripper_load)
+        base = self._call(gen, self._load)
+        if base is None:
+            self.emit("step", say=lines.SAY_GOT_IT)
         delta = getattr(self.arm, "pull_delta", PULL_DELTA)  # load units differ per arm
         end = time.time() + PULL_WAIT_S
         while time.time() < end:
             if self.gen != gen:
                 raise Stopped
-            if self.got_it.is_set() or self.arm.gripper_load() - base > delta:
+            if self.got_it.is_set():
+                return True
+            load = self._load()
+            if base is None:
+                base = load
+            elif load is not None and abs(load - base) > delta:
                 return True
             time.sleep(0.05)
         return False
+
+    def _lifted(self, gen: int, it: dict, after: float) -> bool | None:
+        """After the pick: False if a TrayState from after `after` still shows the item in its slot."""
+        if self._slot_present(it["id"]) is None:
+            return None  # no tray vision: trust the gripper
+        while time.time() < after + 0.5:
+            if self.gen != gen:
+                raise Stopped
+            seen = self._slot_present(it["id"], after=after)
+            if seen is not None:
+                return not seen
+            time.sleep(0.05)
+        return None
+
+    def _placed(self, gen: int, it: dict, after: float) -> bool | None:
+        """After a put-back, wait for a TrayState from after the skill. None without tray vision."""
+        if self._slot_present(it["id"]) is None:
+            return None
+        end = time.time() + TRAY_STALE_S + 1
+        while time.time() < end:
+            if self.gen != gen:
+                raise Stopped
+            seen = self._slot_present(it["id"], after=after)
+            if seen is not None:
+                return seen
+            time.sleep(0.05)
+        return None
 
     def _return(self, cmd: dict, gen: int) -> None:
         item_id = cmd.get("item") or self._return_spot_item() or (self.out[-1] if self.out else None)
