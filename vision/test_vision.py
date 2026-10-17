@@ -1,0 +1,414 @@
+"""Fake-input checks for the vision tasks. Run: python -m vision.test_vision"""
+
+from __future__ import annotations
+
+import json
+import math
+import tempfile
+import threading
+import time
+import unittest
+from pathlib import Path
+
+import cv2
+import numpy as np
+
+from vision.app import create_app
+from vision.calibrate import calibration_from_points, palm_target, reprojection_error_m
+from vision.camera import FakeCapture, exposure_is_locked, lock_controls
+from vision.geometry import path_is_clear
+from vision.hand import hand_is_open, palm_center, synthetic_landmarks
+from vision.heights import height_for
+from vision.mark_slots import boxes_from_clicks, format_for_evan, labeled_boxes
+from vision.service import build_runtime, publish_hand, publish_tray, remember_clinician, start_loops
+from vision.tray import fallback_setting, gripper_and_obstacles, tray_from_detections
+
+
+class RecordingPoster:
+    def __init__(self, setting: str = "surgical"):
+        self.posts = []
+        self.setting = setting
+
+    def post(self, path, payload):
+        self.posts.append((path, payload))
+        return True
+
+    def current_setting(self, fallback):
+        return self.setting
+
+
+class ScriptDetector:
+    def __init__(self, script):
+        self.script = list(script)
+        self.calls = 0
+
+    def detect(self, frame, categories):
+        self.calls += 1
+        if not self.script:
+            return []
+        step = self.script.pop(0)
+        if isinstance(step, Exception):
+            raise step
+        return step
+
+
+def _hemostat_box(present: bool):
+    if not present:
+        return []
+    return [
+        {
+            "mention": "hemostat",
+            "point_box": {"top_left": {"x": 130, "y": 90}, "bottom_right": {"x": 240, "y": 130}},
+        }
+    ]
+
+
+class CameraTests(unittest.TestCase):
+    def test_lock_turns_off_auto_exposure_and_white_balance(self):
+        capture = FakeCapture()
+        capture.set(cv2.CAP_PROP_AUTO_EXPOSURE, 0.75)
+        controls = lock_controls(capture, exposure=-6, white_balance=4500)
+        self.assertTrue(exposure_is_locked(controls))
+        self.assertEqual(controls["exposure"], -6)
+        self.assertEqual(controls["wb_temperature"], 4500)
+
+    def test_locked_exposure_does_not_jump_back_when_the_lamp_turns_on(self):
+        auto = FakeCapture()
+        auto.set(cv2.CAP_PROP_AUTO_EXPOSURE, 0.75)
+        auto.lamp = 40
+        _ok, dark_auto = auto.read()
+        auto.lamp = 220
+        _ok, bright_auto = auto.read()
+        self.assertLess(abs(float(dark_auto.mean()) - float(bright_auto.mean())), 5)
+
+        locked = FakeCapture()
+        lock_controls(locked, exposure=-6)
+        locked.lamp = 40
+        _ok, dark = locked.read()
+        locked.lamp = 220
+        _ok, bright = locked.read()
+        _ok, still = locked.read()
+        self.assertLess(float(dark.mean()), 50)
+        self.assertGreater(float(bright.mean()), 200)
+        self.assertLess(abs(float(bright.mean()) - float(still.mean())), 1)
+
+
+class HandTests(unittest.TestCase):
+    def test_open_palm_and_closed_fist(self):
+        width, height = 640, 480
+        self.assertTrue(hand_is_open(synthetic_landmarks(True), width, height))
+        self.assertFalse(hand_is_open(synthetic_landmarks(False), width, height))
+
+    def test_palm_center_is_on_the_palm(self):
+        center = palm_center(synthetic_landmarks(True), 640, 480)
+        self.assertGreater(center[0], 250)
+        self.assertLess(center[0], 420)
+        self.assertGreater(center[1], 250)
+        self.assertLess(center[1], 420)
+
+    def test_hand_posts_about_ten_times_a_second_with_null_target(self):
+        capture = FakeCapture()
+        lock_controls(capture)
+        runtime = build_runtime(
+            capture,
+            fake_hands=lambda _frame: [synthetic_landmarks(True)],
+            detector=ScriptDetector([]),
+            heights_path=Path(tempfile.mkdtemp()) / "heights.json",
+            calibration_path=Path(tempfile.mkdtemp()) / "missing.json",
+        )
+        poster = RecordingPoster()
+        runtime.poster = poster
+        runtime.hand_period = 0.1
+        stop = start_loops(runtime)
+        time.sleep(0.75)
+        stop.set()
+        runtime.grabber.stop()
+        hands = [payload for path, payload in poster.posts if path == "/vision/hand"]
+        self.assertGreaterEqual(len(hands), 5)
+        self.assertLessEqual(len(hands), 10)
+        self.assertTrue(hands[-1]["seen"])
+        self.assertTrue(hands[-1]["open"])
+        self.assertIsNone(hands[-1]["target"])
+        self.assertIsInstance(hands[-1]["palm_px"], list)
+        self.assertIsInstance(hands[-1]["t"], float)
+
+
+class StreamTests(unittest.TestCase):
+    def test_snapshot_draws_the_palm_dot_and_slot_boxes(self):
+        capture = FakeCapture()
+        controls = lock_controls(capture, exposure=-6, white_balance=4500)
+        setting = fallback_setting("surgical")
+        setting["items"][1]["slot"] = [100, 80, 260, 160]
+        detector = ScriptDetector([_hemostat_box(True)])
+        runtime = build_runtime(
+            capture,
+            controls=controls,
+            fake_hands=lambda _frame: [synthetic_landmarks(True)],
+            detector=detector,
+            heights_path=Path(tempfile.mkdtemp()) / "heights.json",
+            calibration_path=Path(tempfile.mkdtemp()) / "missing.json",
+        )
+        runtime.repo = _repo_with_setting(setting)
+        runtime.poster = RecordingPoster()
+        publish_hand(runtime)
+        publish_tray(runtime)
+        encoded = runtime.preview_jpeg()
+        self.assertTrue(encoded.startswith(b"\xff\xd8"))
+        image = cv2.imdecode(np.frombuffer(encoded, dtype=np.uint8), cv2.IMREAD_COLOR)
+        px, py = runtime.hand["palm_px"]
+        pixel = image[py, px]
+        self.assertGreater(int(pixel[0]), 200)
+        self.assertGreater(int(pixel[1]), 200)
+        self.assertLess(int(pixel[2]), 80)
+        border = image[78:84, 110:250]
+        self.assertGreater(int(border[:, :, 1].max()), 120)
+
+        client = _client(runtime)
+        response = client.get("/stream?frames=1")
+        self.assertEqual(response.status_code, 200)
+        self.assertIn("multipart/x-mixed-replace", response.headers["content-type"])
+        self.assertIn(b"\xff\xd8", response.content)
+        self.assertTrue(response.content.startswith(b"--frame"))
+        health = client.get("/health").json()
+        self.assertTrue(health["exposure_locked"])
+        self.assertTrue(health["camera"])
+
+
+class TrayTests(unittest.TestCase):
+    def test_lifting_an_item_clears_the_slot_within_one_tick(self):
+        capture = FakeCapture()
+        lock_controls(capture)
+        setting = fallback_setting("surgical")
+        setting["items"][1]["slot"] = [100, 80, 260, 160]
+        setting["return_spot"] = [400, 300, 520, 380]
+        detector = ScriptDetector([_hemostat_box(True), _hemostat_box(False), RuntimeError("api down")])
+        runtime = build_runtime(
+            capture,
+            fake_hands=lambda _frame: [],
+            detector=detector,
+            heights_path=Path(tempfile.mkdtemp()) / "heights.json",
+            calibration_path=Path(tempfile.mkdtemp()) / "missing.json",
+        )
+        runtime.repo = _repo_with_setting(setting)
+        poster = RecordingPoster()
+        runtime.poster = poster
+        runtime.tray_period = 1.0
+
+        first = publish_tray(runtime)
+        self.assertFalse(first["stale"])
+        self.assertTrue(_slot(first, "hemostat")["present"])
+        self.assertEqual(_slot(first, "hemostat")["box"], [100, 80, 260, 160])
+        self.assertEqual(first["return_spot"]["item"], None)
+
+        second = publish_tray(runtime)
+        self.assertFalse(_slot(second, "hemostat")["present"])
+        self.assertFalse(second["stale"])
+
+        third = publish_tray(runtime)
+        self.assertTrue(third["stale"])
+        self.assertFalse(_slot(third, "hemostat")["present"])
+        self.assertEqual(runtime.tray_period, 1.0)
+
+    def test_return_spot_and_aliases(self):
+        setting = fallback_setting("surgical")
+        setting["items"][1]["aliases"] = ["kelly"]
+        setting["items"][1]["slot"] = [100, 80, 260, 160]
+        setting["return_spot"] = [400, 300, 520, 380]
+        detections = [
+            {
+                "mention": "kelly",
+                "point_box": {"top_left": {"x": 410, "y": 310}, "bottom_right": {"x": 500, "y": 360}},
+            }
+        ]
+        state = tray_from_detections(setting, detections)
+        self.assertFalse(_slot(state, "hemostat")["present"])
+        self.assertEqual(state["return_spot"]["item"], "hemostat")
+
+    def test_robot_arm_between_gripper_and_target_blocks_the_path(self):
+        detections = [
+            {
+                "mention": "robot arm",
+                "point_box": {"top_left": {"x": 200, "y": 140}, "bottom_right": {"x": 280, "y": 220}},
+            },
+            {
+                "mention": "gripper",
+                "point_box": {"top_left": {"x": 10, "y": 10}, "bottom_right": {"x": 30, "y": 30}},
+            },
+        ]
+        gripper, obstacles = gripper_and_obstacles(detections, None)
+        self.assertEqual(gripper, [20.0, 20.0])
+        self.assertFalse(path_is_clear(gripper, [400, 300], obstacles))
+        self.assertTrue(path_is_clear(gripper, [40, 20], obstacles))
+        self.assertTrue(path_is_clear(None, [400, 300], obstacles))
+
+
+class CalibrationTests(unittest.TestCase):
+    def test_palm_target_is_within_2cm_and_short_of_the_palm(self):
+        image_points = []
+        arm_points = []
+        for px, py in ((100, 80), (500, 80), (500, 400), (100, 400), (300, 200), (180, 300), (420, 140), (250, 360)):
+            image_points.append([px, py])
+            arm_points.append([px * 0.001, py * 0.001, 0.18])
+        calibration = calibration_from_points(image_points, arm_points, hand_height_m=0.18)
+        self.assertLess(calibration["max_error_m"], 0.02)
+        self.assertLess(
+            reprojection_error_m(np.array(calibration["homography"]), image_points, arm_points),
+            0.02,
+        )
+        palm_px = [300, 200]
+        target = palm_target(calibration, palm_px, 0.18)
+        palm_xy = (0.300, 0.200)
+        distance = math.hypot(target[0] - palm_xy[0], target[1] - palm_xy[1])
+        self.assertAlmostEqual(distance, 0.04, delta=0.02)
+        self.assertAlmostEqual(target[2], 0.18, places=3)
+        self.assertLess(math.hypot(target[0], target[1]), math.hypot(*palm_xy))
+
+    def test_saved_hand_height_changes_the_target(self):
+        image_points = [[0, 0], [100, 0], [100, 100], [0, 100]]
+        arm_points = [[0, 0, 0], [0.2, 0, 0], [0.2, 0.2, 0], [0, 0.2, 0]]
+        calibration = calibration_from_points(image_points, arm_points)
+        capture = FakeCapture()
+        lock_controls(capture)
+        directory = Path(tempfile.mkdtemp())
+        cal_path = directory / "calibration.json"
+        cal_path.write_text(json.dumps(calibration), encoding="utf-8")
+        heights_path = directory / "heights.json"
+        runtime = build_runtime(
+            capture,
+            fake_hands=lambda _frame: [synthetic_landmarks(True)],
+            detector=ScriptDetector([]),
+            calibration_path=cal_path,
+            heights_path=heights_path,
+        )
+        runtime.poster = RecordingPoster()
+        remember_clinician(runtime, "brandon", 0.21)
+        self.assertEqual(height_for(runtime.heights, "brandon"), 0.21)
+        message = publish_hand(runtime)
+        self.assertIsNotNone(message["target"])
+        self.assertAlmostEqual(message["target"][2], 0.21, places=3)
+        runtime.grabber.stop()
+
+
+class SlotMarkTests(unittest.TestCase):
+    def test_scripted_clicks_print_boxes_for_all_three_roles(self):
+        setting = fallback_setting("surgical")
+        clicks = boxes_from_clicks(
+            [
+                (10, 20),
+                (110, 80),
+                (120, 20),
+                (220, 80),
+                (230, 20),
+                (330, 80),
+                (400, 300),
+                (520, 380),
+            ]
+        )
+        marked = labeled_boxes(setting, clicks)
+        text = format_for_evan(marked)
+        self.assertIn("scalpel [10, 20, 110, 80]", text)
+        self.assertIn("hemostat [120, 20, 220, 80]", text)
+        self.assertIn("mayo_scissors [230, 20, 330, 80]", text)
+        self.assertIn("return_spot [400, 300, 520, 380]", text)
+        self.assertIn("settings/surgical.json", text)
+
+
+def _slot(state, item_id):
+    for slot in state["slots"]:
+        if slot["item"] == item_id:
+            return slot
+    raise AssertionError(item_id)
+
+
+def _repo_with_setting(setting: dict) -> Path:
+    root = Path(tempfile.mkdtemp())
+    folder = root / "settings"
+    folder.mkdir()
+    (folder / f"{setting['id']}.json").write_text(json.dumps(setting), encoding="utf-8")
+    return root
+
+
+def _client(runtime):
+    from fastapi.testclient import TestClient
+
+    return TestClient(create_app(runtime))
+
+
+class PreviewServerTests(unittest.TestCase):
+    def test_preview_page_and_controller_contract(self):
+        capture = FakeCapture()
+        controls = lock_controls(capture, exposure=-6, white_balance=4500)
+        runtime = build_runtime(
+            capture,
+            controls=controls,
+            fake_hands=lambda _frame: [synthetic_landmarks(False)],
+            detector=ScriptDetector([_hemostat_box(True)]),
+            heights_path=Path(tempfile.mkdtemp()) / "heights.json",
+            calibration_path=Path(tempfile.mkdtemp()) / "missing.json",
+        )
+        setting = fallback_setting("surgical")
+        setting["items"][1]["slot"] = [100, 80, 260, 160]
+        runtime.repo = _repo_with_setting(setting)
+        received = {"hand": [], "tray": []}
+
+        from fastapi import FastAPI
+
+        controller = FastAPI()
+
+        @controller.post("/vision/hand")
+        def take_hand(body: dict):
+            received["hand"].append(body)
+            return {"ok": True}
+
+        @controller.post("/vision/tray")
+        def take_tray(body: dict):
+            received["tray"].append(body)
+            return {"ok": True}
+
+        @controller.get("/state")
+        def state():
+            return {"setting": "surgical", "step": "idle"}
+
+        import uvicorn
+
+        port = _free_port()
+        thread = threading.Thread(
+            target=uvicorn.run,
+            kwargs={"app": controller, "host": "127.0.0.1", "port": port, "log_level": "error"},
+            daemon=True,
+        )
+        thread.start()
+        deadline = time.monotonic() + 5
+        import httpx
+
+        while time.monotonic() < deadline:
+            try:
+                if httpx.get(f"http://127.0.0.1:{port}/state", timeout=0.2).status_code == 200:
+                    break
+            except Exception:
+                time.sleep(0.05)
+        runtime.poster = __import__("vision.service", fromlist=["Poster"]).Poster(f"http://127.0.0.1:{port}")
+        publish_hand(runtime)
+        publish_tray(runtime)
+        self.assertEqual(received["hand"][-1]["seen"], True)
+        self.assertEqual(received["hand"][-1]["open"], False)
+        self.assertEqual(received["tray"][-1]["setting"], "surgical")
+        self.assertTrue(_slot(received["tray"][-1], "hemostat")["present"])
+        page = _client(runtime).get("/")
+        self.assertEqual(page.status_code, 200)
+        self.assertIn("/stream", page.text)
+        runtime.grabber.stop()
+
+
+def _free_port() -> int:
+    import socket
+
+    sock = socket.socket()
+    sock.bind(("127.0.0.1", 0))
+    port = sock.getsockname()[1]
+    sock.close()
+    return port
+
+
+if __name__ == "__main__":
+    unittest.main()
