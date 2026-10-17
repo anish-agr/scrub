@@ -1,0 +1,118 @@
+:root {
+  --ink: #1a1916;
+  --paper: #efe6d4;
+  --panel: #f7f1e4;
+  --line: #d3c7ae;
+  --green: #0c6b52;
+  --green-soft: #d7efe4;
+  --muted: #6d675c;
+  color: var(--ink);
+  background: var(--paper);
+  font-family: "Avenir Next", "Segoe UI", sans-serif;
+}
+
+* { box-sizing: border-box; }
+
+body { margin: 0; min-height: 100vh; padding: 20px; }
+
+.top {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  background: var(--ink);
+  color: var(--paper);
+  border-radius: 16px;
+  padding: 14px 18px;
+}
+
+.mark { font-size: 28px; font-weight: 700; letter-spacing: -0.04em; }
+
+.pill {
+  font-size: 13px;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  border-radius: 999px;
+  padding: 4px 10px;
+  background: var(--green);
+}
+
+.banner {
+  margin: 12px 0 0;
+  padding: 10px 14px;
+  border-radius: 10px;
+  background: #f3e0b5;
+  color: #5c4308;
+}
+
+main { display: grid; gap: 14px; margin-top: 14px; }
+
+section {
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: 16px;
+  padding: 16px 18px;
+}
+
+.kicker {
+  margin: 0;
+  font-size: 12px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--muted);
+}
+
+.out {
+  list-style: none;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin: 12px 0 0;
+  padding: 0;
+  min-height: 42px;
+}
+
+.out li {
+  background: var(--green-soft);
+  color: var(--green);
+  border-radius: 999px;
+  padding: 8px 12px;
+  font-weight: 650;
+}
+
+.out .empty { background: transparent; color: var(--muted); padding-left: 0; }
+
+.median {
+  margin: 8px 0 12px;
+  font-size: 40px;
+  letter-spacing: -0.04em;
+  font-weight: 700;
+}
+
+.table-wrap { display: grid; grid-template-columns: 1fr 1fr; gap: 18px; }
+
+table { width: 100%; border-collapse: collapse; }
+
+caption { text-align: left; font-weight: 700; margin-bottom: 6px; }
+
+th, td {
+  text-align: left;
+  padding: 7px 0;
+  border-bottom: 1px solid var(--line);
+  font-variant-numeric: tabular-nums;
+}
+
+th {
+  font-size: 12px;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--muted);
+  font-weight: 600;
+}
+
+.empty-note { color: var(--muted); margin: 10px 0 0; }
+.has-rows .empty-note { display: none; }
+
+@media (max-width: 800px) {
+  .table-wrap { grid-template-columns: 1fr; }
+  .median { font-size: 32px; }
+}
