@@ -1,0 +1,374 @@
+<!DOCTYPE html>
+<!--
+FEATURES:
+- Warm caregiver web dashboard for the remote family member (Maria) looking after Mom (Margaret)
+- Today timeline with a live "now" marker and simulated incoming robot events
+- Weekly pill organizer: taken / late / missed / pending slots, click a slot for details, adherence ring
+- Activity feed with verification photos, confidence chips, hearts and notes
+- Safety refusals log with reasons ("confidence 0.71 < 0.80"), live "would pass at threshold" chips tied to the settings slider
+- Settings: which tasks need approval (Always / If unsure / Never), escalation timer, confidence floor, digest time
+- Care team rota: click a shift to reassign, who is on call now, escalation chain, call / text buttons
+- Memory panel (Backboard idea): preferences, places, routines, safety notes; add, pin, delete, search, "ask memory"
+- Stop robot button latches the arm remotely (mock)
+-->
+<!--
+SPONSORS: Backboard (persistent AI memory / RAG for household preferences), Photon (approvals and escalation over iMessage), Perceptron Robotics (verified fetches, safety refusals), Perceptron Perception (confidence scores), Tiger Data (time-series adherence and telemetry), MongoDB Atlas (memory + rota documents)
+-->
+<!--
+BACKEND HOOKS: GET /api/activity?limit=, GET /api/state, POST /api/stop, POST /api/reset, POST /api/caregiver/approve?approved=, WebSocket /ws (state, safety, caregiver),
+proposed: GET/PUT /api/settings (approval policy, threshold, escalation minutes), GET/PUT /api/rota, GET/POST/DELETE /api/memory (Backboard), GET /api/adherence?week=. Mock mode only, no server needed.
+-->
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Family Hub</title>
+<meta name="description" content="A warm caregiver dashboard for a remote family member: timeline, pill organizer, photos, safety refusals, rota and robot memory.">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700&family=Fraunces:opsz,wght@9..144,500;9..144,600&display=swap" rel="stylesheet">
+<style>
+:root{--cream:#fbf5ec;--card:#fffdf9;--ink:#3a2f2a;--mut:#85766a;--line:#eee2d3;--sage:#7fa88a;--sageD:#4b7658;--sageL:#e3efe5;--terra:#d9795c;--terraL:#fbe6dd;--sun:#f2b84b;--sunL:#fdf1d4;--plum:#7b5e8c;--plumL:#ece4f1;--sky:#6fa5c8;--skyL:#e0eef7;--shadow:0 1px 2px rgba(80,50,30,.06),0 8px 24px rgba(80,50,30,.07)}
+*{box-sizing:border-box}
+html{scroll-behavior:smooth;scroll-padding-top:76px}
+body{margin:0;background:var(--cream);color:var(--ink);font:15px/1.5 "DM Sans",system-ui,sans-serif;background-image:radial-gradient(900px 500px at 90% -5%,#fde9d0 0,transparent 60%),radial-gradient(700px 500px at -5% 20%,#e6f0e4 0,transparent 55%);background-repeat:no-repeat}
+h1,h2,h3{font-family:Fraunces,Georgia,serif;font-weight:600;margin:0;letter-spacing:-.2px}
+button{font:inherit;color:inherit;cursor:pointer}
+button:focus-visible,input:focus-visible,select:focus-visible,summary:focus-visible{outline:2px solid var(--sageD);outline-offset:2px}
+.nav{position:sticky;top:0;z-index:40;background:rgba(251,245,236,.9);backdrop-filter:blur(10px);border-bottom:1px solid var(--line)}
+.navin{max-width:1180px;margin:0 auto;padding:8px 16px;display:flex;align-items:center;gap:6px;overflow-x:auto}
+.logo{font-family:Fraunces,serif;font-weight:600;font-size:19px;margin-right:10px;display:flex;gap:8px;align-items:center;white-space:nowrap}
+.logo i{width:28px;height:28px;border-radius:50%;background:linear-gradient(135deg,var(--sun),var(--terra));display:inline-block}
+.nav a{min-height:44px;display:flex;align-items:center;padding:0 14px;border-radius:999px;color:var(--mut);text-decoration:none;font-weight:500;white-space:nowrap}
+.nav a:hover,.nav a.on{background:#fff;color:var(--ink);box-shadow:var(--shadow)}
+.sp{flex:1}
+.stopb{min-height:44px;padding:0 18px;border-radius:999px;border:2px solid var(--terra);background:#fff;color:#b4492c;font-weight:700;white-space:nowrap}
+.stopb:hover{background:var(--terra);color:#fff}
+.stopb.latched{background:#b4492c;color:#fff;border-color:#b4492c}
+main{max-width:1180px;margin:0 auto;padding:22px 16px 60px;display:grid;gap:22px}
+.hero{display:grid;grid-template-columns:1.4fr 1fr;gap:22px;align-items:stretch}
+@media(max-width:900px){.hero{grid-template-columns:1fr}}
+.card{background:var(--card);border:1px solid var(--line);border-radius:24px;padding:22px;box-shadow:var(--shadow);min-width:0}
+.card h2{font-size:22px;margin-bottom:4px}
+.sub{color:var(--mut);margin:0 0 16px;font-size:14px}
+.greet h1{font-size:34px;line-height:1.15;margin-bottom:8px}
+.status{display:flex;gap:14px;align-items:center;margin-top:16px;flex-wrap:wrap}
+.breathe{width:14px;height:14px;border-radius:50%;background:var(--sage);box-shadow:0 0 0 0 rgba(127,168,138,.6);animation:br 3s infinite}
+@keyframes br{0%{box-shadow:0 0 0 0 rgba(127,168,138,.55)}70%{box-shadow:0 0 0 14px rgba(127,168,138,0)}100%{box-shadow:0 0 0 0 rgba(127,168,138,0)}}
+.tags{display:flex;gap:8px;flex-wrap:wrap;margin-top:14px}
+.tag{padding:5px 12px;border-radius:999px;font-size:13px;font-weight:500;background:var(--sageL);color:var(--sageD)}
+.tag.t{background:var(--terraL);color:#a8472b}.tag.s{background:var(--sunL);color:#8a6410}.tag.p{background:var(--plumL);color:var(--plum)}.tag.k{background:var(--skyL);color:#2f6a90}
+.ring{display:flex;align-items:center;gap:18px}
+.ring svg{flex:none}
+.big{font:600 40px/1 Fraunces,serif}
+.banner{display:none;margin-top:14px;padding:12px 14px;border-radius:14px;background:var(--terraL);color:#8c3a22;font-weight:500}
+.banner.on{display:block}
+.grid2{display:grid;grid-template-columns:1fr 1fr;gap:22px}
+@media(max-width:900px){.grid2{grid-template-columns:1fr}}
+.row{display:flex;align-items:center;gap:10px;flex-wrap:wrap}
+.chipb{min-height:44px;padding:0 16px;border-radius:999px;border:1px solid var(--line);background:#fff;font-weight:500;color:var(--mut)}
+.chipb.on{background:var(--ink);color:#fff;border-color:var(--ink)}
+.btn{min-height:44px;padding:0 18px;border-radius:999px;border:1px solid var(--line);background:#fff;font-weight:600}
+.btn:hover{border-color:var(--sage)}
+.btn.pri{background:var(--sageD);color:#fff;border-color:var(--sageD)}
+/* timeline */
+.tl{list-style:none;margin:0;padding:0 0 0 8px;position:relative;max-height:520px;overflow:auto}
+.tl::before{content:"";position:absolute;left:19px;top:6px;bottom:6px;width:2px;background:var(--line)}
+.tl li{position:relative;display:grid;grid-template-columns:24px 1fr;gap:14px;padding:8px 0}
+.dot{width:24px;height:24px;border-radius:50%;display:grid;place-items:center;font-size:12px;font-weight:700;background:var(--sageL);color:var(--sageD);border:3px solid var(--card);z-index:1}
+.dot.t{background:var(--terraL);color:#a8472b}.dot.s{background:var(--sunL);color:#8a6410}.dot.p{background:var(--plumL);color:var(--plum)}.dot.k{background:var(--skyL);color:#2f6a90}
+.tl h4{margin:0;font-size:15px;font-weight:600}.tl p{margin:2px 0 0;color:var(--mut);font-size:14px}
+.tl time{font-size:12px;color:var(--mut);font-weight:600;letter-spacing:.3px;text-transform:uppercase}
+.tl li.now .dot{background:var(--sun);color:#4a3200;animation:br 2s infinite}
+.tl li.future{opacity:.6}
+.tl li.new{animation:slide .6s ease}
+@keyframes slide{from{opacity:0;transform:translateY(-10px);background:var(--sunL)}to{opacity:1}}
+/* organizer */
+.box{background:#f3e7d6;border-radius:22px;padding:14px;border:1px solid #e6d3b9;overflow-x:auto}
+.org{display:grid;grid-template-columns:64px repeat(7,minmax(38px,1fr));gap:5px;min-width:400px}
+.org .dh{text-align:center;font-weight:700;font-size:13px;color:var(--mut);padding-bottom:2px}
+.org .dh.today{color:var(--terra)}
+.org .sl{font-size:12px;color:var(--mut);display:flex;flex-direction:column;justify-content:center;line-height:1.2}
+.org .sl b{color:var(--ink);font-size:13px}
+.lid{min-height:48px;border-radius:14px;border:2px solid transparent;display:grid;place-items:center;font-weight:700;font-size:11px;padding:0;transition:transform .12s;background:#fff}
+.lid:hover{transform:translateY(-2px)}
+.lid.taken{background:var(--sage);color:#fff}.lid.late{background:var(--sun);color:#4a3200}.lid.missed{background:var(--terra);color:#fff}
+.lid.pending{background:#fff;border:2px dashed var(--sun);color:#8a6410;animation:br 2.5s infinite}.lid.future{background:#f8f0e4;color:#b9a791;border:2px dashed #e6d3b9}
+.lid.sel{outline:3px solid var(--ink);outline-offset:2px}
+.legend{display:flex;gap:14px;flex-wrap:wrap;margin-top:12px;font-size:13px;color:var(--mut)}
+.legend i{display:inline-block;width:12px;height:12px;border-radius:4px;margin-right:6px;vertical-align:-1px}
+.detail{margin-top:14px;padding:14px 16px;border-radius:16px;background:var(--sunL);color:#5a4210;min-height:70px}
+.detail b{font-family:Fraunces,serif;font-size:17px}
+/* feed */
+.feed{display:grid;grid-template-columns:repeat(auto-fill,minmax(250px,1fr));gap:16px}
+.post{border:1px solid var(--line);border-radius:18px;overflow:hidden;background:#fff;display:flex;flex-direction:column}
+.post canvas{width:100%;height:auto;display:block}
+.post .pb{padding:12px 14px;display:flex;flex-direction:column;gap:6px;flex:1}
+.post h4{margin:0;font-size:15px}.post small{color:var(--mut)}
+.post .acts{display:flex;gap:6px;margin-top:auto}
+.post .acts button{min-height:44px;padding:0 12px;border-radius:999px;border:1px solid var(--line);background:#fff;font-size:14px}
+.post .acts button.on{background:var(--terraL);border-color:var(--terra);color:#a8472b}
+/* safety */
+.ref{display:grid;grid-template-columns:1fr auto;gap:12px;padding:14px;border:1px solid var(--line);border-radius:16px;margin-bottom:10px;background:#fff}
+@media(max-width:600px){.ref{grid-template-columns:1fr}}
+.ref h4{margin:0 0 2px;font-size:15px}.ref p{margin:0;color:var(--mut);font-size:14px}
+.reason{display:inline-block;margin-top:6px;font:600 13px ui-monospace,Menlo,monospace;background:var(--terraL);color:#8c3a22;padding:3px 10px;border-radius:8px}
+.cbar{position:relative;height:10px;border-radius:5px;background:var(--line);margin:10px 0 2px;min-width:180px}
+.cbar i{position:absolute;left:0;top:0;bottom:0;border-radius:5px;background:var(--terra)}
+.cbar u{position:absolute;top:-4px;bottom:-4px;width:3px;background:var(--ink);border-radius:2px}
+.pass{font-size:12.5px;font-weight:600;padding:3px 10px;border-radius:999px;display:inline-block}
+.pass.y{background:var(--sunL);color:#8a6410}.pass.n{background:var(--sageL);color:var(--sageD)}
+.ok{margin-top:8px}
+/* settings */
+.set{display:grid;grid-template-columns:1fr auto;gap:10px;align-items:center;padding:10px 0;border-bottom:1px solid var(--line)}
+.set:last-child{border:0}
+.set b{font-weight:600}.set small{display:block;color:var(--mut)}
+.seg{display:flex;background:#f3e7d6;border-radius:999px;padding:3px}
+.seg button{min-height:44px;padding:0 12px;border-radius:999px;border:0;background:none;font-size:13px;font-weight:600;color:var(--mut)}
+.seg button.on{background:#fff;color:var(--ink);box-shadow:0 1px 4px rgba(80,50,30,.15)}
+.seg button:disabled{opacity:.45;cursor:not-allowed}
+input[type=range]{width:100%;accent-color:var(--sageD);height:44px}
+select{min-height:44px;border-radius:12px;border:1px solid var(--line);padding:0 10px;background:#fff;font:inherit}
+.sl2{padding:10px 0;border-bottom:1px solid var(--line)}
+.sl2 .row{justify-content:space-between}
+.sw{position:relative;width:52px;height:30px;border-radius:999px;background:#d8c9b6;border:0;flex:none}
+.sw::after{content:"";position:absolute;top:3px;left:3px;width:24px;height:24px;border-radius:50%;background:#fff;transition:.2s}
+.sw.on{background:var(--sage)}.sw.on::after{left:25px}
+/* rota */
+.av{width:40px;height:40px;border-radius:50%;display:grid;place-items:center;font-weight:700;color:#fff;flex:none}
+.rota{display:grid;grid-template-columns:70px repeat(7,minmax(46px,1fr));gap:6px;overflow-x:auto;min-width:480px}
+.rwrap{overflow-x:auto}
+.rota .h{text-align:center;font-size:12px;font-weight:700;color:var(--mut)}
+.rota .h.today{color:var(--terra)}
+.rota .sh{font-size:12px;color:var(--mut);display:flex;align-items:center}
+.rc{min-height:48px;border-radius:14px;border:2px solid transparent;color:#fff;font-weight:700;font-size:13px}
+.rc.nowc{border-color:var(--ink)}
+.oncall{display:flex;gap:14px;align-items:center;padding:14px;border-radius:18px;background:var(--sageL);margin-bottom:14px;flex-wrap:wrap}
+.oncall .av{width:52px;height:52px;font-size:20px}
+.chain{display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-top:12px;color:var(--mut);font-size:13px}
+.chain span.n{background:#fff;border:1px solid var(--line);border-radius:999px;padding:4px 12px;color:var(--ink);font-weight:600}
+/* memory */
+.mem{display:grid;grid-template-columns:repeat(auto-fill,minmax(250px,1fr));gap:12px;margin-top:14px}
+.mc{border-radius:18px;padding:14px;background:#fff;border:1px solid var(--line);display:flex;flex-direction:column;gap:8px;position:relative}
+.mc q{font-family:Fraunces,serif;font-size:17px;quotes:none;line-height:1.3}
+.mc small{color:var(--mut)}
+.mc .acts{display:flex;gap:6px;margin-top:auto}
+.mc .acts button{min-height:44px;padding:0 12px;border-radius:999px;border:1px solid var(--line);background:#fff;font-size:13px}
+.mc.pin{background:var(--sunL);border-color:#f0d9a0}
+.inp{flex:1;min-width:180px;min-height:44px;border-radius:999px;border:1px solid var(--line);padding:0 16px;font:inherit;background:#fff}
+.answer{margin-top:10px;padding:12px 16px;border-radius:16px;background:var(--plumL);color:#4b3559;display:none}
+.answer.on{display:block}
+.toast{position:fixed;bottom:20px;left:50%;transform:translateX(-50%) translateY(30px);opacity:0;background:var(--ink);color:#fff;padding:12px 20px;border-radius:999px;transition:.3s;z-index:60;max-width:92vw;pointer-events:none}
+.toast.on{opacity:1;transform:translateX(-50%)}
+</style>
+</head>
+<body>
+<nav class="nav"><div class="navin">
+  <div class="logo"><i></i>Family Hub</div>
+  <a href="#today" class="on">Today</a><a href="#meds">Pills</a><a href="#activity">Activity</a><a href="#safety">Safety</a><a href="#team">Care team</a><a href="#memory">Memory</a><a href="#settings">Settings</a>
+  <span class="sp"></span><button class="stopb" id="stopB" aria-label="Stop the robot">Stop robot</button>
+</div></nav>
+
+<main>
+ <section class="hero" id="today">
+  <div class="card greet">
+   <h1 id="greet">Good evening, Maria.</h1>
+   <p class="sub" style="font-size:17px;margin:0">Mom is settled in her chair. The robot is resting and everything today went as planned.</p>
+   <div class="status"><span class="breathe"></span><b id="stText">Robot idle</b><span style="color:var(--mut)" id="stLast">Last task: evening pills, 8:02 PM</span></div>
+   <div class="tags" id="tags"></div>
+   <div class="banner" id="banner">The robot arm is stopped and latched. Someone needs to press Reset at the robot before it moves again.</div>
+  </div>
+  <div class="card">
+   <h2>This week</h2><p class="sub">Pills given on time, Oct 11 to 17</p>
+   <div class="ring"><svg width="120" height="120" viewBox="0 0 120 120" aria-hidden="true"><circle cx="60" cy="60" r="50" fill="none" stroke="#f3e7d6" stroke-width="14"/><circle id="ringC" cx="60" cy="60" r="50" fill="none" stroke="#7fa88a" stroke-width="14" stroke-linecap="round" stroke-dasharray="314" stroke-dashoffset="314" transform="rotate(-90 60 60)" style="transition:stroke-dashoffset 1.2s"/></svg>
+    <div><div class="big" id="adh">96%</div><div style="color:var(--mut)" id="adhSub">26 of 27 doses</div><div class="tags"><span class="tag" id="streak">4 day streak</span></div></div></div>
+  </div>
+ </section>
+
+ <div class="grid2">
+  <section class="card">
+   <div class="row" style="justify-content:space-between"><div><h2>Today</h2><p class="sub" style="margin:0">Saturday, October 17</p></div>
+    <div class="row"><button class="chipb on" data-f="all">All</button><button class="chipb" data-f="med">Pills</button><button class="chipb" data-f="safe">Safety</button></div></div>
+   <ul class="tl" id="tl" style="margin-top:14px"></ul>
+  </section>
+  <section class="card" id="meds">
+   <h2>Pill organizer</h2><p class="sub">Tap a compartment to see what happened.</p>
+   <div class="box"><div class="org" id="org"></div></div>
+   <div class="legend"><span><i style="background:var(--sage)"></i>Taken on time</span><span><i style="background:var(--sun)"></i>Late</span><span><i style="background:var(--terra)"></i>Missed</span><span><i style="border:2px dashed var(--sun)"></i>Waiting</span></div>
+   <div class="detail" id="detail">Pick a compartment above.</div>
+  </section>
+ </div>
+
+ <section class="card" id="activity">
+  <div class="row" style="justify-content:space-between"><div><h2>Activity</h2><p class="sub" style="margin:0">Every task comes with a photo the robot checked afterwards.</p></div><button class="btn" id="simB">Simulate a new fetch</button></div>
+  <div class="feed" id="feed" style="margin-top:16px"></div>
+ </section>
+
+ <div class="grid2">
+  <section class="card" id="safety">
+   <h2>Safety refusals</h2><p class="sub">Times the robot said no, and why. Saying no is the robot working correctly.</p>
+   <div id="refs"></div>
+  </section>
+  <section class="card" id="settings">
+   <h2>Settings</h2><p class="sub">Choose when the robot should text you first.</p>
+   <div id="pol"></div>
+   <div class="sl2"><div class="row"><b>Wait for your reply</b><span id="escV">5 min</span></div><small style="color:var(--mut)">Then the robot calls you, then the next person on the rota.</small><input type="range" id="esc" min="2" max="15" value="5" aria-label="Minutes to wait"></div>
+   <div class="sl2"><div class="row"><b>Confidence floor</b><span id="cfV">0.80</span></div><small style="color:var(--mut)">The robot refuses to pick up anything it is less sure about.</small><input type="range" id="cf" min="75" max="95" value="80" aria-label="Confidence floor"></div>
+   <div class="set"><div><b>Daily digest</b><small>One text with the day in a nutshell</small></div><select id="dig" aria-label="Digest time"><option>8:00 PM</option><option selected>10:00 PM</option><option>Off</option></select></div>
+   <div class="set"><div><b>Quiet hours</b><small>No photos after 11 PM unless it matters</small></div><button class="sw on" id="quiet" aria-label="Quiet hours" role="switch" aria-checked="true"></button></div>
+  </section>
+ </div>
+
+ <section class="card" id="team">
+  <h2>Care team</h2><p class="sub">Tap a shift to hand it to someone else.</p>
+  <div class="oncall" id="oncall"></div>
+  <div class="rwrap"><div class="rota" id="rota"></div></div>
+  <div class="row" style="margin-top:12px" id="who"></div>
+  <div class="chain" id="chain"></div>
+ </section>
+
+ <section class="card" id="memory">
+  <div class="row" style="justify-content:space-between"><div><h2>What the robot remembers</h2><p class="sub" style="margin:0">Learned from daily life and from you. Stored with Backboard so it follows Mom, not the device.</p></div>
+   <div class="row" id="mf"></div></div>
+  <form class="row" id="ask" style="margin-top:14px"><input class="inp" id="askIn" placeholder="Ask memory, like: where are the keys?" aria-label="Ask memory"><button class="btn pri">Ask</button></form>
+  <div class="answer" id="ans"></div>
+  <div class="mem" id="mem"></div>
+  <form class="row" id="add" style="margin-top:16px"><input class="inp" id="addIn" placeholder="Teach the robot something new" aria-label="New memory"><select id="addCat" aria-label="Category"><option value="preference">Preference</option><option value="place">Place</option><option value="routine">Routine</option><option value="safety">Safety</option></select><button class="btn">Add memory</button></form>
+ </section>
+</main>
+<div class="toast" id="toast" role="status"></div>
+
+<script>
+const $=s=>document.querySelector(s);const el=(t,c,x)=>{const e=document.createElement(t);if(c)e.className=c;if(x!=null)e.textContent=x;return e};
+function toast(t){const e=$('#toast');e.textContent=t;e.classList.add('on');clearTimeout(toast.t);toast.t=setTimeout(()=>e.classList.remove('on'),2600)}
+const store={get(k,d){try{const v=localStorage.getItem('hub_'+k);return v?JSON.parse(v):d}catch(e){return d}},set(k,v){try{localStorage.setItem('hub_'+k,JSON.stringify(v))}catch(e){}}};
+/* ---- header ---- */
+const hr=new Date().getHours();$('#greet').textContent=(hr<12?'Good morning':hr<18?'Good afternoon':'Good evening')+', Maria.';
+[['Pills on time today','','3 of 3 so far'],['Fetches','k','4 today'],['Refused safely','t','1 today'],['On call','p','Maria']].forEach(([a,c,b])=>{$('#tags').append(el('span','tag '+c,a+': '+b))});
+let latched=false;
+$('#stopB').onclick=()=>{latched=!latched;$('#stopB').classList.toggle('latched',latched);$('#stopB').textContent=latched?'Robot stopped. Tap to clear':'Stop robot';$('#banner').classList.toggle('on',latched);
+ $('#stText').textContent=latched?'Robot stopped':'Robot idle';document.querySelector('.breathe').style.background=latched?'var(--terra)':'var(--sage)';
+ addEvent({t:nowStr(),ic:'!',tone:'t',cat:'safe',h:latched?'You stopped the robot':'Stop cleared remotely',p:latched?'Arm latched, torque off. Mom was told it will be back soon.':'Cleared from the hub. The robot still waits for a request.'});
+ toast(latched?'Robot stopped. It will not move until reset.':'Stop cleared.')};
+/* ---- timeline ---- */
+const nowStr=()=>new Date().toLocaleTimeString([], {hour:'numeric',minute:'2-digit'});
+const EV=[
+ {t:'7:58 AM',ic:'✓',tone:'',cat:'med',h:'Morning pills taken',p:'Dan approved by text at 7:56. Camera saw the cup land on the tray.'},
+ {t:'8:20 AM',ic:'•',tone:'k',cat:'',h:'Water bottle brought',p:'Mom asked out loud. Verified, confidence 0.93.'},
+ {t:'10:05 AM',ic:'!',tone:'t',cat:'safe',h:'Glasses request refused',p:'The robot was only 71% sure the black shape was her glasses. It asked Mom to move the slipper.'},
+ {t:'12:58 PM',ic:'✓',tone:'',cat:'med',h:'Afternoon pills taken',p:'You approved with a thumbs up at 12:57.'},
+ {t:'2:30 PM',ic:'•',tone:'k',cat:'',h:'TV remote brought',p:'Mom prefers it on the left arm of the chair. Remembered.'},
+ {t:'5:15 PM',ic:'✦',tone:'p',cat:'',h:'New memory learned',p:'"Mom prefers the blue cup in the evening."'},
+ {t:'8:02 PM',ic:'✓',tone:'',cat:'med',h:'Evening pills taken',p:'Approved by you in 40 seconds. Delivered and verified, confidence 0.93.'},
+ {t:'8:46 PM',ic:'●',tone:'s',cat:'',h:'Right now',p:'All quiet. Mom is watching her show.',now:1},
+ {t:'9:00 PM',ic:'⏰',tone:'s',cat:'med',h:'Bedtime pills due',p:'The robot will text you first with a photo. It will wait 5 minutes before calling.',future:1}
+];
+let evFilter='all';
+function renderTL(){const u=$('#tl');u.innerHTML='';EV.filter(e=>evFilter==='all'||e.cat===evFilter||e.now).forEach(e=>{const li=el('li',(e.now?'now ':'')+(e.future?'future ':'')+(e.fresh?'new':''));e.fresh=0;
+ li.innerHTML=`<span class="dot ${e.tone}">${e.ic}</span><div><time>${e.t}</time><h4></h4><p></p></div>`;li.querySelector('h4').textContent=e.h;li.querySelector('p').textContent=e.p;u.append(li)});}
+function addEvent(e){e.fresh=1;const i=EV.findIndex(x=>x.now);EV.splice(i,0,e);renderTL();if($('#tl').querySelector('.new'))$('#tl').querySelector('.new').scrollIntoView({block:'nearest'})}
+document.querySelectorAll('[data-f]').forEach(b=>b.onclick=()=>{evFilter=b.dataset.f;document.querySelectorAll('[data-f]').forEach(x=>x.classList.toggle('on',x===b));renderTL()});
+renderTL();
+/* ---- organizer ---- */
+const DAYS=['Sun','Mon','Tue','Wed','Thu','Fri','Sat'],SLOTS=[['Morning','8:00 AM'],['Afternoon','1:00 PM'],['Evening','8:00 PM'],['Bedtime','9:00 PM']];
+const W=[['T','T','T','T'],['T','T','T','L'],['T','T','T','T'],['T','T','M','T'],['T','T','T','T'],['T','T','T','T'],['T','T','T','P']];
+const OFF={T:[-2,-1,2,0,-3,1,3,-1],L:[28]};
+let sel=null;
+const NOTES={M:'Missed. Nobody replied within 10 minutes, so the robot held the arm and did not give the dose. Dan gave it by hand an hour later and logged it.',L:'Given late. The request waited 28 minutes for a reply before it was approved.'};
+function detailTxt(d,s){const c=W[d][s];const day=['Sunday','Monday','Tuesday','Wednesday','Thursday','Friday','Saturday'][d];if(c==='P')return `<b>${day} ${SLOTS[s][0].toLowerCase()}, ${SLOTS[s][1]}</b><br>Waiting. The robot will text you a photo of the cup first, and will not move until you reply.`;
+ const approver=['Maria','Dan','Maria','Dan'][(d+s)%4];const mm=((d*7+s*5)%9);const tm=c==='T'?`${SLOTS[s][1].replace(/:00/,':0'+mm)}`:SLOTS[s][1].replace(/:00/,':28');
+ return `<b>${day} ${SLOTS[s][0].toLowerCase()}, ${SLOTS[s][1]}</b><br>`+(c==='M'?NOTES.M:(c==='L'?NOTES.L:`Taken at ${tm}. Approved by ${approver} by text. Camera confirmed the cup on the tray.`))}
+function renderOrg(){const g=$('#org');g.innerHTML='';g.append(el('div'));DAYS.forEach((d,i)=>g.append(el('div','dh'+(i===6?' today':''),i===6?'Today':d)));
+ SLOTS.forEach((sl,s)=>{const l=el('div','sl');l.innerHTML=`<b>${sl[0]}</b>${sl[1]}`;g.append(l);
+  DAYS.forEach((_,d)=>{const c=W[d][s];const b=el('button','lid '+({T:'taken',L:'late',M:'missed',P:'pending'}[c]),{T:'✓',L:'late',M:'missed',P:'wait'}[c]);b.setAttribute('aria-label',`${DAYS[d]} ${sl[0]}`);if(sel&&sel[0]===d&&sel[1]===s)b.classList.add('sel');
+   b.onclick=()=>{sel=[d,s];renderOrg();$('#detail').innerHTML=detailTxt(d,s)};g.append(b)})});
+ let tot=0,ok=0;W.forEach(r=>r.forEach(c=>{if(c!=='P'){tot++;if(c!=='M')ok++}}));const pct=Math.round(ok/tot*100);
+ $('#adh').textContent=pct+'%';$('#adhSub').textContent=`${ok} of ${tot} doses given`;$('#ringC').style.strokeDashoffset=314*(1-pct/100)}
+renderOrg();$('#detail').innerHTML=detailTxt(6,2);
+/* ---- photos ---- */
+function art(c,kind,box){const x=c.getContext('2d'),w=c.width,h=c.height;let g=x.createLinearGradient(0,0,0,h);g.addColorStop(0,'#f5e8d2');g.addColorStop(1,'#e8d2b0');x.fillStyle=g;x.fillRect(0,0,w,h);
+ g=x.createLinearGradient(0,h*.5,0,h);g.addColorStop(0,'#c99a68');g.addColorStop(1,'#a67842');x.fillStyle=g;x.fillRect(0,h*.5,w,h*.5);x.fillStyle='#bcd6e8';x.fillRect(w*.07,h*.08,w*.22,h*.28);x.fillStyle='#fff9';x.fillRect(w*.17,h*.08,3,h*.28);
+ x.fillStyle='#4a6b7d';x.beginPath();x.roundRect(w*.58,h*.5,w*.38,h*.42,12);x.fill();x.strokeStyle='#a6c5d6';x.setLineDash([6,5]);x.lineWidth=2;x.stroke();x.setLineDash([]);
+ const it=(cx,by,iw,ih,col,fn)=>{x.fillStyle='rgba(0,0,0,.18)';x.beginPath();x.ellipse(cx,by,iw*.6,5,0,0,7);x.fill();fn(cx-iw/2,by-ih,iw,ih,col)};
+ const cup=(a,b,cw,ch,col)=>{x.fillStyle=col;x.beginPath();x.moveTo(a,b);x.lineTo(a+cw,b);x.lineTo(a+cw*.85,b+ch);x.lineTo(a+cw*.15,b+ch);x.fill();x.strokeStyle=col;x.lineWidth=4;x.beginPath();x.arc(a+cw+3,b+ch*.4,ch*.22,-1.4,1.4);x.stroke()};
+ const bot=(a,b,bw,bh,col)=>{x.fillStyle=col;x.beginPath();x.roundRect(a+bw*.1,b+bh*.18,bw*.8,bh*.82,10);x.fill();x.fillRect(a+bw*.34,b,bw*.32,bh*.2);x.fillStyle='#fff8';x.fillRect(a+bw*.1,b+bh*.45,bw*.8,bh*.22)};
+ const slip=(a,b,sw,sh,col)=>{x.fillStyle=col;x.beginPath();x.ellipse(a+sw/2,b+sh*.6,sw/2,sh*.38,-.1,0,7);x.fill();x.fillStyle='#2a2a2f';x.beginPath();x.ellipse(a+sw*.7,b+sh*.5,sw*.2,sh*.25,0,0,7);x.fill()};
+ const tis=(a,b,tw,th,col)=>{x.fillStyle=col;x.beginPath();x.roundRect(a,b+th*.25,tw,th*.75,6);x.fill();x.fillStyle='#fff';x.beginPath();x.moveTo(a+tw*.3,b+th*.25);x.quadraticCurveTo(a+tw*.5,b-th*.3,a+tw*.7,b+th*.25);x.fill()};
+ let bx=null;
+ if(kind==='cup'){it(w*.77,h*.8,52,64,'#7fb8ff',cup);bx=[w*.77-38,h*.8-78,76,86,'on tray 0.93']}
+ else if(kind==='bottle'){it(w*.77,h*.84,40,120,'#2f7bd8',bot);bx=[w*.77-30,h*.84-132,60,138,'on tray 0.93']}
+ else if(kind==='remote'){it(w*.76,h*.78,90,26,'#2b2f36',(a,b,rw,rh,col)=>{x.fillStyle=col;x.beginPath();x.roundRect(a,b,rw,rh,6);x.fill();x.fillStyle='#e03a3a';x.beginPath();x.arc(a+12,b+rh/2,5,0,7);x.fill()});bx=[w*.76-52,h*.78-36,104,44,'on tray 0.90']}
+ else if(kind==='refuse'){it(w*.3,h*.78,110,60,'#8a6a5a',slip);it(w*.46,h*.82,48,60,'#ffc98a',cup);bx=[w*.3-62,h*.78-52,124,60,'glasses? 0.71']}
+ else if(kind==='tissue'){it(w*.77,h*.82,100,60,'#8fd3c8',tis);bx=[w*.77-56,h*.82-76,112,84,'on tray 0.95']}
+ if(bx){const ok=!/0\.71/.test(bx[4]);x.strokeStyle=ok?'#2f9e5b':'#d9552e';x.lineWidth=3;x.strokeRect(bx[0],bx[1],bx[2],bx[3]);x.font='600 13px DM Sans,sans-serif';const tw=x.measureText(bx[4]).width+12;x.fillStyle=ok?'#2f9e5b':'#d9552e';x.fillRect(bx[0],bx[1]-22,tw,22);x.fillStyle='#fff';x.fillText(bx[4],bx[0]+6,bx[1]-6)}}
+const FEED=[
+ {k:'cup',h:'Evening pills delivered',m:'8:02 PM',v:'Verified 0.93',by:'Approved by you'},
+ {k:'bottle',h:'Water bottle, blue',m:'8:14 PM',v:'Verified 0.93',by:'Asked by you. Robot checked which bottle.'},
+ {k:'refuse',h:'Glasses not picked up',m:'10:05 AM',v:'Refused 0.71',by:'Mom was asked to move the slipper',bad:1},
+ {k:'remote',h:'TV remote to the left arm',m:'2:30 PM',v:'Verified 0.90',by:'No approval needed'},
+ {k:'tissue',h:'Tissues',m:'Yesterday 7:10 PM',v:'Verified 0.95',by:'No approval needed'}];
+function postEl(f,fresh){const p=el('article','post');const c=document.createElement('canvas');c.width=400;c.height=250;art(c,f.k);p.append(c);const b=el('div','pb');
+ b.innerHTML=`<h4></h4><small></small><span class="tag ${f.bad?'t':''}" style="align-self:flex-start"></span><div class="acts"><button data-h aria-label="Send a heart">♥ Love</button><button data-n>Note</button></div>`;
+ b.querySelector('h4').textContent=f.h;b.querySelector('small').textContent=f.m+'. '+f.by;b.querySelector('.tag').textContent=f.v;
+ b.querySelector('[data-h]').onclick=e=>{e.target.classList.toggle('on');toast(e.target.classList.contains('on')?'Mom will see your heart on the robot screen.':'Heart removed.')};
+ b.querySelector('[data-n]').onclick=()=>toast('Note sent to the robot screen: "Thinking of you, Mom."');p.append(b);return p}
+FEED.forEach(f=>$('#feed').append(postEl(f)));
+let simI=0;const SIM=[['cup','Midnight water check','just now','Verified 0.91','Scheduled'],['bottle','Water bottle, blue','just now','Verified 0.94','Asked by Dan'],['tissue','Tissues','just now','Verified 0.95','No approval needed']];
+function simulate(){const s=SIM[simI++%3];const f={k:s[0],h:s[1].replace('Midnight water check','Cup refill'),m:nowStr(),v:s[3],by:s[4]};$('#feed').prepend(postEl(f));addEvent({t:nowStr(),ic:'•',tone:'k',cat:'',h:f.h,p:f.by+'. '+f.v+'.'});toast('New: '+f.h)}
+$('#simB').onclick=simulate;setTimeout(()=>{if(!simI)simulate()},9000);
+/* ---- safety ---- */
+const POL=[['Pills and medicine','Always text me first',2,1],['Water and drinks','Skip asking',0,0],['Snacks','Only if the robot is unsure',1,0],['TV remote and phone','Skip asking',0,0],['Glasses and keys','Only if the robot is unsure',1,0],['Anything near the stove','Always text me first',2,1]];
+const pol=store.get('pol',POL.map(p=>p[2]));
+function renderPol(){const b=$('#pol');b.innerHTML='';POL.forEach((p,i)=>{const r=el('div','set');r.innerHTML=`<div><b>${p[0]}</b><small>${p[3]?'Locked on for safety':'Your call'}</small></div>`;const s=el('div','seg');['Never','If unsure','Always'].forEach((l,j)=>{const x=el('button',pol[i]===j?'on':'',l);x.disabled=!!p[3]&&j!==2;x.onclick=()=>{pol[i]=j;store.set('pol',pol);renderPol();toast(`${p[0]}: ${['robot will not ask','robot asks if unsure','robot always asks'][j]}.`)};s.append(x)});r.append(s);b.append(r)})}
+renderPol();
+const REFS=[
+ {t:'Today 10:05 AM',h:'Glasses',d:'Best match was a black slipper. The robot asked Mom to move it into view.',reason:'confidence 0.71 < 0.80',c:.71},
+ {t:'Yesterday 4:40 PM',h:'Mug on the high shelf',d:'Out of the arm\'s safe reach, so it asked for help instead.',reason:'reach 0.74 m > 0.62 m limit'},
+ {t:'Wed 8:00 PM',h:'Evening pills',d:'No reply from you or Dan in 10 minutes, so the arm never moved. Nothing was given by the robot.',reason:'approval timeout 10:00 min'},
+ {t:'Mon 2:12 PM',h:'Tea cup',d:'A hand was close to the tray, so the robot paused and waited.',reason:'person in workspace 0.31 m < 0.50 m'},
+ {t:'Sun 6:30 PM',h:'Green bottle',d:'It could not tell the green bottle from the thermos.',reason:'confidence 0.74 < 0.80',c:.74}];
+function renderRefs(){const b=$('#refs');b.innerHTML='';const th=+$('#cf').value/100;REFS.forEach(r=>{const d=el('div','ref');const l=el('div');l.innerHTML=`<h4></h4><p></p><span class="reason"></span>`;l.querySelector('h4').textContent=r.t+'  ·  '+r.h;l.querySelector('p').textContent=r.d;l.querySelector('.reason').textContent=r.reason;d.append(l);
+ const rt=el('div');if(r.c){const bar=el('div','cbar');bar.innerHTML=`<i style="width:${r.c*100}%"></i><u style="left:${th*100}%"></u>`;rt.append(bar);rt.append(Object.assign(el('span','pass '+(r.c>=th?'y':'n'),r.c>=th?`Would pass at ${th.toFixed(2)}`:`Still refused at ${th.toFixed(2)}`)))}
+ const ok=el('button','btn ok','Looks right');ok.onclick=()=>{ok.textContent='Thanks, noted';ok.disabled=true;toast('Marked as the right call.')};rt.append(ok);d.append(rt);b.append(d)})}
+$('#cf').oninput=e=>{$('#cfV').textContent=(e.target.value/100).toFixed(2);renderRefs()};
+$('#esc').oninput=e=>{$('#escV').textContent=e.target.value+' min';document.querySelectorAll('.tag.p')[0]&&0};
+$('#esc').onchange=()=>toast('The robot will wait '+$('#esc').value+' minutes before calling.');
+$('#quiet').onclick=e=>{const o=e.target.classList.toggle('on');e.target.setAttribute('aria-checked',o)};
+renderRefs();
+/* ---- rota ---- */
+const PPL=[{n:'Maria',r:'Daughter',c:'#6fa5c8',ph:'+1 206 555 0100'},{n:'Dan',r:'Son',c:'#d9795c',ph:'+1 206 555 0188'},{n:'Priya',r:'Aunt',c:'#7b5e8c',ph:'+1 425 555 0133'},{n:'Joy',r:'Home aide',c:'#7fa88a',ph:'+1 206 555 0119'}];
+const SH=[['Day','8a to 6p'],['Evening','6p to 11p'],['Night','11p to 8a']];
+let rota=store.get('rota',[[3,2,1,3,1,2,0],[0,0,1,0,2,1,0],[1,1,0,1,1,0,1]]);const TODAY=6;
+function renderRota(){const g=$('#rota');g.innerHTML='';g.append(el('div'));DAYS.forEach((d,i)=>g.append(el('div','h'+(i===TODAY?' today':''),i===TODAY?'Today':d)));
+ SH.forEach((s,si)=>{const l=el('div','sh');l.innerHTML=`<span><b style="color:var(--ink)">${s[0]}</b><br>${s[1]}</span>`;g.append(l);DAYS.forEach((_,d)=>{const p=PPL[rota[si][d]];const b=el('button','rc'+(d===TODAY&&si===1?' nowc':''),p.n);b.style.background=p.c;b.setAttribute('aria-label',`${DAYS[d]} ${s[0]}: ${p.n}. Tap to change.`);b.onclick=()=>{rota[si][d]=(rota[si][d]+1)%PPL.length;store.set('rota',rota);renderRota();toast(`${DAYS[d]} ${s[0].toLowerCase()} is now ${PPL[rota[si][d]].n}.`)};g.append(b)})});
+ const cur=PPL[rota[1][TODAY]],nxt=PPL[rota[2][TODAY]],bk=PPL[rota[1][TODAY]===rota[0][TODAY+1-1]?rota[2][TODAY]:rota[0][TODAY]];
+ const oc=$('#oncall');oc.innerHTML=`<div class="av" style="background:${cur.c}">${cur.n[0]}</div><div style="flex:1;min-width:160px"><b style="font-family:Fraunces,serif;font-size:19px">${cur.n} is on call</b><div style="color:var(--mut)">${cur.r} · until 11 PM, then ${nxt.n}</div></div>`;
+ [['Text','Texting '],['Call','Calling ']].forEach(([a,b])=>{const x=el('button','btn',a);x.onclick=()=>toast(b+cur.n+' at '+cur.ph);oc.append(x)});
+ const sw=el('button','btn','Ask to swap');sw.onclick=()=>toast('Swap request sent to the family group.');oc.append(sw);
+ const ch=$('#chain');ch.innerHTML='<span>Robot escalation:</span>';const order=[cur,PPL.find(p=>p!==cur&&p===nxt)||PPL[1],PPL.find(p=>p!==cur&&p!==nxt&&p.n!=='Joy')||PPL[2]];order.forEach((p,i)=>{if(i)ch.append(el('span','','then'));ch.append(el('span','n',(i?'':'text and call ')+p.n))});
+ const w=$('#who');w.innerHTML='';PPL.forEach(p=>{const d=el('div','row');d.innerHTML=`<span class="av" style="background:${p.c}">${p.n[0]}</span><span><b>${p.n}</b><br><small style="color:var(--mut)">${p.r}</small></span>`;d.style.marginRight='16px';w.append(d)})}
+renderRota();
+/* ---- memory ---- */
+const CAT={preference:['k','Preference'],place:['','Place'],routine:['s','Routine'],safety:['t','Safety']};
+let MEM=store.get('mem',[
+ {id:1,tx:'Mom prefers the blue cup.',cat:'preference',src:'Seen 9 times. She reaches for it first.',used:9,pin:1},
+ {id:2,tx:'Keys are usually on the left counter by the fruit bowl.',cat:'place',src:'Spotted there 6 of the last 7 days.',used:4},
+ {id:3,tx:'Water in the afternoon, tea after 6 PM.',cat:'routine',src:'From your note on Oct 3.',used:12},
+ {id:4,tx:'Never hand her anything hot. Let it cool for 5 minutes.',cat:'safety',src:'You added this.',used:2,pin:1},
+ {id:5,tx:'The TV remote goes on the left arm of the chair.',cat:'place',src:'She moved it back there twice.',used:5},
+ {id:6,tx:'Mom says "the thing" when she means her glasses.',cat:'preference',src:'Heard 3 times. The robot now asks which one.',used:3}]);
+let mfil='all';
+function renderMem(q){const g=$('#mem');g.innerHTML='';const f=$('#mf');f.innerHTML='';['all',...Object.keys(CAT)].forEach(k=>{const b=el('button','chipb'+(mfil===k?' on':''),k==='all'?'All':CAT[k][1]);b.onclick=()=>{mfil=k;renderMem()};f.append(b)});
+ MEM.filter(m=>(mfil==='all'||m.cat===mfil)&&(!q||m.tx.toLowerCase().includes(q))).sort((a,b)=>(b.pin||0)-(a.pin||0)).forEach(m=>{const c=el('div','mc'+(m.pin?' pin':''));c.innerHTML=`<span class="tag ${CAT[m.cat][0]}" style="align-self:flex-start">${CAT[m.cat][1]}</span><q></q><small></small><div class="acts"><button data-p>${m.pin?'Unpin':'Pin'}</button><button data-d aria-label="Forget this">Forget</button></div>`;
+  c.querySelector('q').textContent=m.tx;c.querySelector('small').textContent=m.src+' Used '+m.used+' times.';
+  c.querySelector('[data-p]').onclick=()=>{m.pin=m.pin?0:1;store.set('mem',MEM);renderMem()};c.querySelector('[data-d]').onclick=()=>{MEM=MEM.filter(x=>x!==m);store.set('mem',MEM);renderMem();toast('Forgotten.')};g.append(c)});
+ if(!g.children.length)g.append(el('p','sub','Nothing here yet.'))}
+renderMem();
+$('#add').onsubmit=e=>{e.preventDefault();const v=$('#addIn').value.trim();if(!v)return;MEM.push({id:Date.now(),tx:v,cat:$('#addCat').value,src:'You added this just now.',used:0});store.set('mem',MEM);$('#addIn').value='';renderMem();toast('Saved to memory. The robot will use it from the next task.')};
+$('#ask').onsubmit=e=>{e.preventDefault();const q=$('#askIn').value.toLowerCase();const words=q.replace(/[^a-z ]/g,' ').split(' ').filter(w=>w.length>3&&!['where','what','does','mom','with','that','which','usually'].includes(w));
+ const hit=MEM.find(m=>words.some(w=>m.tx.toLowerCase().includes(w)));const a=$('#ans');a.classList.add('on');a.textContent=hit?`From memory: "${hit.tx}" (${hit.src.toLowerCase()})`:'The robot has nothing saved about that yet. You can teach it below.'};
+/* nav highlight */
+const secs=[...document.querySelectorAll('main section[id]')],links=[...document.querySelectorAll('.nav a')];
+addEventListener('scroll',()=>{let cur=secs[0];secs.forEach(s=>{if(s.getBoundingClientRect().top<140)cur=s});links.forEach(a=>a.classList.toggle('on',a.getAttribute('href')==='#'+cur.id))},{passive:true});
+</script>
+</body>
+</html>

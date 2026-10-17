@@ -1,0 +1,376 @@
+<!doctype html>
+<!--
+FEATURES:
+- App-store style catalog for SO-101 robot skills (fine-tuned policies): featured hero, category chips, search, sort
+- Each card has a live canvas loop of the skill (pour, stir, wipe, flip, pick and place, hand over), task, success rate with trial count, dataset size, camera setup, safety rating
+- Detail page: eval breakdown by lighting, object position and clutter, failure modes, requirements, reviews with ratings and a write-review form
+- Install flow: fake download with progress, then 3-step calibration check wizard (camera alignment, joint offsets, supervised test move with STOP)
+- My Skills tab with installed state persisted in localStorage when available
+-->
+<!-- SPONSORS: Perceptron Robotics (shareable fine-tuned checkpoints), Perceptron Perception (camera alignment check via object localization), MongoDB Atlas (skill metadata, reviews), Backboard (recommend skills from household memory), Solana (optional: signed provenance of datasets), Vultr (cloud eval runs) -->
+<!-- BACKEND HOOKS: GET /api/skills?query=&category=, GET /api/skills/:id (eval, reviews), POST /api/skills/:id/install (stream checkpoint download, WS /ws install_progress), POST /api/calibration/check {skillId} (uses /api/detect for marker pose), POST /api/skills/:id/reviews, POST /api/stop (latched stop during wizard test move) -->
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Skill Store</title>
+<meta name="description" content="An app store where households and labs share fine-tuned SO-101 robot skills with evals, safety ratings and a guided calibration check.">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+<style>
+:root{--bg:#f5f5f7;--card:#fff;--tx:#1d1d1f;--mut:#6e6e73;--line:#e5e5ea;--blue:#0071e3;--grn:#1f9d55;--amb:#d98200;--red:#d6303f}
+@media(prefers-color-scheme:dark){:root{--bg:#000;--card:#1c1c1e;--tx:#f5f5f7;--mut:#98989f;--line:#2c2c2e;--blue:#2997ff;--grn:#32d74b;--amb:#ff9f0a;--red:#ff453a}}
+*{box-sizing:border-box;-webkit-tap-highlight-color:transparent}
+html,body{margin:0;background:var(--bg);color:var(--tx);font-family:Inter,-apple-system,system-ui,sans-serif;-webkit-font-smoothing:antialiased}
+button,input,select,textarea{font:inherit;color:inherit}
+button{cursor:pointer}
+nav{position:sticky;top:0;z-index:20;background:color-mix(in srgb,var(--bg) 82%,transparent);backdrop-filter:blur(18px);border-bottom:1px solid var(--line);display:flex;align-items:center;gap:14px;padding:10px 20px;flex-wrap:wrap}
+.brand{font-weight:800;font-size:20px;letter-spacing:-.4px;display:flex;gap:8px;align-items:center}
+.brand i{width:28px;height:28px;border-radius:8px;background:linear-gradient(135deg,#5ac8fa,#0071e3 60%,#5e5ce6);display:grid;place-items:center;color:#fff;font-style:normal;font-size:15px}
+.nt{display:flex;gap:2px}
+.nt button{min-height:44px;padding:0 14px;background:none;border:0;border-radius:99px;font-weight:600;color:var(--mut)}
+.nt button.on{color:var(--tx);background:var(--card);box-shadow:0 1px 3px rgba(0,0,0,.1)}
+.search{flex:1;min-width:180px;max-width:360px;margin-left:auto;display:flex;align-items:center;background:var(--card);border:1px solid var(--line);border-radius:12px;padding:0 12px;min-height:44px}
+.search input{border:0;background:none;outline:none;width:100%;min-height:42px}
+.stopb{min-height:44px;padding:0 16px;border:0;border-radius:99px;background:var(--red);color:#fff;font-weight:800;letter-spacing:.5px}
+.wrap{max-width:1120px;margin:0 auto;padding:18px 20px 60px}
+.hero{border-radius:28px;overflow:hidden;position:relative;display:grid;grid-template-columns:1.1fr 1fr;min-height:300px;background:linear-gradient(120deg,#16213e,#1a1a40 55%,#3a1c71);color:#fff;margin-bottom:22px;cursor:pointer}
+.hero .t{padding:34px;display:flex;flex-direction:column;justify-content:center;gap:10px}
+.hero small{opacity:.7;font-weight:700;letter-spacing:1.4px;text-transform:uppercase;font-size:11px}
+.hero h2{margin:0;font-size:38px;line-height:1.05;letter-spacing:-1px}
+.hero p{margin:0;opacity:.8;max-width:420px}
+.hero canvas{width:100%;height:100%;display:block;min-height:260px}
+@media(max-width:720px){.hero{grid-template-columns:1fr}.hero h2{font-size:30px}}
+.chips{display:flex;gap:8px;overflow:auto;padding:2px 0 14px}
+.chip{flex:none;min-height:44px;padding:0 16px;border-radius:99px;border:1px solid var(--line);background:var(--card);font-weight:600}
+.chip.on{background:var(--tx);color:var(--bg);border-color:var(--tx)}
+.sh{display:flex;align-items:baseline;justify-content:space-between;margin:6px 0 12px}
+.sh h3{margin:0;font-size:24px;letter-spacing:-.5px}
+.sh select{border:0;background:none;color:var(--blue);font-weight:600;min-height:44px}
+.grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(310px,1fr));gap:16px}
+.card{background:var(--card);border-radius:22px;overflow:hidden;box-shadow:0 1px 2px rgba(0,0,0,.06),0 8px 24px rgba(0,0,0,.04);transition:transform .2s,box-shadow .2s;cursor:pointer;display:flex;flex-direction:column}
+.card:hover{transform:translateY(-3px);box-shadow:0 12px 32px rgba(0,0,0,.12)}
+.card canvas{width:100%;aspect-ratio:16/9;display:block}
+.cb{padding:14px 16px 16px;display:flex;flex-direction:column;gap:8px;flex:1}
+.ct{display:flex;gap:10px;align-items:flex-start}
+.ct h4{margin:0;font-size:17px;letter-spacing:-.2px}
+.ct .au{color:var(--mut);font-size:13px}
+.get{margin-left:auto;flex:none;min-height:44px;min-width:78px;border:0;border-radius:99px;background:color-mix(in srgb,var(--blue) 14%,transparent);color:var(--blue);font-weight:700;padding:0 18px}
+.get.big{background:var(--blue);color:#fff;font-size:16px;min-width:120px}
+.get.done{background:color-mix(in srgb,var(--grn) 15%,transparent);color:var(--grn)}
+.meta{display:flex;flex-wrap:wrap;gap:6px 14px;font-size:12.5px;color:var(--mut)}
+.meta b{color:var(--tx);font-weight:600}
+.sr{display:flex;align-items:center;gap:8px}
+.sr .bar{flex:1;height:6px;background:var(--line);border-radius:4px;overflow:hidden}
+.sr .bar i{display:block;height:100%;background:var(--grn);border-radius:4px}
+.shield{display:inline-flex;align-items:center;gap:4px;font-weight:700;font-size:12px;padding:2px 8px;border-radius:99px}
+.A{background:color-mix(in srgb,var(--grn) 16%,transparent);color:var(--grn)}
+.B{background:color-mix(in srgb,var(--amb) 16%,transparent);color:var(--amb)}
+.C{background:color-mix(in srgb,var(--red) 16%,transparent);color:var(--red)}
+/* detail */
+.back{min-height:44px;background:none;border:0;color:var(--blue);font-weight:600;font-size:16px;padding:0}
+.dh{display:grid;grid-template-columns:minmax(0,1.2fr) minmax(0,1fr);gap:24px;margin:8px 0 24px}
+@media(max-width:800px){.dh{grid-template-columns:1fr}}
+.dh canvas{width:100%;border-radius:24px;aspect-ratio:16/10;display:block}
+.dh h1{margin:0 0 4px;font-size:34px;letter-spacing:-1px}
+.dh .lead{color:var(--mut);margin:0 0 14px}
+.facts{display:grid;grid-template-columns:repeat(auto-fit,minmax(110px,1fr));background:var(--card);border-radius:18px;margin:16px 0}
+.facts div{padding:12px 14px;border-right:1px solid var(--line)}
+.facts div:last-child{border:0}
+.facts span{display:block;font-size:11px;color:var(--mut);text-transform:uppercase;letter-spacing:.6px;font-weight:600}
+.facts b{font-size:20px;letter-spacing:-.4px}
+.panel{background:var(--card);border-radius:22px;padding:20px;margin-bottom:16px}
+.panel h3{margin:0 0 12px;font-size:20px;letter-spacing:-.4px}
+.two{display:grid;grid-template-columns:1fr 1fr;gap:16px}
+@media(max-width:800px){.two{grid-template-columns:1fr}}
+.ev{display:grid;grid-template-columns:110px 1fr 74px;gap:10px;align-items:center;margin:9px 0;font-size:13px}
+.ev .tr{height:10px;border-radius:6px;background:var(--line);overflow:hidden}
+.ev .tr i{display:block;height:100%;border-radius:6px;background:var(--blue)}
+.ev em{font-style:normal;color:var(--mut);text-align:right;font-variant-numeric:tabular-nums}
+.sub{color:var(--mut);font-size:12px;margin:14px 0 4px;font-weight:600;text-transform:uppercase;letter-spacing:.6px}
+.req{display:flex;flex-direction:column;gap:10px}
+.req div{display:flex;gap:10px;font-size:14px}
+.req span{color:var(--mut);min-width:96px}
+.rev{padding:14px 0;border-top:1px solid var(--line)}
+.rev:first-of-type{border:0}
+.rev .h{display:flex;gap:8px;align-items:center;font-size:13px;color:var(--mut)}
+.stars{color:#ff9f0a;letter-spacing:1px}
+.rev p{margin:6px 0 0}
+.rf{display:flex;gap:8px;flex-wrap:wrap;margin-top:14px}
+.rf input{flex:1;min-width:200px;min-height:44px;border:1px solid var(--line);border-radius:12px;padding:0 12px;background:var(--bg)}
+.rf select{min-height:44px;border:1px solid var(--line);border-radius:12px;background:var(--bg);padding:0 8px}
+.rf button{min-height:44px;border:0;border-radius:12px;background:var(--tx);color:var(--bg);font-weight:600;padding:0 16px}
+.fm li{margin:6px 0;font-size:14px}
+/* modal */
+.modal{position:fixed;inset:0;background:rgba(0,0,0,.45);backdrop-filter:blur(6px);z-index:50;display:none;align-items:center;justify-content:center;padding:16px}
+.modal.on{display:flex}
+.sheet{background:var(--card);border-radius:28px;width:min(520px,100%);max-height:94vh;overflow:auto;padding:24px;animation:up .3s}
+@keyframes up{from{transform:translateY(30px);opacity:0}}
+.sheet h3{margin:0 0 4px;font-size:22px;letter-spacing:-.5px}
+.sheet p{color:var(--mut);margin:0 0 14px}
+.prog{height:10px;background:var(--line);border-radius:6px;overflow:hidden;margin:10px 0}
+.prog i{display:block;height:100%;width:0;background:var(--blue);transition:width .2s}
+.steps{display:flex;gap:6px;margin-bottom:16px}
+.steps i{flex:1;height:4px;border-radius:3px;background:var(--line)}
+.steps i.on{background:var(--blue)}.steps i.ok{background:var(--grn)}
+.chk{display:flex;align-items:center;gap:10px;padding:8px 0;font-size:14px}
+.chk .d{width:22px;height:22px;border-radius:50%;border:2px solid var(--line);display:grid;place-items:center;font-size:12px;flex:none}
+.chk.ok .d{background:var(--grn);border-color:var(--grn);color:#fff}
+.chk.run .d{border-color:var(--blue);border-top-color:transparent;animation:spin .8s linear infinite}
+@keyframes spin{to{transform:rotate(360deg)}}
+.sheet canvas{width:100%;border-radius:16px;background:#0e1118;display:block;margin:8px 0}
+.act{display:flex;gap:8px;margin-top:16px}
+.act button{flex:1;min-height:48px;border-radius:14px;border:0;font-weight:700;font-size:16px}
+.pri{background:var(--blue);color:#fff}.sec{background:var(--bg)}
+.jb{display:grid;grid-template-columns:70px 1fr 56px;gap:8px;font-size:12px;align-items:center;margin:4px 0}
+.toast{position:fixed;bottom:20px;left:50%;transform:translateX(-50%);background:var(--tx);color:var(--bg);padding:10px 18px;border-radius:99px;z-index:70;opacity:0;transition:.2s;pointer-events:none;font-weight:600}
+.toast.on{opacity:1}
+</style>
+</head>
+<body>
+<nav>
+  <div class="brand"><i>S</i>Skill Store</div>
+  <div class="nt"><button class="on" data-t="discover">Discover</button><button data-t="mine">My skills <span id="mineN"></span></button></div>
+  <label class="search"><input id="q" placeholder="Search skills, labs, tasks" aria-label="Search"></label>
+  <button class="stopb" id="stop">STOP</button>
+</nav>
+<div class="wrap" id="app"></div>
+<div class="modal" id="modal"><div class="sheet" id="sheet"></div></div>
+<div class="toast" id="toast"></div>
+
+<script>
+const $=s=>document.querySelector(s);
+const SKILLS=[
+ {id:'pour',name:'Pour Water Gently',cat:'Kitchen',task:'Pour from a small pitcher into a cup without spilling',author:'Okafor Household',av:'#5ac8fa',sr:93.4,n:412,eps:186,gb:2.4,mb:148,cams:'1 wrist + 1 top, 640x480 @ 30',safety:'A',force:'8 N cap',dl:'3.2k',rating:4.8,hue:200,kind:'pour',ver:'1.3.0',
+  ev:{Lighting:[['Dim',86],['Normal',95],['Bright',94]],'Cup position':[['Center',97],['Edge',92],['Far reach',81]],Clutter:[['Empty table',96],['3 objects',91],['6 objects',78]]},
+  fails:['Cup transparent against glass table (11 of 27 fails)','Pitcher handle rotated more than 40 degrees','Water level estimate wrong when cup is dark']},
+ {id:'stir',name:'Stir the Pot',task:'Stir a pot in slow circles for a set time',cat:'Kitchen',author:'UW HCI Lab',av:'#bf5af2',sr:96.1,n:260,eps:90,gb:1.1,mb:96,cams:'1 top, 640x480 @ 30',safety:'B',force:'12 N cap, hot surface warning',dl:'1.9k',rating:4.6,hue:20,kind:'stir',ver:'0.9.4',
+  ev:{Lighting:[['Dim',90],['Normal',97],['Bright',97]],'Pot position':[['Center',98],['Edge',94],['Far reach',88]],Clutter:[['Empty',97],['3 objects',95],['6 objects',89]]},
+  fails:['Pot lid left on','Spoon slips when handle is wet','Steam fogs the top camera']},
+ {id:'wipe',name:'Wipe the Table',task:'Wipe crumbs from a marked table zone',cat:'Cleaning',author:'Sunrise Care Co-op',av:'#30d158',sr:89.7,n:530,eps:140,gb:1.9,mb:120,cams:'1 top, 640x480 @ 30',safety:'A',force:'6 N cap',dl:'5.4k',rating:4.7,hue:140,kind:'wipe',ver:'2.0.1',
+  ev:{Lighting:[['Dim',82],['Normal',92],['Bright',90]],'Zone size':[['Small',94],['Medium',90],['Large',83]],Clutter:[['Empty',94],['3 objects',87],['6 objects',74]]},
+  fails:['Misses crumbs under 3 mm','Pushes light objects off the table','Cloth bunches on glossy surface']},
+ {id:'flip',name:'Flip a Pancake',task:'Flip a pancake with a spatula at the right moment',cat:'Kitchen',author:'Maya and Dev',av:'#ff9f0a',sr:71.2,n:98,eps:240,gb:3.6,mb:210,cams:'1 wrist + 1 top, 1280x720 @ 30',safety:'C',force:'12 N cap, hot pan, splatter',dl:'860',rating:4.2,hue:35,kind:'flip',ver:'0.4.0',
+  ev:{Lighting:[['Dim',55],['Normal',76],['Bright',74]],'Pan position':[['Center',80],['Edge',68],['Far reach',49]],Clutter:[['Empty',78],['3 objects',66],['6 objects',50]]},
+  fails:['Pancake sticks to pan (21 of 28 fails)','Edge detection poor on pale batter','Spatula angle drifts after 20 flips']},
+ {id:'pick',name:'Pick and Place Blocks',task:'Pick colored blocks and place them in the matching bin',cat:'Learning',author:'Perceptron Starter Pack',av:'#0a84ff',sr:97.8,n:1200,eps:300,gb:2.9,mb:132,cams:'1 top, 640x480 @ 30',safety:'A',force:'8 N cap',dl:'12.1k',rating:4.9,hue:260,kind:'pick',ver:'3.1.0',
+  ev:{Lighting:[['Dim',93],['Normal',99],['Bright',98]],'Block position':[['Center',99],['Edge',98],['Far reach',92]],Clutter:[['Empty',99],['3 objects',97],['6 objects',92]]},
+  fails:['Two blocks touching','Block color close to table color','Block rolled out of view']},
+ {id:'remote',name:'Hand Over the Remote',task:'Fetch the TV remote and hold it at lap height',cat:'Assist',author:'Reach Team',av:'#ff375f',sr:94.5,n:344,eps:120,gb:1.5,mb:104,cams:'1 wrist + 1 top, 640x480 @ 30',safety:'A',force:'6 N cap, slows near hands',dl:'4.4k',rating:4.8,hue:340,kind:'hand',ver:'1.1.2',
+  ev:{Lighting:[['Dim',88],['Normal',96],['Bright',95]],'Remote position':[['Center',97],['Edge',94],['Far reach',85]],Clutter:[['Empty',97],['3 objects',94],['6 objects',86]]},
+  fails:['Remote under a blanket','Black remote on dark couch','User hand not detected for handover']},
+ {id:'fold',name:'Fold a Hand Towel',task:'Fold a small towel into thirds',cat:'Cleaning',author:'Stanford Tabletop Lab',av:'#64d2ff',sr:78.9,n:150,eps:420,gb:5.8,mb:260,cams:'2 top, 1280x720 @ 30',safety:'B',force:'8 N cap',dl:'1.2k',rating:4.3,hue:190,kind:'wipe',ver:'0.7.0',
+  ev:{Lighting:[['Dim',66],['Normal',82],['Bright',81]],'Towel position':[['Center',86],['Edge',76],['Far reach',64]],Clutter:[['Empty',84],['3 objects',76],['6 objects',58]]},
+  fails:['Corners curl under','Thick towels slip from gripper','Wrinkled start state']},
+ {id:'pill',name:'Open Pill Organizer',task:'Open the day compartment and present it to the user',cat:'Assist',author:'Sunrise Care Co-op',av:'#30d158',sr:91.0,n:300,eps:110,gb:1.3,mb:98,cams:'1 wrist + 1 top, 640x480 @ 30',safety:'B',force:'5 N cap, needs caregiver approval',dl:'2.7k',rating:4.7,hue:300,kind:'pick',ver:'1.0.6',
+  ev:{Lighting:[['Dim',80],['Normal',93],['Bright',92]],'Box position':[['Center',95],['Edge',90],['Far reach',82]],Clutter:[['Empty',94],['3 objects',90],['6 objects',80]]},
+  fails:['Lid latch variants','Label OCR unreadable','Caregiver approval timeout']}
+];
+const REVIEWS=[
+ ['Jordan P.',5,'Set up in ten minutes. The calibration check caught a loose wrist camera I had missed.','2 days ago'],
+ ['Lab Rig 7',4,'Works well in our lighting. Dropped to about 85 percent with the window blinds open.','1 week ago'],
+ ['Amira K.',5,'My grandfather uses it daily. The force cap and the STOP button made the family comfortable.','2 weeks ago'],
+ ['Tobias L.',3,'Good, but failed a lot when the table had clutter. Wish there was a fine-tune option on my own data.','3 weeks ago']];
+const CATS=['All','Kitchen','Cleaning','Assist','Learning'];
+let state={tab:'discover',cat:'All',sort:'Popular',q:'',open:null,installed:{}};
+try{state.installed=JSON.parse(localStorage.getItem('skills-inst')||'{}')}catch(e){}
+const save=()=>{try{localStorage.setItem('skills-inst',JSON.stringify(state.installed))}catch(e){}};
+const shield=s=>`<span class="shield ${s}">&#9919; Safety ${s}</span>`;
+
+/* ---- canvas demos ---- */
+const L1=70,L2=60;
+function arm(c,bx,by,tx,ty,col,s){
+ let dx=tx-bx,dy=ty-by,d=Math.hypot(dx,dy);const m=(L1+L2)*s*.98;if(d>m){dx*=m/d;dy*=m/d;d=m}
+ const a=Math.acos(Math.max(-1,Math.min(1,((L1*s)**2+d*d-(L2*s)**2)/(2*L1*s*d)))),b=Math.atan2(dy,dx);
+ const ex=bx+Math.cos(b-a)*L1*s,ey=by+Math.sin(b-a)*L1*s;
+ c.lineCap='round';c.strokeStyle=col;c.lineWidth=14*s;c.beginPath();c.moveTo(bx,by);c.lineTo(ex,ey);c.stroke();
+ c.lineWidth=11*s;c.strokeStyle='rgba(255,255,255,.85)';c.beginPath();c.moveTo(ex,ey);c.lineTo(bx+dx,by+dy);c.stroke();
+ c.fillStyle='#222';[[bx,by],[ex,ey]].forEach(p=>{c.beginPath();c.arc(p[0],p[1],6*s,0,7);c.fill()});
+ c.fillStyle=col;c.beginPath();c.arc(bx+dx,by+dy,6*s,0,7);c.fill();
+ return {x:bx+dx,y:by+dy};
+}
+function drawSkill(cv,sk,t,big){
+ const dpr=Math.min(2,devicePixelRatio||1),w=cv.clientWidth||320,h=cv.clientHeight||180;
+ if(cv.width!==w*dpr){cv.width=w*dpr;cv.height=h*dpr}
+ const c=cv.getContext('2d');c.setTransform(dpr,0,0,dpr,0,0);
+ const s=Math.min(w/320,h/180)*1.15,u=t/1000,hue=sk.hue;
+ const g=c.createLinearGradient(0,0,w,h);g.addColorStop(0,`hsl(${hue},70%,${big?22:88}%)`);g.addColorStop(1,`hsl(${hue+40},60%,${big?12:78}%)`);
+ if(big===2){g.addColorStop(0,`hsl(${hue},40%,18%)`);g.addColorStop(1,`hsl(${hue+40},40%,9%)`)}
+ c.fillStyle=g;c.fillRect(0,0,w,h);
+ const gy=h*.78,bx=w*.2,by=gy;
+ c.fillStyle='rgba(0,0,0,.18)';c.fillRect(0,gy,w,h-gy);
+ c.fillStyle='#2b2f3a';c.beginPath();c.roundRect(bx-26*s,by-4,52*s,18*s,6);c.fill();
+ const ph=(u%4)/4,acol=`hsl(${hue},75%,50%)`;
+ let tip;
+ if(sk.kind==='pour'){
+  const cx=w*.62,cyb=gy;
+  c.fillStyle='rgba(255,255,255,.85)';c.beginPath();c.roundRect(cx-18*s,cyb-36*s,36*s,36*s,5);c.fill();
+  const lvl=Math.max(0,Math.min(1,(ph-.35)*2.2))*(ph>.8?(1-(ph-.8)*0):1);
+  c.fillStyle='#5ac8fa';c.fillRect(cx-16*s,cyb-4-30*s*lvl,32*s,30*s*lvl);
+  const k=Math.sin(Math.min(1,ph/.3)*Math.PI/2)*(ph>.7?1-(ph-.7)/.3:1);
+  const tx=bx+Math.cos(-.3)*100*s*(.4+.5*k)+ (w*.62-bx-60*s)*k,ty=gy-80*s-10*s*k;
+  tip=arm(c,bx,by,tx,ty,acol,s);
+  c.save();c.translate(tip.x+8*s,tip.y);c.rotate(-.1-1.1*k*(ph>.3?1:.4));c.fillStyle='#ffd60a';c.beginPath();c.roundRect(-14*s,-6*s,28*s,34*s,6);c.fill();c.restore();
+  if(k>.6&&ph<.8){c.strokeStyle='#5ac8fa';c.lineWidth=3*s;c.beginPath();c.moveTo(tip.x+22*s,tip.y+14*s);c.lineTo(cx,cyb-6-30*s*lvl);c.stroke()}
+ }else if(sk.kind==='stir'){
+  const cx=w*.62,r=20*s;
+  c.fillStyle='#444a57';c.beginPath();c.roundRect(cx-34*s,gy-40*s,68*s,40*s,8);c.fill();
+  c.fillStyle='#ff9f0a';c.beginPath();c.ellipse(cx,gy-40*s,30*s,7*s,0,0,7);c.fill();
+  tip=arm(c,bx,by,cx+Math.cos(u*4)*r*.9,gy-62*s+Math.sin(u*4)*5*s,acol,s);
+  c.strokeStyle='#d7a86e';c.lineWidth=5*s;c.beginPath();c.moveTo(tip.x,tip.y);c.lineTo(tip.x+4*s,gy-38*s);c.stroke();
+  c.strokeStyle='rgba(255,255,255,.5)';c.lineWidth=2;for(let i=0;i<3;i++){c.beginPath();c.arc(cx+(i-1)*14*s,gy-80*s-((u*20+i*13)%24),4+i,0,7);c.stroke()}
+ }else if(sk.kind==='wipe'){
+  const x0=w*.45,x1=w*.88;
+  c.fillStyle='rgba(120,90,60,.6)';for(let i=0;i<14;i++){const px=x0+(x1-x0)*((i*37)%100)/100;if(px>x0+(x1-x0)*(0.5+0.5*Math.sin(u*2.4))||ph>.97)c.fillRect(px,gy-3,3,3)}
+  const px=x0+(x1-x0)*(0.5+0.5*Math.sin(u*2.4));
+  tip=arm(c,bx,by,px,gy-14*s,acol,s);
+  c.fillStyle='#f2f2f7';c.beginPath();c.roundRect(tip.x-16*s,tip.y,32*s,9*s,4);c.fill();
+ }else if(sk.kind==='flip'){
+  const cx=w*.62;
+  c.fillStyle='#333';c.beginPath();c.roundRect(cx-40*s,gy-12*s,80*s,12*s,5);c.fill();
+  const p=ph,fl=p>.45&&p<.8?(p-.45)/.35:0;
+  tip=arm(c,bx,by,cx-36*s+fl*14*s,gy-24*s-Math.sin(fl*Math.PI)*8*s,acol,s);
+  const py=gy-20*s-Math.sin(fl*Math.PI)*70*s;
+  c.save();c.translate(cx,py);c.rotate(fl*Math.PI*2);c.fillStyle=fl>.5||p>.8?'#e9b872':'#f6d9a0';c.beginPath();c.ellipse(0,0,26*s,6*s,0,0,7);c.fill();c.restore();
+ }else{ // pick / hand
+  const bin=w*.82,px=w*.5+Math.sin(sk.hue)*30*s;
+  c.fillStyle='rgba(255,255,255,.7)';c.beginPath();c.roundRect(bin-28*s,gy-28*s,56*s,28*s,6);c.fill();
+  let tx,ty,held=false;
+  if(ph<.3){tx=bx+(px-bx)*ph/.3;ty=gy-80*s+(60*s)*(ph/.3)}else if(ph<.45){tx=px;ty=gy-20*s;held=ph>.38}
+  else if(ph<.8){const q=(ph-.45)/.35;tx=px+(bin-px)*q;ty=gy-20*s-Math.sin(q*Math.PI)*50*s;held=true}
+  else{const q=(ph-.8)/.2;tx=bin+(bx+90*s-bin)*q;ty=gy-30*s-30*s*q}
+  tip=arm(c,bx,by,tx,ty,acol,s);
+  const bxp=held?tip.x:(ph>=.8?bin:px),byp=held?tip.y+10*s:gy-10*s-(ph>=.8?4*s:0);
+  c.fillStyle=`hsl(${hue+90},80%,55%)`;c.beginPath();c.roundRect(bxp-10*s,byp-10*s,20*s,20*s,4);c.fill();
+ }
+ // perception overlay
+ if(big){c.strokeStyle='rgba(50,215,75,.9)';c.lineWidth=1.5;c.strokeRect(w*.55,gy-60*s,w*.14,60*s);c.fillStyle='rgba(50,215,75,.9)';c.font='600 10px Inter';c.fillText('target 0.9'+Math.floor(3+u%5),w*.55,gy-64*s)}
+ c.fillStyle='rgba(0,0,0,.45)';c.beginPath();c.roundRect(8,8,64,20,10);c.fill();c.fillStyle='#fff';c.font='700 10px Inter';c.fillText('LIVE LOOP',16,22);
+}
+let loops=[];
+function runLoops(t){loops.forEach(l=>{if(l.cv.isConnected)drawSkill(l.cv,l.sk,t+l.off,l.big)});requestAnimationFrame(runLoops)}
+
+/* ---- views ---- */
+function match(s){
+ const q=state.q.toLowerCase();
+ return (state.cat==='All'||s.cat===state.cat)&&(!q||(s.name+s.task+s.author+s.cat).toLowerCase().includes(q));
+}
+function card(s){
+ const ins=state.installed[s.id];
+ return `<article class="card" data-id="${s.id}"><canvas data-c="${s.id}"></canvas><div class="cb">
+ <div class="ct"><div><h4>${s.name}</h4><div class="au">${s.author}</div></div><button class="get ${ins?'done':''}" data-get="${s.id}">${ins?'Open':'Get'}</button></div>
+ <div style="font-size:13.5px;color:var(--mut)">${s.task}</div>
+ <div class="sr"><b>${s.sr}%</b><div class="bar"><i style="width:${s.sr}%"></i></div><span style="font-size:12px;color:var(--mut)">${s.n} trials</span></div>
+ <div class="meta"><span>SO-101</span><span><b>${s.eps}</b> episodes</span><span><b>${s.gb}</b> GB</span>${shield(s.safety)}</div>
+ <div class="meta"><span>Cameras: ${s.cams}</span></div></div></article>`;
+}
+function render(){
+ const app=$('#app');loops=[];
+ document.querySelectorAll('.nt button').forEach(b=>b.classList.toggle('on',b.dataset.t===state.tab&&!state.open));
+ $('#mineN').textContent=Object.keys(state.installed).length||'';
+ if(state.open)return renderDetail(SKILLS.find(s=>s.id===state.open));
+ let list=SKILLS.filter(match);
+ if(state.tab==='mine')list=list.filter(s=>state.installed[s.id]);
+ if(state.sort==='Success')list.sort((a,b)=>b.sr-a.sr);else if(state.sort==='Rating')list.sort((a,b)=>b.rating-a.rating);else list.sort((a,b)=>parseFloat(b.dl)-parseFloat(a.dl));
+ const f=SKILLS[0];
+ let h='';
+ if(state.tab==='discover'&&!state.q&&state.cat==='All')h+=`<div class="hero" data-id="${f.id}"><div class="t"><small>Skill of the week</small><h2>${f.name}</h2><p>${f.task}. Trained on ${f.eps} demos by a family kitchen. ${f.sr}% over ${f.n} trials.</p><div><button class="get big" data-get="${f.id}">${state.installed[f.id]?'Open':'Get'}</button></div></div><canvas data-c="hero"></canvas></div>`;
+ if(state.tab==='discover')h+=`<div class="chips">${CATS.map(c=>`<button class="chip ${state.cat===c?'on':''}" data-cat="${c}">${c}</button>`).join('')}</div>`;
+ h+=`<div class="sh"><h3>${state.tab==='mine'?'Installed on this arm':'Top skills for SO-101'}</h3><select id="sort" aria-label="Sort">${['Popular','Success','Rating'].map(o=>`<option ${state.sort===o?'selected':''}>${o}</option>`).join('')}</select></div>`;
+ h+=list.length?`<div class="grid">${list.map(card).join('')}</div>`:`<div class="panel" style="text-align:center;color:var(--mut)">${state.tab==='mine'?'Nothing installed yet. Find a skill in Discover.':'No skills match your search.'}</div>`;
+ app.innerHTML=h;
+ app.querySelectorAll('canvas[data-c]').forEach((cv,i)=>{const id=cv.dataset.c;loops.push({cv,sk:id==='hero'?SKILLS[0]:SKILLS.find(s=>s.id===id),off:i*700,big:id==='hero'?2:0})});
+ app.querySelectorAll('.card,.hero').forEach(el=>el.onclick=e=>{if(e.target.closest('[data-get]'))return;state.open=el.dataset.id;render();scrollTo(0,0)});
+ app.querySelectorAll('[data-get]').forEach(b=>b.onclick=e=>{e.stopPropagation();getSkill(b.dataset.get)});
+ app.querySelectorAll('[data-cat]').forEach(b=>b.onclick=()=>{state.cat=b.dataset.cat;render()});
+ const so=$('#sort');if(so)so.onchange=()=>{state.sort=so.value;render()};
+}
+function renderDetail(s){
+ const ins=state.installed[s.id];
+ const ev=Object.entries(s.ev).map(([k,v])=>`<div class="sub">${k}</div>`+v.map(([n,p])=>`<div class="ev"><span>${n}</span><div class="tr"><i style="width:${p}%;background:${p>=90?'var(--grn)':p>=75?'var(--blue)':'var(--amb)'}"></i></div><em>${p}% (${Math.round(s.n/3)})</em></div>`).join('')).join('');
+ const sd={A:'Low-force actions only. Slows near hands. Safe around people with supervision.',B:'Moderate force or hazards present. Keep a person within reach of STOP.',C:'Experimental. Hot or splash risk. Use only with an adult supervising and STOP at hand.'}[s.safety];
+ $('#app').innerHTML=`<button class="back" id="bk">&lsaquo; Back</button>
+ <div class="dh"><canvas data-c="d"></canvas><div><h1>${s.name}</h1><p class="lead">${s.task}</p>
+  <div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap"><button class="get big ${ins?'done':''}" id="dget">${ins?'Installed':'Get'}</button>${shield(s.safety)}<span style="color:var(--mut);font-size:13px">v${s.ver} &middot; ${s.mb} MB &middot; ${s.dl} installs</span></div>
+  <div class="facts"><div><span>Success</span><b>${s.sr}%</b></div><div><span>Trials</span><b>${s.n}</b></div><div><span>Rating</span><b>${s.rating}</b></div><div><span>Data</span><b>${s.eps} ep</b></div></div>
+  <div style="color:var(--mut);font-size:13px">By <b style="color:var(--tx)">${s.author}</b> &middot; Robot SO-101 &middot; License CC-BY 4.0</div></div></div>
+ <div class="two"><div class="panel"><h3>Evaluation breakdown</h3><div style="color:var(--mut);font-size:13px">Success by condition. Counts are trials per condition.</div>${ev}</div>
+ <div><div class="panel"><h3>Requirements</h3><div class="req">
+  <div><span>Robot</span>SO-101 follower, 6 DoF</div><div><span>Cameras</span>${s.cams}</div><div><span>Dataset</span>${s.eps} episodes, ${s.gb} GB, 30 fps</div><div><span>Compute</span>Runs on laptop CPU at 12 Hz</div><div><span>Force limit</span>${s.force}</div></div></div>
+  <div class="panel"><h3>Safety ${shield(s.safety)}</h3><p style="margin:0;color:var(--mut)">${sd}</p></div>
+  <div class="panel"><h3>Known failure modes</h3><ul class="fm" style="margin:0;padding-left:18px">${s.fails.map(f=>`<li>${f}</li>`).join('')}</ul></div></div></div>
+ <div class="panel"><h3>Ratings and reviews</h3><div style="display:flex;gap:18px;align-items:center;margin-bottom:8px"><div style="font-size:48px;font-weight:800;letter-spacing:-2px">${s.rating}</div><div><div class="stars">&#9733;&#9733;&#9733;&#9733;&#9733;</div><div style="color:var(--mut);font-size:13px">${Math.round(s.n/4)} ratings from ${s.n} trials</div></div></div>
+  <div id="revs">${REVIEWS.map(revH).join('')}</div>
+  <div class="rf"><select id="rs"><option>5</option><option>4</option><option>3</option><option>2</option><option>1</option></select><input id="rt" placeholder="Share how it worked on your arm"><button id="rsub">Post review</button></div></div>`;
+ const cv=$('canvas[data-c]');loops.push({cv,sk:s,off:0,big:1});
+ $('#bk').onclick=()=>{state.open=null;render()};
+ $('#dget').onclick=()=>getSkill(s.id);
+ $('#rsub').onclick=()=>{const t=$('#rt').value.trim();if(!t)return;$('#revs').insertAdjacentHTML('afterbegin',revH(['You',+$('#rs').value,t,'just now']));$('#rt').value='';toast('Review posted')};
+}
+const revH=r=>`<div class="rev"><div class="h"><b style="color:var(--tx)">${r[0]}</b><span class="stars">${'&#9733;'.repeat(r[1])}${'&#9734;'.repeat(5-r[1])}</span><span>${r[3]}</span></div><p>${r[2]}</p></div>`;
+
+/* ---- install flow ---- */
+let flow=null;
+function getSkill(id){
+ const s=SKILLS.find(x=>x.id===id);
+ if(state.installed[id]){toast(s.name+' is ready. Say "run" on the Reach screen.');return}
+ flow={s,step:0,stopped:false};openModal();dl();
+}
+function openModal(){$('#modal').classList.add('on')}
+function closeModal(){$('#modal').classList.remove('on');if(flow&&flow.raf)cancelAnimationFrame(flow.raf);flow=null;render()}
+function dl(){
+ const s=flow.s;let p=0;
+ $('#sheet').innerHTML=`<div class="steps"><i class="on"></i><i></i><i></i><i></i></div><h3>Downloading ${s.name}</h3><p>Policy checkpoint, normalizer and eval card from ${s.author}</p>
+  <div class="prog"><i id="pf"></i></div><div style="display:flex;justify-content:space-between;color:var(--mut);font-size:13px"><span id="pl">0 MB</span><span id="pr"></span></div>
+  <div class="act"><button class="sec" id="cn">Cancel</button></div>`;
+ $('#cn').onclick=()=>{clearInterval(flow.iv);closeModal()};
+ flow.iv=setInterval(()=>{p+=Math.random()*9+3;if(p>=100){p=100;clearInterval(flow.iv);setTimeout(()=>wiz(1),400)}
+  $('#pf').style.width=p+'%';$('#pl').textContent=Math.round(s.mb*p/100)+' of '+s.mb+' MB';$('#pr').textContent=p<100?(Math.round(18+Math.random()*6)+' MB/s'):'Verifying checksum';},200);
+}
+function stepsH(n){return `<div class="steps">${[0,1,2,3].map(i=>`<i class="${i<n?'ok':i===n?'on':''}"></i>`).join('')}</div>`}
+function chk(rows){return rows.map(r=>`<div class="chk ${r[1]}" ><span class="d">${r[1]==='ok'?'&#10003;':''}</span><span>${r[0]}</span></div>`).join('')}
+function wiz(n){
+ const s=flow.s;flow.step=n;
+ if(n===1){
+  $('#sheet').innerHTML=stepsH(1)+`<h3>Calibration check 1 of 3</h3><p>Camera alignment. Place the checker marker where the skill expects it.</p><canvas id="wc" height="170"></canvas><div id="cl">${chk([['Top camera sees marker','run'],['Pose within 4 mm of training setup','']])}</div><div class="act"><button class="sec" id="cn">Cancel</button><button class="pri" id="nx" disabled>Continue</button></div>`;
+  const cv=$('#wc');const tick=t=>{const w=cv.clientWidth;cv.width=w;const c=cv.getContext('2d');c.fillStyle='#10141c';c.fillRect(0,0,w,170);
+   const ox=Math.sin(t/500)*Math.max(0,12-(t-flow.t0)/150),oy=Math.cos(t/420)*Math.max(0,8-(t-flow.t0)/150);
+   const cx=w/2+ox,cy=85+oy;for(let i=0;i<4;i++)for(let j=0;j<4;j++){c.fillStyle=(i+j)%2?'#fff':'#222';c.fillRect(cx-40+i*20,cy-40+j*20,20,20)}
+   c.strokeStyle='#32d74b';c.lineWidth=2;c.setLineDash([5,5]);c.strokeRect(w/2-44,41,88,88);c.setLineDash([]);
+   c.fillStyle='#32d74b';c.font='600 11px Inter';c.fillText('error '+(Math.hypot(ox,oy)*.9).toFixed(1)+' mm',w/2-44,34);
+   flow.raf=requestAnimationFrame(tick)};
+  flow.t0=performance.now();flow.raf=requestAnimationFrame(tick);
+  setTimeout(()=>{if(!flow)return;$('#cl').innerHTML=chk([['Top camera sees marker','ok'],['Pose within 4 mm of training setup','ok']]);$('#nx').disabled=false},2400);
+  $('#nx').onclick=()=>{cancelAnimationFrame(flow.raf);wiz(2)};
+ }else if(n===2){
+  const J=['Base','Shoulder','Elbow','Wrist','Roll','Gripper'];
+  $('#sheet').innerHTML=stepsH(2)+`<h3>Calibration check 2 of 3</h3><p>Joint offsets against the training rig. Anything over 2 degrees is auto-corrected.</p><div id="jb">${J.map((j,i)=>`<div class="jb"><span>${j}</span><div class="prog" style="margin:0;height:6px"><i id="j${i}"></i></div><span id="jv${i}" class="mono">...</span></div>`).join('')}</div><div class="act"><button class="sec" id="cn">Cancel</button><button class="pri" id="nx" disabled>Continue</button></div>`;
+  J.forEach((j,i)=>setTimeout(()=>{if(!flow)return;const v=(Math.random()*3).toFixed(1);$('#j'+i).style.width=(100-v*10)+'%';$('#j'+i).style.background=v>2?'var(--amb)':'var(--grn)';$('#jv'+i).textContent=v+'°'+(v>2?' fix':'');if(i===5)$('#nx').disabled=false},400+i*350));
+  $('#nx').onclick=()=>wiz(3);
+ }else if(n===3){
+  $('#sheet').innerHTML=stepsH(3)+`<h3>Calibration check 3 of 3</h3><p>Supervised test move at 20 percent speed. Keep hands clear. STOP halts instantly.</p><canvas id="wc" height="170"></canvas><div id="cl">${chk([['Clear the workspace','ok'],['Test move','run']])}</div>
+   <div class="act"><button class="pri" style="background:var(--red)" id="wst">STOP</button><button class="pri" id="nx" disabled>Finish</button></div>`;
+  const cv=$('#wc');flow.stopped=false;flow.prog=0;
+  const tick=t=>{const w=cv.clientWidth;cv.width=w;const c=cv.getContext('2d');c.fillStyle='#10141c';c.fillRect(0,0,w,170);
+   if(!flow.stopped&&flow.prog<1)flow.prog+=.004;
+   const q=Math.sin(flow.prog*Math.PI*2);arm(c,w*.3,150,w*.3+90+q*40,100-Math.abs(q)*40,'#0a84ff',1);
+   c.fillStyle='#fff';c.font='600 11px Inter';c.fillText(flow.stopped?'STOPPED':'moving '+Math.round(flow.prog*100)+'%',10,20);
+   if(flow.prog>=1&&!flow.done){flow.done=1;$('#cl').innerHTML=chk([['Clear the workspace','ok'],['Test move within tolerance','ok']]);$('#nx').disabled=false}
+   flow.raf=requestAnimationFrame(tick)};
+  flow.raf=requestAnimationFrame(tick);
+  $('#wst').onclick=()=>{flow.stopped=!flow.stopped;$('#wst').textContent=flow.stopped?'RESUME':'STOP';toast(flow.stopped?'Arm stopped':'Resuming slowly')};
+  $('#nx').onclick=()=>{cancelAnimationFrame(flow.raf);state.installed[s.id]=1;save();
+   $('#sheet').innerHTML=stepsH(4)+`<div style="text-align:center;padding:10px 0"><div style="font-size:54px">&#10003;</div><h3>${s.name} installed</h3><p>Calibration passed. The skill is now available in your arm's task list.</p></div><div class="act"><button class="pri" id="dn">Done</button></div>`;
+   $('#dn').onclick=closeModal};
+ }
+ const cn=$('#cn');if(cn)cn.onclick=closeModal;
+}
+$('#modal').onclick=e=>{if(e.target.id==='modal'&&flow&&flow.step===0)closeModal()};
+$('#stop').onclick=()=>{toast('STOP sent. All arm motion halted.');if(flow&&flow.step===3){flow.stopped=true;const b=$('#wst');if(b)b.textContent='RESUME'}};
+document.querySelectorAll('.nt button').forEach(b=>b.onclick=()=>{state.tab=b.dataset.t;state.open=null;render()});
+$('#q').oninput=e=>{state.q=e.target.value;state.open=null;render()};
+function toast(t){const e=$('#toast');e.textContent=t;e.classList.add('on');clearTimeout(toast.h);toast.h=setTimeout(()=>e.classList.remove('on'),2200)}
+render();requestAnimationFrame(runLoops);
+</script>
+</body>
+</html>

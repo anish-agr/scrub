@@ -1,0 +1,371 @@
+<!-- STYLE: Minimalism modeled on a broadcast / hospital video-conferencing system (Polycom / OR integration touch panel): flat dark and light neutral panels, lower-third caption bar with name, role and timecode, signal bars drawn as plain bars, annotation tools as plain labeled buttons, no glow or gradients. Fonts: Public Sans / IBM Plex Mono. -->
+<!-- FEATURES:
+- Split view: OR monitor (live box trainer camera with robot arm and tracked objects) and a mentor's phone
+- Mentor draws arrows and circles on a live or frozen frame; they appear on the OR monitor anchored to tracked objects (suture pad, needle, tray tools) and follow them
+- Mentor taps a tray instrument to say "hand that next": goes through the safety gate (checklist incl. link latency limit) then a local surgeon confirm before the arm moves
+- Latency indicator with sparkline, bitrate, fps; simulate bandwidth drop
+- Session recording with annotation timeline (arrows, circles, requests, link events, Photon), click a marker to review its snapshot
+- Photon fallback: when bandwidth drops the mentor gets a text with a snapshot, replies 1 to mark up the snapshot over a tiny vector channel
+- Latched STOP on the OR side, training prototype notice
+-->
+<!-- SPONSORS: Perceptron Robotics (SO-101 handoff primitive), Perceptron Perception (object tracking and detection for annotation anchors), Photon (bandwidth fallback text with snapshot), Gemini API (optional voice relay), Tiger Data (latency and event time series), Community Kitchen (healthcare access, training more surgeons) -->
+<!-- BACKEND HOOKS: WS /ws/telementor (frames, annotation vectors, link stats); POST /api/detect {frame} -> tracked object ids+boxes; POST /api/request {action:"handoff", tool, source:"mentor"} through the safety gate; POST /api/confirm {id, approve}; POST /api/photon/send {to, body, media}; POST /api/stop; GET /api/session/{id}/events (timeline) -->
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Telementor Link</title>
+<meta name="description" content="Remote surgical telementoring with anchored annotations, a gated hand-that-next command, session recording and a Photon bandwidth fallback.">
+<link href="https://fonts.googleapis.com/css2?family=Public+Sans:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500&display=swap" rel="stylesheet">
+<style>
+:root{--bg:#101214;--p1:#181b1f;--p2:#1f2327;--line:#363c44;--ink:#e8eaed;--mut:#9aa3ad;--cy:#8fb4d9;--am:#ffb400;--red:#ff4d5e;--grn:#35d07f;--vi:#c9d1da;--btn:#262b31;--noc:#ff9aa5;--sheet:#222a33;--dk:#0b0c0e}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--ink);font:14px/1.45 "Public Sans",system-ui,sans-serif;min-height:100vh;font-variant-numeric:tabular-nums}
+button{font:inherit;color:inherit;min-height:44px;cursor:pointer}
+.mono{font-family:"IBM Plex Mono",monospace}
+a{color:var(--mut)}
+header{display:flex;gap:12px;align-items:center;flex-wrap:wrap;padding:10px 18px;border-bottom:1px solid var(--line);background:var(--dk);position:sticky;top:0;z-index:30}
+.brand{font-weight:700;font-size:17px;letter-spacing:.02em;display:flex;gap:8px;align-items:center}
+.brand i{width:12px;height:12px;background:var(--ink)}
+.disc{font-size:11.5px;color:var(--am);border:1px solid #6b4d00;background:#1d1600;padding:3px 10px}
+.sp{flex:1}
+.pill{display:flex;align-items:center;gap:8px;border:1px solid var(--line);background:var(--p1);padding:5px 12px;font-size:12px}
+.dot{width:9px;height:9px;background:var(--grn)}
+.dot.red{background:var(--red);animation:bl 1s infinite}.dot.am{background:var(--am)}
+@keyframes bl{50%{opacity:.3}}
+.sig{display:inline-flex;gap:2px;align-items:flex-end;height:14px}
+.sig i{width:4px;background:#4a525b;display:block}
+.sig i:nth-child(1){height:4px}.sig i:nth-child(2){height:7px}.sig i:nth-child(3){height:10px}.sig i:nth-child(4){height:14px}
+.sig i.on{background:var(--ink)}.sig.lo i.on{background:var(--red)}
+#stop{background:var(--red);border:0;color:#fff;font-weight:700;letter-spacing:.06em;border-radius:2px;padding:0 22px;min-width:110px}
+#stop.latched{background:#7a1020;outline:3px solid #ff4d5e99}
+main{display:grid;grid-template-columns:minmax(0,1.7fr) minmax(300px,.8fr);gap:16px;padding:16px 18px;max-width:1500px;margin:auto}
+@media(max-width:1000px){main{grid-template-columns:1fr}}
+.panel{background:var(--p1);border:1px solid var(--line);border-radius:0;padding:14px;margin-bottom:16px}
+.panel h2{margin:0 0 10px;font-size:11px;letter-spacing:.14em;text-transform:uppercase;color:var(--mut);display:flex;gap:8px;align-items:center}
+.panel h2 .tag{margin-left:auto;letter-spacing:0;text-transform:none;font-size:11px;color:var(--ink)}
+.monitor{position:relative;overflow:hidden;border:1px solid #000;outline:1px solid var(--line)}
+canvas{display:block;width:100%;height:auto;background:#000}
+.hud{position:absolute;left:10px;top:8px;right:10px;display:flex;justify-content:space-between;font:11px "IBM Plex Mono";color:#e8eaed;pointer-events:none;background:rgba(0,0,0,.55);padding:2px 6px}
+.l3{position:absolute;left:12px;bottom:12px;right:12px;display:flex;align-items:stretch;pointer-events:none;max-width:560px}
+.l3 .who{flex:1;min-width:0}
+.l3 .who b{display:block;background:#f1f2f4;color:#111;padding:4px 12px;font-size:15px;font-weight:700;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.l3 .who span{display:block;background:#1d2126;color:#e8eaed;padding:2px 12px;font-size:11px;letter-spacing:.04em;text-transform:uppercase}
+.l3 .tcb{background:var(--dk);color:#e8eaed;padding:4px 10px;display:flex;flex-direction:column;justify-content:center;gap:4px;align-items:flex-end;font:500 12px "IBM Plex Mono"}
+.stopov{position:absolute;inset:0;background:rgba(120,10,25,.7);display:none;place-items:center;font-weight:700;font-size:22px;letter-spacing:.1em}
+.stopov.on{display:grid}
+.gate{border:1px solid var(--line);padding:12px;background:var(--dk);margin-top:12px}
+.gate .idle{color:var(--mut);font-size:13px}
+.chk{display:flex;gap:10px;align-items:center;padding:5px 0;font-size:13px;color:var(--mut)}
+.chk b{width:20px;height:20px;border-radius:2px;display:grid;place-items:center;font-size:11px;background:#2c333b;color:#fff;flex:none}
+.chk.ok{color:var(--ink)}.chk.ok b{background:var(--grn)}.chk.no{color:var(--red)}.chk.no b{background:var(--red)}
+.btnrow{display:flex;gap:10px;margin-top:10px;flex-wrap:wrap}
+.btn{border:1px solid var(--line);background:var(--btn);border-radius:2px;padding:0 16px;font-weight:500}
+.btn.go{background:var(--grn);color:#04210f;border:0;font-weight:700;min-width:170px}
+.btn.no{background:transparent;border-color:#8a2f3b;color:var(--noc)}
+.btn:disabled{opacity:.4;cursor:not-allowed}
+.grid2{display:grid;grid-template-columns:1fr 1fr;gap:12px}
+@media(max-width:600px){.grid2{grid-template-columns:1fr}}
+.phonewrap{display:flex;justify-content:center}
+.phone{--ink:#14171a;--mut:#4b5460;--line:#b4bac2;--btn:#fff;--noc:#a31b2c;--sheet:#fff;width:100%;max-width:340px;background:#e4e6e9;color:var(--ink);border:1px solid #000;padding:10px 8px 12px;position:relative}
+.notch{display:none}
+.grp{font:600 10px "Public Sans";letter-spacing:.12em;text-transform:uppercase;color:var(--mut);margin:10px 0 4px}
+.pbar{display:flex;justify-content:space-between;font:10.5px "IBM Plex Mono";color:var(--mut);padding:0 2px 6px}
+.pview{position:relative;overflow:hidden;touch-action:none;border:1px solid #000}
+.pview canvas{cursor:crosshair}
+.frz{position:absolute;left:8px;top:8px;font:700 10px "IBM Plex Mono";background:#14171a;color:#fff;padding:2px 6px;display:none}
+.frz.on{display:block}
+.tools{display:grid;grid-template-columns:repeat(4,1fr);gap:6px;margin-top:4px}
+.tools button{background:var(--btn);border:1px solid var(--line);border-radius:2px;font-size:12px;padding:0 2px}
+.tools button.sel{border-color:#000;color:#fff;background:#14171a}
+.chips{display:flex;gap:6px;flex-wrap:wrap;margin-top:4px}
+.chips button{flex:1;min-width:58px;background:var(--btn);border:1px solid var(--line);border-radius:2px;font-size:11px;padding:0 4px}
+.chips button.sel{border-color:#000;background:#14171a;color:#fff}
+.sheet{margin-top:8px;border:1px solid #000;background:var(--sheet);padding:10px;display:none;font-size:13px}
+.sheet.on{display:block}
+.rstat{margin-top:8px;font-size:12px;color:var(--mut);min-height:34px}
+.spark{width:100%;height:44px;background:var(--dk);border:1px solid var(--line)}
+.stats{display:grid;grid-template-columns:repeat(3,1fr);gap:8px;margin-top:8px}
+.stats div{background:var(--dk);border:1px solid var(--line);padding:6px 8px;font-size:11px;color:var(--mut)}
+.stats b{display:block;font:500 15px "IBM Plex Mono";color:var(--ink)}
+.track{position:relative;height:56px;background:var(--dk);border:1px solid var(--line);cursor:pointer;overflow:hidden}
+.track .bad{position:absolute;top:0;bottom:0;background:rgba(255,77,94,.18);border-left:1px solid var(--red);border-right:1px solid var(--red)}
+.track .ph{position:absolute;top:0;bottom:0;width:2px;background:var(--ink)}
+.ev{position:absolute;top:50%;width:22px;height:22px;margin:-11px 0 0 -11px;border-radius:2px;display:grid;place-items:center;font-size:11px;color:#04100f;font-weight:700;border:2px solid var(--dk);cursor:pointer;padding:0;min-height:0}
+.ticks{display:flex;justify-content:space-between;font:10px "IBM Plex Mono";color:var(--mut);margin-top:4px}
+.evd{display:flex;gap:12px;margin-top:10px;align-items:center;font-size:13px;min-height:84px}
+.evd img{width:134px;height:84px;border:1px solid var(--line);background:#000;object-fit:cover}
+.legend{display:flex;gap:12px;flex-wrap:wrap;font-size:11px;color:var(--mut);margin-top:8px}
+.legend span:before{content:"";display:inline-block;width:9px;height:9px;background:var(--c);margin-right:5px}
+.sms{background:var(--dk);border:1px solid var(--line);padding:10px;max-height:340px;overflow:auto;display:flex;flex-direction:column;gap:6px}
+.m{max-width:88%;padding:7px 10px;border-radius:2px;font-size:12.5px}
+.m.in{align-self:flex-start;background:#2a3038}
+.m.out{align-self:flex-end;background:#e8eaed;color:#111}
+.m img{display:block;width:100%;margin-bottom:6px}
+.m small{display:block;opacity:.6;font-size:10px;margin-top:2px}
+.empty{color:var(--mut);font-size:12px;margin:auto;text-align:center}
+.banner{display:none;margin-bottom:10px;border:1px solid #6b4d00;background:#1d1600;color:var(--am);padding:9px 12px;font-size:13px}
+.banner.on{display:block}
+footer{max-width:1500px;margin:0 auto;padding:12px 18px 24px;border-top:1px solid var(--line);font-size:12px;color:var(--mut);display:flex;gap:16px;flex-wrap:wrap}
+</style>
+</head>
+<body>
+<header>
+  <div class="brand"><i></i>Telementor Link</div>
+  <span class="disc">Training and research prototype. Props only, not for clinical use.</span>
+  <span class="sp"></span>
+  <span class="pill"><span class="dot red"></span><span class="mono" id="rec">REC 00:00</span></span>
+  <span class="pill"><span class="dot" id="ldot"></span><span class="mono" id="lat">-- ms</span><span class="sig"><i></i><i></i><i></i><i></i></span></span>
+  <button id="stop" aria-label="Stop arm">STOP</button>
+</header>
+
+<main>
+  <section>
+    <div class="panel">
+      <h2>OR side &middot; box trainer, camera 1 <span class="tag" id="ortag">link good</span></h2>
+      <div class="banner" id="banner"></div>
+      <div class="monitor">
+        <canvas id="or" width="960" height="600"></canvas>
+        <div class="hud"><span>OR 4 &middot; BOX TRAINER &middot; CAM 1</span><span id="hudl">LIVE</span></div>
+        <div class="l3"><div class="who"><b>Dr. R. Okonkwo</b><span>Attending, remote</span></div><div class="tcb"><span id="tc">00:00:00:00</span><span class="sig"><i></i><i></i><i></i><i></i></span></div></div>
+        <div class="stopov" id="sov">STOPPED</div>
+      </div>
+      <div class="gate" id="gate"><div class="idle">Safety gate idle. The remote mentor can propose a handoff. Only the surgeon at the table can approve it.</div></div>
+    </div>
+    <div class="panel">
+      <h2>Session recording <span class="tag" id="evcount"></span></h2>
+      <div class="track" id="track" role="slider" aria-label="Session timeline"></div>
+      <div class="ticks" id="ticks"></div>
+      <div class="legend"><span style="--c:var(--am)">annotation</span><span style="--c:var(--cy)">handoff request</span><span style="--c:var(--red)">link problem</span><span style="--c:var(--vi)">Photon text</span></div>
+      <div class="evd" id="evd"><span style="color:var(--mut)">Click a marker to review the frame and what was sent.</span></div>
+    </div>
+  </section>
+
+  <aside>
+    <div class="panel">
+      <h2>Mentor phone <span class="tag" id="ptag">Dr. R. Okonkwo, remote</span></h2>
+      <div class="phonewrap"><div class="phone">
+        <div class="notch"></div>
+        <div class="pbar"><span id="pclock">9:41</span><span id="pnet">5G &#9679;&#9679;&#9679;&#9679;</span></div>
+        <div class="pview" id="pview"><canvas id="ph" width="640" height="400"></canvas><span class="frz" id="frz">FROZEN</span></div>
+        <div class="grp">Annotation tools</div>
+        <div class="tools" id="tools">
+          <button data-m="arrow" class="sel">Arrow</button><button data-m="circle">Circle</button><button data-m="pick">Tap tool</button><button data-m="freeze" id="bfrz">Freeze</button>
+        </div>
+        <div class="grp">Edit</div>
+        <div class="tools" style="grid-template-columns:1fr 1fr"><button id="undo">Undo mark</button><button id="clear">Clear all</button></div>
+        <div class="grp">Request handoff</div>
+        <div class="chips" id="chips"></div>
+        <div class="sheet" id="sheet"></div>
+        <div class="rstat mono" id="rstat">Draw on the frame. Marks follow the tracked object on the OR monitor.</div>
+      </div></div>
+    </div>
+    <div class="panel">
+      <h2>Link <span class="tag" id="bw">3.2 Mbps &middot; 30 fps</span></h2>
+      <canvas class="spark" id="spark" width="600" height="88"></canvas>
+      <div class="stats"><div>Latency<b id="s1">-</b></div><div>Annot. delivery<b id="s2">-</b></div><div>Packet loss<b id="s3">0.2%</b></div></div>
+      <div class="btnrow"><button class="btn" id="drop">Simulate bandwidth drop</button><button class="btn" id="restore" disabled>Restore link</button></div>
+    </div>
+    <div class="panel">
+      <h2>Mentor SMS <span class="tag">Photon</span></h2>
+      <div class="sms" id="sms"><div class="empty">Quiet. A text with a snapshot is sent if the video link drops.</div></div>
+      <div class="btnrow"><button class="btn" id="reply" disabled>Mentor replies "1"</button></div>
+    </div>
+  </aside>
+</main>
+
+<footer><span>Telementor Link, OR integration panel</span><a href="#">Terms</a><a href="#">Privacy</a></footer>
+
+<script>
+const $=id=>document.getElementById(id);
+const SLOTS=[{id:'scissors',n:'Scissors',c:'#7ec8ff'},{id:'forceps',n:'Forceps',c:'#c9ffb0'},{id:'driver',n:'Needle driver',c:'#ffd27e'},{id:'clamp',n:'Clamp',c:'#ff9ab0'},{id:'scalpel',n:'Scalpel handle',c:'#d3b0ff'}];
+const sc=i=>[570,80+62*i],PALM=[430,125],BASE=[330,410],L=230,HOME=[250,335];
+const S={A:[-1.9,-0.7],carry:null,taken:new Set(),handed:null,hand:false,stopped:false};
+let net={deg:false,lat:100,log:[]},t0=performance.now(),sess0=performance.now()-134000;
+let ann=[],events=[],mode='arrow',frozen=null,pickSlot=null,reqBusy=false,review=null,snapMode=false,gen=0;
+const now=()=>(performance.now()-t0)/1000;
+const sleep=ms=>new Promise(r=>setTimeout(r,ms));
+const fmt=s=>{s=Math.max(0,Math.floor(s));return String(Math.floor(s/60)).padStart(2,'0')+':'+String(s%60).padStart(2,'0')};
+const sessT=()=>(performance.now()-sess0)/1000;
+
+/* ---------- kinematics ---------- */
+function ik(x,y){const dx=x-BASE[0],dy=y-BASE[1],d=Math.min(Math.hypot(dx,dy),2*L-1),b=Math.atan2(dy,dx),a=Math.acos(d/(2*L));
+ const c=[b-a,b+a].sort((p,q)=>Math.cos(p)*L-Math.cos(q)*L)[0],ex=BASE[0]+Math.cos(c)*L,ey=BASE[1]+Math.sin(c)*L;return[c,Math.atan2(y-ey,x-ex)]}
+function tip(A){const e=[BASE[0]+Math.cos(A[0])*L,BASE[1]+Math.sin(A[0])*L];return[e[0]+Math.cos(A[1])*L,e[1]+Math.sin(A[1])*L,e]}
+async function moveTo(p,ms){const g=gen,f=S.A.slice(),to=ik(p[0],p[1]);for(let i=0;i<2;i++){let d=to[i]-f[i];while(d>Math.PI)d-=2*Math.PI;while(d<-Math.PI)d+=2*Math.PI;to[i]=f[i]+d}
+ let el=0,last=performance.now();while(el<ms){await new Promise(r=>requestAnimationFrame(r));if(gen!==g)throw'abort';const n=performance.now();if(!S.stopped)el+=n-last;last=n;const k=Math.min(1,el/ms),e=k<.5?2*k*k:1-Math.pow(-2*k+2,2)/2;S.A=[f[0]+(to[0]-f[0])*e,f[1]+(to[1]-f[1])*e]}}
+S.A=ik(HOME[0],HOME[1]);
+
+/* ---------- tracked objects ---------- */
+function objPos(id,st){const t=st.t;
+ if(id==='pad')return[300+8*Math.sin(t*.5),252+4*Math.cos(t*.4)];
+ if(id==='needle'){const p=objPos('pad',st);return[p[0]-18+12*Math.sin(t*1.3),p[1]-10+6*Math.cos(t*1.1)]}
+ if(id==='arm')return tip(st.A).slice(0,2);
+ const i=SLOTS.findIndex(s=>s.id===id);return i>=0?sc(i):[0,0]}
+const OBJS=['pad','needle','arm',...SLOTS.map(s=>s.id)];
+const OBJN={pad:'suture pad',needle:'needle',arm:'arm tip'};SLOTS.forEach(s=>OBJN[s.id]=s.n.toLowerCase());
+const snap=()=>({t:now(),A:S.A.slice(),carry:S.carry,taken:new Set(S.taken),handed:S.handed,hand:S.hand});
+
+/* ---------- drawing ---------- */
+function inst(c,id,x,y,s,col){c.save();c.translate(x,y);c.scale(s,s);c.strokeStyle=col;c.fillStyle=col;c.lineWidth=3;c.lineCap='round';
+ c.beginPath();c.arc(-30,-5,6,0,7);c.arc(-30,7,6,0,7);c.stroke();c.beginPath();c.moveTo(-24,0);c.lineTo(22,0);c.stroke();
+ if(id==='scissors'){c.beginPath();c.moveTo(14,0);c.lineTo(36,-6);c.moveTo(14,0);c.lineTo(36,6);c.stroke()}
+ else if(id==='forceps'){c.beginPath();c.moveTo(-20,-3);c.lineTo(34,-1);c.moveTo(-20,3);c.lineTo(34,1);c.stroke()}
+ else if(id==='driver'){c.beginPath();c.moveTo(18,-5);c.lineTo(36,-2);c.lineTo(36,2);c.lineTo(18,5);c.fill()}
+ else if(id==='clamp'){c.lineWidth=5;c.beginPath();c.moveTo(14,0);c.lineTo(36,0);c.stroke();c.lineWidth=1.5;c.beginPath();c.moveTo(-12,-4);c.lineTo(-12,4);c.moveTo(-6,-4);c.lineTo(-6,4);c.stroke()}
+ else{c.lineWidth=7;c.beginPath();c.moveTo(-20,0);c.lineTo(20,0);c.stroke();c.lineWidth=2;c.beginPath();c.moveTo(20,0);c.lineTo(36,0);c.stroke()}
+ c.restore()}
+function scene(c,W,st){c.save();c.setTransform(W/640,0,0,W/640,0,0);const t=st.t;
+ c.fillStyle='#0d1a1d';c.fillRect(0,0,640,400);
+ c.strokeStyle='rgba(143,180,217,.06)';c.lineWidth=1;for(let i=0;i<9;i++){c.beginPath();c.moveTo(0,i*50);c.lineTo(640,i*50);c.stroke()}
+ c.fillStyle='#0a1a1d';c.beginPath();c.moveTo(0,330);c.lineTo(640,330);c.lineTo(640,400);c.lineTo(0,400);c.fill();
+ c.fillStyle='#02080a';[[110,14],[420,14]].forEach(p=>{c.beginPath();c.arc(p[0],p[1],20,0,7);c.fill();c.strokeStyle='#245';c.lineWidth=3;c.stroke()});
+ /* tray */
+ c.fillStyle='rgba(20,40,48,.9)';c.strokeStyle='#2c5560';c.lineWidth=2;c.beginPath();c.roundRect(500,40,130,310,2);c.fill();c.stroke();
+ c.font='10px IBM Plex Mono';c.fillStyle='#6ba';c.fillText('TRAY',510,56);
+ SLOTS.forEach((s,i)=>{const [x,y]=sc(i);c.strokeStyle='#2a4a53';c.setLineDash([4,3]);c.strokeRect(508,y-26,114,52);c.setLineDash([]);
+  if(!st.taken.has(i)&&st.handed!==i)inst(c,s.id,x,y,1,s.c);c.fillStyle='#6a98a2';c.font='9px IBM Plex Mono';c.fillText(s.n,512,y+22)});
+ /* pad */
+ const pp=objPos('pad',st);c.save();c.translate(pp[0],pp[1]);c.fillStyle='#c98b8b';c.strokeStyle='#e6b3b3';c.lineWidth=2;c.beginPath();c.roundRect(-80,-45,160,90,3);c.fill();c.stroke();
+ c.strokeStyle='#5a2d3a';c.lineWidth=3;c.beginPath();c.moveTo(-50,0);c.lineTo(50,0);c.stroke();c.lineWidth=2;c.strokeStyle='#f4f0e0';for(let i=-4;i<=2;i++){c.beginPath();c.moveTo(-40+i*12+36,-10);c.lineTo(-40+i*12+36,10);c.stroke()}c.restore();
+ /* instrument shafts */
+ const nd=objPos('needle',st);c.strokeStyle='#9fb6bd';c.lineWidth=7;c.beginPath();c.moveTo(110,14);c.lineTo(nd[0]-8,nd[1]-4);c.stroke();c.beginPath();c.moveTo(420,14);c.lineTo(nd[0]+14,nd[1]-2);c.stroke();
+ c.strokeStyle='#ddeef2';c.lineWidth=2.5;c.beginPath();c.arc(nd[0],nd[1]+8,13,3.4,5.9);c.stroke();
+ /* hand */
+ if(st.hand){c.fillStyle='rgba(230,240,255,.16)';c.strokeStyle='rgba(180,220,255,.5)';c.lineWidth=2;c.beginPath();c.ellipse(PALM[0]+10,PALM[1]+60,44,52,0,0,7);c.fill();c.stroke();for(let i=0;i<4;i++){c.beginPath();c.ellipse(PALM[0]-30+i*20,PALM[1]-12-(i%3==1?8:0),8,24,0,0,7);c.fill();c.stroke()}}
+ c.strokeStyle='rgba(143,180,217,.5)';c.setLineDash([5,4]);c.lineWidth=1.5;c.beginPath();c.arc(PALM[0],PALM[1],34,0,7);c.stroke();c.setLineDash([]);c.fillStyle='rgba(143,180,217,.7)';c.font='9px IBM Plex Mono';c.fillText('PALM ZONE',PALM[0]-30,PALM[1]+50);
+ if(st.handed!=null){inst(c,SLOTS[st.handed].id,PALM[0],PALM[1]+4,1.1,SLOTS[st.handed].c)}
+ /* arm */
+ const [tx,ty,e]=tip(st.A);c.lineCap='round';c.strokeStyle='#1d5b62';c.lineWidth=20;c.beginPath();c.moveTo(BASE[0],BASE[1]);c.lineTo(e[0],e[1]);c.stroke();c.strokeStyle='#8fb4d9';c.lineWidth=14;c.beginPath();c.moveTo(e[0],e[1]);c.lineTo(tx,ty);c.stroke();
+ c.fillStyle='#07181b';c.beginPath();c.arc(e[0],e[1],8,0,7);c.fill();c.beginPath();c.arc(tx,ty,8,0,7);c.fill();
+ if(st.carry!=null)inst(c,SLOTS[st.carry].id,tx,ty,.8,SLOTS[st.carry].c);
+ /* camera feel */
+ c.fillStyle='rgba(255,255,255,.025)';for(let i=0;i<30;i++){c.fillRect((i*97+t*40)%640,(i*53)%400,2,1)}
+ c.restore()}
+function drawBox(c,W,st,id,label){const p=objPos(id,st),r=id==='pad'?[88,52]:id==='needle'?[26,24]:id==='arm'?[22,22]:[60,24];c.save();c.setTransform(W/640,0,0,W/640,0,0);c.strokeStyle='rgba(255,180,0,.75)';c.lineWidth=1;c.strokeRect(p[0]-r[0],p[1]-r[1],r[0]*2,r[1]*2);c.fillStyle='#ffb400';c.font='9px IBM Plex Mono';c.fillText(label,p[0]-r[0],p[1]-r[1]-3);c.restore()}
+function annDraw(c,W,st,list,isOR){c.save();c.setTransform(W/640,0,0,W/640,0,0);const tn=performance.now();
+ list.forEach(a=>{if(isOR&&!a.arrived)return;const prog=isOR?Math.min(1,(tn-a.arrived)/450):1;const b=a.anchor?objPos(a.anchor,st):[0,0];
+  const p0=[b[0]+a.r0[0],b[1]+a.r0[1]],p1=[b[0]+a.r1[0],b[1]+a.r1[1]];c.lineCap='round';
+  for(const [col,w] of [['#000',7],['#ffb400',4]]){c.strokeStyle=col;c.fillStyle=col;c.lineWidth=w;
+   if(a.type==='arrow'){const q=[p0[0]+(p1[0]-p0[0])*prog,p0[1]+(p1[1]-p0[1])*prog],an=Math.atan2(p1[1]-p0[1],p1[0]-p0[0]);c.beginPath();c.moveTo(p0[0],p0[1]);c.lineTo(q[0],q[1]);c.stroke();
+    if(prog>.9){c.beginPath();c.moveTo(p1[0],p1[1]);c.lineTo(p1[0]-16*Math.cos(an-.45),p1[1]-16*Math.sin(an-.45));c.moveTo(p1[0],p1[1]);c.lineTo(p1[0]-16*Math.cos(an+.45),p1[1]-16*Math.sin(an+.45));c.stroke()}}
+   else{const r=Math.hypot(p1[0]-p0[0],p1[1]-p0[1]);c.beginPath();c.arc(p0[0],p0[1],r,0,Math.PI*2*prog);c.stroke()}}
+  if(isOR&&a.anchor&&prog>=1){c.fillStyle='rgba(0,0,0,.65)';c.fillRect(p0[0]+6,p0[1]+(a.type==='circle'?-Math.hypot(p1[0]-p0[0],p1[1]-p0[1])-22:8),118,16);c.fillStyle='#ffb400';c.font='9.5px IBM Plex Mono';c.fillText('LOCK '+OBJN[a.anchor],p0[0]+10,p0[1]+(a.type==='circle'?-Math.hypot(p1[0]-p0[0],p1[1]-p0[1])-10:20))}
+ });c.restore()}
+
+/* ---------- main loop ---------- */
+const orC=$('or'),orX=orC.getContext('2d'),phC=$('ph'),phX=phC.getContext('2d'),low=document.createElement('canvas');low.width=96;low.height=60;const lx=low.getContext('2d');let lastLow=0;
+function loop(){const st=snap();scene(orX,960,st);
+ const tags=['pad','needle','arm'];tags.forEach(i=>drawBox(orX,960,st,i,OBJN[i].replace(' ','_')+' 0.9'+(i.length%9)));annDraw(orX,960,st,ann,true);
+ /* phone */
+ if(frozen){scene(phX,640,frozen);annDraw(phX,640,frozen,ann,false)}
+ else if(net.deg||snapMode){const tn=performance.now();if(tn-lastLow>500){lastLow=tn;scene(lx,96,st);phX.imageSmoothingEnabled=false;phX.setTransform(1,0,0,1,0,0);phX.drawImage(low,0,0,640,400)}annDraw(phX,640,st,ann,false)}
+ else{scene(phX,640,st);annDraw(phX,640,st,ann,false)}
+ if(S.stopped)$('sov').classList.add('on');else $('sov').classList.remove('on');
+ $('rec').textContent='REC '+fmt(sessT());$('tc').textContent=tcode(sessT());$('pclock').textContent=new Date().toLocaleTimeString([], {hour:'numeric',minute:'2-digit'}).replace(/ ?[AP]M/,'');
+ requestAnimationFrame(loop)}
+
+/* ---------- link ---------- */
+const lh=[];
+setInterval(()=>{const v=net.deg?650+Math.random()*450:82+Math.random()*38+(Math.random()<.05?60:0);net.lat=Math.round(v);lh.push(net.lat);if(lh.length>60)lh.shift();
+ $('lat').textContent=net.lat+' ms';sigUpdate(net.lat);$('s1').textContent=net.lat+' ms';const d=$('ldot');d.className='dot'+(net.lat>400?' red':net.lat>200?' am':'');drawSpark()},500);
+function sigUpdate(l){const n=l<150?4:l<250?3:l<400?2:1;document.querySelectorAll('.sig').forEach(e=>{e.classList.toggle('lo',n<=2);[...e.children].forEach((b,i)=>b.classList.toggle('on',i<n))})}
+function tcode(t){t=Math.max(0,t);const h=Math.floor(t/3600),m=Math.floor(t/60)%60,sec=Math.floor(t)%60,f=Math.floor((t%1)*30);return[h,m,sec,f].map(v=>String(v).padStart(2,'0')).join(':')}
+function drawSpark(){const c=$('spark').getContext('2d');c.clearRect(0,0,600,88);c.strokeStyle='rgba(255,77,94,.5)';c.setLineDash([4,4]);c.beginPath();c.moveTo(0,88-400/1200*88);c.lineTo(600,88-400/1200*88);c.stroke();c.setLineDash([]);
+ c.strokeStyle=net.deg?'#ff4d5e':'#8fb4d9';c.lineWidth=2;c.beginPath();lh.forEach((v,i)=>{const x=i*10,y=86-Math.min(v,1200)/1200*84;i?c.lineTo(x,y):c.moveTo(x,y)});c.stroke()}
+function addEv(type,label,detail){const o=document.createElement('canvas');o.width=160;o.height=100;o.getContext('2d').drawImage(orC,0,0,160,100);events.push({t:sessT(),type,label,detail,img:o.toDataURL('image/jpeg',.6)});renderTL()}
+const EC={ann:'var(--am)',req:'var(--cy)',net:'var(--red)',sms:'var(--vi)'},EI={ann:'A',req:'H',net:'!',sms:'T'};
+function renderTL(){const dur=Math.max(180,sessT()+10),tr=$('track');
+ const bad=[...(net.log||[])].map(b=>`<div class="bad" style="left:${b[0]/dur*100}%;width:${((b[1]??sessT())-b[0])/dur*100}%"></div>`).join('');
+ tr.innerHTML=bad+events.map((e,i)=>`<button class="ev" data-i="${i}" title="${e.label}" style="left:${e.t/dur*100}%;background:${EC[e.type]}">${EI[e.type]}</button>`).join('')+`<div class="ph" style="left:${sessT()/dur*100}%"></div>`;
+ $('ticks').innerHTML=[0,.25,.5,.75,1].map(f=>`<span>${fmt(dur*f)}</span>`).join('');$('evcount').textContent=events.length+' events recorded'}
+$('track').onclick=e=>{const b=e.target.closest('.ev');if(!b)return;const ev=events[+b.dataset.i];$('evd').innerHTML=`<img src="${ev.img}" alt="Frame at event"><div><b>${fmt(ev.t)} &middot; ${ev.label}</b><div style="color:var(--mut)">${ev.detail}</div></div>`};
+setInterval(renderTL,2000);
+$('drop').onclick=async()=>{if(net.deg)return;net.deg=true;net.log.push([sessT(),null]);$('drop').disabled=true;$('restore').disabled=false;$('bw').textContent='0.3 Mbps · 2 fps';$('ortag').textContent='link degraded';$('pnet').textContent='3G ●○○○';
+ addEv('net','Bandwidth drop','Video fell from 3.2 Mbps to 0.3 Mbps. Latency above 600 ms. Remote commands blocked by the gate.');
+ $('banner').textContent='Bandwidth low. Mentor video is degraded and remote handoffs are blocked until latency is below 400 ms.';$('banner').classList.add('on');$('s3').textContent='6.8%';
+ await sleep(2200);if(!net.deg)return;
+ const o=document.createElement('canvas');o.width=320;o.height=200;o.getContext('2d').drawImage(orC,0,0,320,200);const img=o.toDataURL('image/jpeg',.7);snapMeta=img;
+ sms('in','Telementor: Link to OR 4 dropped to 0.3 Mbps. Latest frame attached. Reply 1 to mark up this snapshot, 2 to request a call.',img);addEv('sms','Photon snapshot text','Fallback text with frame sent to the mentor phone.');$('reply').disabled=false};
+let snapMeta=null;
+function restore(){net.deg=false;snapMode=false;if(net.log.length&&net.log[net.log.length-1][1]===null)net.log[net.log.length-1][1]=sessT();$('drop').disabled=false;$('restore').disabled=true;$('reply').disabled=true;$('bw').textContent='3.2 Mbps · 30 fps';$('ortag').textContent='link good';$('banner').classList.remove('on');$('pnet').textContent='5G ●●●●';$('s3').textContent='0.2%';
+ if(frozen&&frozen.fromSms)unfreeze();addEv('net','Link restored','Back to live video. Remote handoffs enabled again.')}
+$('restore').onclick=restore;
+function sms(who,txt,img){const s=$('sms');if(s.querySelector('.empty'))s.innerHTML='';const d=document.createElement('div');d.className='m '+who;d.innerHTML=(img?`<img src="${img}" alt="Snapshot">`:'')+txt+`<small>${new Date().toLocaleTimeString([], {hour:'numeric',minute:'2-digit'})}${who==='in'?' · via Photon':''}</small>`;s.appendChild(d);s.scrollTop=1e5}
+$('reply').onclick=()=>{sms('out','1');$('reply').disabled=true;snapMode=true;frozen=Object.assign(snap(),{fromSms:true});$('frz').classList.add('on');$('frz').textContent='SNAPSHOT';$('bfrz').textContent='Go live';
+ setStatus('Marking up the snapshot. Marks go out as a few bytes of vector data.');addEv('sms','Mentor replied 1','Snapshot markup mode opened. Annotations use the low-bandwidth vector channel.')};
+
+/* ---------- mentor drawing ---------- */
+function unfreeze(){frozen=null;$('frz').classList.remove('on');$('bfrz').textContent='Freeze'}
+function setStatus(t){$('rstat').textContent=t}
+$('tools').onclick=e=>{const b=e.target.closest('button');if(!b)return;const m=b.dataset.m;
+ if(m==='freeze'){if(frozen){unfreeze()}else{frozen=snap();$('frz').textContent='FROZEN';$('frz').classList.add('on');b.textContent='Go live'}return}
+ mode=m;document.querySelectorAll('#tools [data-m]').forEach(x=>x.classList.toggle('sel',x.dataset.m===m));setStatus(m==='pick'?'Tap an instrument on the tray to propose a handoff.':'Drag on the frame to draw.')};
+$('undo').onclick=()=>{const a=ann.pop();if(a)addEv('ann','Mark removed','Mentor removed the last annotation.')};
+$('clear').onclick=()=>{if(ann.length){ann=[];addEv('ann','Annotations cleared','Mentor cleared all marks from the OR monitor.')}};
+let drag=null;const pv=$('ph');
+const pt=e=>{const r=pv.getBoundingClientRect();return[(e.clientX-r.left)/r.width*640,(e.clientY-r.top)/r.height*400]};
+pv.onpointerdown=e=>{const p=pt(e);if(mode==='pick'){const i=SLOTS.findIndex((s,i)=>Math.abs(p[0]-570)<62&&Math.abs(p[1]-sc(i)[1])<30);if(i>=0)proposeHandoff(i);return}drag={p0:p,p1:p};pv.setPointerCapture(e.pointerId)};
+pv.onpointermove=e=>{if(!drag)return;drag.p1=pt(e);drag.live=true};
+pv.onpointerup=e=>{if(!drag)return;const d=drag;drag=null;d.p1=pt(e);if(Math.hypot(d.p1[0]-d.p0[0],d.p1[1]-d.p0[1])<10)return;commitAnn(d)};
+function commitAnn(d){const st=frozen||snap();let best=null,bd=80;OBJS.forEach(id=>{const q=objPos(id,st),dist=Math.hypot(q[0]-d.p0[0],q[1]-d.p0[1]);if(dist<bd){bd=dist;best=id}});
+ const b=best?objPos(best,st):[0,0];const a={type:mode==='circle'?'circle':'arrow',anchor:best,r0:[d.p0[0]-b[0],d.p0[1]-b[1]],r1:[d.p1[0]-b[0],d.p1[1]-b[1]],arrived:0};ann.push(a);
+ const delay=snapMode||net.deg?net.lat:net.lat*.6;setStatus('Sent '+a.type+(best?' anchored to '+OBJN[best]:'')+'. Delivering...');
+ setTimeout(()=>{a.arrived=performance.now();$('s2').textContent=Math.round(delay)+' ms';setStatus('Shown on OR monitor in '+Math.round(delay)+' ms'+(best?', tracking '+OBJN[best]:'')+'.');
+  addEv('ann',(a.type==='arrow'?'Arrow':'Circle')+(best?' on '+OBJN[best]:' on frame'),(best?'Anchored to tracked '+OBJN[best]+' so it follows it live. ':'Frame-fixed mark. ')+'Delivered in '+Math.round(delay)+' ms'+(snapMode?' over the vector fallback channel.':'.')+(frozen?' Drawn on a frozen frame.':''))},delay)}
+/* preview of drag */
+/* patched loop draws drag preview */
+function dragPreview(){if(!drag||!drag.live)return;const c=phX;c.save();c.setTransform(1,0,0,1,0,0);c.strokeStyle='#ffb400';c.lineWidth=4;c.beginPath();if(mode==='circle'){c.arc(drag.p0[0],drag.p0[1],Math.hypot(drag.p1[0]-drag.p0[0],drag.p1[1]-drag.p0[1]),0,7)}else{c.moveTo(drag.p0[0],drag.p0[1]);c.lineTo(drag.p1[0],drag.p1[1])}c.stroke();c.restore()}
+(function wrap(){const f=annDraw;annDraw=function(c,W,st,l,isOR){f(c,W,st,l,isOR);if(!isOR&&c===phX&&W===640)dragPreview()}})();
+
+/* ---------- handoff request ---------- */
+function buildChips(){$('chips').innerHTML=SLOTS.map((s,i)=>`<button data-i="${i}" ${S.taken.has(i)?'disabled':''}>${s.n}</button>`).join('')}
+$('chips').onclick=e=>{const b=e.target.closest('button');if(b)proposeHandoff(+b.dataset.i)};
+function proposeHandoff(i){if(reqBusy||S.taken.has(i)){setStatus('A request is already in progress.');return}
+ pickSlot=i;document.querySelectorAll('#chips button').forEach((b,k)=>b.classList.toggle('sel',k===i));
+ const sh=$('sheet');sh.classList.add('on');sh.innerHTML=`<b>Hand the ${SLOTS[i].n.toLowerCase()} next?</b><div style="color:var(--mut);font-size:12px;margin:4px 0 8px">The OR surgeon must approve before the arm moves.</div><div class="btnrow" style="margin:0"><button class="btn go" id="sendreq" style="min-width:120px">Send to OR</button><button class="btn" id="cancelreq">Cancel</button></div>`;
+ $('cancelreq').onclick=()=>{sh.classList.remove('on');document.querySelectorAll('#chips button').forEach(b=>b.classList.remove('sel'))};
+ $('sendreq').onclick=()=>{sh.classList.remove('on');runRequest(i)}}
+function gateRow(id,txt){return`<div class="chk" id="${id}"><b>&middot;</b>${txt}</div>`}
+async function runRequest(i){reqBusy=true;const g=gen,s=SLOTS[i],G=$('gate');
+ setStatus('Request sent. Waiting for the OR safety gate...');await sleep(net.lat*.6);
+ addEv('req','Handoff proposed: '+s.n,'Mentor tapped the '+s.n.toLowerCase()+' on the tray.');
+ G.innerHTML=`<div style="display:flex;gap:8px;align-items:center;margin-bottom:6px"><b>Mentor request: hand the ${s.n.toLowerCase()} next</b><span class="mono" style="margin-left:auto;font-size:11px;color:var(--mut)">source: remote mentor</span></div>`+
+  gateRow('g1',`Tool identified: ${s.id} detected in tray slot ${i+1} (0.96)`)+gateRow('g2','Palm zone: hand detected and open')+gateRow('g3','Within safe reach, speed capped at 40%')+gateRow('g4','Link latency below 400 ms limit')+`<div id="gbtn"></div>`;
+ const mark=(id,ok,txt)=>{const e=$(id);e.className='chk '+(ok?'ok':'no');e.firstChild.innerHTML=ok?'&#10003;':'&#10005;';if(txt)e.lastChild.textContent=txt};
+ S.hand=true;try{
+ for(const [id,ok] of [['g1',true],['g2',true],['g3',true]]){await sleep(600);mark(id,ok)}
+ await sleep(600);if(net.lat>400||net.deg){mark('g4',false,'Link latency '+net.lat+' ms is above the 400 ms limit');$('gbtn').innerHTML='<div style="color:var(--red);margin-top:8px">Rejected by safety gate. The mentor was told to ask by voice or text.</div>';addEv('req','Request blocked by gate','Latency '+net.lat+' ms exceeded the 400 ms limit for remote commands.');setStatus('Blocked: link too slow for remote commands.');await sleep(3500);S.hand=false;G.innerHTML='<div class="idle">Safety gate idle.</div>';reqBusy=false;return}
+ mark('g4',true,'Link latency '+net.lat+' ms, below the 400 ms limit');
+ $('gbtn').innerHTML='<div style="margin-top:8px"><b>Local surgeon confirm required</b></div><div class="btnrow"><button class="btn go" id="appr">Approve handoff</button><button class="btn no" id="deny">Decline</button></div>';
+ setStatus('Passed gate. Waiting for the surgeon at the table to confirm.');
+ const ok=await new Promise(res=>{$('appr').onclick=()=>res(true);$('deny').onclick=()=>res(false);const iv=setInterval(()=>{if(gen!==g){clearInterval(iv);res('abort')}},100)});
+ if(ok==='abort')throw'abort';
+ if(!ok){addEv('req','Declined by surgeon','Local surgeon declined the mentor request.');setStatus('Surgeon declined the request.');G.innerHTML='<div class="idle">Request declined. Gate idle.</div>';S.hand=false;reqBusy=false;return}
+ addEv('req','Approved and executing','Surgeon approved. Arm moved the '+s.n.toLowerCase()+' to the palm zone.');setStatus('Approved. Arm is handing it over.');$('gbtn').innerHTML='<div style="color:var(--grn);margin-top:8px">Approved. Executing at 40% speed.</div>';
+ await moveTo(sc(i),1300);S.carry=i;S.taken.add(i);buildChips();await sleep(300);await moveTo(PALM,1400);S.carry=null;S.handed=i;await sleep(300);await moveTo(HOME,1200);
+ setStatus('Handed. The surgeon has the '+s.n.toLowerCase()+'.');G.innerHTML='<div class="idle">Handoff complete. Gate idle.</div>';
+ await sleep(4000);S.handed=null;S.hand=false;S.taken.delete(i);buildChips();document.querySelectorAll('#chips button').forEach(b=>b.classList.remove('sel'));reqBusy=false;
+ }catch(e){if(e!=='abort')throw e;reqBusy=false}}
+
+/* ---------- STOP ---------- */
+$('stop').onclick=()=>{S.stopped=!S.stopped;$('stop').classList.toggle('latched',S.stopped);$('stop').textContent=S.stopped?'RELEASE':'STOP';
+ if(S.stopped){gen++;reqBusy=false;S.hand=false;S.carry=null;S.handed=null;S.taken.clear();buildChips();$('gate').innerHTML='<div class="idle" style="color:var(--red)">STOP engaged. Pending requests cancelled. Remote commands are locked.</div>';setStatus('OR stop engaged. Remote commands locked.');addEv('net','OR STOP engaged','Local STOP latched. Pending mentor request cancelled.')}
+ else{$('gate').innerHTML='<div class="idle">Safety gate idle.</div>';S.A=ik(HOME[0],HOME[1]);setStatus('Stop released. Remote commands enabled.')}};
+document.addEventListener('keydown',e=>{if(e.key==='Escape'&&!S.stopped)$('stop').click()});
+
+/* ---------- boot with seeded history ---------- */
+function seed(){const mk=(t,type,label,detail,fake)=>{const o=document.createElement('canvas');o.width=160;o.height=100;const c=o.getContext('2d');scene(c,160,{t:fake,A:ik(HOME[0],HOME[1]),carry:null,taken:new Set(),handed:null,hand:false});
+  events.push({t,type,label,detail,img:o.toDataURL('image/jpeg',.6)})};
+ mk(4,'sms','Session started','Mentor joined from phone. Video 3.2 Mbps.',3);
+ mk(52,'ann','Arrow on needle','Anchored to tracked needle. Delivered in 71 ms.',50);
+ mk(97,'ann','Circle on suture pad','Anchored to tracked suture pad. Delivered in 66 ms.',95);
+ mk(118,'req','Approved and executing','Surgeon approved. Arm moved the clamp to the palm zone.',116);
+ net.log.push([78,84]);mk(78,'net','Brief latency spike','Latency peaked at 310 ms for 6 s. Recovered on its own.',77)}
+seed();buildChips();renderTL();drawSpark();
+for(let i=0;i<60;i++)lh.push(80+Math.random()*40);
+requestAnimationFrame(loop);
+</script>
+</body>
+</html>

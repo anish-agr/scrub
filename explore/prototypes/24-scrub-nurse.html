@@ -1,0 +1,717 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Scrub Nurse Console</title>
+<meta name="description" content="Voice-driven robotic scrub nurse console that fetches instruments from a Mayo tray and presents them handle-first only when an open palm is detected and still.">
+<!-- STYLE: Medical device HMI (anesthesia workstation / patient monitor, IEC 60601-1-8 alarm colors) -->
+<!--
+FEATURES:
+- Voice (Web Speech API) + typed + phrase chips: scalpel, forceps, Kelly clamp, needle driver, scissors, retractor
+- Overhead tray camera (canvas) with labeled Mayo tray slots, live detection boxes, arm IK animation
+- Hand-zone camera with palm/fist detection, stillness timer; arm presents handle-first only after palm is open and still 0.5 s
+- Handoff confirmed when hand closes; request-to-handoff latency per handoff against a 3 s target
+- Preference-card prediction queue (learns next-instrument pairs), optional auto pre-staging
+- Instrument return detection back into tray slots
+- Latched STOP (button, Space, Esc), training prototype banner
+-->
+<!--
+SPONSORS: Perceptron Robotics (SO-101 pick + present primitive, fine-tuned from demos), Perceptron Perception (instrument localization, OCR of tray tags, hand/palm detection),
+Gemini API (voice intent), Backboard (surgeon preference cards), Tiger Data (latency + instrument time series), Photon (alerts to circulating nurse)
+-->
+<!--
+BACKEND HOOKS: POST /api/request {item, source:"voice|typed|chip|predict"}; GET /api/detect (tray + hand boxes); GET /api/state;
+WebSocket /ws events: detection, arm_state, handoff_confirmed {item, latency_ms}, instrument_returned, stop_latched; POST /api/stop. Default mock mode, no server needed.
+-->
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;600&family=IBM+Plex+Sans:wght@400;500;600;700&display=swap" rel="stylesheet">
+<style>
+:root{
+  --bg:#1c1f22; --panel:#25292c; --panel2:#2d3236; --line:#474d52; --teal:#4fd0e8; --teal2:#2f8da0; --tealdim:#1f4a54;
+  --text:#e6e8ea; --mute:#9aa1a7; --warn:#ffd21f; --bad:#ff3b30; --ok:#3fdc7a;
+  --mono:'IBM Plex Mono',ui-monospace,Menlo,monospace; --head:'IBM Plex Sans',system-ui,sans-serif;
+}
+*{box-sizing:border-box}
+html,body{margin:0;background:var(--bg);color:var(--text);font-family:var(--head);font-size:16px;font-variant-numeric:tabular-nums}
+body{min-height:100vh}
+button,input{font-family:inherit;color:inherit}
+button{cursor:pointer;min-height:44px}
+header{display:flex;flex-wrap:wrap;gap:10px 16px;align-items:center;padding:8px 16px;border-bottom:2px solid var(--line);background:#15181a;position:sticky;top:0;z-index:20}
+.logo{display:flex;align-items:center;gap:10px;font-weight:600;letter-spacing:.1em;font-size:20px;font-family:var(--mono)}
+.logo i{width:12px;height:12px;background:var(--ok);display:inline-block}
+.banner{flex:1;min-width:220px;font-family:var(--mono);font-size:11px;color:var(--warn);border:1px solid var(--warn);background:#2a2610;padding:6px 10px;border-radius:0;line-height:1.35}
+.pill{font-family:var(--mono);font-size:13px;font-weight:600;padding:8px 12px;border-radius:0;border:1px solid var(--teal);color:var(--teal);background:#15181a;white-space:nowrap;min-width:170px;text-align:center}
+.pill.stop{border-color:var(--bad);color:#fff;background:var(--bad)}
+.stopbtn{min-width:120px;min-height:52px;border:2px solid #ffb3ad;border-radius:0;background:var(--bad);color:#fff;font-weight:700;font-size:24px;letter-spacing:.14em}
+.stopbtn.latched{background:#5a1511;border-color:var(--bad)}
+main{display:grid;grid-template-columns:minmax(0,1.55fr) minmax(0,1fr);gap:12px;padding:12px 16px;max-width:1500px;margin:auto}
+.card{background:var(--panel);border:1px solid var(--line);border-radius:0;padding:10px;position:relative}
+.card h2{margin:-10px -10px 10px;padding:6px 10px;background:var(--panel2);border-bottom:1px solid var(--line);font-size:13px;font-weight:600;letter-spacing:.14em;text-transform:uppercase;color:var(--text);display:flex;justify-content:space-between;align-items:center;gap:8px}
+.card h2 small{font-family:var(--mono);font-size:10px;color:var(--mute);letter-spacing:0;text-transform:none;text-align:right;font-weight:400}
+canvas{width:100%;height:auto;display:block;border-radius:0;background:#000;border:1px solid var(--line)}
+.col{display:flex;flex-direction:column;gap:12px;min-width:0}
+.cmd{display:flex;gap:8px;flex-wrap:wrap;align-items:center}
+.mic{width:56px;height:56px;border-radius:0;border:1px solid var(--teal);background:#15181a;color:var(--teal);display:grid;place-items:center;flex:none}
+.mic.on{background:var(--teal);color:#101214;animation:pulse 1s infinite}
+@keyframes pulse{50%{opacity:.45}}
+.mic svg{width:26px;height:26px;fill:currentColor}
+.cmd input{flex:1;min-width:160px;min-height:44px;background:#15181a;border:1px solid var(--line);border-radius:0;padding:0 12px;font-size:17px;font-family:var(--mono)}
+.btn{border:1px solid var(--teal2);background:#1d3238;border-radius:0;padding:0 14px;font-weight:600;font-size:15px;min-height:44px}
+.btn:hover{background:#27454d}
+.btn.sm{font-size:13px;padding:0 10px}
+.btn.alt{border-color:var(--line);background:#2a2e32;color:var(--text)}
+.chips{display:flex;flex-wrap:wrap;gap:6px;margin-top:10px}
+.chip{border:1px solid var(--line);background:#2a2e32;border-radius:0;padding:0 12px;min-height:44px;font-size:14px;font-weight:500}
+.chip:hover{border-color:var(--teal);color:var(--teal)}
+.heard{font-family:var(--mono);font-size:12px;color:var(--mute);margin-top:8px;min-height:18px}
+.heard b{color:var(--teal)}
+.steps{display:flex;flex-wrap:wrap;gap:4px;margin-top:8px}
+.step{font-family:var(--mono);font-size:10.5px;padding:4px 8px;border-radius:0;border:1px solid var(--line);color:var(--mute)}
+.step.done{border-color:var(--ok);color:var(--ok)}
+.step.cur{border-color:var(--warn);color:#15181a;background:var(--warn)}
+.status{font-size:24px;font-weight:600;margin:2px 0 4px;font-family:var(--mono)}
+.sub{font-family:var(--mono);font-size:11.5px;color:var(--mute)}
+.interlock{display:flex;gap:8px;align-items:center;margin-top:8px;font-family:var(--mono);font-size:12px}
+.lamp{width:14px;height:14px;border-radius:0;background:#3a4044;border:1px solid #5a6166}
+.lamp.on{background:var(--ok);border-color:var(--ok)}
+.lamp.warn{background:var(--warn);border-color:var(--warn)}
+.statrow{display:flex;gap:8px;margin-bottom:10px}
+.stat{flex:1;background:#15181a;border:1px solid var(--line);border-radius:0;padding:6px 8px}
+.stat b{display:block;font-family:var(--mono);font-size:32px;font-weight:600;line-height:1.05}
+.stat span{font-family:var(--mono);font-size:10px;color:var(--mute)}
+.lat{display:flex;flex-direction:column;gap:5px;max-height:210px;overflow:auto}
+.latrow{display:grid;grid-template-columns:150px 1fr 58px;gap:8px;align-items:center;font-family:var(--mono);font-size:11.5px}
+.bar{height:14px;background:#15181a;border:1px solid var(--line);border-radius:0;position:relative;overflow:visible}
+.bar i{display:block;height:100%;border-radius:0;background:var(--ok)}
+.bar i.over{background:var(--bad)}
+.bar::after{content:"";position:absolute;left:var(--tgt);top:-3px;bottom:-3px;width:2px;background:var(--warn)}
+.q{display:flex;flex-direction:column;gap:6px}
+.qi{display:flex;align-items:center;gap:8px;border:1px solid var(--line);border-radius:0;padding:6px 8px;font-size:15px;font-weight:600;background:#2a2e32}
+.qi small{font-family:var(--mono);font-size:10.5px;color:var(--mute);font-weight:400;display:block}
+.qi.active{border-color:var(--teal);background:#1d3238}
+.qi.pred{border-style:dashed;border-color:#6a747c}
+.qi .x{margin-left:auto;display:flex;gap:6px}
+.tag{font-family:var(--mono);font-size:10px;padding:2px 6px;border-radius:0;background:var(--teal);color:#101214;font-weight:600}
+.tag.p{background:var(--warn);color:#101214}
+.pref{width:100%;border-collapse:collapse;font-family:var(--mono);font-size:11.5px;margin-top:6px}
+.pref td,.pref th{padding:4px 6px;border-bottom:1px solid var(--line);text-align:left}
+.pref th{color:var(--mute);font-weight:400}
+.sw{display:flex;align-items:center;gap:8px;font-size:13px;min-height:44px;font-family:var(--mono)}
+.sw input{width:22px;height:22px;accent-color:var(--teal)}
+.inuse{display:flex;flex-wrap:wrap;gap:6px;margin-top:6px}
+.log{font-family:var(--mono);font-size:11px;max-height:220px;overflow:auto;display:flex;flex-direction:column;gap:2px}
+.log div{border-left:1px solid var(--line);padding-left:8px;color:var(--mute)}
+.log div.ok{border-color:var(--ok);color:var(--text)}
+.log div.warn{border-color:var(--warn);color:var(--warn)}
+.log div.bad{border-color:var(--bad);color:var(--bad)}
+.wide{grid-column:1/-1}
+.row2{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:12px}
+.handctl{display:flex;flex-wrap:wrap;gap:6px;margin-top:8px}
+.foot{font-family:var(--mono);font-size:10.5px;color:var(--mute);text-align:center;padding:10px 16px 24px;border-top:1px solid var(--line);margin-top:6px}
+.foot a{color:var(--mute);margin:0 8px}
+@media(max-width:1000px){main{grid-template-columns:1fr}.row2{grid-template-columns:1fr}}
+@media(max-width:480px){header{padding:8px 12px}main{padding:10px 12px}.logo{font-size:17px}.stopbtn{min-width:96px;font-size:20px}.latrow{grid-template-columns:100px 1fr 52px}}
+</style>
+</head>
+<body>
+<header>
+  <div class="logo"><i></i>SCRUB-1</div>
+  <div class="banner">TRAINING / RESEARCH PROTOTYPE. NOT FOR CLINICAL USE. Props only: blunt plastic instruments, no real sharps near people.</div>
+  <div class="pill" id="statePill">ARM IDLE</div>
+  <button class="stopbtn" id="stopBtn" aria-label="Emergency stop">STOP</button>
+</header>
+
+<main>
+  <div class="col">
+    <section class="card">
+      <h2>Cam 1 overhead: Mayo tray <small id="trayInfo">detector: few-shot exemplars, 1 photo each</small></h2>
+      <canvas id="tray" width="720" height="420"></canvas>
+      <div class="cmd" style="margin-top:12px">
+        <button class="mic" id="mic" aria-label="Speak a request" title="Speak a request"><svg viewBox="0 0 24 24"><path d="M12 15a3 3 0 0 0 3-3V6a3 3 0 0 0-6 0v6a3 3 0 0 0 3 3zm5-3a5 5 0 0 1-10 0H5a7 7 0 0 0 6 6.9V22h2v-3.1A7 7 0 0 0 19 12z"/></svg></button>
+        <input id="txt" placeholder='Say or type: "scalpel", "forceps", "Kelly clamp"' aria-label="Typed request" autocomplete="off">
+        <button class="btn" id="send">Request</button>
+      </div>
+      <div class="chips" id="chips"></div>
+      <div class="heard" id="heard">Heard: (nothing yet). Speech recognition falls back to typing if the browser blocks the mic.</div>
+    </section>
+
+    <div class="row2">
+      <section class="card">
+        <h2>Request queue <small>incl. anticipated</small></h2>
+        <div class="q" id="queue"></div>
+        <label class="sw"><input type="checkbox" id="autoStage" checked> Auto pre-stage predicted instrument</label>
+      </section>
+      <section class="card">
+        <h2>Preference card <small>Backboard memory</small></h2>
+        <div class="sub" id="cardName">Dr. Okafor, simulated lap case</div>
+        <table class="pref" id="pref"></table>
+        <div class="sub" style="margin-top:6px">Counts update as handoffs happen, so predictions adapt to this surgeon.</div>
+      </section>
+      <section class="card">
+        <h2>Instruments in use <small>return detection</small></h2>
+        <div class="inuse" id="inuse"></div>
+        <label class="sw"><input type="checkbox" id="autoRet" checked> Simulate surgeon returning tools</label>
+        <div class="sub">Cam 1 watches slots; a tool placed back in its slot is logged as returned.</div>
+      </section>
+    </div>
+  </div>
+
+  <div class="col">
+    <section class="card">
+      <h2>Cam 2 hand zone <small id="handInfo">palm detector</small></h2>
+      <canvas id="hand" width="360" height="270"></canvas>
+      <div class="interlock"><span class="lamp" id="lPalm"></span><span id="tPalm">Palm: none</span></div>
+      <div class="interlock"><span class="lamp" id="lStill"></span><span id="tStill">Still: 0.00 / 0.50 s</span></div>
+      <div class="handctl">
+        <button class="btn sm alt" data-h="enter">Show open palm</button>
+        <button class="btn sm alt" data-h="wiggle">Move hand</button>
+        <button class="btn sm alt" data-h="close">Close hand</button>
+        <button class="btn sm alt" data-h="leave">Remove hand</button>
+      </div>
+      <label class="sw"><input type="checkbox" id="autoHand" checked> Auto surgeon hand (simulation)</label>
+    </section>
+
+    <section class="card">
+      <h2>Arm state <small>SO-101 mock</small></h2>
+      <div class="status" id="status">Standing by</div>
+      <div class="sub" id="substatus">Say an instrument name. Arm will not present without a still open palm.</div>
+      <div class="steps" id="steps"></div>
+    </section>
+
+    <section class="card">
+      <h2>Request to handoff latency <small>target &lt; 3.0 s (orange line)</small></h2>
+      <div class="statrow">
+        <div class="stat"><b id="sLast">--</b><span>LAST (s)</span></div>
+        <div class="stat"><b id="sAvg">--</b><span>MEAN (s)</span></div>
+        <div class="stat"><b id="sOk">--</b><span>UNDER 3 s</span></div>
+      </div>
+      <div class="lat" id="lat"></div>
+      <div style="margin-top:10px"><button class="btn sm" id="demo">Run demo sequence</button></div>
+    </section>
+  </div>
+
+  <section class="card wide">
+    <h2>Event log <small>would stream to Tiger Data</small></h2>
+    <div class="log" id="log"></div>
+  </section>
+</main>
+<div class="foot"><a href="#">Terms</a><a href="#">Privacy</a><br>SCRUB-1 mock mode. Backend hooks: POST /api/request, GET /api/detect, WS /ws. Arm repeatability on SO-101 is about 5 mm, so the palm zone is a generous 100 mm target.</div>
+
+<script>
+(()=>{
+const $=id=>document.getElementById(id);
+const INS=[
+ {id:'scalpel',name:'Scalpel #10',code:'BP-10',col:'#a9c0c6'},
+ {id:'forceps',name:'Forceps Adson 1x2',code:'FC-AD12',col:'#b9c9cf'},
+ {id:'kelly',name:'Kelly curved 5.5 in',code:'KL-C55',col:'#c9d2d6'},
+ {id:'driver',name:'Needle driver MH 8 in',code:'NH-MH8',col:'#d9c58a'},
+ {id:'scissors',name:'Metz scissors 7 in',code:'SC-MZ7',col:'#b4c4ca'},
+ {id:'retractor',name:'Army-Navy retractor',code:'RT-AN',col:'#9fb2b9'}];
+const BYID=Object.fromEntries(INS.map((s,i)=>(s.slot=i,[s.id,s])));
+const SX=i=>90+i*66, SY=300;
+const BASE={x:390,y:28}, HOME={x:450,y:135}, STAGE={x:590,y:235}, HAND={x:590,y:305};
+const L1=235,L2=235, TARGET=3.0;
+
+const S={
+  stopped:false, slots:Object.fromEntries(INS.map(s=>[s.id,true])), inuse:{}, queue:[], job:null,
+  arm:{x:HOME.x,y:HOME.y,held:null,staged:null,grip:1}, last:null, lat:[], t:0,
+  pairs:{scalpel:{forceps:6,retractor:2},forceps:{driver:7,scissors:2},kelly:{scissors:4,driver:2},driver:{scissors:6,kelly:1},scissors:{retractor:3,kelly:3},retractor:{kelly:4,scalpel:1}},
+  flash:{}, stageTimer:0
+};
+const H={vis:false,x:180,y:300,open:1,mode:'away',tm:0,amp:0,speed:0,still:0,px:180,py:300,holding:null,leaveT:0,closeT:0,from:{x:180,y:300},to:{x:190,y:140}};
+
+/* ---------- log ---------- */
+const logEl=$('log');
+function clock(){const d=new Date();return d.toTimeString().slice(0,8)}
+function log(msg,cls){const d=document.createElement('div');if(cls)d.className=cls;d.textContent=clock()+'  '+msg;logEl.prepend(d);while(logEl.children.length>60)logEl.lastChild.remove()}
+
+/* ---------- prediction ---------- */
+function predict(from){
+  const p=S.pairs[from];if(!p)return null;
+  let tot=0,best=null;for(const k in p){tot+=p[k]}
+  for(const k in p){if(!best||p[k]>p[best])best=k}
+  return {id:best,prob:p[best]/tot,n:p[best],tot};
+}
+function learn(a,b){if(!a||a===b)return;S.pairs[a]=S.pairs[a]||{};S.pairs[a][b]=(S.pairs[a][b]||0)+1}
+
+/* ---------- requests ---------- */
+function parse(t){
+  t=t.toLowerCase();
+  if(/scalpel|knife|blade/.test(t))return'scalpel';
+  if(/forcep|pick.?up|tweezer/.test(t))return'forceps';
+  if(/kelly|clamp|hemostat/.test(t))return'kelly';
+  if(/needle|driver/.test(t))return'driver';
+  if(/scissor|metz/.test(t))return'scissors';
+  if(/retract/.test(t))return'retractor';
+  return null;
+}
+function request(text,source){
+  const id=parse(text);
+  $('heard').innerHTML='Heard ('+source+'): "<b>'+esc(text)+'</b>" '+(id?'-> '+BYID[id].name:'-> no match');
+  if(S.stopped){log('Request ignored: STOP is latched','bad');return}
+  if(!id){log('No instrument matched "'+text+'"','warn');return}
+  if(S.inuse[id]){log(BYID[id].name+' is in use by the surgeon. Return it first.','warn');return}
+  if(S.queue.some(q=>q.id===id&&q.source!=='predict')||(S.job&&S.job.id===id&&!S.job.stage)){log(BYID[id].name+' already requested','warn');return}
+  S.queue.push({id,source,t0:performance.now()});
+  log('REQUEST '+BYID[id].name+' ('+source+')','ok');
+  renderQueue();
+}
+const esc=s=>s.replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
+
+/* ---------- jobs: sequential steps ---------- */
+function fetchSteps(id){
+  const i=BYID[id].slot,x=SX(i);
+  return [
+   {k:'wait',t:.28,label:'Resolve slot'},
+   {k:'move',to:{x,y:282},sp:900,label:'Reach tray'},
+   {k:'grip',t:.22,take:id,label:'Grasp'},
+   {k:'move',to:STAGE,sp:850,label:'Lift to stage'}];
+}
+const presentSteps=[
+  {k:'palm',label:'Palm still 0.5 s'},
+  {k:'move',to:HAND,sp:800,label:'Present handle-first',guard:true},
+  {k:'fist',label:'Hand closes'},
+  {k:'release',t:.2,label:'Release'},
+  {k:'move',to:HOME,sp:950,label:'Retract'}];
+function startJob(q,stage){
+  const a=S.arm,id=q.id;let steps=[];
+  if(a.staged&&a.staged!==id){
+    const x=SX(BYID[a.staged].slot);
+    steps.push({k:'move',to:{x,y:282},sp:900,label:'Unstage wrong tool'},{k:'grip',t:.2,put:a.staged,label:'Put back'});
+  }
+  if(a.staged!==id)steps=steps.concat(fetchSteps(id));
+  if(!stage)steps=steps.concat(presentSteps);
+  else steps.push({k:'stage',label:'Staged'});
+  S.job={id,stage,t0:q.t0,source:q.source,steps,i:0,t:0,from:null,hd:.3+Math.random()*.2,wasStaged:a.staged===id};
+  if(a.staged===id)a.staged=null;
+  if(stage)log('PRE-STAGE '+BYID[id].name+' (predicted)','ok');
+  else log('START fetch '+BYID[id].name+(S.job.wasStaged?' (already staged)':''),'ok');
+  renderQueue();
+}
+function endJob(){S.job=null;S.stageTimer=0;renderQueue();renderSteps()}
+
+function palmReady(){return H.vis&&H.open>.85&&H.mode==='hold'&&H.still>=.5}
+
+function stepJob(dt){
+  const j=S.job,a=S.arm;if(!j)return;
+  const st=j.steps[j.i];if(!st){endJob();return}
+  j.t+=dt;
+  const next=()=>{j.i++;j.t=0;j.from=null;renderSteps()};
+  switch(st.k){
+    case'wait':if(j.t>=st.t)next();break;
+    case'move':{
+      if(st.guard&&(!H.vis||H.open<.85)){
+        log('Palm lost during approach, backing off','warn');j.i=j.steps.findIndex(s=>s.k==='palm');j.t=0;renderSteps();break}
+      const dx=st.to.x-a.x,dy=st.to.y-a.y,d=Math.hypot(dx,dy);
+      const sp=Math.min(st.sp,160+d*10);
+      const step=Math.min(d,sp*dt);
+      if(d>1){a.x+=dx/d*step;a.y+=dy/d*step}
+      if(d<=3)next();
+      break}
+    case'grip':
+      a.grip=Math.max(0,a.grip-dt/st.t*1);
+      if(j.t>=st.t){
+        if(st.take){a.held=st.take;S.slots[st.take]=false;a.grip=.35;log('Grasped '+BYID[st.take].name+', slot '+(BYID[st.take].slot+1)+' now empty','ok')}
+        if(st.put){S.slots[st.put]=true;a.held=null;a.staged=null;a.grip=1;log('Returned '+BYID[st.put].name+' to slot','warn')}
+        next()}
+      break;
+    case'palm':
+      if(palmReady())next();
+      break;
+    case'fist':
+      if(H.mode==='fist'||H.open<.15){next()}
+      break;
+    case'release':
+      a.grip=Math.min(1,j.t/st.t);
+      if(j.t>=st.t){
+        const ms=performance.now()-j.t0;
+        H.holding=a.held;a.held=null;
+        finishHandoff(j,ms);
+        next()}
+      break;
+    case'stage':
+      a.staged=j.id;endJob();log(BYID[j.id].name+' staged above handoff zone','ok');
+      break;
+  }
+  if(j&&j.steps[j.i]&&j.steps[j.i].k==='move'&&j.steps[j.i].guard&&j.steps[j.i].label){/* label only */}
+  if(S.job===j&&j.i>=j.steps.length)endJob();
+}
+function finishHandoff(j,ms){
+  const id=j.id;S.lat.unshift({id,ms,src:j.source});
+  if(S.lat.length>12)S.lat.pop();
+  S.inuse[id]=performance.now();
+  if(S.last&&S.last!==id)learn(S.last,id);
+  S.last=id;
+  log('HANDOFF CONFIRMED '+BYID[id].name+' in '+(ms/1000).toFixed(2)+' s'+(ms/1000>TARGET?' (over target)':''),ms/1000>TARGET?'warn':'ok');
+  renderLat();renderPref();renderInuse();
+  H.leaveT=1.0;
+}
+
+/* ---------- STOP ---------- */
+function doStop(){
+  if(S.stopped){resume();return}
+  S.stopped=true;
+  $('stopBtn').textContent='RESET';$('stopBtn').classList.add('latched');
+  $('statePill').textContent='STOP LATCHED';$('statePill').classList.add('stop');
+  log('STOP latched. Arm frozen, queue cleared.','bad');
+  S.queue=[];S.job=null;renderQueue();renderSteps();
+}
+function resume(){
+  S.stopped=false;
+  $('stopBtn').textContent='STOP';$('stopBtn').classList.remove('latched');
+  $('statePill').classList.remove('stop');
+  const a=S.arm;
+  if(a.held){
+    const id=a.held,x=SX(BYID[id].slot);
+    S.job={id,stage:true,t0:performance.now(),source:'recover',hd:9,wasStaged:false,i:0,t:0,steps:[
+      {k:'move',to:{x,y:282},sp:500,label:'Safe return'},{k:'grip',t:.3,put:id,label:'Put back'},{k:'move',to:HOME,sp:600,label:'Home'}]};
+  }else{S.job={id:'scalpel',stage:true,t0:performance.now(),source:'recover',hd:9,i:0,t:0,steps:[{k:'move',to:HOME,sp:500,label:'Home'}]}}
+  log('Reset acknowledged. Recovering to home.','warn');
+}
+$('stopBtn').onclick=doStop;
+addEventListener('keydown',e=>{
+  if(e.target.tagName==='INPUT')return;
+  if(e.code==='Space'||e.key==='Escape'){e.preventDefault();doStop()}});
+
+/* ---------- hand simulation ---------- */
+function ease(t){return t<.5?2*t*t:1-Math.pow(-2*t+2,2)/2}
+function handEnter(){
+  if(H.vis&&H.mode!=='leave')return;
+  H.vis=true;H.mode='enter';H.tm=0;H.open=1;H.holding=null;H.still=0;
+  H.from={x:H.x,y:Math.max(H.y,290)};H.to={x:170+Math.random()*40,y:135+Math.random()*20};
+  if(H.mode==='enter')H.x=H.from.x,H.y=H.from.y;
+}
+function handClose(){if(H.vis&&H.mode==='hold'){H.mode='close';H.closeT=0}}
+function handLeave(){if(H.vis){H.mode='leave';H.tm=0;H.from={x:H.x,y:H.y}}}
+function updHand(dt){
+  const t=S.t;H.px=H.x;H.py=H.y;
+  if(H.mode==='enter'){
+    H.tm+=dt/.5;const e=ease(Math.min(1,H.tm));
+    H.x=H.from.x+(H.to.x-H.from.x)*e;H.y=H.from.y+(H.to.y-H.from.y)*e;
+    if(H.tm>=1){H.mode='hold';H.amp=8;H.bx=H.x;H.by=H.y}
+  }else if(H.mode==='hold'||H.mode==='close'){
+    H.amp=Math.max(1.2,H.amp-28*dt);
+    H.x=H.bx+Math.sin(t*7)*H.amp;H.y=H.by+Math.cos(t*6.3)*H.amp*.8;
+    if(H.mode==='close'){H.closeT+=dt/.3;H.open=Math.max(0,1-H.closeT);if(H.open<=0)H.mode='fist'}
+  }else if(H.mode==='fist'){
+    H.x=H.bx;H.y=H.by;
+    if(H.leaveT>0){H.leaveT-=dt;if(H.leaveT<=0)handLeave()}
+  }else if(H.mode==='leave'){
+    H.tm+=dt/.55;const e=ease(Math.min(1,H.tm));
+    H.y=H.from.y+(330-H.from.y)*e;
+    if(H.tm>=1){H.vis=false;H.mode='away';H.open=1;H.holding=null}
+  }
+  const sp=H.vis?Math.hypot(H.x-H.px,H.y-H.py)/Math.max(dt,.001):0;
+  H.speed+= (sp-H.speed)*Math.min(1,dt*14);
+  if(H.vis&&H.mode==='hold'&&H.open>.85&&H.speed<26)H.still+=dt;else H.still=0;
+  // auto sim
+  if($('autoHand').checked){
+    const j=S.job;
+    if(j&&!j.stage&&!S.stopped&&!H.vis&&H.mode==='away'&&(performance.now()-j.t0)/1000>j.hd){
+      const need=j.steps.findIndex(s=>s.k==='palm');
+      if(need>=0)handEnter();
+    }
+    if(j&&j.steps[j.i]&&j.steps[j.i].k==='fist'&&H.mode==='hold'&&j.t>.3+(j.hd*.4))handClose();
+  }
+}
+
+/* ---------- arm kinematics ---------- */
+function ik(px,py){
+  let dx=px-BASE.x,dy=py-BASE.y,d=Math.hypot(dx,dy);
+  d=Math.min(d,L1+L2-1);d=Math.max(d,60);
+  const a0=Math.atan2(dy,dx),c=Math.acos(Math.max(-1,Math.min(1,(L1*L1+d*d-L2*L2)/(2*L1*d))));
+  const e1={x:BASE.x+Math.cos(a0-c)*L1,y:BASE.y+Math.sin(a0-c)*L1};
+  const e2={x:BASE.x+Math.cos(a0+c)*L1,y:BASE.y+Math.sin(a0+c)*L1};
+  return e1.y<e2.y?e1:e2;
+}
+
+/* ---------- drawing: instruments ---------- */
+function drawIns(c,id,x,y,ang,sc,alpha){
+  const col=BYID[id].col;
+  c.save();c.translate(x,y);c.rotate(ang);c.scale(sc,sc);c.globalAlpha=alpha==null?1:alpha;
+  c.lineCap='round';c.lineJoin='round';c.strokeStyle=col;c.fillStyle=col;c.lineWidth=5;
+  const ring=(cx,cy,r,col2)=>{c.strokeStyle=col2||col;c.lineWidth=3.5;c.beginPath();c.arc(cx,cy,r,0,7);c.stroke()};
+  if(id==='scalpel'){
+    c.fillStyle='#4fa3b8';c.fillRect(-55,-5,58,10);
+    c.strokeStyle='#3a3f44';c.lineWidth=1.2;for(let i=-50;i<0;i+=6){c.beginPath();c.moveTo(i,-5);c.lineTo(i,5);c.stroke()}
+    c.fillStyle=col;c.beginPath();c.moveTo(3,-3);c.lineTo(22,-2);c.lineTo(52,0);c.lineTo(22,5);c.lineTo(3,3);c.closePath();c.fill();
+  }else if(id==='forceps'){
+    c.lineWidth=4;c.beginPath();c.moveTo(-55,-1);c.lineTo(52,-4);c.moveTo(-55,1);c.lineTo(52,4);c.stroke();
+    c.strokeStyle='#4fa3b8';c.lineWidth=5;c.beginPath();c.moveTo(-50,-2);c.lineTo(-10,-2.5);c.stroke();
+  }else if(id==='kelly'||id==='driver'||id==='scissors'){
+    const rc=id==='driver'?'#e0b84a':id==='scissors'?'#c9d8dd':'#cfd5d8';
+    ring(-48,-8,7,rc);ring(-48,8,7,rc);
+    c.strokeStyle=col;c.lineWidth=4;c.beginPath();c.moveTo(-42,-6);c.lineTo(8,2);c.moveTo(-42,6);c.lineTo(8,-2);c.stroke();
+    c.lineWidth=id==='kelly'?7:6;c.beginPath();c.moveTo(0,0);c.lineTo(id==='driver'?36:52,0);c.stroke();
+    if(id==='kelly'){c.strokeStyle='#5a6b70';c.lineWidth=1;for(let i=16;i<50;i+=4){c.beginPath();c.moveTo(i,-3);c.lineTo(i,3);c.stroke()}}
+    if(id==='scissors'){c.strokeStyle='#fff';c.lineWidth=1.4;c.beginPath();c.moveTo(6,-3);c.lineTo(52,1);c.moveTo(6,3);c.lineTo(52,-1);c.stroke()}
+    if(id==='driver'){c.fillStyle='#e0b84a';c.fillRect(36,-4,10,8)}
+  }else if(id==='retractor'){
+    c.fillStyle='#4fa3b8';c.fillRect(-55,-5,46,10);
+    c.strokeStyle=col;c.lineWidth=5;c.beginPath();c.moveTo(-10,0);c.lineTo(46,0);c.lineTo(46,-16);c.stroke();
+    c.lineWidth=3;c.beginPath();c.moveTo(46,-16);c.lineTo(52,-16);c.stroke();
+  }
+  c.restore();
+}
+
+/* ---------- drawing: tray camera ---------- */
+const tc=$('tray'),T=tc.getContext('2d');
+const rnd=(i)=>{const x=Math.sin(i*127.1)*43758.5453;return x-Math.floor(x)};
+function conf(k){return (0.93+0.05*Math.sin(S.t*1.7+k*2.3)+0.01*Math.sin(S.t*9+k)).toFixed(2)}
+function drawTray(){
+  const c=T,W=720,Hh=420;
+  c.fillStyle='#14171a';c.fillRect(0,0,W,Hh);
+  // tray
+  c.fillStyle='#7b848b';rr(c,40,205,440,190,14);c.fill();
+  c.fillStyle='#3c4247';rr(c,48,213,424,174,10);c.fill();
+  c.fillStyle='rgba(255,255,255,.08)';rr(c,52,217,416,20,8);c.fill();
+  INS.forEach((s,i)=>{
+    const x=SX(i);
+    c.fillStyle='rgba(0,0,0,.28)';rr(c,x-26,240,52,138,8);c.fill();
+    c.fillStyle='#e6e8ea';c.font='600 11px IBM Plex Mono, monospace';c.textAlign='center';
+    c.fillText('S'+(i+1),x,230);
+    c.font='9px IBM Plex Mono, monospace';c.fillStyle='#aab1b7';
+    c.fillText(s.code,x,390-0);
+  });
+  // instruments in tray
+  INS.forEach((s,i)=>{if(S.slots[s.id]){
+    const fl=S.flash[s.id]&&S.t<S.flash[s.id];
+    drawIns(c,s.id,SX(i),SY,-Math.PI/2,1);
+    c.lineWidth=2;
+    const col=fl?'#3fdc7a':'#4fd0e8';
+    c.strokeStyle=col;c.fillStyle=col;
+    c.strokeRect(SX(i)-24,SY-62,48,124);
+    c.font='600 10px IBM Plex Mono, monospace';c.textAlign='left';
+    c.fillRect(SX(i)-24,SY-76,48,14);c.fillStyle='#021';
+    c.font='600 9px IBM Plex Mono, monospace';c.fillText(s.id.slice(0,4)+' '+conf(i),SX(i)-22,SY-65);
+    if(fl){c.fillStyle='#3fdc7a';c.textAlign='center';c.fillText('RETURNED',SX(i),SY+76)}
+  }else{
+    c.setLineDash([4,4]);c.strokeStyle='#ffd21f';c.lineWidth=1.5;c.strokeRect(SX(i)-24,SY-62,48,124);c.setLineDash([]);
+    c.fillStyle='#ffd21f';c.font='600 10px IBM Plex Mono, monospace';c.textAlign='center';c.fillText('empty',SX(i),SY+2);
+  }});
+  // handoff zone
+  const pr=S.arm.held&&S.job&&S.job.steps[S.job.i]&&S.job.steps[S.job.i].guard;
+  c.setLineDash([6,5]);c.strokeStyle=palmReady()?'#3fdc7a':'#6a747c';c.lineWidth=2;
+  c.beginPath();c.arc(HAND.x,HAND.y+25,58,0,7);c.stroke();c.setLineDash([]);
+  c.fillStyle=palmReady()?'#3fdc7a':'#9aa1a7';c.font='600 10px IBM Plex Mono, monospace';c.textAlign='center';
+  c.fillText('HANDOFF ZONE',HAND.x,HAND.y+101);
+  c.fillText(palmReady()?'palm ready':'waiting for palm',HAND.x,HAND.y+114);
+  if(S.arm.staged){c.fillStyle='#ffd21f';c.fillText('STAGED: '+BYID[S.arm.staged].name,STAGE.x,STAGE.y-40)}
+  // arm
+  const a=S.arm,el=ik(a.x,a.y);
+  c.lineCap='round';
+  c.strokeStyle='#101214';c.lineWidth=26;c.beginPath();c.moveTo(BASE.x,BASE.y);c.lineTo(el.x,el.y);c.lineTo(a.x,a.y);c.stroke();
+  c.strokeStyle=S.stopped?'#8a2a31':'#7d8790';c.lineWidth=18;c.beginPath();c.moveTo(BASE.x,BASE.y);c.lineTo(el.x,el.y);c.lineTo(a.x,a.y);c.stroke();
+  c.strokeStyle='rgba(255,255,255,.25)';c.lineWidth=3;c.beginPath();c.moveTo(BASE.x,BASE.y-5);c.lineTo(el.x,el.y-5);c.lineTo(a.x,a.y-5);c.stroke();
+  c.fillStyle='#1a1c1e';c.strokeStyle='#4fd0e8';c.lineWidth=3;
+  [[BASE.x,BASE.y,18],[el.x,el.y,13]].forEach(([x,y,r])=>{c.beginPath();c.arc(x,y,r,0,7);c.fill();c.stroke()});
+  // held instrument
+  const held=a.held||(S.job&&S.job.steps[S.job.i]&&S.job.steps[S.job.i].put&&S.job.steps[S.job.i].put)||(a.staged);
+  const hid=a.held||a.staged;
+  if(hid){
+    drawIns(c,hid,a.x,a.y+20,-Math.PI/2,1);
+    c.strokeStyle='#3fdc7a';c.lineWidth=2;c.strokeRect(a.x-22,a.y-40,44,124);
+    c.fillStyle='#3fdc7a';c.fillRect(a.x-22,a.y-54,100,14);c.fillStyle='#021';c.font='600 10px IBM Plex Mono, monospace';c.textAlign='left';
+    c.fillText(hid.slice(0,6)+' held '+conf(9),a.x-20,a.y-43);
+    if(a.y>200&&a.x>540){c.fillStyle='#3fdc7a';c.fillText('HANDLE FIRST',a.x+28,a.y+90)}
+  }
+  // gripper jaws
+  const o=3+a.grip*9;
+  c.fillStyle='#e6e8ea';c.fillRect(a.x-o-4,a.y-6,5,14);c.fillRect(a.x+o-1,a.y-6,5,14);
+  // HUD
+  c.fillStyle='rgba(0,0,0,.55)';c.fillRect(8,8,214,22);
+  c.fillStyle=S.stopped?'#ff3b30':'#ff3b30';c.beginPath();c.arc(20,19,4,0,7);if(Math.floor(S.t*2)%2===0)c.fill();
+  c.fillStyle='#e6e8ea';c.font='11px IBM Plex Mono, monospace';c.textAlign='left';
+  c.fillText('CAM1 OVERHEAD  30fps  '+clock(),30,23);
+}
+function rr(c,x,y,w,h,r){rrx(c,x,y,w,h,Math.min(r,3))}
+function rrx(c,x,y,w,h,r){c.beginPath();c.moveTo(x+r,y);c.arcTo(x+w,y,x+w,y+h,r);c.arcTo(x+w,y+h,x,y+h,r);c.arcTo(x,y+h,x,y,r);c.arcTo(x,y,x+w,y,r);c.closePath()}
+
+/* ---------- drawing: hand camera ---------- */
+const hc=$('hand'),HC=hc.getContext('2d');
+function drawHand(){
+  const c=HC;c.fillStyle='#22282b';c.fillRect(0,0,360,270);
+  c.strokeStyle='rgba(88,240,160,.35)';c.setLineDash([5,5]);c.lineWidth=1.5;c.beginPath();c.arc(190,140,92,0,7);c.stroke();c.setLineDash([]);
+  c.fillStyle='rgba(0,0,0,.55)';c.fillRect(6,6,170,20);c.fillStyle='#e6e8ea';c.font='11px IBM Plex Mono, monospace';c.fillText('CAM2 HAND ZONE  30fps',12,20);
+  // instrument arriving
+  const a=S.arm;let nearPalm=a.held&&a.y>HAND.y-90&&a.x>540;
+  if(H.vis||nearPalm){
+    const px=H.vis?H.x:190,py=H.vis?H.y:140;
+    if(nearPalm){
+      const k=Math.max(0,Math.min(1,(a.y-(HAND.y-90))/90));
+      drawIns(c,a.held,px+10,py-120+k*108,Math.PI/2*-1+Math.PI,1.35);
+      // tip toward top, handle toward palm: tip up
+    }
+  }
+  if(H.vis){
+    const x=H.x,y=H.y,o=H.open;
+    c.save();c.translate(x,y);
+    const skin='#d9a67e',skin2='#b98059';
+    // fingers
+    for(let f=0;f<5;f++){
+      const spread=(f-2)*0.27*o,len=(f===0?42:f===2?62:f===4?44:58)*(0.45+0.55*o);
+      const base=f===0?{x:-42,y:14}:{x:(f-2.5)*22+11,y:-30};
+      const ang=f===0?(-1.1+(1-o)*.9):(-Math.PI/2+spread*1.3);
+      c.strokeStyle=skin;c.lineCap='round';c.lineWidth=17;c.beginPath();c.moveTo(base.x,base.y);
+      const ex=base.x+Math.cos(ang)*len,ey=base.y+Math.sin(ang)*len*(o>.3?1:.3)+(1-o)*30;
+      c.lineTo(ex,ey);c.stroke();
+      c.fillStyle='#fff';c.globalAlpha=.9;c.beginPath();c.arc(ex,ey,2.5,0,7);c.fill();c.globalAlpha=1;
+    }
+    c.fillStyle=skin;rrx(c,-46,-34,92,88,34);c.fill();c.fillStyle=skin2;c.beginPath();c.ellipse(0,20,30,22,0,0,7);c.fill();
+    if(o<.5){c.fillStyle=skin;c.beginPath();c.arc(0,-6,44,0,7);c.fill()}
+    c.restore();
+    // held instrument in fist
+    if(H.holding&&o<.3){drawIns(c,H.holding,x,y,-Math.PI/2+.2,1.2)}
+    // palm detection box
+    const ok=o>.85;
+    const col=ok?(H.still>=.5?'#3fdc7a':'#4fd0e8'):'#ffd21f';
+    c.strokeStyle=col;c.lineWidth=2;c.strokeRect(x-62,y-98,124,168);
+    c.fillStyle=col;c.fillRect(x-62,y-112,150,14);c.fillStyle='#021';c.font='600 10px IBM Plex Mono, monospace';
+    c.fillText((ok?'open_palm ':'fist ')+(0.9+0.05*Math.sin(S.t*3)).toFixed(2),x-60,y-101);
+    // keypoints
+    c.fillStyle=col;[[0,50],[-30,0],[-12,-30],[0,-40],[14,-34],[30,-20]].forEach(([dx,dy])=>{c.beginPath();c.arc(x+dx,y+dy*(o>.3?1:.5),3,0,7);c.fill()});
+  }
+  // still bar
+  const p=Math.min(1,H.still/.5);
+  c.fillStyle='rgba(0,0,0,.6)';c.fillRect(10,246,340,14);
+  c.fillStyle=p>=1?'#3fdc7a':'#4fd0e8';c.fillRect(11,247,338*p,12);
+  c.fillStyle='#e6e8ea';c.font='10px IBM Plex Mono, monospace';c.fillText('STILL '+Math.min(H.still,.5).toFixed(2)+' / 0.50 s',16,257);
+}
+
+/* ---------- renderers ---------- */
+function renderChips(){
+  $('chips').innerHTML=INS.map(s=>'<button class="chip" data-id="'+s.id+'">'+s.name+'</button>').join('');
+  $('chips').onclick=e=>{const b=e.target.closest('.chip');if(b)request(BYID[b.dataset.id].name,'chip')};
+}
+function renderQueue(){
+  let h='';
+  const j=S.job;
+  if(j&&!j.stage&&j.source!=='recover')h+='<div class="qi active"><span>'+BYID[j.id].name+'<small>active, '+j.source+'</small></span><span class="tag">NOW</span></div>';
+  else if(j&&j.stage&&j.source!=='recover')h+='<div class="qi active"><span>'+BYID[j.id].name+'<small>pre-staging (predicted)</small></span><span class="tag p">STAGE</span></div>';
+  S.queue.forEach((q,i)=>{h+='<div class="qi"><span>'+BYID[q.id].name+'<small>queued, '+q.source+'</small></span><span class="x"><button class="btn sm alt" data-cancel="'+i+'">Cancel</button></span></div>'});
+  const pr=S.last?predict(S.last):null;
+  if(pr&&!S.inuse[pr.id]){
+    h+='<div class="qi pred"><span>'+BYID[pr.id].name+'<small>anticipated: after '+BYID[S.last].name.toLowerCase()+', surgeon asks for this '+pr.n+' of '+pr.tot+' times</small></span><span class="x"><button class="btn sm" data-pred="'+pr.id+'">Pre-stage</button></span></div>';
+  }
+  if(!h)h='<div class="sub">Queue empty. Make a request, then the next likely tool appears here.</div>';
+  $('queue').innerHTML=h;
+}
+$('queue').onclick=e=>{
+  const c=e.target.closest('[data-cancel]');if(c){const q=S.queue.splice(+c.dataset.cancel,1)[0];log('Cancelled '+BYID[q.id].name,'warn');renderQueue();return}
+  const p=e.target.closest('[data-pred]');if(p){if(S.stopped)return;if(!S.job&&!S.queue.length&&!S.arm.staged){startJob({id:p.dataset.pred,source:'predict',t0:performance.now()},true)}else log('Arm busy, cannot pre-stage now','warn')}
+};
+function renderSteps(){
+  const j=S.job;
+  if(!j){$('steps').innerHTML='';return}
+  $('steps').innerHTML=j.steps.map((s,i)=>'<span class="step '+(i<j.i?'done':i===j.i?'cur':'')+'">'+s.label+'</span>').join('');
+}
+function renderLat(){
+  const L=S.lat;
+  $('lat').innerHTML=L.map(r=>{const s=r.ms/1000,w=Math.min(100,s/5*100);
+    return '<div class="latrow"><span>'+BYID[r.id].name+'</span><div class="bar" style="--tgt:'+(TARGET/5*100)+'%"><i class="'+(s>TARGET?'over':'')+'" style="width:'+w+'%"></i></div><span style="color:'+(s>TARGET?'var(--bad)':'var(--ok)')+'">'+s.toFixed(2)+' s</span></div>'}).join('')||'<div class="sub">No handoffs yet.</div>';
+  if(L.length){
+    const m=L.reduce((a,r)=>a+r.ms,0)/L.length/1000,ok=L.filter(r=>r.ms/1000<=TARGET).length;
+    $('sLast').textContent=(L[0].ms/1000).toFixed(2);$('sLast').style.color=L[0].ms/1000>TARGET?'var(--bad)':'var(--ok)';
+    $('sAvg').textContent=m.toFixed(2);$('sOk').textContent=Math.round(ok/L.length*100)+'%';
+  }
+}
+function renderPref(){
+  let h='<tr><th>After</th><th>Next</th><th>Odds</th></tr>';
+  for(const a of Object.keys(S.pairs)){const p=predict(a);h+='<tr'+(S.last===a?' style="color:var(--teal)"':'')+'><td>'+BYID[a].name+'</td><td>'+BYID[p.id].name+'</td><td>'+Math.round(p.prob*100)+'%</td></tr>'}
+  $('pref').innerHTML=h;
+}
+function renderInuse(){
+  const ids=Object.keys(S.inuse);
+  $('inuse').innerHTML=ids.length?ids.map(id=>'<button class="chip" data-ret="'+id+'">'+BYID[id].name+' : mark returned</button>').join(''):'<div class="sub">Nothing in use.</div>';
+}
+$('inuse').onclick=e=>{const b=e.target.closest('[data-ret]');if(b)doReturn(b.dataset.ret)};
+function doReturn(id){
+  if(!S.inuse[id])return;
+  delete S.inuse[id];S.slots[id]=true;S.flash[id]=S.t+2.2;
+  log('RETURN DETECTED '+BYID[id].name+' back in slot '+(BYID[id].slot+1)+' (cam 1, conf '+conf(3)+')','ok');
+  renderInuse();renderQueue();
+}
+
+/* ---------- main loop ---------- */
+let lastT=performance.now();
+function frame(now){
+  const dt=Math.min(.05,(now-lastT)/1000);lastT=now;S.t+=dt;
+  if(!S.stopped){
+    updHand(dt);
+    if(!S.job&&S.queue.length)startJob(S.queue.shift(),false);
+    stepJob(dt);
+    // auto stage
+    if(!S.job&&!S.queue.length&&!S.arm.staged&&$('autoStage').checked&&S.last&&!S.arm.held&&H.mode==='away'){
+      S.stageTimer+=dt;
+      if(S.stageTimer>1.4){const p=predict(S.last);if(p&&S.slots[p.id]&&!S.inuse[p.id])startJob({id:p.id,source:'predict',t0:performance.now()},true);S.stageTimer=0}
+    }
+    // auto return
+    if($('autoRet').checked){for(const id in S.inuse){if(performance.now()-S.inuse[id]>9000&&H.mode==='away'){doReturn(id);break}}}
+  }
+  drawTray();drawHand();updateText();
+  requestAnimationFrame(frame);
+}
+let txtT=0;
+function updateText(){
+  txtT++;if(txtT%4)return;
+  const j=S.job,st=j&&j.steps[j.i];
+  let s='Standing by',sub='Say an instrument name. Arm will not present without a still open palm.',pill='ARM IDLE';
+  if(S.stopped){s='STOPPED';sub='Arm frozen and motion disabled. Press RESET to recover to home.';pill='STOP LATCHED'}
+  else if(j){
+    pill=j.stage?'PRE-STAGING':'FETCHING';s=(j.stage?'Pre-staging ':'')+BYID[j.id].name+': '+(st?st.label:'done');
+    if(st&&st.k==='palm')sub='Interlock: holding at stage until open palm is still for 0.5 s.';
+    else if(st&&st.k==='fist')sub='Instrument in palm, handle first. Waiting for the hand to close.';
+    else if(st&&st.k==='move'&&st.guard)sub='Palm confirmed. Presenting to hand zone.';
+    else sub='Elapsed '+((performance.now()-j.t0)/1000).toFixed(1)+' s since request';
+    if(st&&st.k==='palm')pill='WAITING FOR PALM';
+  }else if(S.arm.staged){s=BYID[S.arm.staged].name+' staged';sub='Ready. Next request for it skips fetch time.';pill='STAGED'}
+  $('status').textContent=s;$('substatus').textContent=sub;
+  if(!S.stopped)$('statePill').textContent=pill;
+  const pv=H.vis&&H.open>.85,fist=H.vis&&H.open<.3;
+  $('lPalm').className='lamp'+(pv?' on':fist?' warn':'');
+  $('tPalm').textContent='Palm: '+(pv?'open_palm detected':fist?'closed hand':'none');
+  $('lStill').className='lamp'+(palmReady()?' on':'');
+  $('tStill').textContent='Still: '+Math.min(H.still,.5).toFixed(2)+' / 0.50 s'+(palmReady()?'  READY':'');
+  renderSteps();
+}
+
+/* ---------- inputs ---------- */
+$('send').onclick=()=>{const v=$('txt').value.trim();if(v){request(v,'typed');$('txt').value=''}};
+$('txt').addEventListener('keydown',e=>{if(e.key==='Enter')$('send').click()});
+document.querySelectorAll('[data-h]').forEach(b=>b.onclick=()=>{
+  const k=b.dataset.h;
+  if(S.stopped)return;
+  if(k==='enter'){handEnter()}
+  if(k==='wiggle'){if(H.vis&&H.mode==='hold'){H.amp=18;H.still=0}}
+  if(k==='close')handClose();
+  if(k==='leave')handLeave();
+});
+const SR=window.SpeechRecognition||window.webkitSpeechRecognition;
+let rec=null,listening=false;
+$('mic').onclick=()=>{
+  if(!SR){$('heard').textContent='Speech API unavailable in this browser. Type a request or tap a chip.';$('txt').focus();return}
+  if(listening){rec&&rec.stop();return}
+  try{
+    rec=new SR();rec.lang='en-US';rec.interimResults=false;rec.maxAlternatives=3;
+    rec.onstart=()=>{listening=true;$('mic').classList.add('on');$('heard').textContent='Listening...'};
+    rec.onend=()=>{listening=false;$('mic').classList.remove('on')};
+    rec.onerror=e=>{$('heard').textContent='Mic error ('+e.error+'). Falling back to typing.';$('txt').focus()};
+    rec.onresult=e=>{const alts=[...e.results[0]].map(a=>a.transcript);const t=alts.find(parse)||alts[0];request(t,'voice')};
+    rec.start();
+  }catch(err){$('heard').textContent='Could not start mic. Type a request instead.'}
+};
+$('demo').onclick=()=>{
+  ['scalpel','forceps','needle driver','scissors'].forEach((t,i)=>setTimeout(()=>{if(!S.stopped)request(t,'demo')},i*4500));
+};
+
+/* ---------- boot ---------- */
+renderChips();renderQueue();renderLat();renderPref();renderInuse();
+log('Console online. Mock arm + mock cameras. Training prototype only.','ok');
+log('Tray scan: 6 instruments detected, all slots occupied','ok');
+setTimeout(()=>request('scalpel','voice'),1200);
+requestAnimationFrame(frame);
+})();
+</script>
+</body>
+</html>

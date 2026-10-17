@@ -1,0 +1,522 @@
+<!doctype html>
+<!--
+FEATURES:
+- Recipe card with step navigation, per-step arm suggestions and one-tap timers
+- Voice commands (Web Speech API with typed fallback): "next step", "hand me the salt", "hold the bowl", "stir", "set a timer for 5 minutes", "flip the timer"
+- Arm action queue (pending, running with phases, done, failed with honest retry), sustained "hold the bowl" with Release
+- Shelf map from camera detections with OCR'd jar labels (SALT, PAPRIKA...), confidence, and pick-order badges; animated gripper
+- Multiple kitchen timers with rings, +1 min, pause, alarm; arm can flip the hourglass timer
+- Mise en place mode: arm lays out shelf ingredients in recipe order onto a prep tray and checks each off
+- Latched STOP always visible (Esc too); RESET to resume
+-->
+<!--
+SPONSORS: Perceptron Robotics (hand-over, hold, stir skills; queue + retries are observable), Perceptron Perception (OCR on jar labels, object localization),
+Gemini API (voice command to task parsing could replace the regex parser), Photon (text "timer done" or "oil is low" to a phone), Backboard (remember pantry layout and preferences), Tiger Data (log arm action durations)
+-->
+<!--
+BACKEND HOOKS: POST /api/detect (shelf detections with OCR labels), POST /api/say {text}, POST /api/request {task,target_id},
+POST /api/stop, POST /api/reset, GET /api/state, WebSocket /ws (state, plan, step, detections). Runs in mock mode with no server.
+-->
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Let's Get Cookin'</title>
+<meta name="description" content="A hands-free sous-chef: cook by voice while a robot arm hands you ingredients, holds the bowl, and keeps the timers.">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,500;9..144,700;9..144,800&family=Nunito+Sans:wght@400;600;800&display=swap">
+<style>
+:root{--cream:#fbf3e4;--paper:#fffaf0;--ink:#3a2a20;--muted:#7a6656;--tomato:#d6402b;--tomato-d:#a92e1d;--herb:#4f7a3a;--butter:#f4c95d;--line:#e8d9bd;--shadow:0 2px 0 #e8d9bd,0 10px 24px rgba(90,50,20,.08)}
+*{box-sizing:border-box}
+body{margin:0;background:var(--cream);color:var(--ink);font-family:"Nunito Sans",system-ui,sans-serif;font-size:16px;line-height:1.4;
+ background-image:radial-gradient(circle at 20px 20px,#f2e6cb 2px,transparent 2px);background-size:40px 40px}
+h1,h2,h3,.serif{font-family:Fraunces,Georgia,serif;font-weight:700;margin:0}
+button{font:inherit;cursor:pointer;color:inherit}
+button:focus-visible,input:focus-visible{outline:3px solid var(--tomato);outline-offset:2px}
+header{display:flex;align-items:center;gap:.8rem;padding:.7rem 1rem;background:var(--tomato);color:#fff;position:sticky;top:0;z-index:30;box-shadow:0 3px 0 var(--tomato-d)}
+header h1{font-size:1.5rem;flex:1;font-weight:800}
+header h1 small{display:block;font:600 .72rem "Nunito Sans";opacity:.9;letter-spacing:.06em;text-transform:uppercase}
+.armstate{font-weight:800;font-size:.8rem;background:rgba(0,0,0,.22);padding:.35rem .7rem;border-radius:2rem;min-height:44px;display:flex;align-items:center;gap:.4rem}
+.armstate i{width:.6rem;height:.6rem;border-radius:50%;background:#9ff08a;display:inline-block}
+.stopb{min-height:52px;min-width:104px;background:#fff;color:var(--tomato-d);border:4px solid #3a0e07;border-radius:.9rem;font-weight:800;font-size:1.25rem;letter-spacing:.05em}
+.latch{background:#3a0e07;color:#fff;padding:.8rem 1rem;display:flex;gap:1rem;align-items:center;justify-content:center;flex-wrap:wrap;font-weight:800}
+.latch button{min-height:44px;padding:.4rem 1.4rem;border-radius:.7rem;border:0;background:var(--butter);font-weight:800;color:var(--ink)}
+main{display:grid;gap:1rem;padding:1rem;max-width:1400px;margin:0 auto;grid-template-columns:minmax(0,1fr)}
+@media(min-width:1000px){main{grid-template-columns:minmax(0,1.05fr) minmax(0,1.25fr) minmax(0,.9fr)}}
+.card{background:var(--paper);border:2px solid var(--line);border-radius:1.1rem;padding:1rem;box-shadow:var(--shadow)}
+.card>h2{font-size:1.15rem;display:flex;justify-content:space-between;align-items:center;gap:.5rem;margin-bottom:.7rem}
+.tag{font:800 .65rem "Nunito Sans";letter-spacing:.08em;text-transform:uppercase;background:var(--butter);padding:.15rem .5rem;border-radius:.5rem;color:var(--ink)}
+.btn{min-height:44px;padding:.4rem 1rem;border-radius:.8rem;border:2px solid var(--ink);background:var(--paper);font-weight:800}
+.btn.pri{background:var(--tomato);color:#fff;border-color:var(--tomato-d)}
+.btn.herb{background:var(--herb);color:#fff;border-color:#35552a}
+.btn:disabled{opacity:.45;cursor:not-allowed}
+/* recipe */
+.recipe h3{font-size:1.7rem;line-height:1.1}
+.meta{color:var(--muted);font-size:.85rem;margin:.2rem 0 .7rem}
+.pbar{height:.55rem;background:var(--line);border-radius:1rem;overflow:hidden;margin-bottom:.8rem}
+.pbar i{display:block;height:100%;background:var(--herb);transition:width .4s}
+.step{border:2px solid transparent;border-radius:.9rem;padding:.55rem .7rem;margin:.3rem 0;display:flex;gap:.7rem;color:var(--muted);cursor:pointer;min-height:44px}
+.step .n{font:800 1.1rem Fraunces;color:var(--tomato);flex:none;width:1.6rem}
+.step.done{opacity:.55;text-decoration:line-through}
+.step.cur{background:#fff;border-color:var(--tomato);color:var(--ink);box-shadow:0 4px 0 var(--line);cursor:default}
+.step.cur .txt{font:600 1.35rem/1.3 Fraunces,serif}
+.step .arm{display:flex;gap:.4rem;flex-wrap:wrap;margin-top:.6rem}
+.pill{min-height:44px;border:2px dashed var(--tomato);color:var(--tomato-d);background:#fff3ef;border-radius:2rem;padding:.2rem .9rem;font-weight:800;font-size:.85rem}
+.nav{display:grid;grid-template-columns:1fr 2fr;gap:.6rem;margin-top:.8rem}
+.ing{list-style:none;padding:0;margin:.6rem 0 0;display:grid;grid-template-columns:1fr 1fr;gap:.2rem .8rem;font-size:.9rem}
+.ing li{display:flex;gap:.4rem;align-items:center;min-height:30px}
+.ing .box{width:1.1rem;height:1.1rem;border:2px solid var(--ink);border-radius:.3rem;flex:none;display:grid;place-items:center;font-size:.75rem;line-height:1;background:#fff}
+.ing li.ok .box{background:var(--herb);border-color:var(--herb);color:#fff}
+.ing li small{color:var(--muted)}
+/* voice */
+.voice{display:flex;gap:.6rem;align-items:center;flex-wrap:wrap}
+.mic{width:56px;height:56px;border-radius:50%;border:3px solid var(--tomato-d);background:var(--tomato);color:#fff;font-weight:800;flex:none}
+.mic[aria-pressed="true"]{box-shadow:0 0 0 6px rgba(214,64,43,.25);animation:pulse 1.2s infinite}
+@keyframes pulse{50%{box-shadow:0 0 0 12px rgba(214,64,43,.1)}}
+.voice form{flex:1 1 12rem;display:flex;gap:.4rem}
+.voice input{flex:1;min-height:44px;border:2px solid var(--line);border-radius:.8rem;padding:.3rem .8rem;font:inherit;background:#fff;min-width:0}
+.heard{margin-top:.6rem;background:#fff;border:2px solid var(--line);border-radius:.8rem;padding:.5rem .8rem;min-height:3.2rem;font-size:.95rem}
+.heard b{color:var(--tomato-d)}.heard code{background:var(--butter);padding:0 .35rem;border-radius:.3rem;font-weight:800}
+.chips{display:flex;gap:.4rem;flex-wrap:wrap;margin-top:.6rem}
+.chips button{min-height:44px;border:2px solid var(--line);background:#fff;border-radius:2rem;padding:.1rem .8rem;font-size:.82rem;font-weight:600}
+/* shelf */
+.shelf{position:relative;border-radius:.9rem;overflow:hidden;border:2px solid var(--line);background:#ead9b8}
+.shelf svg{display:block;width:100%;height:auto}
+.jar{cursor:pointer}
+.jar:focus-visible .ocr{stroke-width:4}
+.jar:hover .body{filter:brightness(1.05)}
+.ocr{fill:none;stroke:#2b8a5a;stroke-width:2;stroke-dasharray:5 3}
+.target .ocr{stroke:var(--tomato);stroke-width:4;stroke-dasharray:none}
+.target .body{animation:glow 1s infinite}
+@keyframes glow{50%{filter:brightness(1.18)}}
+#gripper{transition:transform 1.1s cubic-bezier(.5,0,.3,1)}
+.legend{display:flex;gap:1rem;flex-wrap:wrap;font-size:.78rem;color:var(--muted);margin:.5rem 0 0;align-items:center}
+.legend i{display:inline-block;width:.9rem;height:.9rem;border:2px dashed #2b8a5a;margin-right:.3rem;vertical-align:-2px}
+.prep{display:grid;grid-template-columns:repeat(5,1fr);gap:.4rem;margin-top:.7rem}
+.prep div{border:2px dashed var(--line);border-radius:.6rem;min-height:3.4rem;display:grid;place-items:center;text-align:center;font:800 .62rem/1.1 "Nunito Sans";padding:.2rem;background:#fff}
+.prep div.f{border-style:solid;border-color:var(--herb);background:#eef6e8;color:#2f5120}
+/* queue */
+.q{list-style:none;margin:0;padding:0;display:grid;gap:.5rem}
+.q li{display:grid;grid-template-columns:auto 1fr auto;gap:.2rem .7rem;align-items:center;background:#fff;border:2px solid var(--line);border-radius:.8rem;padding:.5rem .7rem}
+.q .k{width:2.1rem;height:2.1rem;border-radius:50%;display:grid;place-items:center;background:var(--butter);font:800 .75rem Fraunces}
+.q li.running{border-color:var(--tomato)}.q li.done{opacity:.55}.q li.failed{border-color:#a92e1d;background:#fff0ec}
+.q .t{font-weight:800}.q .p{font-size:.78rem;color:var(--muted);grid-column:2}
+.q .bar{grid-column:1/-1;height:.4rem;border-radius:1rem;background:var(--line);overflow:hidden}
+.q .bar i{display:block;height:100%;background:var(--tomato)}
+.q .x{min-width:44px;min-height:44px;border:0;background:transparent;font-size:1.2rem;color:var(--muted)}
+.log{font-size:.78rem;color:var(--muted);margin:.7rem 0 0;padding:0;list-style:none;max-height:7rem;overflow:auto}
+.log li{padding:.1rem 0;border-bottom:1px dotted var(--line)}
+/* timers */
+.timers{display:grid;gap:.6rem}
+.timer{display:grid;grid-template-columns:4.4rem 1fr;gap:.7rem;align-items:center;background:#fff;border:2px solid var(--line);border-radius:.9rem;padding:.5rem .7rem}
+.timer.ring{border-color:var(--tomato);animation:shake .5s infinite}
+@keyframes shake{25%{transform:translateX(-3px)}75%{transform:translateX(3px)}}
+.timer svg{width:4.4rem;height:4.4rem;transform:rotate(-90deg)}
+.timer circle{fill:none;stroke-width:8}
+.timer .tm{font:800 1.6rem Fraunces;font-variant-numeric:tabular-nums;line-height:1}
+.timer .nm{font-size:.8rem;color:var(--muted);margin-bottom:.2rem}
+.timer .ctl{display:flex;gap:.3rem;margin-top:.3rem;flex-wrap:wrap}
+.timer .ctl button{min-height:44px;min-width:44px;border:2px solid var(--line);background:var(--paper);border-radius:.6rem;font-weight:800;font-size:.8rem;padding:0 .5rem}
+.flip{display:inline-block}.flip.go{animation:flip 1s}
+@keyframes flip{to{transform:rotate(180deg)}}
+.empty{color:var(--muted);font-style:italic;font-size:.9rem}
+.toast{position:fixed;left:50%;bottom:1rem;transform:translateX(-50%);background:var(--ink);color:#fff;padding:.6rem 1.1rem;border-radius:2rem;font-weight:700;z-index:50;max-width:92vw;opacity:0;transition:opacity .3s;pointer-events:none}
+.toast.on{opacity:1}
+@media(prefers-reduced-motion:reduce){*{animation:none!important;transition:none!important}}
+</style>
+</head>
+<body>
+<header>
+  <h1>Let's Get Cookin'<small>Sous-chef arm &middot; mock mode</small></h1>
+  <div class="armstate" id="armState" role="status"><i></i><span id="armTxt">Arm idle</span></div>
+  <button class="stopb" id="stop" aria-keyshortcuts="Escape">STOP</button>
+</header>
+<div class="latch" id="latch" role="alert" hidden><span>Arm stopped and locked. Queue paused.</span><button id="reset">RESET ARM</button></div>
+
+<main>
+  <section class="card recipe" aria-label="Recipe">
+    <h2><span>Recipe card</span><span class="tag" id="stepTag">Step 1 of 6</span></h2>
+    <h3>Smoky Paprika Shakshuka</h3>
+    <p class="meta">Serves 2 &middot; 30 min &middot; one pan</p>
+    <div class="pbar"><i id="pbar"></i></div>
+    <div id="steps"></div>
+    <div class="nav"><button class="btn" id="prev">Back</button><button class="btn pri" id="next">Next step</button></div>
+    <h2 style="margin-top:1rem"><span>Mise en place</span><button class="btn herb" id="mise">Lay it out</button></h2>
+    <ul class="ing" id="ing"></ul>
+  </section>
+
+  <div style="display:grid;gap:1rem;align-content:start">
+    <section class="card" aria-label="Voice">
+      <h2><span>Talk to the chef</span><span class="tag" id="micTag">Mic</span></h2>
+      <div class="voice">
+        <button class="mic" id="mic" aria-pressed="false" aria-label="Toggle microphone">MIC</button>
+        <form id="tf"><label class="sr" for="ti" style="position:absolute;left:-9999px">Type a command</label><input id="ti" placeholder='Try: "hand me the salt"' autocomplete="off"><button class="btn pri" type="submit">Say</button></form>
+      </div>
+      <div class="heard" id="heard" aria-live="polite">Listening is off. Tap MIC, or type a command.</div>
+      <div class="chips" id="chips"></div>
+    </section>
+
+    <section class="card" aria-label="Shelf map">
+      <h2><span>Shelf map</span><span class="tag">Perceptron OCR</span></h2>
+      <div class="shelf"><svg viewBox="0 0 640 330" id="shelfSvg" role="img" aria-label="Spice shelf with labeled jars"></svg></div>
+      <p class="legend"><span><i></i>OCR label box</span><span>Numbers = pick order</span><span id="detTime">Detected just now</span></p>
+      <div class="prep" id="prep" aria-label="Prep tray"></div>
+    </section>
+  </div>
+
+  <div style="display:grid;gap:1rem;align-content:start">
+    <section class="card" aria-label="Arm queue">
+      <h2><span>Arm queue</span><span class="tag" id="qCount">0 waiting</span></h2>
+      <ul class="q" id="queue"></ul>
+      <p class="empty" id="qEmpty">Nothing queued. Say "hand me the paprika".</p>
+      <ul class="log" id="log"></ul>
+    </section>
+    <section class="card" aria-label="Timers">
+      <h2><span>Timers</span><span><button class="btn" id="add5">+ 5 min</button></span></h2>
+      <div class="timers" id="timers"></div>
+    </section>
+  </div>
+</main>
+<div class="toast" id="toast" role="status"></div>
+
+<script>
+(function(){
+"use strict";
+const $=s=>document.querySelector(s);
+const esc=s=>String(s).replace(/[&<>]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;'}[c]));
+
+/* ---------- data ---------- */
+const JARS=[
+ {id:'oil',ocr:'OLIVE OIL',alias:['olive oil','oil'],color:'#b8a53a',x:40,row:0},
+ {id:'paprika',ocr:'PAPRIKA',alias:['paprika'],color:'#c0392b',x:190,row:0},
+ {id:'cumin',ocr:'CUMIN',alias:['cumin'],color:'#a9722c',x:340,row:0},
+ {id:'salt',ocr:'SALT',alias:['salt'],color:'#e9e4d8',x:490,row:0},
+ {id:'chili',ocr:'CHILI FLAKES',alias:['chili flakes','chilli','chili','pepper flakes'],color:'#e0573b',x:40,row:1},
+ {id:'sugar',ocr:'SUGAR',alias:['sugar'],color:'#f2efe4',x:190,row:1},
+ {id:'flour',ocr:'FLOUR',alias:['flour'],color:'#f7f3e8',x:340,row:1},
+ {id:'oregano',ocr:'OREGANO',alias:['oregano'],color:'#5d7f3a',x:490,row:1}
+];
+const ING=[ // recipe order
+ {name:'Olive oil',jar:'oil'},{name:'Onion + pepper',off:'counter'},{name:'Paprika',jar:'paprika'},{name:'Cumin',jar:'cumin'},
+ {name:'Canned tomatoes',off:'counter'},{name:'Salt',jar:'salt'},{name:'Eggs',off:'counter'},{name:'Chili flakes',jar:'chili'}
+];
+const STEPS=[
+ {t:'Warm 2 tbsp olive oil in the pan over medium heat.',arm:[['hand','oil']]},
+ {t:'Add the sliced onion and pepper. Cook, stirring now and then, for 5 minutes.',timer:[300,'Onions'],arm:[['stir']]},
+ {t:'Stir in garlic, 2 tsp paprika and 1 tsp cumin until fragrant.',arm:[['hand','paprika'],['hand','cumin']]},
+ {t:'Pour in the tomatoes, season with salt, and simmer for 10 minutes.',timer:[600,'Simmer'],arm:[['hand','salt'],['stir']]},
+ {t:'Make wells, crack in the eggs, cover. Cook 8 minutes. Steady the bowl while you crack.',timer:[480,'Eggs'],arm:[['hold']]},
+ {t:'Finish with chili flakes and serve hot.',arm:[['hand','chili']]}
+];
+const S={step:0,latched:false,cur:null,seq:0,q:[],stepDone:new Set(),checked:new Set(),placed:new Set(),pick:{},tray:[],timers:[],tseq:0,holding:false,gripper:[600,-20]};
+const jar=id=>JARS.find(j=>j.id===id);
+function findJar(txt){
+  const t=' '+txt.toLowerCase()+' ';
+  return JARS.find(j=>j.alias.some(a=>t.includes(' '+a+' ')||t.includes(' '+a+'s ')));
+}
+
+/* ---------- helpers ---------- */
+let toastT;function toast(m){const t=$('#toast');t.textContent=m;t.classList.add('on');clearTimeout(toastT);toastT=setTimeout(()=>t.classList.remove('on'),2600)}
+function log(m){const li=document.createElement('li');li.textContent=new Date().toLocaleTimeString([], {minute:'2-digit',second:'2-digit'})+'  '+m;const l=$('#log');l.prepend(li);while(l.children.length>30)l.lastChild.remove()}
+function chef(m,html){$('#heard').innerHTML=html||esc(m)}
+let ac;function beep(f=880,d=.18,n=1){try{ac=ac||new (window.AudioContext||window.webkitAudioContext)();for(let i=0;i<n;i++){const o=ac.createOscillator(),g=ac.createGain();o.frequency.value=f;g.gain.value=.07;o.connect(g);g.connect(ac.destination);o.start(ac.currentTime+i*.28);o.stop(ac.currentTime+i*.28+d)}}catch(e){}}
+const fmt=s=>{s=Math.max(0,Math.ceil(s));return Math.floor(s/60)+':'+String(s%60).padStart(2,'0')};
+
+/* ---------- recipe ---------- */
+function renderSteps(){
+  $('#steps').innerHTML=STEPS.map((s,i)=>{
+    const cur=i===S.step,done=i<S.step;
+    let extra='';
+    if(cur){
+      const pills=s.arm.map((a,k)=>`<button class="pill" data-a="${a[0]}" data-j="${a[1]||''}">${a[0]==='hand'?'Queue: hand me '+jar(a[1]).ocr:a[0]==='hold'?'Queue: hold the bowl':'Queue: stir'}</button>`);
+      if(s.timer)pills.push(`<button class="pill" data-timer="${s.timer[0]}" data-n="${s.timer[1]}">Start ${fmt(s.timer[0])} timer</button>`);
+      extra=`<div class="arm">${pills.join('')}</div>`;
+    }
+    return `<div class="step ${cur?'cur':''} ${done?'done':''}" data-i="${i}"><span class="n">${i+1}</span><div><div class="txt">${esc(s.t)}</div>${extra}</div></div>`;
+  }).join('');
+  $('#stepTag').textContent='Step '+(S.step+1)+' of '+STEPS.length;
+  $('#pbar').style.width=(S.step/STEPS.length*100)+'%';
+  $('#next').textContent=S.step===STEPS.length-1?'Finish dinner':'Next step';
+  $('#prev').disabled=S.step===0;
+}
+function goStep(d){
+  const n=S.step+d;
+  if(n<0)return;
+  if(n>=STEPS.length){chef('','<b>Dinner is served.</b> Nice cooking. Arm returning to rest.');toast('Recipe complete');log('Recipe complete');beep(660,.2,3);S.step=STEPS.length-1;S.step=0;renderSteps();return}
+  S.step=n;renderSteps();
+  const s=STEPS[n];chef('',`<b>Step ${n+1}.</b> ${esc(s.t)}`);log('Step '+(n+1));
+}
+$('#steps').addEventListener('click',e=>{
+  const p=e.target.closest('.pill');
+  if(p){
+    if(p.dataset.timer){addTimer(+p.dataset.timer,p.dataset.n);return}
+    enqueue(p.dataset.a,p.dataset.j||null);return;
+  }
+  const st=e.target.closest('.step');if(st&&+st.dataset.i!==S.step){S.step=+st.dataset.i;renderSteps()}
+});
+$('#next').onclick=()=>goStep(1);$('#prev').onclick=()=>goStep(-1);
+
+function renderIng(){
+  $('#ing').innerHTML=ING.map((g,i)=>{const ok=g.jar?S.placed.has(g.jar):S.checked.has(i);
+    return `<li class="${ok?'ok':''}" data-i="${i}"><span class="box">${ok?'&#10003;':''}</span><span>${g.name}${g.off?' <small>(you grab)</small>':''}</span></li>`}).join('');
+  $('#ing').querySelectorAll('li').forEach(li=>li.onclick=()=>{const g=ING[+li.dataset.i];if(!g.jar){const i=+li.dataset.i;S.checked.has(i)?S.checked.delete(i):S.checked.add(i);renderIng()}});
+}
+function renderPrep(){
+  $('#prep').innerHTML=Array.from({length:5},(_,i)=>{const id=S.tray[i];return id?`<div class="f">${jar(id).ocr}</div>`:`<div>slot ${i+1}</div>`}).join('');
+}
+
+/* ---------- shelf ---------- */
+function renderShelf(){
+  let h=`<defs><linearGradient id="wood" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#d9bf8f"/><stop offset="1" stop-color="#c3a56f"/></linearGradient></defs><rect width="640" height="330" fill="#e9d6b0"/>`;
+  [140,290].forEach(y=>h+=`<rect x="0" y="${y}" width="640" height="14" fill="url(#wood)"/><rect x="0" y="${y+14}" width="640" height="4" fill="rgba(90,50,20,.18)"/>`);
+  JARS.forEach(j=>{
+    const y=j.row?290:140,top=y-112,x=j.x,tgt=S.cur&&S.cur.jar===j.id,pk=S.pick[j.id];
+    const conf=(0.94+Math.random()*.05).toFixed(2);
+    h+=`<g class="jar ${tgt?'target':''}" data-j="${j.id}" tabindex="0" role="button" aria-label="${j.ocr}, hand me">
+      <rect class="body" x="${x}" y="${top+16}" width="104" height="96" rx="12" fill="${j.color}" stroke="#4a3a2a" stroke-width="3"/>
+      <rect x="${x+6}" y="${top}" width="92" height="20" rx="5" fill="#6b5640" stroke="#4a3a2a" stroke-width="3"/>
+      <rect x="${x+10}" y="${top+42}" width="84" height="42" rx="4" fill="#fffaf0" stroke="#4a3a2a" stroke-width="1.5"/>
+      <text x="${x+52}" y="${top+68}" text-anchor="middle" font-family="Fraunces,serif" font-weight="800" font-size="${j.ocr.length>9?10.5:j.ocr.length>6?13:16}" fill="#3a2a20">${j.ocr}</text>
+      <rect class="ocr" x="${x+7}" y="${top+39}" width="90" height="48" rx="3"/>
+      <rect x="${x+7}" y="${top+22}" width="90" height="15" rx="3" fill="#2b8a5a"/>
+      <text x="${x+12}" y="${top+33}" font-family="Nunito Sans" font-weight="800" font-size="9.5" fill="#fff" class="conf" data-j="${j.id}">OCR ${conf}</text>
+      ${pk?`<circle cx="${x+98}" cy="${top+14}" r="14" fill="#d6402b" stroke="#fff" stroke-width="3"/><text x="${x+98}" y="${top+19}" text-anchor="middle" font-weight="800" font-size="15" fill="#fff" font-family="Fraunces">${pk}</text>`:''}
+    </g>`;
+  });
+  h+=`<g id="gripper" style="transform:translate(${S.gripper[0]}px,${S.gripper[1]}px)"><line x1="0" y1="-400" x2="0" y2="0" stroke="#333" stroke-width="10"/><circle r="12" fill="#222"/><path d="M-14 6 L-6 22 M14 6 L6 22" stroke="${S.latched?'#d6402b':'#222'}" stroke-width="6" stroke-linecap="round"/></g>`;
+  $('#shelfSvg').innerHTML=h;
+}
+$('#shelfSvg').addEventListener('click',e=>{const g=e.target.closest('.jar');if(g)enqueue('hand',g.dataset.j)});
+$('#shelfSvg').addEventListener('keydown',e=>{if(e.key==='Enter'||e.key===' '){const g=e.target.closest('.jar');if(g){e.preventDefault();enqueue('hand',g.dataset.j)}}});
+function moveGripper(jid){
+  const j=jid&&jar(jid);
+  S.gripper=j?[j.x+52,(j.row?290:140)-60]:[600,-20];
+  const g=document.getElementById('gripper');if(g)g.style.transform=`translate(${S.gripper[0]}px,${S.gripper[1]}px)`;
+}
+setInterval(()=>{ // detection refresh, no full rerender
+  document.querySelectorAll('.conf').forEach(t=>t.textContent='OCR '+(0.94+Math.random()*.05).toFixed(2));
+  $('#detTime').textContent='Detected '+new Date().toLocaleTimeString([], {minute:'2-digit',second:'2-digit'});
+},2500);
+
+/* ---------- arm queue ---------- */
+const KIND={
+ hand:{dur:5200,name:j=>'Hand me '+jar(j).ocr,phases:['Locating label','Planning grasp','Grasping','Lifting','Handing over']},
+ hold:{dur:0,name:()=>'Hold the bowl steady',phases:['Finding bowl rim','Gripping rim','Holding steady']},
+ stir:{dur:6000,name:()=>'Stir the pan',phases:['Finding spoon','Lowering','Stirring','Stirring','Returning']},
+ flip:{dur:3200,name:()=>'Flip the hourglass',phases:['Reaching','Gripping','Flipping']},
+ place:{dur:3800,name:j=>'Place '+jar(j).ocr+' on prep tray',phases:['Locating label','Grasping','Carrying','Placing']}
+};
+function enqueue(kind,jid,opts){
+  if(kind==='hand'||kind==='place'){const seen=jar(jid);if(!seen){say('I cannot see that on the shelf.');return}}
+  if(kind==='hold'&&(S.holding||S.q.some(a=>a.kind==='hold'&&a.status!=='done'))){toast('Already holding the bowl');return}
+  const a=Object.assign({id:++S.seq,kind,jar:jid,status:'pending',prog:0,phase:'Waiting'},opts||{});
+  S.q.push(a);log('POST /api/request task='+kind+(jid?' target='+jid:''));renderQueue();pump();
+}
+function say(m){chef(m);toast(m);log(m)}
+function pump(){
+  if(S.latched||S.cur)return;
+  const a=S.q.find(x=>x.status==='pending');if(!a){updateArm();return}
+  S.cur=a;a.status='running';a.t0=performance.now();
+  a.fail=(a.kind==='hand'||a.kind==='place')&&Math.random()<.18&&!a.retried;
+  a.pickN=a.jar;
+  if(a.jar)moveGripper(a.jar);
+  updateArm();renderQueue();renderShelf();
+}
+function tick(){
+  const a=S.cur;if(!a||S.latched)return;
+  const K=KIND[a.kind],el=performance.now()-a.t0;
+  if(a.kind==='hold'){
+    a.prog=Math.min(.95,el/12000);a.phase=el<1500?K.phases[0]:el<3000?K.phases[1]:K.phases[2];
+    if(el>=3000&&!S.holding){S.holding=true;log('Holding bowl. Say "release" when done.')}
+  }else{
+    const dur=K.dur;a.prog=Math.min(1,el/dur);
+    a.phase=K.phases[Math.min(K.phases.length-1,Math.floor(a.prog*K.phases.length))];
+    if(a.fail&&a.prog>.5){ // honest failure + retry
+      a.fail=false;a.retried=true;a.t0=performance.now()-dur*.2;
+      log('Grasp slipped on '+(a.jar?jar(a.jar).ocr:a.kind)+'. Re-detecting and retrying (attempt 2).');toast('Grasp slipped. Retrying.');
+    }
+    if(a.prog>=1)complete(a);
+  }
+  renderQueueLight();
+}
+function complete(a){
+  a.status='done';a.prog=1;S.cur=null;
+  log('Done: '+KIND[a.kind].name(a.jar));
+  if(a.kind==='place'){S.placed.add(a.jar);S.tray.push(a.jar);renderIng();renderPrep()}
+  if(a.kind==='hand'){chef('',`<b>${jar(a.jar).ocr}</b> is in your hand zone. Take it.`)}
+  if(a.kind==='flip'){const f=document.querySelector('.flip');}
+  if(a.kind==='hand'||a.kind==='place')delete S.pick[a.jar];
+  moveGripper(null);renderQueue();renderShelf();
+  setTimeout(pump,700);updateArm();
+}
+function renderQueue(){
+  const live=S.q.filter(a=>a.status!=='cancelled').slice(-8);
+  $('#queue').innerHTML=live.map(a=>{
+    const nm=KIND[a.kind].name(a.jar);
+    return `<li class="${a.status}" data-id="${a.id}"><span class="k">${a.status==='done'?'OK':a.pickN&&S.pick[a.jar]?S.pick[a.jar]:a.kind.slice(0,2).toUpperCase()}</span>
+      <span class="t">${esc(nm)}</span>
+      ${a.status==='pending'?`<button class="x" aria-label="Cancel ${esc(nm)}" data-c="${a.id}">&times;</button>`:a.kind==='hold'&&a.status==='running'?`<button class="btn" data-rel="1">Release</button>`:'<span></span>'}
+      <span class="p" data-p="${a.id}">${a.status==='running'?esc(a.phase):a.status==='pending'?'Waiting in line':'Finished'}</span>
+      ${a.status==='running'?`<span class="bar"><i data-b="${a.id}" style="width:${a.prog*100}%"></i></span>`:''}</li>`}).join('');
+  const waiting=S.q.filter(a=>a.status==='pending').length;
+  $('#qCount').textContent=waiting+' waiting';$('#qEmpty').hidden=live.length>0;
+  assignPicks();
+}
+function renderQueueLight(){
+  const a=S.cur;if(!a)return;
+  const b=document.querySelector(`[data-b="${a.id}"]`),p=document.querySelector(`[data-p="${a.id}"]`);
+  if(b)b.style.width=a.prog*100+'%';if(p)p.textContent=a.phase;
+  updateArm();
+}
+function assignPicks(){ // pick order badges for queued jar actions
+  const np={};let n=0;
+  S.q.filter(a=>a.jar&&(a.status==='pending'||a.status==='running')).forEach(a=>{np[a.jar]=++n});
+  const same=JSON.stringify(np)===JSON.stringify(S.pick);S.pick=np;if(!same)renderShelf();
+}
+$('#queue').addEventListener('click',e=>{
+  const c=e.target.closest('[data-c]');if(c){const a=S.q.find(x=>x.id===+c.dataset.c);if(a){a.status='cancelled';log('Cancelled '+KIND[a.kind].name(a.jar));renderQueue()}}
+  if(e.target.closest('[data-rel]'))release();
+});
+function release(){
+  const a=S.q.find(x=>x.kind==='hold'&&x.status==='running');if(!a){toast('Not holding anything');return}
+  S.holding=false;S.cur=null;a.status='done';log('Bowl released');chef('Bowl released.');renderQueue();setTimeout(pump,500);updateArm();
+}
+function updateArm(){
+  const a=S.cur,t=$('#armTxt'),i=$('#armState i');
+  if(S.latched){t.textContent='STOPPED';i.style.background='#ff6b5a'}
+  else if(a){t.textContent=KIND[a.kind].name(a.jar)+': '+a.phase;i.style.background='#ffd45a'}
+  else{t.textContent='Arm idle';i.style.background='#9ff08a'}
+}
+setInterval(tick,100);
+
+/* ---------- mise en place ---------- */
+$('#mise').onclick=()=>{
+  if(S.latched)return;
+  S.placed=new Set();S.tray=[];S.checked=new Set();renderIng();renderPrep();
+  let n=0;
+  ING.forEach(g=>{if(g.jar){enqueue('place',g.jar);n++}});
+  chef('',`<b>Mise en place.</b> Laying out ${n} shelf items in recipe order. Onion, tomatoes and eggs are yours to grab.`);
+  toast('Laying out ingredients');
+};
+
+/* ---------- timers ---------- */
+function addTimer(sec,name){
+  const t={id:++S.tseq,name:name||'Timer',total:sec,left:sec,run:true,ring:false,last:Date.now()};
+  S.timers.push(t);log('Timer started: '+t.name+' '+fmt(sec));renderTimers();toast(t.name+' timer started');return t;
+}
+function renderTimers(){
+  const el=$('#timers');
+  if(!S.timers.length){el.innerHTML='<p class="empty">No timers running. Say "set a timer for 5 minutes".</p>';return}
+  el.innerHTML=S.timers.map(t=>{
+    const C=2*Math.PI*34,off=C*(1-t.left/t.total);
+    return `<div class="timer ${t.ring?'ring':''}" data-t="${t.id}"><svg viewBox="0 0 80 80"><circle cx="40" cy="40" r="34" stroke="#e8d9bd"/><circle cx="40" cy="40" r="34" stroke="${t.ring?'#d6402b':'#4f7a3a'}" stroke-linecap="round" stroke-dasharray="${C}" stroke-dashoffset="${off}"/></svg>
+    <div><div class="nm">${esc(t.name)}${t.hg?' <span class="flip go">&#8987;</span>':''}</div><div class="tm" data-tm>${t.ring?'Time!':fmt(t.left)}</div>
+    <div class="ctl"><button data-a="pause">${t.run?'Pause':'Resume'}</button><button data-a="add">+1 min</button><button data-a="del" aria-label="Delete timer">${t.ring?'Dismiss':'Clear'}</button></div></div></div>`}).join('');
+}
+$('#timers').addEventListener('click',e=>{
+  const b=e.target.closest('button');if(!b)return;const t=S.timers.find(x=>x.id===+b.closest('.timer').dataset.t);if(!t)return;
+  if(b.dataset.a==='pause')t.run=!t.run;
+  if(b.dataset.a==='add'){t.left+=60;t.total=Math.max(t.total,t.left);t.ring=false;t.run=true}
+  if(b.dataset.a==='del')S.timers=S.timers.filter(x=>x!==t);
+  t.last=Date.now();renderTimers();
+});
+$('#add5').onclick=()=>addTimer(300,'Timer');
+setInterval(()=>{
+  const now=Date.now();let rerender=false;
+  S.timers.forEach(t=>{
+    if(t.run&&!t.ring){t.left-=(now-t.last)/1000;if(t.left<=0){t.left=0;t.ring=true;t.run=false;rerender=true;beep(880,.2,3);toast(t.name+' timer is done');log('Timer done: '+t.name)}}
+    t.last=now;
+  });
+  if(rerender||S.timers.some(t=>t.run))renderTimers();
+  if(S.timers.some(t=>t.ring)&&Math.floor(now/2000)%1===0&&now%2000<250)beep(880,.15,2);
+},250);
+
+/* ---------- voice + parsing ---------- */
+function parse(raw){
+  const t=raw.toLowerCase().replace(/[.,!?']/g,'').trim();let m;
+  if(/\b(stop|emergency|halt)\b/.test(t))return {i:'stop'};
+  if(/\b(next|continue|done with this)\b/.test(t))return {i:'next'};
+  if(/\b(previous|go back|back a step|last step)\b/.test(t))return {i:'prev'};
+  if(/(repeat|read|say).*(step|that)|again/.test(t))return {i:'repeat'};
+  if(/mise|set (everything )?up|lay (it |everything )?out/.test(t))return {i:'mise'};
+  if(/\b(release|let go|you can let go)\b/.test(t))return {i:'release'};
+  if(/\bhold\b.*\b(bowl|pan|this)\b|steady the bowl/.test(t))return {i:'hold'};
+  if(/\bstir\b/.test(t))return {i:'stir'};
+  if(/flip.*(timer|hourglass)/.test(t))return {i:'flip'};
+  if((m=t.match(/(?:set|start)\s+(?:a\s+)?(?:timer\s+)?(?:for\s+)?(\d+)\s*(second|sec|minute|min)?/))){
+    const n=+m[1];return {i:'timer',sec:/sec/.test(m[2]||'')?n:n*60};
+  }
+  if(/\b(hand|give|pass|bring|get|grab|need)\b/.test(t)){
+    const j=findJar(t);
+    return {i:'hand',jar:j?j.id:null,what:t.replace(/.*\b(hand|give|pass|bring|get|grab|need)( me)?( the| some| a)?\s*/,'')};
+  }
+  return {i:'unknown'};
+}
+function run(text){
+  const p=parse(text);
+  const chip=(k,v)=>`<code>${k}=${esc(v)}</code> `;
+  let desc=chip('intent',p.i);
+  if(p.jar)desc+=chip('target',jar(p.jar).ocr);if(p.sec)desc+=chip('seconds',p.sec);
+  chef('',`<b>"${esc(text)}"</b><br>${desc}`);log('POST /api/say "'+text+'"');
+  switch(p.i){
+    case'stop':stop();break;
+    case'next':goStep(1);break;
+    case'prev':goStep(-1);break;
+    case'repeat':chef('',`<b>Step ${S.step+1}.</b> ${esc(STEPS[S.step].t)}`);break;
+    case'mise':$('#mise').click();break;
+    case'release':release();break;
+    case'hold':enqueue('hold');break;
+    case'stir':enqueue('stir');break;
+    case'flip':enqueue('flip');break;
+    case'timer':addTimer(p.sec,'Voice timer');break;
+    case'hand':
+      if(p.jar)enqueue('hand',p.jar);
+      else say('I do not see "'+(p.what||'that')+'" on the shelf. I can see '+JARS.map(j=>j.ocr).join(', ')+'.');
+      break;
+    default:say('Sorry, I did not catch that. Try "next step" or "hand me the salt".');
+  }
+}
+const SR=window.SpeechRecognition||window.webkitSpeechRecognition;let rec=null;
+if(!SR){$('#micTag').textContent='Typed only';}
+$('#mic').onclick=()=>{
+  if(!SR){chef('Speech recognition is not available in this browser. Type a command instead.');return}
+  if(rec){try{rec.stop()}catch(e){}return}
+  const r=rec=new SR();r.lang='en-US';r.interimResults=true;r.continuous=false;let fin='';
+  r.onstart=()=>{$('#mic').setAttribute('aria-pressed','true');$('#micTag').textContent='Listening'};
+  r.onresult=ev=>{let it='';fin='';for(const x of ev.results){if(x.isFinal)fin+=x[0].transcript;else it+=x[0].transcript}chef('',`<b>${esc(fin)}</b> <em>${esc(it)}</em>`)};
+  r.onerror=()=>chef('I could not hear that. Try typing.');
+  r.onend=()=>{rec=null;$('#mic').setAttribute('aria-pressed','false');$('#micTag').textContent='Mic';if(fin.trim())run(fin)};
+  try{r.start()}catch(e){rec=null}
+};
+$('#tf').onsubmit=e=>{e.preventDefault();const v=$('#ti').value.trim();if(v){run(v);$('#ti').value=''}};
+const CHIPS=['next step','hand me the salt','hold the bowl','release','stir','set a timer for 2 minutes','flip the timer','hand me the butter','mise en place'];
+$('#chips').innerHTML=CHIPS.map(c=>`<button data-c="${c}">${c}</button>`).join('');
+$('#chips').onclick=e=>{const b=e.target.closest('button');if(b)run(b.dataset.c)};
+
+/* ---------- STOP ---------- */
+function stop(){
+  S.latched=true;$('#latch').hidden=false;
+  if(S.cur){S.cur.status='failed';S.cur.phase='Stopped';S.cur=null}
+  S.holding=false;S.q.forEach(a=>{if(a.status==='pending')a.status='pending'});
+  moveGripper(null);log('POST /api/stop (latched)');chef('',`<b>STOPPED.</b> The arm is locked. Queue is paused.`);
+  renderQueue();renderShelf();updateArm();
+  try{rec&&rec.abort()}catch(e){}
+}
+function reset(){S.latched=false;$('#latch').hidden=true;log('POST /api/reset');chef('Arm reset. Queue resumes.');renderShelf();updateArm();pump()}
+$('#stop').onclick=stop;$('#reset').onclick=reset;
+document.addEventListener('keydown',e=>{if(e.key==='Escape')stop()});
+S.stopBlock=false;
+// flip action creates an hourglass timer
+const _complete=complete;
+complete=function(a){_complete(a);if(a.kind==='flip'){const t=addTimer(120,'Hourglass');t.hg=true;renderTimers()}};
+
+/* ---------- init ---------- */
+renderSteps();renderIng();renderPrep();renderShelf();renderTimers();renderQueue();
+addTimer(185,'Coffee');           // alive immediately
+setTimeout(()=>chef('',`<b>Step 1.</b> ${esc(STEPS[0].t)}<br>Try: <code>hand me the olive oil</code>`),400);
+setTimeout(()=>{if(!S.q.length){}},0);
+log('Camera: 8 jars detected, OCR read 8/8 labels');
+})();
+</script>
+</body>
+</html>

@@ -1,0 +1,372 @@
+<!doctype html>
+<!-- STYLE: Medical device HMI, endoscopy tower / camera control unit front panel (black bezel, hardware buttons, mono readouts, on-screen-display text). Flat, no gradients, no glow. -->
+<!--
+FEATURES:
+- Simulated laparoscopic view (canvas) with two moving instrument tips on pink tissue
+- Perceptron-style tip tracking overlay: tracked tips, raw midpoint, smoothed target, dead-zone rectangle
+- Arm keeps the instrument midpoint centered with jerk-limited motion (camera only moves outside the dead zone)
+- Voice commands: zoom in / zoom out / pan left / pan right / pan up / pan down / hold / follow (Web Speech API if available, typed + chip fallback)
+- Fulcrum (RCM) trocar diagram: scope pivots about the entry port; compares with naive arm that would drag the port
+- Live motion-smoothness (jerk) graph vs simulated human assistant, camera steadiness score
+- Latched STOP (button, Esc, or voice "stop")
+- Training/research prototype banner, props-only box trainer, not for clinical use
+-->
+<!--
+SPONSORS: Perceptron Robotics (SO-101 arm, fine-tuned policy), Perceptron Perception (instrument tip localization / tracking),
+Gemini API (voice intent), Tiger Data (jerk and steadiness time series), Backboard (surgeon camera preferences), Photon (alert circulating nurse on STOP)
+-->
+<!--
+BACKEND HOOKS (mock by default):
+- POST /api/detect  {frame} -> {tips:[{x,y,conf}]}   (Perceptron Perception, per frame or every N frames)
+- POST /api/request {kind:"camera", cmd:"zoom_in|pan_left|hold|follow"}  (../reach/CONTRACT.md)
+- WS /ws events: arm_pose, tracking_state, estop ; GET /api/state
+- POST /api/stop  (latched e-stop)
+-->
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Scope Holder Tower</title>
+<meta name="description" content="Autonomous laparoscope camera holder that keeps instrument tips centered around a fixed trocar pivot, with voice control and a steadiness score.">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Archivo+Narrow:wght@500;600;700&family=IBM+Plex+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+<style>
+:root{--bg:#050505;--panel:#0b0c0c;--panel2:#151716;--line:#2b2f2d;--tx:#dfe3df;--dim:#8d9591;--teal:#86d99a;--teal2:#4f8f5e;--amber:#f0b429;--red:#e5484d;--blue:#7aa7d9;}
+*{box-sizing:border-box}
+html,body{margin:0;background:var(--bg);color:var(--tx);font:14px/1.4 'Archivo Narrow',system-ui,sans-serif}
+body{min-height:100vh;background:var(--bg)}
+.mono{font-family:'IBM Plex Mono',ui-monospace,monospace;font-variant-numeric:tabular-nums}
+header{display:flex;align-items:center;gap:10px;padding:8px 14px;border-bottom:3px solid #000;outline:1px solid var(--line);outline-offset:-4px;background:#101211;flex-wrap:wrap}
+.logo{font:700 14px 'Archivo Narrow',sans-serif;letter-spacing:.18em;color:var(--tx);border:1px solid var(--dim);padding:3px 8px;text-transform:uppercase}
+.chip{font:500 11px 'IBM Plex Mono',monospace;color:var(--dim);border:1px solid var(--line);background:#000;padding:3px 8px;border-radius:0;white-space:nowrap;text-transform:uppercase}
+.chip b{color:var(--teal);font-weight:500}
+.banner{flex:1;min-width:220px;text-align:center;font:600 11px 'IBM Plex Mono',monospace;color:var(--amber);letter-spacing:.04em}
+button{font:700 12px 'Archivo Narrow',sans-serif;letter-spacing:.1em;text-transform:uppercase;color:var(--tx);background:var(--panel2);border:1px solid #4a504d;border-bottom:3px solid #000;border-radius:2px;min-height:44px;padding:0 14px;cursor:pointer;position:relative}
+button:hover{border-color:var(--tx)}
+button:active{border-bottom-width:1px;border-top-width:3px}
+button.on{background:#0b0c0c;border-color:var(--teal);color:var(--teal)}
+button.on::before{content:"";display:inline-block;width:7px;height:7px;background:var(--teal);margin-right:8px;vertical-align:middle}
+#stop{background:var(--red);border-color:#ff9a9d;border-bottom-color:#5a0d10;color:#000;font-weight:700;letter-spacing:.16em;min-width:120px}
+#stop.latched{background:#000;color:var(--red);border:2px solid var(--red);animation:pulse 1s steps(1) infinite}
+@keyframes pulse{50%{background:#3a0b0b}}
+main{display:grid;grid-template-columns:minmax(0,1.7fr) minmax(300px,1fr);gap:10px;padding:10px;max-width:1500px;margin:0 auto}
+.card{background:var(--panel);border:1px solid var(--line);border-radius:0;padding:10px 12px;min-width:0}
+.card h3{margin:0 0 8px;padding-bottom:5px;border-bottom:1px solid var(--line);font:700 11px 'Archivo Narrow',sans-serif;letter-spacing:.16em;color:var(--dim);text-transform:uppercase;display:flex;justify-content:space-between;gap:8px}
+.card h3 .mono{color:var(--tx);letter-spacing:.04em}
+.screen{position:relative;border:10px solid #000;outline:1px solid var(--line);border-radius:0;background:#000;overflow:hidden}
+.screen canvas{display:block;width:100%;height:auto}
+#hudTime{font:600 20px 'IBM Plex Mono',monospace;color:var(--red);letter-spacing:.06em;line-height:1}
+#estopOv{position:absolute;inset:0;display:none;align-items:center;justify-content:center;flex-direction:column;background:#2a000099;color:#ffb3b5;font:700 22px 'IBM Plex Mono',monospace;letter-spacing:.1em;text-align:center;pointer-events:none}
+#estopOv small{font:500 12px 'IBM Plex Mono';color:#ffd0d0;margin-top:6px}
+.cmds{display:flex;flex-wrap:wrap;gap:8px;margin-top:10px;align-items:center}
+.cmds input{flex:1;min-width:150px;min-height:44px;background:#000;border:1px solid var(--line);color:var(--teal);border-radius:0;padding:0 10px;font:13px 'IBM Plex Mono',monospace}
+#mic.rec{background:#2a0b0b;border-color:var(--red);color:#ffb3b5}
+#log{margin-top:8px;font:12px 'IBM Plex Mono',monospace;color:var(--dim);height:84px;overflow:auto;border-top:1px solid var(--line);padding-top:6px;background:#000;padding-left:6px}
+#log div b{color:var(--teal);font-weight:500}
+.col{display:flex;flex-direction:column;gap:10px}
+canvas.g{width:100%;height:auto;display:block;background:#000;border:1px solid var(--line)}
+.score{display:grid;grid-template-columns:1fr 1fr;gap:10px}
+.big{font:600 44px/1 'IBM Plex Mono',monospace;color:var(--teal);background:#000;border:1px solid var(--line);padding:6px 8px;letter-spacing:.04em}
+.big.h{color:var(--amber)}
+.lbl{font:700 11px 'Archivo Narrow',sans-serif;letter-spacing:.1em;color:var(--dim);margin-top:4px;text-transform:uppercase}
+#verdict{text-transform:none;letter-spacing:.02em;font-weight:500;font-size:12px}
+.bar{height:8px;background:#000;border:1px solid var(--line);margin-top:6px}
+.bar i{display:block;height:100%;background:var(--teal);transition:width .3s}
+.bar.h i{background:var(--amber)}
+.row{display:flex;gap:10px;align-items:center;justify-content:space-between;font:12px 'IBM Plex Mono',monospace;margin:4px 0;color:var(--dim)}
+.row b{color:var(--tx);font-weight:500}
+input[type=range]{width:130px;accent-color:var(--teal)}
+.tr{display:grid;grid-template-columns:auto 1fr auto;gap:2px 10px;font:12px 'IBM Plex Mono',monospace}
+.ok{color:var(--teal)}.warn{color:var(--amber)}
+.legend{display:flex;gap:12px;font:11px 'IBM Plex Mono',monospace;color:var(--dim);margin-top:4px;flex-wrap:wrap}
+.legend span::before{content:"";display:inline-block;width:10px;height:3px;margin-right:5px;vertical-align:middle;background:currentColor}
+footer{border-top:1px solid var(--line);margin-top:6px;padding:10px 14px;display:flex;gap:16px;font:11px 'IBM Plex Mono',monospace;color:var(--dim)}
+footer a{color:var(--dim)}
+@media(max-width:900px){main{grid-template-columns:1fr;padding:8px}}
+@media(max-width:480px){.big{font-size:32px}header{padding:8px}}
+</style>
+</head>
+<body>
+<header>
+  <div class="logo">SCOPEHOLD LAP TOWER</div>
+  <span class="chip">CAM <b>1080p 30</b></span>
+  <span class="chip">ARM <b id="armState">FOLLOW</b></span>
+  <span class="chip">MOCK ARM</span>
+  <div class="banner">TRAINING / RESEARCH PROTOTYPE. NOT FOR CLINICAL USE. PROPS IN A BOX TRAINER ONLY.</div>
+  <button id="stop" aria-label="Emergency stop">STOP</button>
+</header>
+<main>
+  <section class="col">
+    <div class="card">
+      <h3><span>Laparoscope view (box trainer)</span><span class="mono" id="hudTime">REC 00:00:00:00</span></h3>
+      <div class="screen">
+        <canvas id="view" width="800" height="520"></canvas>
+        <div id="estopOv">E-STOP LATCHED<small>Arm power removed. Press RESET to resume.</small></div>
+      </div>
+      <div class="cmds">
+        <button data-cmd="zoom in">Zoom in</button>
+        <button data-cmd="zoom out">Zoom out</button>
+        <button data-cmd="pan left">Pan left</button>
+        <button data-cmd="pan right">Pan right</button>
+        <button data-cmd="hold" id="bHold">Hold</button>
+        <button data-cmd="follow" id="bFollow" class="on">Follow</button>
+      </div>
+      <div class="cmds">
+        <button id="mic" aria-label="Voice input">Mic: tap to speak</button>
+        <input id="txt" placeholder='Type a command, e.g. "zoom in"' aria-label="Voice command text">
+        <button id="send">Send</button>
+      </div>
+      <div id="log"></div>
+    </div>
+  </section>
+  <section class="col">
+    <div class="card">
+      <h3><span>Camera steadiness</span><span id="scoreNote">last 10 s</span></h3>
+      <div class="score">
+        <div><div class="big" id="sRobot">--</div><div class="lbl">ROBOT HOLDER</div><div class="bar"><i id="bRobot"></i></div></div>
+        <div><div class="big h" id="sHuman">--</div><div class="lbl">HUMAN ASSISTANT (baseline)</div><div class="bar h"><i id="bHuman"></i></div></div>
+      </div>
+      <div class="lbl" style="margin-top:8px" id="verdict">Collecting samples...</div>
+    </div>
+    <div class="card">
+      <h3><span>Motion smoothness (jerk)</span><span class="mono" id="jerkNow">0.0 kpx/s3</span></h3>
+      <canvas class="g" id="jerk" width="480" height="150"></canvas>
+      <div class="legend"><span style="color:var(--teal)">robot</span><span style="color:var(--amber)">human baseline</span></div>
+    </div>
+    <div class="card">
+      <h3><span>Fulcrum / trocar constraint</span><span class="mono ok" id="rcmState">RCM LOCKED</span></h3>
+      <canvas class="g" id="rcm" width="480" height="270"></canvas>
+      <div class="row"><span>Port deviation</span><b id="portDev">0.0 mm</b></div>
+      <div class="row"><span>Pivot angle / insertion</span><b id="pivInfo">0 deg / 0 mm</b></div>
+    </div>
+    <div class="card">
+      <h3><span>Tracking (Perceptron)</span><span class="mono ok">LIVE</span></h3>
+      <div class="tr" id="trk"></div>
+      <div class="row"><span>Dead zone</span><input type="range" id="dz" min="40" max="160" value="100" aria-label="Dead zone size"></div>
+      <div class="row"><span>Target smoothing</span><input type="range" id="sm" min="5" max="90" value="35" aria-label="Target smoothing"></div>
+    </div>
+  </section>
+</main>
+<footer><span>Scope Holder Tower, prototype</span><a href="#">Terms</a><a href="#">Privacy</a></footer>
+<script>
+(()=>{
+const $=s=>document.querySelector(s);
+const V=$('#view'),vc=V.getContext('2d'),VW=800,VH=520,CX=400,CY=260,R=258;
+// ---------- seeded rng + world texture ----------
+let seed=7;const rnd=()=>{seed=(seed*16807)%2147483647;return seed/2147483647};
+const WW=1800,WH=1200,world=document.createElement('canvas');world.width=WW;world.height=WH;
+(function(){const c=world.getContext('2d');
+ c.fillStyle='#bd6469';c.fillRect(0,0,WW,WH);
+ for(let i=0;i<520;i++){const x=rnd()*WW,y=rnd()*WH,r=20+rnd()*90,k=rnd();
+  const col=k<.35?'233,170,150':k<.6?'236,205,150':k<.85?'160,60,70':'250,200,200';
+  c.fillStyle=`rgba(${col},.10)`;c.beginPath();c.arc(x,y,r,0,7);c.fill();c.fillStyle=`rgba(${col},.08)`;c.beginPath();c.arc(x,y,r*.55,0,7);c.fill();}
+ c.lineCap='round';
+ for(let i=0;i<22;i++){let x=rnd()*WW,y=rnd()*WH,a=rnd()*6.28,w=2+rnd()*7;c.strokeStyle='rgba(110,25,40,.5)';c.lineWidth=w;c.beginPath();c.moveTo(x,y);
+  for(let j=0;j<14;j++){a+=(rnd()-.5)*.7;x+=Math.cos(a)*55;y+=Math.sin(a)*55;c.lineTo(x,y);}c.stroke();
+  c.strokeStyle='rgba(235,140,150,.25)';c.lineWidth=w*.35;c.stroke();}
+ for(let i=0;i<260;i++){const x=rnd()*WW,y=rnd()*WH;c.fillStyle='rgba(255,235,230,.10)';c.beginPath();c.ellipse(x,y,6+rnd()*18,2+rnd()*6,rnd()*3,0,7);c.fill();}
+})();
+// ---------- state ----------
+const S={cx:900,cy:600,vx:0,vy:0,ax:0,ay:0,z:1,zt:1,mode:'follow',goto:null,estop:false,t:0,
+ sm:{x:900,y:600},mid:{x:900,y:600},moving:false,tips:[{x:0,y:0,c:0},{x:0,y:0,c:0}],
+ dz:100,tau:.35,hc:{x:900,y:600},hv:{x:0,y:0},hTarget:{x:900,y:600},hNext:1,hPrev:[],pPrev:[],
+ jR:[],jH:[],portDev:0};
+const gauss=()=>(rnd()+rnd()+rnd()-1.5)*1.2;
+function truth(t){
+ const mx=900+330*Math.sin(.11*t)+80*Math.sin(.37*t),my=600+170*Math.sin(.085*t+1)+50*Math.sin(.29*t);
+ const sp=95+45*Math.sin(.52*t),an=.4*Math.sin(.31*t);
+ return [{x:mx-sp*Math.cos(an)+30*Math.sin(1.3*t),y:my-sp*.6*Math.sin(an+.4)+22*Math.sin(1.1*t+2),g:.5+.5*Math.sin(1.7*t)},
+         {x:mx+sp*Math.cos(an)+28*Math.sin(.9*t+1),y:my+sp*.6*Math.sin(an+.4)+25*Math.sin(1.4*t),g:.5+.5*Math.sin(1.3*t+1.5)}];
+}
+const clamp=(v,a,b)=>Math.max(a,Math.min(b,v));
+// ---------- log + commands ----------
+const logEl=$('#log');
+function log(m,who){const d=document.createElement('div');const n=new Date();d.innerHTML=`<b>${n.toTimeString().slice(0,8)}</b> ${who||''} ${m}`;logEl.prepend(d);while(logEl.children.length>40)logEl.lastChild.remove();}
+function setMode(m){S.mode=m;$('#bFollow').classList.toggle('on',m==='follow');$('#bHold').classList.toggle('on',m==='hold');
+ $('#armState').textContent=S.estop?'E-STOP':m.toUpperCase();}
+function command(raw,src){
+ const c=raw.toLowerCase().replace(/[^a-z ]/g,' ').replace(/\s+/g,' ').trim();if(!c)return;
+ log(`"${c}"`,src==='voice'?'heard:':'cmd:');
+ if(/\bstop\b|emergency/.test(c)){estop();return}
+ if(S.estop){log('ignored, e-stop latched','arm:');return}
+ let r='unknown command';
+ if(/zoom in|closer/.test(c)){S.zt=clamp(S.zt*1.3,1,2.8);r=`zoom target ${S.zt.toFixed(2)}x`}
+ else if(/zoom out|wider/.test(c)){S.zt=clamp(S.zt/1.3,1,2.8);r=`zoom target ${S.zt.toFixed(2)}x`}
+ else if(/pan (left|right|up|down)/.test(c)){const d=c.match(/pan (left|right|up|down)/)[1];
+  S.goto={x:S.cx+(d==='left'?-260:d==='right'?260:0),y:S.cy+(d==='up'?-170:d==='down'?170:0)};setMode('pan');r=`pan ${d}, then hold`}
+ else if(/hold|freeze|stay/.test(c)){setMode('hold');r='holding position'}
+ else if(/follow|track|resume/.test(c)){setMode('follow');r='following instrument midpoint'}
+ log(r,'arm:');
+}
+document.querySelectorAll('[data-cmd]').forEach(b=>b.onclick=()=>command(b.dataset.cmd,'ui'));
+$('#send').onclick=()=>{command($('#txt').value,'text');$('#txt').value=''};
+$('#txt').onkeydown=e=>{if(e.key==='Enter')$('#send').click()};
+const SR=window.SpeechRecognition||window.webkitSpeechRecognition;let rec=null;
+$('#mic').onclick=()=>{
+ if(!SR){log('Web Speech API unavailable, simulating "zoom in"','mic:');command('zoom in','voice');return}
+ if(rec){rec.stop();return}
+ try{rec=new SR();rec.lang='en-US';rec.interimResults=false;
+  rec.onresult=e=>command(e.results[0][0].transcript,'voice');
+  rec.onend=()=>{rec=null;$('#mic').classList.remove('rec');$('#mic').textContent='Mic: tap to speak'};
+  rec.onerror=()=>{};rec.start();$('#mic').classList.add('rec');$('#mic').textContent='Listening...';}catch(e){rec=null}
+};
+function estop(){
+ if(S.estop){S.estop=false;$('#stop').textContent='STOP';$('#stop').classList.remove('latched');$('#estopOv').style.display='none';setMode('hold');log('e-stop reset, holding','arm:');return}
+ S.estop=true;$('#stop').textContent='RESET';$('#stop').classList.add('latched');$('#estopOv').style.display='flex';setMode(S.mode);log('E-STOP latched, arm power removed','arm:');
+}
+$('#stop').onclick=estop;addEventListener('keydown',e=>{if(e.key==='Escape'&&!S.estop)estop()});
+$('#dz').oninput=e=>S.dz=+e.target.value;$('#sm').oninput=e=>S.tau=e.target.value/100;
+// ---------- simulation step (fixed dt) ----------
+const DT=1/60;
+function rmsOf(a){let s=0;for(const v of a)s+=v*v;return a.length?Math.sqrt(s/a.length):0}
+function step(){
+ S.t+=DT;const t=S.t;
+ const tr=truth(t);
+ // perception: noisy tips with confidence
+ S.tips=tr.map((p,i)=>({x:p.x+gauss()*2,y:p.y+gauss()*2,c:.93+.06*Math.sin(t*1.7+i*2)+(Math.random()*.01),g:p.g,tx:p.x,ty:p.y}));
+ S.mid={x:(S.tips[0].x+S.tips[1].x)/2,y:(S.tips[0].y+S.tips[1].y)/2};
+ const a=1-Math.exp(-DT/S.tau);S.sm.x+=(S.mid.x-S.sm.x)*a;S.sm.y+=(S.mid.y-S.sm.y)*a;
+ // controller
+ const ex=(S.sm.x-S.cx)*S.z,ey=(S.sm.y-S.cy)*S.z,dzx=S.dz*1.25,dzy=S.dz*.85;
+ let vdx=0,vdy=0,tau=.3;
+ if(S.estop){tau=.08}
+ else if(S.mode==='follow'){
+  const out=Math.abs(ex)>dzx||Math.abs(ey)>dzy,inner=Math.abs(ex)<dzx*.3&&Math.abs(ey)<dzy*.3;
+  if(out)S.moving=true;else if(inner)S.moving=false;
+  if(S.moving){vdx=clamp((S.sm.x-S.cx)*1.5,-260,260);vdy=clamp((S.sm.y-S.cy)*1.5,-260,260)}
+ }else if(S.mode==='pan'&&S.goto){
+  vdx=clamp((S.goto.x-S.cx)*1.6,-260,260);vdy=clamp((S.goto.y-S.cy)*1.6,-260,260);
+  if(Math.hypot(S.goto.x-S.cx,S.goto.y-S.cy)<4){S.goto=null;setMode('hold');log('pan complete, holding','arm:')}
+ }
+ const k=1-Math.exp(-DT/tau);const ovx=S.vx,ovy=S.vy;
+ S.vx+=(vdx-S.vx)*k;S.vy+=(vdy-S.vy)*k;
+ const nax=(S.vx-ovx)/DT,nay=(S.vy-ovy)/DT;
+ const jx=(nax-S.ax)/DT,jy=(nay-S.ay)/DT;S.ax=nax;S.ay=nay;
+ S.cx=clamp(S.cx+S.vx*DT,450,1350);S.cy=clamp(S.cy+S.vy*DT,300,900);
+ if(!S.estop)S.z+=(S.zt-S.z)*(1-Math.exp(-DT/.4));
+ // jerk in screen px/s^3, kilo
+ const jr=Math.hypot(jx,jy)*S.z/1000;
+ // human baseline: delayed discrete re-centering + tremor + hand noise
+ S.hNext-=DT;
+ if(S.hNext<=0){S.hTarget={x:S.sm.x,y:S.sm.y};S.hNext=1.4+Math.random()*1.4}
+ const hk=1-Math.exp(-DT/.14),ovh={x:S.hv.x,y:S.hv.y};
+ S.hv.x+=((S.hTarget.x-S.hc.x)*2.2-S.hv.x)*hk;S.hv.y+=((S.hTarget.y-S.hc.y)*2.2-S.hv.y)*hk;
+ S.hc.x+=S.hv.x*DT;S.hc.y+=S.hv.y*DT;
+ const trem={x:.02*Math.sin(t*2*Math.PI*8.7),y:.02*Math.sin(t*2*Math.PI*9.4+1)};
+ const hp={x:S.hc.x+trem.x,y:S.hc.y+trem.y};
+ S.hPrev.push(hp);if(S.hPrev.length>4)S.hPrev.shift();
+ let jh=0;if(S.hPrev.length===4){const p=S.hPrev,d=q=>(p[3][q]-3*p[2][q]+3*p[1][q]-p[0][q])/(DT*DT*DT);jh=Math.hypot(d('x'),d('y'))*S.z/1000}
+ if(Math.round(t*60)%2===0){S.jR.push(jr);S.jH.push(jh);if(S.jR.length>300){S.jR.shift();S.jH.shift()}}
+ // port deviation: tiny controller residual, bigger while moving fast
+ S.portDev=.25+Math.hypot(S.vx,S.vy)*.0018+.06*Math.abs(Math.sin(t*3.1));
+}
+// ---------- drawing ----------
+function drawView(){
+ vc.fillStyle='#000';vc.fillRect(0,0,VW,VH);
+ vc.save();vc.beginPath();vc.arc(CX,CY,R,0,7);vc.clip();
+ vc.translate(CX,CY);vc.scale(S.z,S.z);vc.translate(-S.cx,-S.cy);
+ vc.drawImage(world,0,0);
+ // instruments (world coords), shaft from lower corners
+ S.tips.forEach((p,i)=>{
+  const ox=i?p.tx+560:p.tx-560,oy=p.ty+720,ang=Math.atan2(p.ty-oy,p.tx-ox),len=Math.hypot(p.tx-ox,p.ty-oy);
+  vc.save();vc.translate(ox,oy);vc.rotate(ang);
+    vc.fillStyle='rgba(60,10,20,.35)';vc.fillRect(0,-2,len,22);
+  vc.fillStyle='#8f9ca1';vc.beginPath();vc.moveTo(0,-15);vc.lineTo(len-40,-6);vc.lineTo(len-40,6);vc.lineTo(0,15);vc.fill();
+  const open=10+p.g*10;vc.strokeStyle='#cfd8db';vc.lineWidth=5;vc.lineCap='round';
+  vc.beginPath();vc.moveTo(len-40,-3);vc.lineTo(len+16,-open*.5);vc.moveTo(len-40,3);vc.lineTo(len+16,open*.5);vc.stroke();
+  vc.restore();
+ });
+ vc.restore();
+  vc.strokeStyle='#000';vc.lineWidth=6;vc.beginPath();vc.arc(CX,CY,R,0,7);vc.stroke();
+ // overlays
+ const sx=x=>(x-S.cx)*S.z+CX,sy=y=>(y-S.cy)*S.z+CY;
+ const dzx=S.dz*1.25,dzy=S.dz*.85;
+ vc.setLineDash([7,5]);vc.strokeStyle=S.moving?'rgba(240,180,41,.95)':'rgba(134,217,154,.7)';vc.lineWidth=1.5;
+ vc.strokeRect(CX-dzx,CY-dzy,dzx*2,dzy*2);vc.setLineDash([]);
+ vc.font='500 11px IBM Plex Mono,monospace';vc.fillStyle=S.moving?'#f0b429':'#86d99a';vc.fillText('DEAD ZONE',CX-dzx+6,CY-dzy+14);
+ vc.strokeStyle='rgba(255,255,255,.35)';vc.beginPath();vc.moveTo(CX-10,CY);vc.lineTo(CX+10,CY);vc.moveTo(CX,CY-10);vc.lineTo(CX,CY+10);vc.stroke();
+ S.tips.forEach((p,i)=>{const x=sx(p.x),y=sy(p.y);
+  vc.strokeStyle='#86d99a';vc.lineWidth=2;const b=26;
+  [[-1,-1],[1,-1],[1,1],[-1,1]].forEach(([a,c])=>{vc.beginPath();vc.moveTo(x+a*b,y+c*(b-10));vc.lineTo(x+a*b,y+c*b);vc.lineTo(x+a*(b-10),y+c*b);vc.stroke()});
+  vc.fillStyle='#86d99a';vc.fillText(`T${i+1} ${p.c.toFixed(2)}`,x+b+4,y-b+10);});
+ const mx=sx(S.mid.x),my=sy(S.mid.y),tx=sx(S.sm.x),ty=sy(S.sm.y);
+ vc.strokeStyle='rgba(134,217,154,.5)';vc.setLineDash([3,4]);vc.beginPath();vc.moveTo(sx(S.tips[0].x),sy(S.tips[0].y));vc.lineTo(sx(S.tips[1].x),sy(S.tips[1].y));vc.stroke();vc.setLineDash([]);
+ vc.fillStyle='#fff';vc.beginPath();vc.arc(mx,my,3,0,7);vc.fill();
+ vc.strokeStyle='#f0b429';vc.lineWidth=2;vc.beginPath();vc.arc(tx,ty,11,0,7);vc.moveTo(tx-17,ty);vc.lineTo(tx+17,ty);vc.moveTo(tx,ty-17);vc.lineTo(tx,ty+17);vc.stroke();
+ vc.fillStyle='#f0b429';vc.fillText('TARGET (smoothed)',tx+16,ty+24);
+ if(S.moving||Math.hypot(S.vx,S.vy)>5){vc.strokeStyle='rgba(240,180,41,.8)';vc.beginPath();vc.moveTo(CX,CY);vc.lineTo(CX+S.vx*.35*S.z,CY+S.vy*.35*S.z);vc.stroke();}
+ vc.fillStyle='rgba(213,228,230,.85)';
+ vc.fillText(`ZOOM ${S.z.toFixed(2)}x`,14,22);vc.fillText(`MODE ${S.estop?'E-STOP':S.mode.toUpperCase()}`,14,38);
+ vc.fillText('RAW MIDPOINT',14,VH-30);vc.fillStyle='#fff';vc.fillRect(100,VH-38,6,6);
+ vc.fillStyle=S.estop?'#e5484d':'#86d99a';vc.fillText(S.estop?'ARM OFF':'ARM ON',VW-80,22);
+}
+function plotJerk(){
+ const c=$('#jerk'),g=c.getContext('2d'),W=c.width,H=c.height;g.clearRect(0,0,W,H);
+ const mx=Math.max(2,...S.jR,...S.jH)*1.1;
+ g.strokeStyle='#14222a';g.lineWidth=1;g.font='10px IBM Plex Mono';g.fillStyle='#5d7479';
+ for(let i=0;i<=4;i++){const y=H-i*H/4;g.beginPath();g.moveTo(0,y);g.lineTo(W,y);g.stroke();g.fillText((mx*i/4).toFixed(1),3,y-3)}
+ const line=(a,col)=>{g.strokeStyle=col;g.lineWidth=1.6;g.beginPath();a.forEach((v,i)=>{const x=i/300*W,y=H-v/mx*H;i?g.lineTo(x,y):g.moveTo(x,y)});g.stroke()};
+ line(S.jH,'#f0b429');line(S.jR,'#86d99a');
+}
+function plotRCM(){
+ const c=$('#rcm'),g=c.getContext('2d'),W=c.width,H=c.height;g.clearRect(0,0,W,H);
+ const P={x:W/2-40,y:112},th=clamp((S.cx-900)/900*1.1,-.7,.7)+(S.cy-600)/2400*0.0;
+ const ins=70+(S.z-1)*45+(S.cy-600)/12;
+ // body
+ g.fillStyle='#1a1214';g.fillRect(0,P.y,W,H-P.y);
+ g.fillStyle='#3a2226';g.fillRect(0,P.y-16,W,32);g.strokeStyle='#8a525a';g.beginPath();g.moveTo(0,P.y-16);g.lineTo(W,P.y-16);g.moveTo(0,P.y+16);g.lineTo(W,P.y+16);g.stroke();
+ g.fillStyle='#5d7479';g.font='10px IBM Plex Mono';g.fillText('ABDOMINAL WALL (box trainer lid)',8,P.y+30);g.fillText('CAVITY',8,H-8);g.fillText('EXTERNAL / SO-101',8,14);
+ // tissue target
+ g.fillStyle='rgba(217,138,140,.25)';g.beginPath();g.ellipse(W/2-40,H-24,170,30,0,0,7);g.fill();
+ const dx=Math.sin(th),dy=Math.cos(th),L=ins+60,tip={x:P.x+dx*L,y:P.y+dy*L},hd={x:P.x-dx*140,y:P.y-dy*140};
+ // fov cone
+ g.fillStyle='rgba(134,217,154,.12)';g.beginPath();g.moveTo(tip.x,tip.y);
+ const fa=.42;g.lineTo(tip.x+Math.sin(th+fa)*110,tip.y+Math.cos(th+fa)*110);g.lineTo(tip.x+Math.sin(th-fa)*110,tip.y+Math.cos(th-fa)*110);g.fill();
+ // naive arm ghost
+ const nx=tip.x;g.strokeStyle='rgba(229,72,77,.7)';g.setLineDash([4,4]);g.beginPath();g.moveTo(nx,10);g.lineTo(nx,tip.y);g.stroke();g.setLineDash([]);
+ g.fillStyle='#e5484d';g.beginPath();g.arc(nx,P.y,4,0,7);g.fill();
+ if(Math.abs(nx-P.x)>14){g.fillText('naive arm drags port '+(Math.abs(nx-P.x)*.4).toFixed(0)+' mm',Math.min(nx+8,W-170),P.y+46)}
+ // scope
+ g.strokeStyle='#cfd8db';g.lineWidth=7;g.lineCap='round';g.beginPath();g.moveTo(hd.x,hd.y);g.lineTo(tip.x,tip.y);g.stroke();
+ g.strokeStyle='#86d99a';g.lineWidth=2;g.beginPath();g.moveTo(hd.x,hd.y);g.lineTo(tip.x,tip.y);g.stroke();
+ // arm links
+ g.strokeStyle='#58a6ff';g.lineWidth=6;g.beginPath();g.moveTo(W-30,H*0.02+20);g.lineTo(W-120,40);g.lineTo(hd.x,hd.y);g.stroke();
+ g.fillStyle='#58a6ff';[[W-30,22],[W-120,40],[hd.x,hd.y]].forEach(p=>{g.beginPath();g.arc(p[0],p[1],6,0,7);g.fill()});
+ // trocar
+ g.strokeStyle='#f0b429';g.lineWidth=3;g.beginPath();g.arc(P.x,P.y,10,0,7);g.stroke();g.fillStyle='#f0b429';g.fillText('TROCAR (fixed pivot)',P.x-150,P.y-22);
+ // instrument dots in cavity
+ S.tips.forEach(p=>{const u=(p.x-S.cx)/500;g.fillStyle='#fff';g.beginPath();g.arc(tip.x+Math.sin(th)*50+u*50+0,tip.y+Math.cos(th)*80+8,3,0,7);g.fill()});
+ $('#pivInfo').textContent=`${(th*57.3).toFixed(1)} deg / ${ins.toFixed(0)} mm`;
+ $('#portDev').textContent=S.portDev.toFixed(2)+' mm (limit 2.0)';
+ const ok=S.portDev<2;$('#rcmState').textContent=ok?'RCM LOCKED':'RCM VIOLATION';$('#rcmState').className='mono '+(ok?'ok':'warn');
+}
+function scoreOf(a){const r=rmsOf(a);return clamp(100*Math.exp(-r/SC),0,100)}
+let SC=14;
+function updateScores(){
+ const rs=scoreOf(S.jR.slice(-150)),hs=scoreOf(S.jH.slice(-150));
+ $('#sRobot').textContent=rs.toFixed(0);$('#sHuman').textContent=hs.toFixed(0);
+ $('#bRobot').style.width=rs+'%';$('#bHuman').style.width=hs+'%';
+ const d=rs-hs;$('#verdict').textContent=d>1?`Robot is ${d.toFixed(0)} points steadier than the human baseline (simulated assistant: ~8.7 Hz tremor, delayed re-centering).`:'Comparable to baseline.';
+ $('#jerkNow').textContent=(S.jR[S.jR.length-1]||0).toFixed(1)+' kpx/s3';
+ const tl=S.tips.map((p,i)=>`<span>T${i+1}</span><span class="mono">${p.tx.toFixed(0)}, ${p.ty.toFixed(0)}</span><span class="ok">${p.c.toFixed(2)}</span>`).join('');
+ const off=Math.hypot(S.sm.x-S.cx,S.sm.y-S.cy)*S.z;
+ $('#trk').innerHTML=tl+`<span>Mid</span><span class="mono">${S.sm.x.toFixed(0)}, ${S.sm.y.toFixed(0)}</span><span>${S.moving?'<i class="warn">moving</i>':'<i class="ok">in zone</i>'}</span><span>Offset</span><span class="mono">${off.toFixed(0)} px</span><span></span>`;
+}
+// ---------- loop ----------
+let last=performance.now(),acc=0,uiT=0;
+function frame(now){
+ acc+=Math.min(.1,(now-last)/1000);last=now;
+ while(acc>=DT){step();acc-=DT}
+ drawView();uiT+=1;
+ if(uiT%4===0){plotJerk();plotRCM();updateScores();
+  const s=Math.floor(S.t);$('#hudTime').textContent='REC 00:'+String(Math.floor(s/60)).padStart(2,'0')+':'+String(s%60).padStart(2,'0')+':'+String(Math.floor((S.t%1)*30)).padStart(2,'0');}
+ requestAnimationFrame(frame);
+}
+window.__S=S;
+log('tracking online, following midpoint','arm:');
+setTimeout(()=>command('zoom in','voice'),2500);
+requestAnimationFrame(frame);
+})();
+</script>
+</body>
+</html>

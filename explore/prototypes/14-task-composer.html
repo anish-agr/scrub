@@ -1,0 +1,446 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Task Composer</title>
+<meta name="description" content="Type a goal in plain language, watch a planner compose a safe node graph from a fixed skill menu, inspect every safety gate, then simulate it step by step.">
+<!-- FEATURES:
+- Natural language goal box with presets (set the table, make tea, give me my pills) and a pretend Gemini planner token stream
+- Interactive SVG node graph: draggable nodes, curved dependency edges, status colours, zoomable by viewport
+- Per node: preconditions, perception checks, safety gate (confidence floor slider default 0.80, keep-out zone, caregiver approval for meds)
+- Rejected steps rendered with the reason (pour boiling water: not allowed) and a safe substitute (handoff to human)
+- Workspace mini map showing arm reach ring and keep-out zone, nodes light up when their target is inside it
+- Simulate button: runs plan node by node with live token-level reasoning stream, caregiver approval wait, latched STOP
+- JSON tab that matches POST /api/request ({task, target_id}) per executable step, copyable
+-->
+<!-- SPONSORS: Gemini API (planner), Perceptron Perception (perception checks), Perceptron Robotics (skill menu = checkpoints), Photon (caregiver approval over iMessage/SMS), Backboard (user preferences memory), Tiger Data (gate decision log) -->
+<!-- BACKEND HOOKS: POST /api/say {text} (parse), POST /api/plan {text} (planner, proposed), POST /api/request {task,target_id} per node (409 busy, 422 safety reasons), POST /api/detect, POST /api/caregiver/approve?approved=, POST /api/stop, POST /api/reset, WS /ws (state, step, safety, caregiver, plan) -->
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+<style>
+:root{--bg:#07080a;--panel:#0d0f13;--panel2:#12151b;--line:#1f242d;--line2:#2b323e;--tx:#ededed;--tx2:#9aa3b2;--tx3:#667085;
+ --ok:#3ddc97;--warn:#f5b942;--bad:#ff5d6c;--run:#4da3ff;--vio:#a78bfa;--grid:#151922}
+*{box-sizing:border-box}
+html,body{height:100%}
+body{margin:0;background:var(--bg);color:var(--tx);font:14px/1.5 Inter,system-ui,sans-serif;overflow-x:hidden}
+.mono{font-family:'JetBrains Mono',ui-monospace,monospace}
+button{font:inherit;color:inherit}
+button:focus-visible,input:focus-visible,textarea:focus-visible{outline:2px solid var(--run);outline-offset:2px}
+header{height:56px;display:flex;align-items:center;gap:14px;padding:0 16px;border-bottom:1px solid var(--line);background:rgba(13,15,19,.85);backdrop-filter:blur(8px);position:sticky;top:0;z-index:20}
+.logo{display:flex;align-items:center;gap:10px;font-weight:600;letter-spacing:-.01em}
+.logo i{width:22px;height:22px;border-radius:6px;background:conic-gradient(from 200deg,#4da3ff,#a78bfa,#3ddc97,#4da3ff)}
+.sp{flex:1}
+.pill{display:inline-flex;align-items:center;gap:6px;height:28px;padding:0 10px;border:1px solid var(--line2);border-radius:20px;color:var(--tx2);font-size:12px}
+.pill b{width:7px;height:7px;border-radius:50%;background:var(--ok);box-shadow:0 0 8px var(--ok)}
+#stop{min-height:44px;min-width:96px;border:0;border-radius:10px;background:var(--bad);color:#fff;font-weight:700;letter-spacing:.06em;cursor:pointer;box-shadow:0 0 0 1px rgba(255,255,255,.2) inset,0 4px 18px rgba(255,93,108,.35)}
+#stop.latched{background:#3a0f14;color:#ff9aa4;box-shadow:0 0 0 2px var(--bad)}
+.layout{display:grid;grid-template-columns:300px minmax(0,1fr) 380px;min-height:calc(100vh - 56px)}
+@media(max-width:1180px){.layout{grid-template-columns:260px minmax(0,1fr)}.right{grid-column:1/-1;border-left:0!important;border-top:1px solid var(--line)}}
+@media(max-width:760px){.layout{grid-template-columns:1fr}}
+aside,.right{background:var(--panel);padding:16px;display:flex;flex-direction:column;gap:16px;min-width:0}
+aside{border-right:1px solid var(--line)}.right{border-left:1px solid var(--line)}
+h4{margin:0 0 8px;font-size:11px;letter-spacing:.1em;text-transform:uppercase;color:var(--tx3);font-weight:600}
+textarea,input[type=text]{width:100%;background:var(--bg);border:1px solid var(--line2);border-radius:10px;color:var(--tx);padding:10px 12px;font:inherit;min-height:44px;resize:none}
+.btn{min-height:44px;padding:0 16px;border-radius:10px;border:1px solid var(--line2);background:var(--panel2);cursor:pointer;font-weight:500;display:inline-flex;align-items:center;justify-content:center;gap:8px}
+.btn:hover{border-color:var(--tx3)}
+.btn.primary{background:var(--tx);color:#000;border-color:var(--tx);font-weight:600}
+.btn.primary:hover{background:#fff}
+.btn:disabled{opacity:.45;cursor:not-allowed}
+.row{display:flex;gap:8px;flex-wrap:wrap;align-items:center}
+.chip{min-height:44px;display:inline-flex;align-items:center;padding:0 12px;border:1px solid var(--line2);border-radius:10px;background:transparent;color:var(--tx2);cursor:pointer;font-size:13px;text-align:left}
+.chip:hover{color:var(--tx);border-color:var(--tx3)}
+.menu{display:flex;flex-wrap:wrap;gap:6px}
+.sk{font:12px 'JetBrains Mono',monospace;padding:4px 8px;border-radius:6px;background:var(--panel2);border:1px solid var(--line);color:var(--tx2)}
+.sk.used{color:var(--run);border-color:#1e3a5c;background:#0b1522}
+.gate{display:flex;flex-direction:column;gap:10px}
+.gate label{display:flex;justify-content:space-between;color:var(--tx2);font-size:13px}
+input[type=range]{width:100%;accent-color:var(--run);height:44px;margin:0}
+.toggle{display:flex;align-items:center;justify-content:space-between;min-height:44px;color:var(--tx2);cursor:pointer;font-size:13px}
+.toggle input{width:18px;height:18px;accent-color:var(--run)}
+/* center */
+.center{display:flex;flex-direction:column;min-width:0;background:
+ radial-gradient(circle at 1px 1px,var(--grid) 1px,transparent 0) 0 0/22px 22px,var(--bg)}
+.bar{display:flex;gap:10px;align-items:center;padding:10px 14px;border-bottom:1px solid var(--line);flex-wrap:wrap;background:rgba(7,8,10,.7)}
+.bar .goal{font-weight:600;letter-spacing:-.01em;flex:1;min-width:160px}
+.stat{font:12px 'JetBrains Mono',monospace;color:var(--tx2)}
+.stat b{color:var(--tx)}
+#canvasWrap{position:relative;flex:1;min-height:440px;overflow:auto;touch-action:none}
+svg#g{display:block;min-width:900px;width:100%;height:100%}
+.node rect.card{fill:#0f1319;stroke:var(--line2);stroke-width:1.2;transition:stroke .2s}
+.node{cursor:grab}.node:active{cursor:grabbing}
+.node.sel rect.card{stroke:#fff}
+.node text{pointer-events:none}
+.t1{fill:var(--tx);font:600 13px Inter}
+.t2{fill:var(--tx2);font:11px 'JetBrains Mono'}
+.node.ok rect.card{stroke:#1c5a42}
+.node.run rect.card{stroke:var(--run);filter:drop-shadow(0 0 10px rgba(77,163,255,.5))}
+.node.done rect.card{stroke:var(--ok)}
+.node.rej rect.card{stroke:var(--bad);stroke-dasharray:5 4;fill:#190d10}
+.node.hold rect.card{stroke:var(--warn);fill:#1a1507}
+.node.new{animation:pop .4s both}
+@keyframes pop{from{opacity:0;transform:scale(.9)}to{opacity:1}}
+.edge{fill:none;stroke:#3a4352;stroke-width:1.6}
+.edge.on{stroke:var(--run);stroke-dasharray:6 5;animation:dash .8s linear infinite}
+.edge.bad{stroke:var(--bad);stroke-dasharray:3 5;opacity:.6}
+@keyframes dash{to{stroke-dashoffset:-22}}
+.legend{display:flex;gap:14px;padding:8px 14px;border-top:1px solid var(--line);color:var(--tx3);font-size:12px;flex-wrap:wrap}
+.legend i{display:inline-block;width:8px;height:8px;border-radius:50%;margin-right:5px}
+/* right */
+.tabs{display:flex;gap:2px;border-bottom:1px solid var(--line)}
+.tabs button{min-height:44px;padding:0 12px;background:none;border:0;border-bottom:2px solid transparent;color:var(--tx3);cursor:pointer;font-weight:500}
+.tabs button[aria-selected=true]{color:var(--tx);border-bottom-color:var(--tx)}
+.pane{display:none;flex:1;min-height:0}.pane.on{display:block}
+pre{margin:0;background:var(--bg);border:1px solid var(--line);border-radius:10px;padding:12px;overflow:auto;font:12px/1.55 'JetBrains Mono',monospace;color:#c9d1e0;max-height:520px;white-space:pre}
+.k{color:#7dd3fc}.s{color:#a7f3d0}.n{color:#fbbf24}.b{color:#c4b5fd}
+#stream{background:var(--bg);border:1px solid var(--line);border-radius:10px;padding:12px;height:360px;overflow:auto;font:12px/1.65 'JetBrains Mono',monospace;color:#c9d1e0}
+#stream .tag{color:var(--vio)}#stream .okk{color:var(--ok)}#stream .bad{color:var(--bad)}#stream .wr{color:var(--warn)}
+.caret::after{content:"";display:inline-block;width:7px;height:13px;background:var(--tx);margin-left:2px;vertical-align:-2px;animation:blink 1s steps(2) infinite}
+@keyframes blink{50%{opacity:0}}
+.kv{display:grid;grid-template-columns:auto 1fr;gap:6px 12px;font-size:13px}
+.kv dt{color:var(--tx3)}.kv dd{margin:0}
+.chk{display:flex;gap:8px;align-items:flex-start;padding:6px 0;border-bottom:1px solid var(--line);font-size:13px}
+.chk:last-child{border:0}
+.ic{flex:none;width:18px;height:18px;border-radius:50%;display:grid;place-items:center;font-size:11px;font-weight:700;color:#000}
+.ic.p{background:var(--ok)}.ic.f{background:var(--bad)}.ic.w{background:var(--warn)}
+.reason{border:1px solid #5a1c24;background:#1a0b0e;color:#ffb3bb;padding:10px 12px;border-radius:10px;margin-bottom:10px}
+.sms{border:1px solid var(--line2);background:#0b1522;border-radius:14px;padding:10px 12px;margin-top:8px;font-size:13px}
+#mini{width:100%;height:auto;border:1px solid var(--line);border-radius:10px;background:var(--bg)}
+.toast{position:fixed;bottom:18px;left:50%;transform:translateX(-50%);background:#fff;color:#000;padding:10px 16px;border-radius:10px;font-weight:600;opacity:0;pointer-events:none;transition:opacity .25s;z-index:50;max-width:90vw}
+.toast.on{opacity:1}
+@media (prefers-reduced-motion:reduce){*{animation:none!important;transition:none!important}}
+</style>
+</head>
+<body>
+<header>
+  <div class="logo"><i></i>Task Composer</div>
+  <span class="pill"><b></b>planner: gemini-2.5 (mock)</span>
+  <span class="pill mono" id="armPill">arm: idle (mock)</span>
+  <div class="sp"></div>
+  <button id="stop" aria-label="Emergency stop">STOP</button>
+</header>
+<div class="layout">
+<aside>
+  <div>
+    <h4>Goal</h4>
+    <textarea id="goal" rows="3" aria-label="Describe what you want">set the table for two</textarea>
+    <div class="row" style="margin-top:8px"><button class="btn primary" id="planBtn" style="flex:1">Compose plan</button></div>
+  </div>
+  <div>
+    <h4>Try</h4>
+    <div class="row" id="presets" style="flex-direction:column;align-items:stretch">
+      <button class="chip" data-g="set the table for two">set the table for two</button>
+      <button class="chip" data-g="make me a cup of tea">make me a cup of tea</button>
+      <button class="chip" data-g="bring me my morning pills">bring me my morning pills</button>
+    </div>
+  </div>
+  <div>
+    <h4>Fixed skill menu</h4>
+    <div class="menu" id="menu"></div>
+    <p style="color:var(--tx3);font-size:12px;margin:8px 0 0">The planner can only choose from this list. Anything else is rejected before it reaches the arm.</p>
+  </div>
+  <div class="gate">
+    <h4>Safety gate</h4>
+    <div><label for="floor"><span>Confidence floor</span><span class="mono" id="floorV">0.80</span></label><input type="range" id="floor" min="0.5" max="0.95" step="0.01" value="0.80"></div>
+    <label class="toggle"><span>Keep-out zone (stove)</span><input type="checkbox" id="kz" checked></label>
+    <label class="toggle"><span>Caregiver approval for meds</span><input type="checkbox" id="cg" checked></label>
+  </div>
+  <div><h4>Workspace (top down)</h4><svg id="mini" viewBox="0 0 280 200" role="img" aria-label="Workspace map"></svg></div>
+</aside>
+
+<div class="center">
+  <div class="bar">
+    <div class="goal" id="goalTitle">Plan</div>
+    <span class="stat">nodes <b id="sN">0</b></span><span class="stat">blocked <b id="sB">0</b></span><span class="stat">holds <b id="sH">0</b></span>
+    <button class="btn primary" id="simBtn">Simulate</button>
+    <button class="btn" id="relayout">Auto layout</button>
+  </div>
+  <div id="canvasWrap"><svg id="g" viewBox="0 0 1000 560" preserveAspectRatio="xMinYMin meet"></svg></div>
+  <div class="legend"><span><i style="background:var(--ok)"></i>passes gate</span><span><i style="background:var(--warn)"></i>needs approval or re-look</span><span><i style="background:var(--bad)"></i>rejected</span><span><i style="background:var(--run)"></i>running</span><span>drag nodes to rearrange</span></div>
+</div>
+
+<div class="right">
+  <div class="tabs" role="tablist">
+    <button role="tab" aria-selected="true" data-t="node">Inspector</button>
+    <button role="tab" aria-selected="false" data-t="stream">Reasoning</button>
+    <button role="tab" aria-selected="false" data-t="json">JSON</button>
+  </div>
+  <div class="pane on" id="t-node"></div>
+  <div class="pane" id="t-stream"><div id="stream" aria-live="polite"></div></div>
+  <div class="pane" id="t-json"><div class="row" style="margin-bottom:8px"><button class="btn" id="copy">Copy JSON</button><span class="stat">each request = POST /api/request</span></div><pre id="json"></pre></div>
+</div>
+</div>
+<div class="toast" id="toast" role="status"></div>
+
+<script>
+(function(){
+const $=s=>document.querySelector(s),$$=s=>[...document.querySelectorAll(s)];
+const NS='http://www.w3.org/2000/svg';
+const MENU=['detect_scene','pick','place','pour_small','stir','deliver','handoff_to_human','request_approval','home'];
+// workspace: arm base at (140,185), reach ring 110
+const BASE={x:140,y:185,r:115};const KEEP={x:190,y:20,w:80,h:60,name:'stove'};
+const TARGETS={plate_1:[90,130],plate_2:[130,120],fork_1:[60,150],fork_2:[75,160],knife_1:[50,125],glass_1:[110,150],seat_A:[95,95],seat_B:[170,100],mug_1:[100,140],tea_bag:[155,140],kettle:[225,50],spoon_1:[180,155],tray:[140,170],pill_box:[210,140],lap_tray:[140,175],stove_burner:[230,45]};
+// plan library. conf = perception confidence from the (mock) detector
+const PLANS={
+'set the table for two':{task:'set_table',label:'Set the table for two',
+ say:'The user wants a table for two. I will look first, then move one item at a time. Plates, forks, a glass each. Knives are sharp, so they need a person to approve.',
+ nodes:[
+ {id:'n1',skill:'detect_scene',target:null,deps:[],pre:['camera online','workspace clear'],perc:[['camera frame fresh <200 ms',1]],conf:.99},
+ {id:'n2',skill:'pick',target:'plate_1',deps:['n1'],pre:['gripper empty','plate_1 within reach'],perc:[['plate_1 localized',.93],['mass est 0.18 kg <= 0.3 kg',.9]],conf:.93},
+ {id:'n3',skill:'place',target:'seat_A',deps:['n2'],pre:['holding plate_1','seat_A free'],perc:[['seat_A free of objects',.95]],conf:.95},
+ {id:'n4',skill:'pick',target:'plate_2',deps:['n3'],pre:['gripper empty'],perc:[['plate_2 localized',.91]],conf:.91},
+ {id:'n5',skill:'place',target:'seat_B',deps:['n4'],pre:['holding plate_2'],perc:[['seat_B free',.9]],conf:.9},
+ {id:'n6',skill:'pick',target:'fork_1',deps:['n5'],pre:['gripper empty'],perc:[['fork_1 localized',.86]],conf:.86},
+ {id:'n7',skill:'place',target:'seat_A',deps:['n6'],pre:['holding fork_1'],perc:[['fork slot free',.9]],conf:.9},
+ {id:'n8',skill:'pick',target:'glass_1',deps:['n5'],pre:['gripper empty','glass not wet'],perc:[['glass_1 localized (transparent)',.71]],conf:.71,note:'Transparent objects are hard for the detector.'},
+ {id:'n9',skill:'place',target:'seat_B',deps:['n8'],pre:['holding glass_1'],perc:[['seat_B free',.9]],conf:.9},
+ {id:'n10',skill:'pick',target:'knife_1',deps:['n7'],pre:['gripper empty'],perc:[['knife_1 localized',.88]],conf:.88,approval:'sharp object',},
+ {id:'n11',skill:'place',target:'seat_A',deps:['n10'],pre:['holding knife_1'],perc:[['knife blade away from user',.9]],conf:.9},
+ {id:'x1',skill:'pour_water',target:'glass_1',deps:['n9'],pre:[],perc:[],conf:.9,reject:'pour_water is not on the skill menu. Closest allowed skill pour_small is limited to dry goods under 0.3 kg.'}
+ ]},
+'make me a cup of tea':{task:'make_tea',label:'Make a cup of tea',
+ say:'Tea needs a mug, a tea bag, hot water and a stir. I cannot move boiling water. The kettle sits inside the stove keep-out zone, so a person pours. I will do the rest.',
+ nodes:[
+ {id:'n1',skill:'detect_scene',target:null,deps:[],pre:['camera online'],perc:[['mug, tea bag, spoon found',.97]],conf:.97},
+ {id:'n2',skill:'pick',target:'mug_1',deps:['n1'],pre:['gripper empty','mug_1 within reach'],perc:[['mug_1 localized',.94],['mug empty',.9]],conf:.94},
+ {id:'n3',skill:'place',target:'tray',deps:['n2'],pre:['holding mug_1'],perc:[['tray free',.96]],conf:.96},
+ {id:'n4',skill:'pick',target:'tea_bag',deps:['n3'],pre:['gripper empty'],perc:[['tea_bag localized',.83]],conf:.83},
+ {id:'n5',skill:'place',target:'mug_1',deps:['n4'],pre:['holding tea_bag','mug_1 on tray'],perc:[['mug opening visible',.88]],conf:.88},
+ {id:'x1',skill:'pour_boiling_water',target:'mug_1',deps:['n5'],pre:[],perc:[],conf:.9,reject:'pour boiling water: not allowed. Payload 0.3 kg, no heat sensing, scald risk. Replaced by a handoff.'},
+ {id:'n6',skill:'handoff_to_human',target:null,args:'"Please pour hot water into the mug"',deps:['n5'],pre:['mug_1 on tray'],perc:[['person present in frame',.92]],conf:.92},
+ {id:'n7',skill:'pick',target:'spoon_1',deps:['n6'],pre:['gripper empty','water poured (human confirm)'],perc:[['spoon_1 localized',.89]],conf:.89},
+ {id:'n8',skill:'stir',target:'mug_1',deps:['n7'],pre:['holding spoon_1','liquid level < rim'],perc:[['liquid present',.8]],conf:.8},
+ {id:'n9',skill:'deliver',target:'lap_tray',deps:['n8'],pre:['mug_1 on tray','path avoids stove'],perc:[['lap_tray clear',.9]],conf:.9},
+ {id:'x2',skill:'pick',target:'kettle',deps:['n1'],pre:[],perc:[['kettle localized',.9]],conf:.9,zone:true,reject:'kettle at (225,50) is inside the stove keep-out zone.'}
+ ]},
+'bring me my morning pills':{task:'bring_pills',label:'Bring morning pills',
+ say:'Medication is the highest risk class. I may fetch the pill box, but a caregiver has to approve before the arm moves, and the arm only delivers the closed box. It never opens it.',
+ nodes:[
+ {id:'n1',skill:'detect_scene',target:null,deps:[],pre:['camera online'],perc:[['pill_box found (OCR: "AM")',.95]],conf:.95},
+ {id:'n2',skill:'request_approval',target:null,args:'"Maya (caregiver)"',deps:['n1'],pre:['Photon channel up'],perc:[['pill_box label OCR "AM Mon"',.93]],conf:.93,approval:'medication'},
+ {id:'n3',skill:'pick',target:'pill_box',deps:['n2'],pre:['approval granted','gripper empty'],perc:[['pill_box localized',.91],['box closed',.9]],conf:.91},
+ {id:'n4',skill:'deliver',target:'lap_tray',deps:['n3'],pre:['holding pill_box'],perc:[['lap_tray clear',.9]],conf:.9},
+ {id:'x1',skill:'open_container',target:'pill_box',deps:['n3'],pre:[],perc:[],conf:.9,reject:'open_container is not on the skill menu. Dosing stays with the person or caregiver.'}
+ ]}
+};
+let plan=null,sel=null,posOverride={},sim=null,latched=false,streamBusy=false,genToken=0;
+const W=190,H=82;
+
+function toast(m){const e=$('#toast');e.textContent=m;e.classList.add('on');clearTimeout(toast.t);toast.t=setTimeout(()=>e.classList.remove('on'),2000)}
+function fl(){return +$('#floor').value}
+function el(n,a,p){const e=document.createElementNS(NS,n);for(const k in a)e.setAttribute(k,a[k]);if(p)p.appendChild(e);return e}
+
+/* ---------- gate evaluation ---------- */
+function evalNode(n){
+  const checks=[];let status='ok';
+  if(n.reject){checks.push({k:'menu',t:'Skill on fixed menu',r:MENU.includes(n.skill)?'p':'f'});}
+  else checks.push({k:'menu',t:'Skill on fixed menu: '+n.skill,r:'p'});
+  checks.push({k:'conf',t:'Perception confidence '+n.conf.toFixed(2)+' vs floor '+fl().toFixed(2),r:n.conf>=fl()?'p':'f'});
+  const inZone=n.target&&inKeep(n.target);
+  checks.push({k:'zone',t:n.target?'Target '+n.target+' '+(inZone?'inside':'outside')+' keep-out zone':'No spatial target',r:(inZone&&$('#kz').checked)?'f':'p'});
+  if(n.approval){checks.push({k:'appr',t:'Caregiver approval ('+n.approval+')',r:$('#cg').checked?'w':'p'})}
+  let reason=null;
+  if(n.reject&&n.zone&&!$('#kz').checked){reason=null}else if(n.reject){reason=n.reject}
+  else if(checks.find(c=>c.k==='conf').r==='f')reason='Confidence '+n.conf.toFixed(2)+' is below the floor '+fl().toFixed(2)+'. Re-look before acting.';
+  else if(checks.find(c=>c.k==='zone').r==='f')reason='Target is inside the keep-out zone ('+KEEP.name+').';
+  if(reason)status=(n.reject||checks.find(c=>c.k==='zone').r==='f')?'rej':'hold';
+  else if(checks.some(c=>c.r==='w'))status='hold';
+  n._checks=checks;n._reason=reason;n._status=status;
+  return n;
+}
+function inKeep(t){const p=TARGETS[t];return p&&p[0]>=KEEP.x&&p[0]<=KEEP.x+KEEP.w&&p[1]>=KEEP.y&&p[1]<=KEEP.y+KEEP.h}
+
+/* ---------- layout ---------- */
+function layout(){
+  const lvl={};const byId={};plan.nodes.forEach(n=>byId[n.id]=n);
+  function L(n){if(lvl[n.id]!=null)return lvl[n.id];return lvl[n.id]=n.deps.length?Math.max(...n.deps.map(d=>L(byId[d])))+1:0}
+  plan.nodes.forEach(L);const rows={};
+  plan.nodes.forEach(n=>{const l=lvl[n.id];rows[l]=(rows[l]||0);n._x=40+l*232;n._y=40+rows[l]*118;rows[l]++});
+  plan.nodes.forEach(n=>{if(posOverride[n.id]){n._x=posOverride[n.id][0];n._y=posOverride[n.id][1]}});
+  const maxX=Math.max(...plan.nodes.map(n=>n._x))+W+40,maxY=Math.max(...plan.nodes.map(n=>n._y))+H+40;
+  $('#g').setAttribute('viewBox','0 0 '+Math.max(900,maxX)+' '+Math.max(520,maxY));
+}
+function edgePath(a,b){const x1=a._x+W,y1=a._y+H/2,x2=b._x,y2=b._y+H/2,dx=Math.max(40,Math.abs(x2-x1)/2);return 'M'+x1+' '+y1+' C'+(x1+dx)+' '+y1+' '+(x2-dx)+' '+y2+' '+x2+' '+y2}
+
+/* ---------- render ---------- */
+function render(fresh){
+  const g=$('#g');g.innerHTML='';
+  const defs=el('defs',{},g);const m=el('marker',{id:'ar',viewBox:'0 0 10 10',refX:9,refY:5,markerWidth:7,markerHeight:7,orient:'auto'},defs);el('path',{d:'M0 0L10 5L0 10z',fill:'#3a4352'},m);
+  plan.nodes.forEach(evalNode);layout();
+  const byId={};plan.nodes.forEach(n=>byId[n.id]=n);
+  const eg=el('g',{},g),ng=el('g',{},g);
+  plan.nodes.forEach(n=>n.deps.forEach(d=>{const a=byId[d];const e=el('path',{d:edgePath(a,n),class:'edge'+(n._status==='rej'?' bad':''),'marker-end':'url(#ar)','data-e':d+'>'+n.id},eg)}));
+  plan.nodes.forEach((n,i)=>{
+    const cls='node '+n._status+(n._run?' '+n._run:'')+(sel===n.id?' sel':'')+(fresh?' new':'');
+    const gg=el('g',{class:cls,transform:'translate('+n._x+' '+n._y+')',tabindex:0,role:'button','aria-label':n.skill+' '+(n.target||'')+' status '+n._status,'data-id':n.id},ng);
+    if(fresh)gg.style.animationDelay=(i*70)+'ms';
+    el('rect',{class:'card',width:W,height:H,rx:12},gg);
+    const col={ok:'#3ddc97',hold:'#f5b942',rej:'#ff5d6c'}[n._status];
+    el('circle',{cx:16,cy:20,r:4,fill:col},gg);
+    const t=el('text',{x:28,y:24,class:'t1'},gg);t.textContent=(n.skill.length>20?n.skill.slice(0,19)+'..':n.skill);
+    const t2=el('text',{x:16,y:44,class:'t2'},gg);t2.textContent=n.target?'target: '+n.target:(n.args?n.args.slice(0,24):'no target');
+    const t3=el('text',{x:16,y:64,class:'t2'},gg);t3.textContent=n._status==='rej'?'REJECTED':n._status==='hold'?(n.approval&&!n._reason?'HOLD: approval':'HOLD: re-look'):'conf '+n.conf.toFixed(2);t3.setAttribute('fill',col);
+    const tn=el('text',{x:W-14,y:24,class:'t2','text-anchor':'end'},gg);tn.textContent=n.id;
+    gg.addEventListener('pointerdown',e=>startDrag(e,n,gg));
+    gg.addEventListener('keydown',e=>{if(e.key==='Enter'||e.key===' '){e.preventDefault();select(n.id)}});
+  });
+  $('#sN').textContent=plan.nodes.length;$('#sB').textContent=plan.nodes.filter(n=>n._status==='rej').length;$('#sH').textContent=plan.nodes.filter(n=>n._status==='hold').length;
+  $('#goalTitle').textContent=plan.label;
+  $$('.sk').forEach(s=>s.classList.toggle('used',plan.nodes.some(n=>n.skill===s.textContent&&n._status!=='rej')));
+  renderJSON();renderInspector();renderMini();
+}
+function startDrag(e,n,gg){
+  const svg=$('#g');const pt=svg.createSVGPoint();pt.x=e.clientX;pt.y=e.clientY;const p0=pt.matrixTransform(svg.getScreenCTM().inverse());
+  const ox=p0.x-n._x,oy=p0.y-n._y;let moved=false;
+  gg.setPointerCapture(e.pointerId);
+  const mv=ev=>{pt.x=ev.clientX;pt.y=ev.clientY;const p=pt.matrixTransform(svg.getScreenCTM().inverse());
+    if(Math.abs(p.x-ox-n._x)+Math.abs(p.y-oy-n._y)>3)moved=true;
+    n._x=Math.max(0,p.x-ox);n._y=Math.max(0,p.y-oy);posOverride[n.id]=[n._x,n._y];gg.setAttribute('transform','translate('+n._x+' '+n._y+')');
+    const byId={};plan.nodes.forEach(x=>byId[x.id]=x);$$('.edge').forEach(ed=>{const [a,b]=ed.dataset.e.split('>');ed.setAttribute('d',edgePath(byId[a],byId[b]))})};
+  const up=()=>{gg.removeEventListener('pointermove',mv);gg.removeEventListener('pointerup',up);if(!moved)select(n.id)};
+  gg.addEventListener('pointermove',mv);gg.addEventListener('pointerup',up);
+}
+function select(id){sel=id;tab('node');$$('.node').forEach(g=>g.classList.toggle('sel',g.dataset.id===id));renderInspector()}
+
+/* ---------- inspector ---------- */
+const IC={p:'&#10003;',f:'&#10005;',w:'!'};
+function renderInspector(){
+  const box=$('#t-node');const n=plan.nodes.find(x=>x.id===sel);
+  if(!n){box.innerHTML='<p style="color:var(--tx3)">Select a node to see its preconditions, perception checks and safety gate.</p><dl class="kv"><dt>Rule</dt><dd>The LLM only picks skills from the fixed menu. It never sends joint commands.</dd><dt>Gate</dt><dd>Lives in the backend <span class="mono">safety_check()</span>. This UI only mirrors it.</dd></dl>';return}
+  let h='<h3 style="margin:0 0 4px;font-size:18px;letter-spacing:-.01em">'+n.skill+(n.target?'('+n.target+')':'')+'</h3><div class="stat" style="margin-bottom:10px">'+n.id+' / depends on '+(n.deps.join(', ')||'none')+'</div>';
+  if(n._reason)h+='<div class="reason"><b>'+(n._status==='rej'?'Rejected':'Held')+'.</b> '+n._reason+'</div>';
+  if(n.note)h+='<p style="color:var(--tx2);margin:0 0 8px">'+n.note+'</p>';
+  h+='<h4>Preconditions</h4>'+(n.pre.length?n.pre.map(p=>'<div class="chk"><span class="ic p">'+IC.p+'</span><span>'+p+'</span></div>').join(''):'<div class="chk" style="color:var(--tx3)">none declared</div>');
+  h+='<h4 style="margin-top:14px">Perception checks</h4>'+(n.perc.length?n.perc.map(p=>'<div class="chk"><span class="ic '+(p[1]>=fl()?'p':'f')+'">'+(p[1]>=fl()?IC.p:IC.f)+'</span><span>'+p[0]+'<span class="mono" style="color:var(--tx3)"> '+p[1].toFixed(2)+'</span></span></div>').join(''):'<div class="chk" style="color:var(--tx3)">none</div>');
+  h+='<h4 style="margin-top:14px">Safety gate</h4>'+n._checks.map(c=>'<div class="chk"><span class="ic '+c.r+'">'+IC[c.r]+'</span><span>'+c.t+'</span></div>').join('');
+  if(n.approval&&$('#cg').checked)h+='<div class="sms"><div class="stat">Photon, iMessage to Maya</div>Reach wants to '+n.skill+' '+(n.target||'')+' ('+n.approval+'). Approve? Reply YES or NO.</div>';
+  box.innerHTML=h;
+}
+
+/* ---------- json ---------- */
+function esc(s){return s.replace(/&/g,'&amp;').replace(/</g,'&lt;')}
+function buildJSON(){
+  const ok=plan.nodes.filter(n=>n._status!=='rej');
+  const reqs=ok.filter(n=>n.target&&n.skill!=='request_approval').map(n=>({task:n.skill,target_id:n.target}));
+  return {goal:plan.label,task:plan.task,planner:'gemini-2.5-flash',gate:{confidence_floor:fl(),keep_out:$('#kz').checked?KEEP.name:null,caregiver_approval_for:$('#cg').checked?['medication','sharp object']:[]},
+   requests:reqs, nodes:plan.nodes.map(n=>({id:n.id,skill:n.skill,target_id:n.target,depends_on:n.deps,confidence:n.conf,gate:n._status==='ok'?'pass':n._status==='hold'?'hold':'reject',reason:n._reason||undefined})),
+   rejected:plan.nodes.filter(n=>n._status==='rej').map(n=>({id:n.id,skill:n.skill,reason:n._reason}))};
+}
+function renderJSON(){
+  const s=JSON.stringify(buildJSON(),null,2);
+  $('#json').innerHTML=esc(s).replace(/"([^"]+)":/g,'<span class="k">"$1"</span>:').replace(/: "([^"]*)"/g,': <span class="s">"$1"</span>').replace(/: (-?\d+\.?\d*)/g,': <span class="n">$1</span>').replace(/: (true|false|null)/g,': <span class="b">$1</span>');
+  $('#json').dataset.raw=s;
+}
+$('#copy').onclick=()=>{try{navigator.clipboard.writeText($('#json').dataset.raw);toast('Copied')}catch(e){toast('Copy not available')}};
+
+/* ---------- mini map ---------- */
+function renderMini(){
+  const m=$('#mini');m.innerHTML='';
+  el('rect',{x:0,y:0,width:280,height:200,fill:'#07080a'},m);
+  el('circle',{cx:BASE.x,cy:BASE.y,r:BASE.r,fill:'rgba(77,163,255,.06)',stroke:'#2b4a70','stroke-dasharray':'4 4'},m);
+  if($('#kz').checked){el('rect',{x:KEEP.x,y:KEEP.y,width:KEEP.w,height:KEEP.h,fill:'rgba(255,93,108,.14)',stroke:'#ff5d6c','stroke-dasharray':'4 3'},m);const t=el('text',{x:KEEP.x+6,y:KEEP.y+14,fill:'#ff9aa4','font-size':10,'font-family':'JetBrains Mono'},m);t.textContent='keep-out: '+KEEP.name}
+  el('circle',{cx:BASE.x,cy:BASE.y,r:7,fill:'#ededed'},m);
+  const used=new Set(plan.nodes.map(n=>n.target).filter(Boolean));
+  used.forEach(k=>{const p=TARGETS[k];if(!p)return;const bad=plan.nodes.some(n=>n.target===k&&n._status==='rej');el('circle',{cx:p[0],cy:p[1],r:4,fill:bad?'#ff5d6c':'#3ddc97'},m);const t=el('text',{x:p[0]+6,y:p[1]+3,fill:'#9aa3b2','font-size':8,'font-family':'JetBrains Mono'},m);t.textContent=k});
+  if(sim&&sim.cur){const p=TARGETS[sim.cur.target];if(p){el('line',{x1:BASE.x,y1:BASE.y,x2:p[0],y2:p[1],stroke:'#4da3ff','stroke-width':2},m)}}
+}
+
+/* ---------- tabs ---------- */
+function tab(t){$$('.tabs button').forEach(b=>b.setAttribute('aria-selected',b.dataset.t===t));$$('.pane').forEach(p=>p.classList.toggle('on',p.id==='t-'+t))}
+$$('.tabs button').forEach(b=>b.onclick=()=>tab(b.dataset.t));
+
+/* ---------- streaming ---------- */
+const stream=$('#stream');
+function sleep(ms){return new Promise(r=>setTimeout(r,ms))}
+async function typeTokens(text,cls,tok){
+  const line=document.createElement('div');if(cls)line.className=cls;stream.appendChild(line);
+  const words=text.split(/(\s+)/);line.classList.add('caret');
+  for(const w of words){if(tok!==genToken||latched)break;line.insertAdjacentText('beforeend',w);stream.scrollTop=1e6;await sleep(w.trim()?28:0)}
+  line.classList.remove('caret');return line;
+}
+function logTag(tag,msg,cls){const d=document.createElement('div');d.innerHTML='<span class="tag">['+tag+']</span> <span class="'+(cls||'')+'">'+msg+'</span>';stream.appendChild(d);stream.scrollTop=1e6}
+
+/* ---------- plan ---------- */
+function match(txt){
+  const t=txt.toLowerCase();
+  if(/pill|med/.test(t))return 'bring me my morning pills';
+  if(/tea|cup|kettle|coffee/.test(t))return 'make me a cup of tea';
+  return 'set the table for two';
+}
+async function compose(){
+  const text=$('#goal').value.trim();if(!text)return toast('Type a goal first');
+  const key=match(text);const P=PLANS[key];const tok=++genToken;
+  stopSim(true);tab('stream');stream.innerHTML='';sel=null;posOverride={};
+  logTag('input','"'+esc(text)+'"');
+  logTag('system','menu = ['+MENU.join(', ')+']; floor='+fl().toFixed(2));
+  $('#planBtn').disabled=true;
+  await typeTokens(P.say,'',tok);
+  if(tok!==genToken)return;
+  logTag('planner','emit '+P.nodes.length+' nodes, then validate against menu');
+  plan=JSON.parse(JSON.stringify(P));plan.nodes=plan.nodes.map(n=>Object.assign({},n));
+  render(true);
+  const rej=plan.nodes.filter(n=>n._status==='rej'),hold=plan.nodes.filter(n=>n._status==='hold');
+  rej.forEach(n=>logTag('gate','reject '+n.id+' '+n.skill+': '+esc(n._reason),'bad'));
+  hold.forEach(n=>logTag('gate','hold '+n.id+' '+n.skill+'('+(n.target||'')+'): '+esc(n._reason||'needs caregiver approval'),'wr'));
+  logTag('gate',(plan.nodes.length-rej.length-hold.length)+' pass, '+hold.length+' hold, '+rej.length+' rejected','okk');
+  $('#planBtn').disabled=false;
+}
+$('#planBtn').onclick=compose;
+$$('#presets .chip').forEach(c=>c.onclick=()=>{$('#goal').value=c.dataset.g;compose()});
+$('#goal').addEventListener('keydown',e=>{if(e.key==='Enter'&&!e.shiftKey){e.preventDefault();compose()}});
+$('#relayout').onclick=()=>{posOverride={};render()};
+['floor','kz','cg'].forEach(id=>$('#'+id).addEventListener('input',()=>{$('#floorV').textContent=fl().toFixed(2);if(plan)render()}));
+
+/* ---------- simulate ---------- */
+function stopSim(silent){if(sim){sim.abort=true}sim=null;$('#simBtn').textContent='Simulate';$('#armPill').textContent='arm: idle (mock)';if(plan){plan.nodes.forEach(n=>delete n._run)}}
+async function simulate(){
+  if(sim){stopSim();render();return}
+  if(latched)return toast('STOP is latched. Press RESET first');
+  const tok=++genToken;const s=sim={abort:false,cur:null};
+  $('#simBtn').textContent='Cancel';tab('stream');stream.innerHTML='';logTag('runner','start plan "'+plan.label+'" (mock arm)');
+  const done=new Set();
+  const order=plan.nodes.filter(n=>n._status!=='rej');
+  for(const n of plan.nodes){
+    if(s.abort||latched)break;
+    if(n._status==='rej'){logTag('gate','skip '+n.id+' '+n.skill+': '+esc(n._reason),'bad');continue}
+    if(n.deps.some(d=>!done.has(d)&&plan.nodes.find(x=>x.id===d)._status!=='rej')){/* deps handled by order */}
+    s.cur=n;n._run='run';render();
+    $$('.edge').forEach(e=>{if(e.dataset.e.endsWith('>'+n.id))e.classList.add('on')});
+    $('#armPill').textContent='arm: '+n.skill+(n.target?' '+n.target:'');
+    await typeTokens('Next: '+n.skill+(n.target?'('+n.target+')':'')+'. Checking '+n.pre.length+' preconditions...','',tok);
+    if(s.abort||latched)break;
+    for(const p of n.perc){await sleep(220);logTag('perceive',esc(p[0])+' = '+p[1].toFixed(2)+(p[1]>=fl()?' ok':' below floor'),p[1]>=fl()?'okk':'bad')}
+    if(n._status==='hold'&&n.approval&&!n._reason){
+      logTag('photon','sms to Maya: "Approve '+n.skill+' '+(n.target||'')+' ('+n.approval+')?"','wr');
+      await typeTokens('Waiting for caregiver reply...','',tok);await sleep(1400);
+      if(s.abort||latched)break;logTag('photon','Maya replied YES (mock)','okk');
+    } else if(n._status==='hold'){
+      logTag('gate','confidence '+n.conf.toFixed(2)+' < '+fl().toFixed(2)+', re-detecting from a new angle','wr');await sleep(900);
+      logTag('perceive','second look: confidence 0.84','okk');n.conf=.84;
+    }
+    logTag('api','POST /api/request {"task":"'+n.skill+'","target_id":'+(n.target?'"'+n.target+'"':'null')+'} 200','okk');
+    await sleep(700);
+    if(s.abort||latched)break;
+    delete n._run;n._run='done';done.add(n.id);
+    $$('.edge.on').forEach(e=>e.classList.remove('on'));
+    const gg=document.querySelector('[data-id="'+n.id+'"]');if(gg){gg.setAttribute('class','node done'+(sel===n.id?' sel':''))}
+    renderMini();
+  }
+  if(!s.abort&&!latched){logTag('runner','plan complete. '+done.size+' steps executed, '+plan.nodes.filter(n=>n._status==='rej').length+' rejected','okk');toast('Simulation complete')}
+  s.cur=null;$('#simBtn').textContent='Simulate';$('#armPill').textContent='arm: idle (mock)';sim=null;
+  plan.nodes.forEach(n=>{if(n._run==='done'){}});
+}
+$('#simBtn').onclick=()=>{if(!plan)return;plan.nodes.forEach(n=>delete n._run);simulate()};
+$('#stop').onclick=()=>{
+  latched=!latched;const b=$('#stop');b.classList.toggle('latched',latched);b.textContent=latched?'RESET':'STOP';
+  if(latched){if(sim)logTag('safety','STOP latched. Motion cancelled','bad');stopSim();render();toast('Stopped. Press RESET to continue')}else toast('Reset. Ready');
+};
+document.addEventListener('keydown',e=>{if(e.key==='Escape'&&!latched)$('#stop').click()});
+
+/* boot */
+$('#menu').innerHTML=MENU.map(m=>'<span class="sk">'+m+'</span>').join('');
+compose();
+})();
+</script>
+</body>
+</html>

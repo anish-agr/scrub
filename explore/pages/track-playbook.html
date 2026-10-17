@@ -1,0 +1,486 @@
+<title>Track Playbook</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Barlow+Condensed:wght@600;700&family=IBM+Plex+Sans:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+<style>
+:root{
+  --bg:#e9edf1; --panel:#f8fafb; --panel2:#dfe5ea; --ink:#0f1a22; --mute:#4b5a66; --line:#b9c4cd;
+  --accent:#b4440a; --accent-ink:#ffffff; --good:#17683a; --good-bg:#d6eedf; --warn:#8a5a00; --warn-bg:#f8e7bd;
+  --crit:#a3201f; --crit-bg:#f6d4d2; --info:#1d5a8c; --info-bg:#d3e5f4; --focus:#0b63ce;
+  --svg-fill:#f8fafb; --svg-stroke:#5d6e7b; --svg-main:#0f1a22; --svg-tag:#dfe5ea; --svg-hot:#fbe3d3;
+  color-scheme:light;
+}
+@media (prefers-color-scheme: dark){
+  :root:not([data-theme="light"]){
+    --bg:#0c1319; --panel:#141d25; --panel2:#1c2832; --ink:#e6edf2; --mute:#98a8b4; --line:#2e3d49;
+    --accent:#f08a4b; --accent-ink:#0c1319; --good:#6fd39a; --good-bg:#12301f; --warn:#f0c15a; --warn-bg:#33270a;
+    --crit:#ff8d88; --crit-bg:#3a1514; --info:#79b8ee; --info-bg:#112a40; --focus:#7db7ff;
+    --svg-fill:#141d25; --svg-stroke:#6f8493; --svg-main:#e6edf2; --svg-tag:#1c2832; --svg-hot:#3a2417;
+    color-scheme:dark;
+  }
+}
+:root[data-theme="dark"]{
+    --bg:#0c1319; --panel:#141d25; --panel2:#1c2832; --ink:#e6edf2; --mute:#98a8b4; --line:#2e3d49;
+    --accent:#f08a4b; --accent-ink:#0c1319; --good:#6fd39a; --good-bg:#12301f; --warn:#f0c15a; --warn-bg:#33270a;
+    --crit:#ff8d88; --crit-bg:#3a1514; --info:#79b8ee; --info-bg:#112a40; --focus:#7db7ff;
+    --svg-fill:#141d25; --svg-stroke:#6f8493; --svg-main:#e6edf2; --svg-tag:#1c2832; --svg-hot:#3a2417;
+    color-scheme:dark;
+}
+*{box-sizing:border-box}
+html{-webkit-text-size-adjust:100%}
+body{margin:0;background:var(--bg);color:var(--ink);font:400 15px/1.55 "IBM Plex Sans",system-ui,-apple-system,"Segoe UI",sans-serif;padding-inline:16px;padding-block:20px 56px;font-variant-numeric:tabular-nums}
+.wrap{max-width:1180px;margin-inline:auto;min-width:0}
+a{color:var(--info)}
+:focus-visible{outline:3px solid var(--focus);outline-offset:2px}
+h1,h2,h3{font-family:"Barlow Condensed","Arial Narrow",sans-serif;text-transform:uppercase;letter-spacing:.04em;margin:0;line-height:1.05}
+.mono{font-family:"IBM Plex Mono",ui-monospace,Menlo,Consolas,monospace}
+.kicker{font:500 12px/1.2 "IBM Plex Mono",ui-monospace,monospace;letter-spacing:.14em;text-transform:uppercase;color:var(--accent)}
+header.top{border-bottom:3px solid var(--ink);padding-bottom:14px;margin-bottom:20px}
+header.top h1{font-size:clamp(34px,7vw,64px);font-weight:700;margin-top:6px}
+header.top p{margin:10px 0 0;max-width:70ch;color:var(--mute)}
+.stamp{display:inline-block;border:2px solid var(--crit);color:var(--crit);padding:2px 8px;font:600 11px/1.4 "IBM Plex Mono",monospace;letter-spacing:.12em;text-transform:uppercase;margin-left:8px;vertical-align:middle}
+section{margin-top:36px}
+.sec-h{display:flex;align-items:baseline;gap:12px;border-bottom:1px solid var(--line);padding-bottom:6px;margin-bottom:14px;flex-wrap:wrap}
+.sec-h .num{font:600 13px "IBM Plex Mono",monospace;color:var(--accent)}
+.sec-h h2{font-size:clamp(24px,4vw,32px);font-weight:700}
+.sec-h .sub{color:var(--mute);font-size:13px;flex-basis:100%}
+
+/* strip */
+.strip{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:0;border:2px solid var(--ink);background:var(--panel)}
+.strip>div{padding:14px 16px;border-right:1px solid var(--line);min-width:0}
+.strip>div:last-child{border-right:0}
+.strip .big{font:700 clamp(26px,4vw,38px)/1 "Barlow Condensed",sans-serif;text-transform:uppercase;letter-spacing:.02em;margin:6px 0 4px}
+.strip .small{font-size:13px;color:var(--mute)}
+.strip .lbl{font:500 11px "IBM Plex Mono",monospace;letter-spacing:.14em;text-transform:uppercase;color:var(--mute)}
+
+/* countdown */
+.clocks{display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:12px}
+.clock.live{border-left-color:var(--good)}
+.clock.live .t{color:var(--good)}
+.sched{margin-top:18px;display:grid;grid-template-columns:repeat(auto-fit,minmax(280px,1fr));gap:12px}
+.sched-day{background:var(--panel);border:1px solid var(--line);padding:14px 16px;min-width:0}
+.sched-day h3{font:700 19px/1.1 "Barlow Condensed",sans-serif;text-transform:uppercase;letter-spacing:.04em;margin:0 0 8px}
+.sched-day ol{list-style:none;margin:0;padding:0;display:flex;flex-direction:column}
+.sched-day li{display:grid;grid-template-columns:118px minmax(0,1fr);gap:10px;padding:7px 0;border-top:1px solid var(--line);font-size:14px;align-items:baseline}
+.sched-day li:first-child{border-top:0}
+.sched-day li .tm{font:500 12px "IBM Plex Mono",monospace;color:var(--mute);font-variant-numeric:tabular-nums}
+.sched-day li.hl{background:var(--good-bg);margin-inline:-16px;padding-inline:16px;border-left:4px solid var(--good)}
+.sched-day li.hl b{color:var(--good)}
+.sched-day li.now .tm::after{content:" NOW";color:var(--good);font-weight:600}
+.fairplan{margin-top:12px;background:var(--panel);border:1px solid var(--line);border-left:6px solid var(--good);padding:14px 16px}
+.fairplan h3{font-size:17px;font-weight:700;margin:0 0 6px}
+.fairplan ul{margin:0;padding-left:18px;display:flex;flex-direction:column;gap:4px;font-size:14px}
+@media (max-width:480px){.sched-day li{grid-template-columns:96px minmax(0,1fr)}}
+.clock{background:var(--panel);border:1px solid var(--line);border-left:6px solid var(--accent);padding:14px 16px;min-width:0}
+.clock.crit{border-left-color:var(--crit)}
+.clock.done{border-left-color:var(--mute);opacity:.85}
+.clock h3{font-size:19px;font-weight:700}
+.clock .when{font:400 12px "IBM Plex Mono",monospace;color:var(--mute);margin-top:4px}
+.clock .t{font:600 clamp(26px,3.4vw,34px)/1.1 "IBM Plex Mono",monospace;margin:10px 0 4px;letter-spacing:-.02em}
+.clock .t small{font-size:12px;color:var(--mute);font-weight:400;margin-inline:2px 8px;letter-spacing:0}
+.clock .note{font-size:13px;color:var(--mute)}
+.alert{margin-top:12px;border:1px solid var(--warn);background:var(--warn-bg);color:var(--ink);padding:10px 14px;font-size:14px}
+.alert b{color:var(--warn)}
+
+/* chips */
+.chip{display:inline-block;font:500 11px/1 "IBM Plex Mono",monospace;letter-spacing:.06em;text-transform:uppercase;padding:4px 7px;border:1px solid var(--line);color:var(--mute);background:var(--panel2);white-space:nowrap}
+.chip.good{color:var(--good);background:var(--good-bg);border-color:var(--good)}
+.chip.warn{color:var(--warn);background:var(--warn-bg);border-color:var(--warn)}
+.chip.info{color:var(--info);background:var(--info-bg);border-color:var(--info)}
+.chip.crit{color:var(--crit);background:var(--crit-bg);border-color:var(--crit)}
+.chip.unv{color:var(--warn);background:var(--warn-bg);border-color:var(--warn)}
+button.chip{cursor:pointer}
+
+/* tracks */
+.group-h{font-size:20px;font-weight:700;margin:22px 0 8px;display:flex;gap:10px;align-items:baseline;flex-wrap:wrap}
+.group-h span{font:400 12px "IBM Plex Mono",monospace;color:var(--mute);text-transform:none;letter-spacing:0}
+.grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(min(100%,340px),1fr));gap:12px}
+.card{background:var(--panel);border:1px solid var(--line);border-top:4px solid var(--ink);padding:14px 16px;display:flex;flex-direction:column;gap:9px;min-width:0}
+.card.title{border-top-color:var(--accent)}
+.card.spon{border-top-color:var(--info)}
+.card.non{border-top-color:var(--good)}
+.card header{display:flex;justify-content:space-between;gap:8px;align-items:flex-start;flex-wrap:wrap}
+.card h3{font-size:22px;font-weight:700;min-width:0;overflow-wrap:anywhere}
+.chips{display:flex;gap:5px;flex-wrap:wrap}
+.card dl{margin:0;display:grid;grid-template-columns:76px minmax(0,1fr);gap:6px 10px;font-size:13.5px}
+.card dt{font:500 11px/1.7 "IBM Plex Mono",monospace;letter-spacing:.08em;text-transform:uppercase;color:var(--mute)}
+.card dd{margin:0;min-width:0;overflow-wrap:anywhere}
+.card dd.ours{border-left:3px solid var(--accent);padding-left:8px;font-weight:500}
+.card .foot{display:flex;gap:8px;align-items:center;margin-top:auto;padding-top:8px;border-top:1px dashed var(--line);flex-wrap:wrap}
+.card .foot label{font:500 11px "IBM Plex Mono",monospace;letter-spacing:.08em;text-transform:uppercase;color:var(--mute)}
+.card .foot input{flex:1 1 90px;min-width:0;font:400 13px "IBM Plex Mono",monospace;background:var(--bg);color:var(--ink);border:1px solid var(--line);padding:5px 8px}
+.effort{font:600 12px "IBM Plex Mono",monospace}
+details.skip{border:1px solid var(--line);background:var(--panel);margin-top:20px}
+details.skip>summary{cursor:pointer;padding:12px 16px;font:700 20px "Barlow Condensed",sans-serif;text-transform:uppercase;letter-spacing:.04em}
+details.skip>summary small{font:400 12px "IBM Plex Mono",monospace;color:var(--mute);text-transform:none;letter-spacing:0;margin-left:8px}
+.skiplist{padding:0 16px 14px;display:grid;gap:8px}
+.skiprow{display:grid;grid-template-columns:150px minmax(0,1fr);gap:10px;border-top:1px solid var(--line);padding-top:8px;font-size:14px}
+.skiprow b{font-weight:600}
+
+/* diagram */
+.diagram{background:var(--panel);border:1px solid var(--line);padding:12px;display:grid;grid-template-columns:minmax(0,420px) minmax(0,1fr);gap:20px;align-items:start}
+.diagram svg{width:100%;height:auto;display:block;max-width:460px}
+.legend{font-size:14px;min-width:0}
+.legend ol{margin:8px 0 0;padding-left:20px;display:grid;gap:7px}
+.legend li b{font-weight:600}
+.svg-box{fill:var(--svg-fill);stroke:var(--svg-main);stroke-width:1.5}
+.svg-hot{fill:var(--svg-hot);stroke:var(--accent);stroke-width:2}
+.svg-tag{fill:var(--svg-tag);stroke:var(--svg-stroke);stroke-width:1}
+.svg-line{stroke:var(--svg-stroke);stroke-width:1.6;fill:none}
+.svg-dash{stroke:var(--svg-stroke);stroke-width:1.6;fill:none;stroke-dasharray:5 4}
+.svg-arrow{fill:var(--svg-stroke)}
+.svg-t{fill:var(--svg-main);font:600 13px "IBM Plex Sans",sans-serif}
+.svg-s{fill:var(--mute);font:400 10.5px "IBM Plex Mono",monospace}
+.svg-n{fill:var(--accent);font:600 11px "IBM Plex Mono",monospace}
+.svg-tg{fill:var(--svg-main);font:500 10.5px "IBM Plex Mono",monospace}
+
+/* pitches */
+.pitches{display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,340px),1fr));gap:12px}
+.pitch{background:var(--panel);border:1px solid var(--line);border-left:6px solid var(--ink);padding:14px 16px;min-width:0}
+.pitch h3{font-size:20px;font-weight:700;margin-bottom:2px}
+.pitch .judge{font:400 12px "IBM Plex Mono",monospace;color:var(--mute);margin-bottom:8px}
+.pitch p{margin:0;font-size:14.5px}
+.pitch .say{margin-top:10px;font-size:13px;color:var(--mute);border-top:1px dashed var(--line);padding-top:8px}
+
+/* checklist */
+.cl-wrap{background:var(--panel);border:1px solid var(--line);padding:14px 16px}
+.cl-bar{height:8px;background:var(--panel2);border:1px solid var(--line);margin:6px 0 14px}
+.cl-bar i{display:block;height:100%;width:0;background:var(--good)}
+.cl{list-style:none;margin:0;padding:0;display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,420px),1fr));gap:2px 24px}
+.cl li{border-bottom:1px solid var(--line);min-width:0}
+.cl label{display:flex;gap:10px;align-items:flex-start;padding:9px 2px;cursor:pointer;font-size:14.5px}
+.cl input{margin-top:3px;width:18px;height:18px;accent-color:var(--good);flex:none}
+.cl input:checked+span{color:var(--mute);text-decoration:line-through;text-decoration-color:var(--line)}
+.cl .due{font:400 11px "IBM Plex Mono",monospace;color:var(--mute);display:block;text-decoration:none}
+.btn{font:500 12px "IBM Plex Mono",monospace;letter-spacing:.06em;text-transform:uppercase;background:var(--panel2);color:var(--ink);border:1px solid var(--line);padding:6px 10px;cursor:pointer}
+.btn:hover{border-color:var(--ink)}
+footer{margin-top:40px;border-top:1px solid var(--line);padding-top:12px;font-size:13px;color:var(--mute)}
+
+@media (max-width:860px){
+  .strip,.clocks{grid-template-columns:minmax(0,1fr)}
+  .strip>div{border-right:0;border-bottom:1px solid var(--line)}
+  .strip>div:last-child{border-bottom:0}
+  .diagram{grid-template-columns:minmax(0,1fr)}
+  .skiprow{grid-template-columns:minmax(0,1fr);gap:2px}
+}
+@media (prefers-reduced-motion: reduce){*{animation:none!important;transition:none!important}}
+</style>
+
+<div class="wrap">
+<header class="top">
+  <div class="kicker">DubHacks 2026 / Seattle / Oct 17-18 <span class="stamp">Training and research prototype</span></div>
+  <h1>Track Playbook</h1>
+  <p>Operations brief for Scrub, the SO-101 arm that passes instruments by voice in an operating room, a dental office and a robotics bench: which tracks we enter, what feature earns each one, who owns it, and what must be filed before the deadline. Items marked <span class="chip unv">unverified</span> come from sources the research pass could not confirm.</p>
+</header>
+
+<section aria-labelledby="s0">
+  <div class="strip" id="strip">
+    <div><div class="lbl">Title track</div><div class="big">Community Kitchen</div><div class="small">Healthcare and assistive tech. Backup framing: Cook Smarter.</div></div>
+    <div><div class="lbl">Sponsored side tracks (cap 3)</div><div class="big">3 of 3 used</div><div class="small">Perceptron Robotics, Perceptron Perception, Photon (incl. Best Voice Agent). VEYZL is the alternate if a slot frees up.</div></div>
+    <div><div class="lbl">Non-sponsored (no cap)</div><div class="big"><span id="nonCount">7</span> entered</div><div class="small">NEXT, Gemini, Vultr, MongoDB Atlas, GoDaddy, Commit Fellowship, DEV writing.</div></div>
+  </div>
+</section>
+
+<section aria-labelledby="s1">
+  <div class="sec-h"><span class="num">01</span><h2 id="s1">Schedule and deadlines</h2><span class="sub">Counted live in your browser against Pacific Time. Plan for the earliest Sunday time.</span></div>
+  <div class="clocks" id="clocks"></div>
+  <div class="sched" id="sched">
+    <div class="sched-day"><h3>Saturday, Oct 17</h3><ol>
+      <li data-s="2026-10-17T16:30Z" data-e="2026-10-17T18:00Z"><span class="tm">9:30-11:00 AM</span><span>Hacker check-in</span></li>
+      <li data-s="2026-10-17T18:00Z" data-e="2026-10-17T19:30Z"><span class="tm">11:00 AM-12:30 PM</span><span>Opening ceremony</span></li>
+      <li data-s="2026-10-17T19:30Z" data-e="2026-10-17T20:15Z"><span class="tm">12:30-1:15 PM</span><span>Hacking starts. Perceptron arm setup workshop (mandatory for arm teams)</span></li>
+      <li data-s="2026-10-17T19:30Z" data-e="2026-10-17T21:30Z"><span class="tm">12:30-2:30 PM</span><span>Lunch</span></li>
+      <li data-s="2026-10-17T20:30Z" data-e="2026-10-17T21:30Z"><span class="tm">1:30 PM</span><span>GitHub Copilot workshop (room 332)</span></li>
+      <li data-s="2026-10-17T20:30Z" data-e="2026-10-17T23:30Z"><span class="tm">1:30-4:30 PM</span><span>Workshops</span></li>
+      <li class="hl" data-s="2026-10-17T21:30Z" data-e="2026-10-17T23:00Z"><span class="tm">2:30-4:00 PM</span><span><b>Career fair</b>. Sponsors recruiting. See the plan below.</span></li>
+      <li data-s="2026-10-18T01:00Z" data-e="2026-10-18T02:00Z"><span class="tm">6:00-7:00 PM</span><span>Dinner</span></li>
+      <li data-s="2026-10-18T05:00Z" data-e="2026-10-18T05:01Z"><span class="tm">10:00 PM</span><span>Devpost draft, team target (Evan submits)</span></li>
+      <li data-s="2026-10-18T05:30Z" data-e="2026-10-18T05:31Z"><span class="tm">10:30 PM</span><span>Devpost draft due (official). First real handoff by voice</span></li>
+    </ol></div>
+    <div class="sched-day"><h3>Sunday, Oct 18</h3><ol>
+      <li data-s="2026-10-18T16:00Z" data-e="2026-10-18T17:30Z"><span class="tm">9:00-10:30 AM</span><span>Breakfast</span></li>
+      <li data-s="2026-10-18T17:00Z" data-e="2026-10-18T17:01Z"><span class="tm">10:00 AM</span><span>Final submission (plan for this; some pages say 10:30)</span></li>
+      <li data-s="2026-10-18T18:30Z" data-e="2026-10-18T21:00Z"><span class="tm">11:30 AM-2:00 PM</span><span>Judging <span class="chip unv">unverified</span> (the judging page says from 10:30)</span></li>
+      <li data-s="2026-10-18T21:15Z" data-e="2026-10-18T22:05Z"><span class="tm">2:15-3:05 PM</span><span>Closing ceremony</span></li>
+    </ol></div>
+  </div>
+  <div class="fairplan">
+    <h3>Career fair plan (Sat 2:30-4:00 PM)</h3>
+    <ul>
+      <li>Keep the arm running during the fair. Rotate people so at least two stay building while the others go in shifts of about 40 minutes.</li>
+      <li>Bring the demo on a phone: the dashboard page shows a request and the running count in 20 seconds without the arm.</li>
+      <li>Pitch in one line: "Scrub is a robot arm that passes instruments by voice. Ask for the hemostat out loud and it arrives handle first, then it keeps the count of what is out. We are starting with dental offices."</li>
+      <li>Visit sponsor tables tied to our tracks first (Perceptron, Photon, MLH). Ask what their judges look for, and get names so you can say hi at judging.</li>
+      <li>Have resumes and LinkedIn QR codes ready. Write down each recruiter's name and a follow-up note right after each talk.</li>
+    </ul>
+  </div>
+  <div class="alert"><b>Required:</b> a recorded presentation video (under 3 minutes) must be on Devpost, or the team cannot be judged. Submission pages disagree on Sunday (10:00 vs 10:30 AM), so we plan for 10:00 AM. Whole team on site for judging.</div>
+</section>
+
+<section aria-labelledby="s2">
+  <div class="sec-h"><span class="num">02</span><h2 id="s2">Every track</h2><span class="sub">Rules: exactly 1 title track, at most 3 sponsored side tracks, unlimited non-sponsored. Owner and status save in this browser only.</span></div>
+  <div id="tracks"></div>
+
+  <details class="skip">
+    <summary>Skipped<small>tracks we do not enter, and why</small></summary>
+    <div class="skiplist">
+      <div class="skiprow"><b>Chef's Choice</b><span>Title track for creative, expressive, fun tech. We can only pick one title track and Community Kitchen is the natural home for a safety-first healthcare build.</span></div>
+      <div class="skiprow"><b>Visa: Reimagine Shopping</b><span>Generative AI commerce, judged virtually from a 3-minute video. No overlap with a surgical robot.</span></div>
+      <div class="skiprow"><b>SideShift: Best Startup Idea</b><span>Creator and UGC marketplace sponsor ($1500 + work trial first prize). Poor fit with a medical and dental product, and it would use a sponsored slot we need for Perceptron Robotics, Perceptron Perception and Photon. NEXT already covers the startup judges without costing a slot.</span></div>
+      <div class="skiprow"><b>T-Mobile</b><span>Phone shopping fix on synthetic data. Off topic. Sponsored, so it would also burn a slot.</span></div>
+      <div class="skiprow"><b>Cloudforce</b><span>$2,000 viral-engagement prize. Track description was unreadable <span class="chip unv">unverified</span>. Sponsored slot cost with no clear feature to earn it.</span></div>
+      <div class="skiprow"><b>SpaceXAI</b><span>No details retrieved <span class="chip unv">unverified</span>. Sponsored slot cost.</span></div>
+      <div class="skiprow"><b>Best Use of Solana</b><span>Unruggable wallets as prize. Devnet receipts per task (backlog D9, P3) do not fit the clinical story and would dilute the pitch.</span></div>
+    </div>
+  </details>
+</section>
+
+<section aria-labelledby="s3">
+  <div class="sec-h"><span class="num">03</span><h2 id="s3">Main loop</h2><span class="sub">One request, end to end, from the repo README. Orange boxes are the product core. Tags on the right name the track each step earns.</span></div>
+  <div class="diagram">
+    <svg viewBox="0 0 420 690" role="img" aria-label="Pipeline from a phone on speaker through the Photon number, ElevenLabs voice agent, Gemini command, vision hand and tray state, controller, Isaac 0.5 policy and SO-101 handoff, then to the MongoDB ledger and the dashboard on Vultr and GoDaddy.">
+      <defs><marker id="ar" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="7" markerHeight="7" orient="auto"><path d="M0 0L10 5L0 10z" class="svg-arrow"/></marker></defs>
+      <!-- spine -->
+      <g id="spine"></g>
+      <!-- fan-out -->
+      <path class="svg-line" d="M135 566V590"/>
+      <path class="svg-line" d="M107 590H312"/>
+      <path class="svg-line" d="M107 590V608" marker-end="url(#ar)"/>
+      <path class="svg-line" d="M312 590V608" marker-end="url(#ar)"/>
+      <text class="svg-s" x="10" y="582">9. Every request is recorded</text>
+      <g id="fan"></g>
+    </svg>
+    <div class="legend">
+      <div class="kicker">Reading the diagram</div>
+      <ol>
+        <li><b>Phone on speaker</b> calls the Scrub number: "Hemostat." Community Kitchen: hands-free help for a short-staffed clinic.</li>
+        <li><b>Photon number</b> takes the call and routes it to <code>voice/</code>. The summary text goes out on the same thread.</li>
+        <li><b>ElevenLabs voice agent</b> hears the request and speaks the replies. This is the Photon Best Voice Agent entry.</li>
+        <li><b>Gemini</b> in <code>voice/</code> turns the words into a structured command. Earns Best Use of Gemini API.</li>
+        <li><b>vision/</b> runs in parallel: a MediaPipe hand tracker finds the open hand, and Perceptron perception reads the tray state. Earns Perceptron Perception.</li>
+        <li><b>controller/</b> is the only part that moves the arm. Everything else sends it information.</li>
+        <li><b>arm/ with Isaac 0.5</b> runs the fine-tuned policy from Perceptron. Task difficulty and execution score here for Perceptron Robotics.</li>
+        <li><b>SO-101</b> brings the instrument to the hand handle first and lets go when the clinician pulls or says "got it."</li>
+        <li><b>Ledger and dashboard</b>: MongoDB Atlas keeps the record, and the dashboard on Vultr, under our GoDaddy domain, shows it.</li>
+      </ol>
+    </div>
+  </div>
+</section>
+
+<section aria-labelledby="s4">
+  <div class="sec-h"><span class="num">04</span><h2 id="s4">Pitch angles</h2><span class="sub">One paragraph per panel. Side-track judges can arrive at any time during the 50-minute round, so everyone on the team should know all four.</span></div>
+  <div class="pitches">
+    <article class="pitch" style="border-left-color:var(--accent)">
+      <h3>Community Kitchen judges</h3><div class="judge">Innovation, impact, problem-solving, technical execution</div>
+      <p>Clinics cannot hire enough assistants. Two out of three dentists who are recruiting say finding one is very or extremely hard, and a surgical tech job stays open about four months. Scrub passes the instrument when the clinician asks out loud, handle first, and lets go when they take it. Scalpels go to a fixed safe spot instead of hand to hand. Returned instruments go back to their slots and Scrub keeps the count. One fine-tuned model runs an operating room, a dental office and a robotics bench.</p>
+      <div class="say">Say: "The doctor never turns away from the patient."</div>
+    </article>
+    <article class="pitch" style="border-left-color:var(--info)">
+      <h3>Perceptron</h3><div class="judge">Creativity, task difficulty, technical execution; short working-demo video</div>
+      <p>We fine-tuned Isaac 0.5 on our own demonstrations of the handoff and the put-back, nine instruments across three trays. Perceptron perception reads the tray state, grasp check, returns and the count. We trained and tested under bright, normal and dim light because operating lamps and steel throw glare, and we show the success rate for each.</p>
+      <div class="say">Show: the lighting table, then one live handoff, then one failed trial and what changed.</div>
+    </article>
+    <article class="pitch" style="border-left-color:var(--info)">
+      <h3>Photon</h3><div class="judge">Most creative and technically impressive agent; Best Voice Agent</div>
+      <p>Scrub has a real phone number on Photon. The clinician calls from a phone on speaker and talks to an ElevenLabs voice agent that answers out loud, so it works as a voice agent from the first word. When the case ends, the summary of what went out and what came back arrives as a text on the same thread.</p>
+      <div class="say">Demo: the judge calls the number, asks for the scissors, and gets them.</div>
+    </article>
+    <article class="pitch" style="border-left-color:var(--good)">
+      <h3>DubHacks NEXT</h3><div class="judge">Real problem and user, builder energy, iteration, revenue, drive</div>
+      <p>The team plan says dental offices first, priced per chair. Every chair needs an assistant handing instruments, and dental offices report they cannot hire one. The same system moves to operating rooms and labs with a new tray and new demonstrations, no new code. Scrub runs on an open-source arm that costs a few hundred dollars, and the software is ready for a medical-grade arm. The weekend shows iteration through the lighting tests and the ten clean full runs.</p>
+      <div class="say">Lead with the missing assistant and the per-chair price, then the robot.</div>
+    </article>
+  </div>
+</section>
+
+<section aria-labelledby="s5">
+  <div class="sec-h"><span class="num">05</span><h2 id="s5">Submission checklist</h2><span class="sub">Checked state saves in this browser only.</span></div>
+  <div class="cl-wrap">
+    <div style="display:flex;justify-content:space-between;align-items:center;gap:10px;flex-wrap:wrap">
+      <span class="mono" id="clCount" style="font-size:13px">0 of 0 done</span>
+      <button class="btn" id="clReset" type="button">Reset checklist</button>
+    </div>
+    <div class="cl-bar"><i id="clBar"></i></div>
+    <ul class="cl" id="cl"></ul>
+  </div>
+</section>
+
+<footer>Sources: DubHacks 26 Hacker Guide (Notion), MLH prizes page, MLH Commit Fellowship page. Devpost returned 403 and was not read. The guide says it is still being updated, so recheck before filing.
+ <a href="https://dubhacks.notion.site/The-DubHacks-26-Hacker-Guide-15dff32c1d7e83748aac8154036aa658" target="_blank" rel="noopener">Hacker Guide</a> /
+ <a href="https://dubhacks-2026.devpost.com/" target="_blank" rel="noopener">Devpost</a> /
+ <a href="https://www.mlh.com/events/dubhacks-97/prizes" target="_blank" rel="noopener">MLH prizes</a> /
+ <a href="https://fellowship.mlh.com/commit-fellowship" target="_blank" rel="noopener">Commit Fellowship</a></footer>
+</div>
+
+<script>
+(function(){
+  var NS="http://www.w3.org/2000/svg";
+  function store(k,v){try{if(v===undefined){var r=localStorage.getItem(k);return r?JSON.parse(r):null}localStorage.setItem(k,JSON.stringify(v))}catch(e){return null}}
+
+  /* ---------- diagram spine ---------- */
+  var spine=[
+    ["1","Phone on speaker","clinician asks out loud","Community Kitchen",0],
+    ["2","Photon number","the call reaches voice/","Photon",0],
+    ["3","ElevenLabs voice agent","hears and speaks back","Photon Voice Agent",0],
+    ["4","voice/ Gemini command","words to structured command","Gemini API",0],
+    ["5","vision/ hand + tray","MediaPipe hand, Perceptron tray","Perceptron Perception",1],
+    ["6","controller/","only part that moves the arm","Community Kitchen",1],
+    ["7","arm/ Isaac 0.5 policy","fine-tuned on our demos","Perceptron Robotics",1],
+    ["8","SO-101","handle first, lets go on pull","Community Kitchen",1]
+  ];
+  var g=document.getElementById("spine");
+  function el(n,a,t){var e=document.createElementNS(NS,n);for(var k in a)e.setAttribute(k,a[k]);if(t!==undefined)e.textContent=t;return e}
+  spine.forEach(function(s,i){
+    var y=10+i*72;
+    g.appendChild(el("rect",{x:10,y:y,width:250,height:52,"class":s[4]?"svg-hot":"svg-box"}));
+    g.appendChild(el("text",{x:20,y:y+16,"class":"svg-n"},s[0]));
+    g.appendChild(el("text",{x:34,y:y+31,"class":"svg-t"},s[1]));
+    g.appendChild(el("text",{x:34,y:y+45,"class":"svg-s"},s[2]));
+    g.appendChild(el("rect",{x:270,y:y+10,width:140,height:32,"class":"svg-tag"}));
+    var tg=s[3].split(" ");
+    var line1=s[3].length>17?tg.slice(0,tg.length-1).join(" "):s[3];
+    var line2=s[3].length>17?tg[tg.length-1]:"";
+    if(line2){
+      g.appendChild(el("text",{x:278,y:y+23,"class":"svg-tg"},line1));
+      g.appendChild(el("text",{x:278,y:y+36,"class":"svg-tg"},line2));
+    } else g.appendChild(el("text",{x:278,y:y+30,"class":"svg-tg"},line1));
+    g.appendChild(el("path",{d:"M260 "+(y+26)+"H270","class":"svg-dash"}));
+    if(i<spine.length-1) g.appendChild(el("path",{d:"M135 "+(y+52)+"V"+(y+72),"class":"svg-line","marker-end":"url(#ar)"}));
+  });
+
+  var fan=[["Ledger in MongoDB","every request and return","MongoDB Atlas",10,610,0],["Dashboard, public page","hosted on a Vultr server","Vultr + GoDaddy",215,610,0]];
+  var fg=document.getElementById("fan");
+  fan.forEach(function(f){
+    fg.appendChild(el("rect",{x:f[3],y:f[4],width:195,height:58,"class":"svg-box",style:f[5]?"stroke-dasharray:5 4":""}));
+    fg.appendChild(el("text",{x:f[3]+10,y:f[4]+19,"class":"svg-t"},f[0]));
+    fg.appendChild(el("text",{x:f[3]+10,y:f[4]+34,"class":"svg-s"},f[1]));
+    fg.appendChild(el("text",{x:f[3]+10,y:f[4]+50,"class":"svg-n"},"EARNS: "+f[2]));
+  });
+
+  /* ---------- tracks ---------- */
+  var T=[
+   {g:"title",n:"Community Kitchen",tag:"Title track",what:"Main track for tech that helps people thrive: accessibility, healthcare, emergency response, civic tech.",prize:"Share of the $44,000+ pool; winners pick hardware or gear, runner-ups smaller picks.",crit:"Innovation, impact, problem-solving, technical execution.",mode:"Table judging in the main round; rubric link not retrieved",unv:["rubric"],feat:"Scrub as a whole: a phone call asks for an instrument, the SO-101 hands it over handle first, scalpels go to a safe spot, returns go back to slots, and the count is read back. Three settings: operating room, dental office, robotics bench.",eff:"M",hrs:"3h write-up and video (build is the project)"},
+   {g:"title",n:"Cook Smarter",tag:"Backup framing",what:"Title track for AI agents, automation and workflows that cut friction: logistics, operations, data management.",prize:"Share of the main pool.",crit:"Rubric linked from Notion, not retrieved.",mode:"Same main round",unv:["criteria"],feat:"Fallback story only: the clinic staffing shortage as a workflow problem, with the voice agent, the count and the MongoDB ledger as the automation. Switch the Devpost title selection only if Community Kitchen judges look wrong for us.",eff:"S",hrs:"30m to rewrite the lead paragraph"},
+   {g:"spon",n:"Perceptron Robotics",tag:"Sponsored 1 of 3",what:"Pre-trained checkpoint plus a provided SO-101 arm. Teams may collect demos and fine-tune.",prize:"JBL speakers, one winner. Prize page says coming soon.",crit:"Creativity, task difficulty, technical execution.",mode:"In person at your table, plus a short working-demo video",unv:["arm slot","prize page"],feat:"Isaac 0.5 fine-tuned on our own demonstrations, running in arm/ through the controller on the SO-101, plus a video of the working arm (A12). Arm access needed an interest form by Sat 10:30 AM and the mandatory workshop 12:30-1:15. Confirm we got a slot.",eff:"L",hrs:"Core build, 20h+"},
+   {g:"spon",n:"Perceptron Perception",tag:"Sponsored 2 of 3",what:"Mk and Isaac models by API: localization, OCR, captioning, tracking, finding events in video. No fine-tuning expected.",prize:"JBL speakers, one winner.",crit:"Creative and impactful out-of-the-box use of the models.",mode:"In person at your table",unv:[],feat:"vision/ calls the Perceptron API for real work: tray state, grasp check, returns and the count. The MediaPipe hand tracker sits beside it and feeds the hand position to the controller.",eff:"M",hrs:"4h, tray perception (B4)"},
+   {g:"spon",n:"Photon",tag:"Sponsored 3 of 3",what:"Build a messaging agent on Photon 2.0 with a real phone number (iMessage, SMS, RCS, WhatsApp, Telegram, email, calls). Must live on at least one channel. Includes the Best Voice Agent prize.",prize:"Winner $700 ($400 cash + $300 credits + fast-track interview). Runner-up $300. Best Voice Agent $300 + $100 credits.",crit:"Most creative and technically impressive agent.",mode:"In person at your table",unv:["developer guide not fetched"],feat:"The agent runs on a Photon number: phone on speaker, Photon, ElevenLabs voice agent, then Gemini in voice/ for the command. Voice for the voice prize, and the end-of-case summary text on the same thread (C3, C7).",eff:"M",hrs:"6h, call path plus summary text"},
+   {g:"alt",n:"VEYZL",tag:"Alternate if a slot frees up",what:"AI compliance audit on GitHub PRs against the EU AI Act, NIST AI RMF and ISO/IEC 42001.",prize:"$500 cash + lifetime pro per member. Prize page says coming soon.",crit:"Working AI project, real audit visible on a PR, evidence the findings changed the build, short demo.",mode:"In person at your table",unv:["prize page"],feat:"Not in the plan. If a sponsored slot opens, connect the repo, audit a PR, fix at least two findings and write docs/veyzl.md with before and after.",eff:"S",hrs:"2h"},
+   {g:"non",n:"DubHacks NEXT",tag:"Non-sponsored",what:"UW student startup incubator track. Rewards a real problem, revenue potential and builder energy.",prize:"1st $200 + guaranteed NEXT Batch 6 interview. 2nd guaranteed interview.",crit:"Real problem with a clear user; builder energy; learning and iteration; revenue potential; drive to continue.",mode:"In person at your table",unv:[],feat:"The business case from the plan: dental offices first, priced per chair. Staffing numbers from the team pitch, the same system in operating rooms and labs next, and an iteration log from the lighting tests and full runs.",eff:"M",hrs:"3h: per-chair slide, iteration log"},
+   {g:"non",n:"Best Use of Gemini API",tag:"Non-sponsored",what:"Google Gemini for creative or high-quality AI applications.",prize:"MLH swag kits.",crit:"Innovation in AI application, quality of implementation, creativity.",mode:"Not in person",unv:[],feat:"Speech to command with structured output in voice/, plus the end-of-case summary (C4, C7).",eff:"S",hrs:"2h"},
+   {g:"non",n:"Best Use of Vultr",tag:"Non-sponsored",what:"Cloud projects with one-click deploy and scalable compute.",prize:"M5Stack Tab5.",crit:"Cloud architecture, scalability, deployment efficiency.",mode:"Not in person",unv:[],feat:"The public dashboard runs on a Vultr server (E6).",eff:"S",hrs:"2h"},
+   {g:"non",n:"Best Use of MongoDB Atlas",tag:"Non-sponsored",what:"Database-driven projects on cloud MongoDB.",prize:"M5Stack IoT Kit.",crit:"Database design, scalability, use of MongoDB features.",mode:"Not in person",unv:[],feat:"The ledger: every request, handoff and return in Atlas, behind the success tables and the count (E3).",eff:"M",hrs:"3h"},
+   {g:"non",n:"Best Domain Name (GoDaddy)",tag:"Non-sponsored",what:"Best creative or strategic domain for your project.",prize:"Digital gift card.",crit:"Creativity, relevance, memorability.",mode:"Not in person",unv:[],feat:"A Scrub domain registered with code MLHDH2684 and pointed at the dashboard on Vultr (E6). Human task.",eff:"S",hrs:"20m"},
+   {g:"non",n:"Commit Fellowship",tag:"Non-sponsored",what:"MLH and Transcend Network 3-week zero-to-founder sprint with microgrants and credits. Next cohort Nov 2-20 with mandatory live sessions.",prize:"Interview with the Commit team and a copy of The Lean Startup.",crit:"Working prototype, a real problem worth solving, opt-in on Devpost plus the supplemental form.",mode:"Not in person. Winner chosen after the event from Devpost and the form",unv:["form questions"],feat:"Working prototype is the demo. Two steps: tick the Devpost category and fill the form at mlh.link/commit-fellowship-form (P6, Anish).",eff:"S",hrs:"1h, form plus opt-in"},
+   {g:"non",n:"DEV Writing Challenge",tag:"Non-sponsored",what:"Publish your project story on DEV Community.",prize:"$100.",crit:"Technical depth, originality, storytelling, community engagement.",mode:"Not in person",unv:[],feat:"A post after the event: how Scrub went from one tray to three settings, how the lighting tests changed the policy, and the success numbers.",eff:"M",hrs:"2h"},
+   {g:"opt",n:"Best Use of Tiger Data",tag:"Optional, not in plan",what:"Real-time PostgreSQL and time-series data apps.",prize:"Stream Deck Mini.",crit:"Performance, innovation in data handling, practical application.",mode:"Not in person",unv:[],feat:"Not in the team plan. Only if time is left after the three checkpoints.",eff:"M",hrs:"4h"},
+   {g:"opt",n:"Best Use of Backboard",tag:"Optional, not in plan",what:"AI apps that need persistent memory, RAG, embeddings and tool calls.",prize:"Tile Essentials Pack.",crit:"Effective use of AI memory, technical depth, innovative approach.",mode:"Not in person",unv:[],feat:"Not in the team plan. Only if time is left after the three checkpoints.",eff:"M",hrs:"4h"}
+  ];
+  var groups=[["title","Title track","pick exactly 1"],["spon","Sponsored side tracks","3 allowed; all in person"],["non","Non-sponsored side tracks","unlimited"],["alt","Alternate","use only if a sponsored slot frees up"],["opt","Optional, not in plan","skip unless the checkpoints are done early"]];
+  var saved=store("tp.tracks")||{};
+  var root=document.getElementById("tracks");
+  function esc(s){return String(s).replace(/[&<>"]/g,function(c){return {"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c]})}
+  var STATUS=["Planned","Building","Done"], SCLS={"Planned":"","Building":"info","Done":"good"};
+  var nonN=0;
+  groups.forEach(function(gr){
+    var h=document.createElement("h3");h.className="group-h";h.innerHTML=esc(gr[1])+" <span>"+esc(gr[2])+"</span>";root.appendChild(h);
+    var grid=document.createElement("div");grid.className="grid";
+    T.forEach(function(t,i){
+      if(t.g!==gr[0])return;
+      if(t.g==="non")nonN++;
+      var st=saved[i]||{};var status=st.s||"Planned";
+      var c=document.createElement("article");c.className="card "+t.g;
+      var unv=t.unv.map(function(u){return '<span class="chip unv">unverified: '+esc(u)+'</span>'}).join(" ");
+      c.innerHTML='<header><h3>'+esc(t.n)+'</h3><div class="chips"><span class="chip '+(t.g==="title"?"crit":t.g==="spon"?"info":t.g==="non"?"good":"warn")+'">'+esc(t.tag)+'</span></div></header>'+
+        '<dl><dt>What</dt><dd>'+esc(t.what)+'</dd><dt>Prize</dt><dd>'+esc(t.prize)+'</dd><dt>Judged on</dt><dd>'+esc(t.crit)+'</dd><dt>Where</dt><dd>'+esc(t.mode)+'</dd><dt>We earn it</dt><dd class="ours">'+esc(t.feat)+'</dd><dt>Effort</dt><dd><span class="effort">'+t.eff+'</span> '+esc(t.hrs)+'</dd></dl>'+
+        (unv?'<div class="chips">'+unv+'</div>':'')+
+        '<div class="foot"><label for="own'+i+'">Owner</label><input id="own'+i+'" type="text" autocomplete="off" placeholder="unassigned" value="'+esc(st.o||"")+'"><button type="button" class="chip '+SCLS[status]+'" data-i="'+i+'" aria-label="Status for '+esc(t.n)+', click to change">'+status+'</button></div>';
+      grid.appendChild(c);
+    });
+    root.appendChild(grid);
+  });
+  document.getElementById("nonCount").textContent=nonN;
+  root.addEventListener("input",function(e){
+    if(e.target.tagName!=="INPUT")return;var i=e.target.id.replace("own","");
+    saved[i]=saved[i]||{};saved[i].o=e.target.value;store("tp.tracks",saved);
+  });
+  root.addEventListener("click",function(e){
+    var b=e.target.closest("button[data-i]");if(!b)return;var i=b.getAttribute("data-i");
+    saved[i]=saved[i]||{};var n=(STATUS.indexOf(saved[i].s||"Planned")+1)%STATUS.length;saved[i].s=STATUS[n];
+    b.textContent=STATUS[n];b.className="chip "+SCLS[STATUS[n]];store("tp.tracks",saved);
+  });
+
+  /* ---------- deadlines (PDT = UTC-7 on these dates) ---------- */
+  var D=[
+    {h:"Career fair",w:"Sat Oct 17, 2:30-4:00 PM PT",t:Date.UTC(2026,9,17,21,30),e:Date.UTC(2026,9,17,23,0),n:"Sponsors recruiting. Go in shifts so the build keeps moving.",c:""},
+    {h:"Devpost draft",w:"Sat Oct 17, 10:00 PM PT team target, 10:30 PM official",t:Date.UTC(2026,9,18,5,0),n:"Evan submits at 10:00. Draft must declare tracks. Title track, sponsored picks, NEXT and Commit boxes ticked.",c:""},
+    {h:"Final submission",w:"Sun Oct 18, 10:00 AM PT",t:Date.UTC(2026,9,18,17,0),n:"Some pages say 10:30 AM. We plan for 10:00. Team target for video uploaded, repo public and final Devpost is 9:30 AM.",c:"crit"},
+    {h:"Judging begins",w:"Sun Oct 18, 10:30 AM PT",t:Date.UTC(2026,9,18,17,30),n:"Everyone at the table. Side-track judges can arrive at any time.",c:""}
+  ];
+  var cw=document.getElementById("clocks");
+  D.forEach(function(d,i){
+    var a=document.createElement("div");a.className="clock "+d.c;a.id="ck"+i;
+    a.innerHTML='<h3>'+esc(d.h)+'</h3><div class="when">'+esc(d.w)+'</div><div class="t" role="timer" aria-live="off"></div><div class="note">'+esc(d.n)+'</div>';
+    cw.appendChild(a);
+  });
+  function p2(n){return n<10?"0"+n:""+n}
+  function tick(){
+    var now=Date.now();
+    D.forEach(function(d,i){
+      var a=document.getElementById("ck"+i),t=a.querySelector(".t"),ms=d.t-now;
+      if(ms<=0&&d.e&&now<d.e){var r=Math.floor((d.e-now)/60000);t.innerHTML='Live<small>now</small>'+Math.floor(r/60)+'<small>h</small>'+p2(r%60)+'<small>m left</small>';a.classList.add("live");return}
+      a.classList.remove("live");
+      if(ms<=0){t.textContent="Passed";a.classList.add("done");a.classList.remove("crit");return}
+      var s=Math.floor(ms/1000),dd=Math.floor(s/86400),hh=Math.floor(s%86400/3600),mm=Math.floor(s%3600/60),ss=s%60;
+      t.innerHTML=(dd?dd+'<small>d</small>':'')+p2(hh)+'<small>h</small>'+p2(mm)+'<small>m</small>'+p2(ss)+'<small>s</small>';
+      if(ms<3*3600*1000&&!d.e)a.classList.add("crit");
+    });
+    document.querySelectorAll("#sched li[data-s]").forEach(function(li){
+      var st=Date.parse(li.dataset.s),en=Date.parse(li.dataset.e);
+      li.classList.toggle("now",now>=st&&now<en);
+    });
+  }
+  tick();setInterval(tick,1000);
+
+  /* ---------- checklist ---------- */
+  var CL=[
+    ["Confirm Perceptron arm slot (interest form was due Sat 10:30 AM) and attend the 12:30 workshop","Sat"],
+    ["Checkpoint 1: a spoken request runs every step on the fake arm and shows on the dashboard","Sat 6:00 PM"],
+    ["Devpost project draft created with title track chosen: Community Kitchen","Sat 10:00 PM"],
+    ["Tracks selected on Devpost: 1 title, 3 sponsored (Perceptron Robotics, Perceptron Perception, Photon), non-sponsored boxes ticked","Sat 10:00 PM"],
+    ["Devpost draft submitted by Evan (team target 10:00 PM, official 10:30 PM)","Sat 10:00 PM"],
+    ["Checkpoint 2: first real handoff by voice","Sat 10:30 PM"],
+    ["Checkpoint 3: all three settings, put-back and the count working","Sun 2:00 AM"],
+    ["Feature freeze: only fixes and recording from here","Sun 6:00 AM"],
+    ["Commit Fellowship: opt-in ticked on Devpost","Sun 9:30 AM"],
+    ["Commit Fellowship: form filled at mlh.link/commit-fellowship-form","Sun 9:30 AM"],
+    ["DubHacks NEXT ticked and the dental-first, per-chair slide ready","Sun 9:30 AM"],
+    ["Photon number answers with the ElevenLabs voice agent and the summary text arrives on the same thread","Sun 6:00 AM"],
+    ["Gemini, MongoDB Atlas and Vultr each visible in the repo and mentioned in the write-up","Sun 9:00 AM"],
+    ["Domain registered with code MLHDH2684 and pointed at the dashboard on Vultr","Sun 9:00 AM"],
+    ["Recorded demo video under 3 minutes uploaded to Devpost (required to be judged)","Sun 9:30 AM"],
+    ["Public GitHub repo linked (keys never committed), README says training and research prototype only","Sun 9:30 AM"],
+    ["Lighting table with success rates (bright, normal, dim) added to the write-up","Sun 9:30 AM"],
+    ["Final Devpost submitted, confirmation page screenshotted","Sun 9:30 AM"],
+    ["Whole team at the table for judging; DEV article queued for after the event","Sun 10:30 AM"]
+  ];
+  var cs=store("tp.cl")||{};
+  var ul=document.getElementById("cl");
+  CL.forEach(function(c,i){
+    var li=document.createElement("li");
+    li.innerHTML='<label><input type="checkbox" data-i="'+i+'"'+(cs[i]?" checked":"")+'><span>'+esc(c[0])+'<span class="due">'+esc(c[1])+'</span></span></label>';
+    ul.appendChild(li);
+  });
+  function prog(){
+    var n=ul.querySelectorAll("input:checked").length;
+    document.getElementById("clCount").textContent=n+" of "+CL.length+" done";
+    document.getElementById("clBar").style.width=(n/CL.length*100)+"%";
+  }
+  ul.addEventListener("change",function(e){
+    if(e.target.type!=="checkbox")return;cs[e.target.getAttribute("data-i")]=e.target.checked;store("tp.cl",cs);prog();
+  });
+  document.getElementById("clReset").addEventListener("click",function(){
+    cs={};store("tp.cl",cs);ul.querySelectorAll("input").forEach(function(x){x.checked=false});prog();
+  });
+  prog();
+})();
+</script>

@@ -1,0 +1,192 @@
+<!DOCTYPE html>
+<!-- FEATURES:
+- Split view: Sam's phone (remote driver) beside the local user's tablet; segmented toggle on small screens
+- Consent flow: "Sam wants to control the arm. Allow?" with Allow 10 min / View only / Deny, revoke any time
+- Tap-to-set waypoints on the live camera (snaps to detected objects), not a joystick, so latency cannot cause a bad move
+- Ghost preview of the planned motion before commit; hold-to-move dead-man button; instant STOP on both devices
+- Live latency meter with sparkline; camera view is shown RTT-delayed on purpose; lag spike pauses motion and warns
+-->
+<!-- SPONSORS: Perceptron Robotics (waypoint-to-trajectory policy), Perceptron Perception (object snap targets), Photon (invite and consent message to local user), Vultr (WebRTC relay / TURN), Tiger Data (latency + session telemetry) -->
+<!-- BACKEND HOOKS: WS /ws events: session.request, session.consent, waypoints.set, motion.preview, motion.hold {active}, motion.stop, latency.ping; POST /api/request {task:"goto", waypoints[]}; GET /api/state; POST /api/stop -->
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Reach Remote</title>
+<meta name="description" content="A family member drives the assistive arm from a phone using safe tap-to-set waypoints, a ghost preview, and a hold-to-move button, with the local user always in control.">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Manrope:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+<style>
+:root{--bg:#0a0a12;--panel:#151522;--panel2:#1d1d2e;--line:rgba(255,255,255,.09);--ink:#f3f3fa;--mut:#9a9ab8;--vio:#7c5cff;--pink:#ff5c8a;--grn:#2ee6a6;--amb:#ffb84d;--red:#ff4d5e}
+*{box-sizing:border-box;-webkit-tap-highlight-color:transparent}
+body{margin:0;background:radial-gradient(1200px 600px at 20% -10%,#26204a 0,transparent 60%),radial-gradient(900px 500px at 100% 110%,#3a1530 0,transparent 55%),var(--bg);color:var(--ink);font:15px/1.4 Manrope,system-ui,sans-serif;min-height:100vh}
+button{font:inherit;font-weight:700;color:var(--ink);background:var(--panel2);border:1px solid var(--line);border-radius:14px;min-height:44px;padding:0 16px;cursor:pointer;touch-action:manipulation}
+button:disabled{opacity:.4}
+.grad{background:linear-gradient(135deg,var(--vio),var(--pink));border:0}
+.top{display:flex;align-items:center;gap:10px;padding:14px 20px;max-width:1100px;margin:auto}
+.top b{font-size:18px;font-weight:800;letter-spacing:-.02em}.top .sp{flex:1}
+.seg{display:none;margin:0 16px 10px;background:var(--panel);border-radius:14px;padding:4px;gap:4px}
+.seg button{flex:1;background:transparent;border:0}.seg button.on{background:var(--panel2);box-shadow:0 0 0 1px var(--line)}
+.stage{display:grid;grid-template-columns:390px 1fr;gap:28px;max-width:1100px;margin:auto;padding:0 20px 28px;align-items:start}
+@media(max-width:900px){.seg{display:flex}.stage{grid-template-columns:1fr;padding:0 12px 24px;max-width:460px}.stage[data-v="phone"] .tablet{display:none}.stage[data-v="tablet"] .phone{display:none}}
+.dev-label{font-size:12px;font-weight:700;color:var(--mut);letter-spacing:.1em;text-transform:uppercase;margin:0 0 8px 6px;display:flex;gap:8px;align-items:center}
+.phone{background:var(--panel);border:1px solid var(--line);border-radius:36px;padding:14px;box-shadow:0 30px 60px rgba(0,0,0,.5),0 0 0 6px #0d0d17}
+.tablet{background:var(--panel);border:1px solid var(--line);border-radius:28px;padding:16px;box-shadow:0 30px 60px rgba(0,0,0,.5),0 0 0 6px #0d0d17;position:relative;overflow:hidden}
+.bar{display:flex;align-items:center;gap:10px;margin-bottom:10px}
+.av{width:34px;height:34px;border-radius:50%;background:linear-gradient(135deg,var(--vio),var(--pink));display:grid;place-items:center;font-weight:800;flex:none}
+.bar small{display:block;color:var(--mut);font-size:12px}
+.chip{font-size:12px;font-weight:700;padding:4px 10px;border-radius:99px;background:var(--panel2);color:var(--mut);white-space:nowrap}
+.chip.g{background:rgba(46,230,166,.15);color:var(--grn)}.chip.a{background:rgba(255,184,77,.15);color:var(--amb)}.chip.r{background:rgba(255,77,94,.15);color:var(--red)}
+.cam{position:relative;border-radius:22px;overflow:hidden;background:#000;touch-action:none}
+canvas{display:block;width:100%;height:auto}
+.hud{position:absolute;left:10px;top:10px;display:flex;gap:6px;pointer-events:none}
+.hud .chip{background:rgba(10,10,18,.65);backdrop-filter:blur(8px);color:#fff}
+.lat{display:flex;align-items:center;gap:10px;margin:10px 2px}
+.lat canvas{width:120px;height:28px;border-radius:6px;background:var(--panel2)}
+.lat b{font-size:20px;font-variant-numeric:tabular-nums;min-width:68px}
+.wps{display:flex;gap:6px;flex-wrap:wrap;min-height:34px;margin:6px 0}
+.wp{display:flex;align-items:center;gap:6px;background:var(--panel2);border-radius:99px;padding:3px 4px 3px 4px;font-size:13px;font-weight:700}
+.wp i{font-style:normal;width:22px;height:22px;border-radius:50%;background:var(--vio);display:grid;place-items:center;font-size:12px}
+.wp u{text-decoration:none;color:var(--mut);width:26px;height:26px;display:grid;place-items:center;cursor:pointer}
+.row{display:flex;gap:8px;margin-top:8px}.row>*{flex:1}
+.hold{min-height:84px;border-radius:22px;font-size:17px;font-weight:800;background:var(--panel2);position:relative;overflow:hidden;user-select:none;-webkit-user-select:none;touch-action:none;margin-top:10px;width:100%}
+.hold.on{background:linear-gradient(135deg,var(--grn),#18b886);color:#04271c;box-shadow:0 0 0 6px rgba(46,230,166,.2)}
+.hold.rdy{background:linear-gradient(135deg,var(--vio),var(--pink));border:0}
+.hold .fill{position:absolute;left:0;bottom:0;height:5px;background:#fff;width:0}
+.stopb{width:100%;min-height:56px;margin-top:10px;border-radius:18px;background:var(--red);border:0;color:#fff;font-size:18px;font-weight:800;letter-spacing:.12em}
+.stopb.latched{outline:3px solid #fff}
+.tip{font-size:12.5px;color:var(--mut);margin:6px 2px}
+.modal{position:absolute;inset:0;background:rgba(5,5,10,.72);backdrop-filter:blur(6px);display:none;place-items:center;padding:20px;z-index:4}
+.modal.show{display:grid;animation:fade .25s}
+@keyframes fade{from{opacity:0}}
+.sheet{background:var(--panel2);border:1px solid var(--line);border-radius:26px;padding:22px;text-align:center;max-width:340px;width:100%}
+.sheet .av{width:64px;height:64px;font-size:26px;margin:0 auto 10px}
+.sheet h3{margin:0 0 4px;font-size:21px;letter-spacing:-.02em}.sheet p{color:var(--mut);margin:0 0 16px}
+.sheet button{width:100%;margin-top:8px;min-height:52px}
+.sess{display:flex;gap:10px;align-items:center;background:var(--panel2);border-radius:18px;padding:12px;margin:10px 0}
+.sess .t{margin-left:auto;font-variant-numeric:tabular-nums;font-weight:800}
+.ev{font-size:13px;color:var(--mut);max-height:112px;overflow:auto;margin-top:10px}.ev div{padding:3px 0;border-bottom:1px solid var(--line)}.ev b{color:var(--ink)}
+.dev{max-width:1100px;margin:0 auto;padding:0 20px 28px;display:flex;gap:8px;flex-wrap:wrap;align-items:center;color:var(--mut);font-size:13px}
+@media(max-width:900px){.dev{max-width:460px;padding:0 12px 24px}}
+.toast{position:absolute;left:12px;right:12px;bottom:12px;background:rgba(255,184,77,.95);color:#2a1a00;font-weight:700;padding:10px 12px;border-radius:14px;display:none;z-index:3;font-size:13px}
+</style>
+</head>
+<body>
+<div class="top"><b>Reach <span style="color:var(--pink)">Remote</span></b><span class="chip" id="mode">Mock link</span><div class="sp"></div><span class="chip g" id="sessChip">Waiting</span></div>
+<div class="seg" id="seg"><button data-v="phone" class="on">Sam's phone</button><button data-v="tablet">Grandma's tablet</button></div>
+<div class="stage" id="stage" data-v="phone">
+  <div>
+    <div class="dev-label">Sam, remote</div>
+    <div class="phone" style="position:relative">
+      <div class="bar"><div class="av">S</div><div><b>Grandma's arm</b><small id="pstat">Not connected</small></div><div style="flex:1"></div><span class="chip" id="pchip">Locked</span></div>
+      <div class="cam" id="camwrap"><canvas id="cam" width="360" height="400"></canvas><div class="hud"><span class="chip">Cam wrist+top</span><span class="chip" id="delaychip">view +60ms</span></div></div>
+      <div class="lat"><b id="latv">60 ms</b><canvas id="lat" width="240" height="56"></canvas><span class="chip g" id="latchip">Good</span></div>
+      <div class="wps" id="wps"></div>
+      <div class="tip" id="tip">Tap the camera to drop waypoints. Tap an object to snap to it.</div>
+      <div class="row"><button id="clear">Clear</button><button id="prev">Preview ghost</button><button id="ask" class="grad">Ask</button></div>
+      <button class="hold" id="hold" disabled>Hold to move<div class="fill" id="fill"></div></button>
+      <button class="stopb" id="stopP" aria-label="Stop">STOP</button>
+      <div class="toast" id="toast"></div>
+    </div>
+  </div>
+  <div class="tablet">
+    <div class="dev-label">Grandma, local (Reach)</div>
+    <div class="bar"><div class="av" style="background:#3a3a55">G</div><div><b>Reach</b><small id="tstat">Arm idle</small></div><div style="flex:1"></div><span class="chip g" id="tchip">Local control</span></div>
+    <div class="cam"><canvas id="cam2" width="360" height="400"></canvas><div class="hud"><span class="chip">Live arm</span></div></div>
+    <div class="sess" id="sess" style="display:none"><div class="av">S</div><div><b>Sam is connected</b><div style="font-size:12px;color:var(--mut)" id="smode">Full control</div></div><span class="t" id="timer">10:00</span><button id="revoke">Revoke</button></div>
+    <button class="stopb" id="stopT" aria-label="Stop">STOP</button>
+    <div class="ev" id="ev"></div>
+    <div class="modal" id="modal"><div class="sheet"><div class="av">S</div><h3>Sam wants to control the arm.</h3><p>Allow? He can place the arm using waypoints you can see. You can stop it at any time.</p><button class="grad" id="allow">Allow for 10 minutes</button><button id="view">View only</button><button id="deny">Deny</button></div></div>
+  </div>
+</div>
+<div class="dev">Demo controls: <button id="spike" style="min-height:44px">Simulate lag spike</button><button id="rerq" style="min-height:44px">Sam asks again</button></div>
+<script>
+const $=id=>document.getElementById(id);
+const W=360,H=400,BASE={x:180,y:470},L1=190,L2=170;
+const OBJ=[{n:'Mug',x:90,y:110,c:'#ffb84d',r:20},{n:'Pill case',x:268,y:140,c:'#7c5cff',r:22},{n:'Remote',x:110,y:250,c:'#4ad0ff',r:20},{n:'Water',x:262,y:265,c:'#2ee6a6',r:18}];
+let arm={x:180,y:330},hist=[],wps=[],previewed=false,session='none',holding=false,wi=0,stopped=false,lat=60,latHist=[],spike=0,ghostT=0,ghostOn=false,left=600;
+function ik(p,col,alpha,w){const dx=p.x-BASE.x,dy=p.y-BASE.y,d=Math.min(Math.hypot(dx,dy),L1+L2-1),an=Math.atan2(dy,dx),k=Math.acos(Math.max(-1,Math.min(1,(L1*L1+d*d-L2*L2)/(2*L1*d)))),ex=BASE.x+L1*Math.cos(an-k),ey=BASE.y+L1*Math.sin(an-k),tx=BASE.x+d*Math.cos(an),ty=BASE.y+d*Math.sin(an);return {ex,ey,tx,ty}}
+function scene(c,pos,o){const x=c.getContext('2d');x.clearRect(0,0,W,H);
+  const g=x.createLinearGradient(0,0,W,H);g.addColorStop(0,'#3b2f2a');g.addColorStop(1,'#241c1a');x.fillStyle=g;x.fillRect(0,0,W,H);
+  x.strokeStyle='rgba(255,255,255,.04)';for(let i=0;i<W;i+=30){x.beginPath();x.moveTo(i,0);x.lineTo(i,H);x.stroke()}
+  OBJ.forEach(b=>{x.fillStyle=b.c;x.beginPath();x.arc(b.x,b.y,b.r,0,7);x.fill();x.fillStyle='rgba(0,0,0,.25)';x.beginPath();x.arc(b.x+4,b.y+5,b.r*.7,0,7);x.fill();
+    x.fillStyle='#fff';x.font='700 11px Manrope';x.textAlign='center';x.fillText(b.n,b.x,b.y+b.r+14);if(o.boxes){x.strokeStyle='rgba(255,255,255,.55)';x.lineWidth=1.5;x.setLineDash([4,3]);x.strokeRect(b.x-b.r-4,b.y-b.r-4,b.r*2+8,b.r*2+8);x.setLineDash([])}});
+  // path
+  if(wps.length){x.strokeStyle='rgba(124,92,255,.9)';x.lineWidth=3;x.setLineDash([8,6]);x.beginPath();x.moveTo(arm.x,arm.y);wps.slice(wi).forEach(p=>x.lineTo(p.x,p.y));x.stroke();x.setLineDash([]);
+    wps.forEach((p,i)=>{x.fillStyle=i<wi?'#2ee6a6':'#7c5cff';x.beginPath();x.arc(p.x,p.y,13,0,7);x.fill();x.strokeStyle='#fff';x.lineWidth=2;x.stroke();x.fillStyle=i<wi?'#04271c':'#fff';x.font='800 13px Manrope';x.textAlign='center';x.fillText(i+1,p.x,p.y+5)})}
+  // ghost
+  if(o.ghost&&ghostOn&&wps.length){const gp=ghostPos();const j=ik(gp);x.globalAlpha=.55;x.strokeStyle='#ff5c8a';x.lineCap='round';x.lineWidth=14;x.beginPath();x.moveTo(BASE.x,BASE.y);x.lineTo(j.ex,j.ey);x.lineTo(j.tx,j.ty);x.stroke();x.fillStyle='#ff5c8a';x.beginPath();x.arc(j.tx,j.ty,11,0,7);x.fill();x.globalAlpha=1}
+  // arm
+  const j=ik(pos);x.lineCap='round';x.strokeStyle='#e8e8f4';x.lineWidth=18;x.beginPath();x.moveTo(BASE.x,BASE.y);x.lineTo(j.ex,j.ey);x.stroke();x.strokeStyle='#a9a9c8';x.lineWidth=13;x.beginPath();x.moveTo(j.ex,j.ey);x.lineTo(j.tx,j.ty);x.stroke();
+  x.fillStyle='#1d1d2e';x.beginPath();x.arc(j.ex,j.ey,9,0,7);x.fill();x.fillStyle=holding?'#2ee6a6':'#fff';x.beginPath();x.arc(j.tx,j.ty,10,0,7);x.fill();
+  if(o.stale){x.fillStyle='rgba(255,255,255,.7)';x.font='600 10px ui-monospace,Menlo';x.textAlign='left';x.fillText('REC  '+Math.round(lat)+'ms behind',10,H-10)}
+}
+function ghostPos(){const pts=[{x:arm.x,y:arm.y},...wps.slice(wi)];if(pts.length<2)return pts[0];let tot=0,seg=[];for(let i=1;i<pts.length;i++){const d=Math.hypot(pts[i].x-pts[i-1].x,pts[i].y-pts[i-1].y);seg.push(d);tot+=d}
+  let t=ghostT*tot;for(let i=0;i<seg.length;i++){if(t<=seg[i]){const k=t/seg[i];return {x:pts[i].x+(pts[i+1].x-pts[i].x)*k,y:pts[i].y+(pts[i+1].y-pts[i].y)*k}}t-=seg[i]}return pts[pts.length-1]}
+// events
+function ev(t){const d=document.createElement('div');d.innerHTML='<b>'+new Date().toLocaleTimeString([], {minute:'2-digit',second:'2-digit'})+'</b> '+t;$('ev').prepend(d)}
+function toast(t){const e=$('toast');e.textContent=t;e.style.display='block';clearTimeout(toast.t);toast.t=setTimeout(()=>e.style.display='none',2600)}
+$('seg').onclick=e=>{const b=e.target.closest('button');if(!b)return;[...$('seg').children].forEach(c=>c.classList.toggle('on',c===b));$('stage').dataset.v=b.dataset.v};
+function ui(){const ok=session==='full'&&!stopped;$('hold').disabled=!ok||!wps.length||lat>300;
+  $('hold').className='hold'+(holding?' on':previewed&&ok?' rdy':'');
+  $('hold').firstChild.textContent=holding?'Moving... keep holding':(!ok?'Hold to move (locked)':!wps.length?'Add waypoints first':!previewed?'Preview first, then hold':lat>300?'Link too slow':'Hold to move');
+  $('pstat').textContent={none:'Not connected',pending:'Waiting for Grandma...',full:stopped?'Stopped':'Connected, you are driving',view:'View only',denied:'Request declined'}[session];
+  $('pchip').textContent={none:'Locked',pending:'Pending',full:'Driving',view:'View only',denied:'Declined'}[session];
+  $('pchip').className='chip '+({full:'g',pending:'a',denied:'r',view:'a'}[session]||'');
+  $('sess').style.display=(session==='full'||session==='view')?'flex':'none';$('smode').textContent=session==='view'?'View only':'Full control';
+  $('sessChip').textContent=session==='full'?'Session live':session==='pending'?'Consent pending':'Waiting';
+  $('tstat').textContent=stopped?'STOPPED':holding?'Arm moving for Sam':'Arm idle';$('tchip').textContent=session==='full'?'Shared control':'Local control';$('tchip').className='chip '+(session==='full'?'a':'g');
+  $('ask').style.display=session==='none'||session==='denied'?'':'none';
+  $('wps').innerHTML=wps.map((p,i)=>`<div class="wp"><i>${i+1}</i>${p.n||'Point'}<u data-i="${i}" role="button" aria-label="Remove">&#10005;</u></div>`).join('')}
+$('wps').onclick=e=>{const u=e.target.closest('u');if(!u)return;wps.splice(+u.dataset.i,1);wi=0;previewed=false;ghostOn=false;ui()};
+function showV(v){if(getComputedStyle($('seg')).display!=='none')$('seg').querySelector('[data-v="'+v+'"]').click()}
+function request(){showV('tablet');session='pending';$('modal').classList.add('show');ev('<b>Sam</b> requested control');ui()}
+$('ask').onclick=request;$('rerq').onclick=()=>{if(session==='full'||session==='pending')return;request()};
+$('allow').onclick=()=>{showV('phone');session='full';left=600;$('modal').classList.remove('show');ev('Grandma allowed full control for 10 min');toast('Grandma allowed control');ui()};
+$('view').onclick=()=>{showV('phone');session='view';$('modal').classList.remove('show');ev('Grandma allowed view only');ui()};
+$('deny').onclick=()=>{showV('phone');session='denied';$('modal').classList.remove('show');ev('Grandma declined');toast('Request declined');ui()};
+$('revoke').onclick=()=>{session='none';holding=false;ev('Grandma <b>revoked</b> control');wps=[];wi=0;ui()};
+// camera tap
+$('cam').addEventListener('pointerdown',e=>{if(session!=='full'||stopped)return;if(wps.length>=5){toast('Max 5 waypoints');return}
+  const r=$('cam').getBoundingClientRect(),x=(e.clientX-r.left)*W/r.width,y=(e.clientY-r.top)*H/r.height;let p={x,y};
+  const o=OBJ.find(b=>Math.hypot(b.x-x,b.y-y)<b.r+14);if(o)p={x:o.x,y:o.y,n:o.n};
+  if(Math.hypot(p.x-BASE.x,p.y-BASE.y)>L1+L2-5){toast('Out of reach');return}
+  wps.push(p);previewed=false;ghostOn=false;ev('Waypoint '+wps.length+(o?' snapped to '+o.n:''));ui()});
+$('clear').onclick=()=>{wps=[];wi=0;previewed=false;ghostOn=false;ui()};
+$('prev').onclick=()=>{if(!wps.length){toast('Add a waypoint first');return}ghostOn=true;ghostT=0;previewed=false;$('tip').textContent='Pink ghost shows the exact motion. Nothing moves yet.';ev('Ghost preview started')};
+// hold
+let holdStart=0;
+function hold(on){if(on){if($('hold').disabled)return;holding=true;holdStart=performance.now();ev('Hold engaged')}else if(holding){holding=false;ev('Released, arm halted')}ui()}
+$('hold').addEventListener('pointerdown',e=>{e.preventDefault();$('hold').setPointerCapture(e.pointerId);hold(true)});
+['pointerup','pointercancel','lostpointercapture'].forEach(t=>$('hold').addEventListener(t,()=>hold(false)));
+addEventListener('keydown',e=>{if(e.code==='Space'&&!e.repeat){e.preventDefault();hold(true)}if(e.code==='Escape')doStop()});addEventListener('keyup',e=>{if(e.code==='Space')hold(false)});
+function doStop(){if(stopped){stopped=false;['stopP','stopT'].forEach(i=>{$(i).classList.remove('latched');$(i).textContent='STOP'});ev('Stop cleared by local user');ui();return}
+  stopped=true;holding=false;['stopP','stopT'].forEach(i=>{$(i).classList.add('latched');$(i).textContent='RESET'});ev('<b style="color:#ff4d5e">STOP</b> latched');toast('Stopped. Grandma must reset.');ui()}
+$('stopP').onclick=doStop;$('stopT').onclick=doStop;
+$('spike').onclick=()=>{spike=3;ev('Network spike injected')};
+// loop
+let last=performance.now(),pingT=0,shown=false;
+function frame(now){const dt=Math.min(.05,(now-last)/1000);last=now;
+  // latency sim
+  pingT+=dt;if(pingT>.2){pingT=0;if(spike>0){lat=lat+(480-lat)*.5;}else lat=Math.max(35,Math.min(180,lat+(Math.random()-.5)*24+(70-lat)*.08));latHist.push(lat);if(latHist.length>60)latHist.shift();
+    $('latv').textContent=Math.round(lat)+' ms';const lc=lat<120?['Good','g']:lat<300?['Fair','a']:['Too slow','r'];$('latchip').textContent=lc[0];$('latchip').className='chip '+lc[1];$('delaychip').textContent='view +'+Math.round(lat)+'ms';ui2()}
+  if(spike>0)spike-=dt;
+  if(holding&&lat>300){holding=false;toast('Link degraded: motion paused');ev('Auto-pause: latency over 300 ms');ui()}
+  // move
+  if(holding&&!stopped&&wi<wps.length){const t=wps[wi],dx=t.x-arm.x,dy=t.y-arm.y,d=Math.hypot(dx,dy),sp=95*dt;if(d<=sp){arm.x=t.x;arm.y=t.y;wi++;ev('Reached waypoint '+wi+(t.n?' ('+t.n+')':''));if(wi>=wps.length){holding=false;toast('Arrived. Path complete.');ev('Path complete, camera verified');setTimeout(()=>{wps=[];wi=0;previewed=false;ui()},900)}ui()}else{arm.x+=dx/d*sp;arm.y+=dy/d*sp}}
+  hist.push({t:now,x:arm.x,y:arm.y});while(hist.length&&hist[0].t<now-1500)hist.shift();
+  if(ghostOn){ghostT+=dt/3;if(ghostT>=1){ghostT=0;if(!previewed){previewed=true;$('tip').textContent='Preview looks right? Press and hold Move to commit.';ui()}}}
+  // delayed view for phone
+  let dv=hist[0]||arm;for(const h of hist){if(h.t<=now-lat)dv=h;else break}
+  scene($('cam'),dv,{ghost:true,boxes:true,stale:true});scene($('cam2'),arm,{boxes:false});
+  // fill ring for hold
+  $('fill').style.width=holding?Math.min(100,(now-holdStart)/20)+'%':'0';
+  requestAnimationFrame(frame)}
+function ui2(){const c=$('lat').getContext('2d');c.clearRect(0,0,240,56);c.strokeStyle=lat<120?'#2ee6a6':lat<300?'#ffb84d':'#ff4d5e';c.lineWidth=2.5;c.beginPath();latHist.forEach((v,i)=>{const x=i*4,y=54-Math.min(1,v/500)*50;i?c.lineTo(x,y):c.moveTo(x,y)});c.stroke();
+  if(session==='full'){left-=.2;const m=Math.max(0,Math.floor(left/60)),s=Math.max(0,Math.floor(left%60));$('timer').textContent=m+':'+String(s).padStart(2,'0')}}
+requestAnimationFrame(frame);ui();
+ev('Link established (mock). Waiting for Sam.');
+setTimeout(()=>{if(session==='none')request()},1500);
+</script>
+</body>
+</html>
