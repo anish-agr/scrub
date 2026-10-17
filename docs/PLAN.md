@@ -98,4 +98,11 @@ Short version for a rushed judge: 0:30, 1:05, 2:30. The judge asking for an inst
 
 ## Arm slot schedule
 
-Fill in after the workshop: our slot times, where the arm is, whether overnight time exists, whether the arm comes to judging.
+- **We have the arm overnight** (Saturday night into Sunday morning). Fill in when it arrives and where it lives.
+- Because of that, recording and both training runs fit overnight:
+    1. As soon as we have the arm: setup, calibration, operating room set (75), then run 1 (about 1 hour including export).
+    2. While run 1 trains: dental and bench sets go into the same dataset with `--resume`.
+    3. Test run 1 on the operating room items and add 10 more demos for any weak item.
+    4. Run 2 on everything by about 2 AM. It finishes around 3 AM, leaving 3 to 6 AM for tests and the success tables.
+- We only get 2 successful training runs (see `docs/PERCEPTRON-ROBOTICS.md`), so check each dataset before training on it.
+- Still unknown: whether the arm comes to judging.
