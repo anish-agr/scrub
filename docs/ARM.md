@@ -7,7 +7,7 @@ Owner: Anish. The workshop is the source of truth. Where it differs from below, 
 | Question | Answer |
 | --- | --- |
 | How long is each arm slot? When are ours? | |
-| Overnight arm time? | yes, we have it overnight |
+| Overnight arm time? | we have the arm the whole competition |
 | Where does the arm live? Can we bring our tray, lamp and towel? | |
 | Cameras on the arm setup (wrist, front, overhead)? Can we add a USB webcam? | |
 | Does the gripper report load (for release on pull)? | |
