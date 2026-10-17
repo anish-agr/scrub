@@ -40,13 +40,18 @@ Agents: the first unchecked box in your person's section is the next task. Tick 
 
 ## Brandon
 
-- [ ] B1 camera with locked exposure
-- [ ] B2 hand tracker posting Hand
-- [ ] B3 MJPEG stream
-- [ ] B4 tray perception posting TrayState
+- [x] B1 camera with locked exposure
+  - Locked exposure and white balance, default exposure -6 (`CAMERA_EXPOSURE` to override). `python -m vision` (add `--fake` with no camera). Preview at http://localhost:8001/. Checked on the Acer FHD camera: a fixed exposure stays put. With the overhead camera, a lamp should brighten the picture and leave it there.
+- [x] B2 hand tracker posting Hand
+  - MediaPipe hand landmarker posts a Hand about 10 times a second to `CONTROLLER_URL/vision/hand`. Open palm means all five fingertips are farther from the wrist than their middle joints. `target` stays null until `vision/calibration.json` exists. `python -m vision.test_vision`
+- [x] B3 MJPEG stream
+  - http://localhost:8001/stream draws slot boxes and the palm dot. The dashboard image is `<img src="http://localhost:8001/stream">`.
+- [x] B4 tray perception posting TrayState
+  - Perceptron `/v1/detect` about once a second, mapped onto slot boxes, posted to `/vision/tray`. A failed call keeps the last state and sets `stale: true`. The controller's `GET /setting` supplies aliases and boxes. Shapes are in `docs/PERCEPTRON.md`. Live calls need `PERCEPTRON_API_KEY` in `.env`. `python -m vision.test_vision`
 - [ ] B5 slot boxes marked for all three trays
 - [ ] B6 camera-to-arm calibration
-- [ ] B7 `path_clear` and saved hand height
+- [x] B7 `path_clear` and saved hand height
+  - `path_clear` is false when a second hand or a robot-arm box crosses the gripper-to-target segment. Hand height is saved per clinician with `POST /clinician`. `python -m vision.test_vision`. On the real camera, wave a hand through the path and the preview should say "path blocked".
 - [ ] B8 lighting tests
 
 ## Evan
