@@ -19,8 +19,10 @@ class FakeArm:
         self._gripper = 0.0
         self._holding_since: float | None = None
         self._no_pull = False
+        self._no_load = False
         self.pose = "home"
-        # Forced failures, each consumed once: {"miss_grasp": 1, "out_of_region": 1, "skill_fail": 1, "no_pull": 1}
+        # Forced failures, each consumed once:
+        # {"miss_grasp": 1, "out_of_region": 1, "skill_fail": 1, "no_pull": 1, "no_load": 1}
         self.force: dict[str, int] = {}
 
     def _take(self, name: str) -> bool:
@@ -31,8 +33,7 @@ class FakeArm:
             return False
 
     def _sleep(self, s: float) -> bool:
-        """Sleep s seconds; False if freeze() was called meanwhile."""
-        self._frozen.clear()
+        """Sleep s seconds; False if frozen. Like arm/real_arm.py, a freeze lasts until resume()."""
         return not self._frozen.wait(s * self.scale)
 
     def connect(self) -> None:
@@ -48,6 +49,7 @@ class FakeArm:
             self._gripper = 1.0 if self._take("miss_grasp") else 0.6
             self._holding_since = time.time() if self._gripper < 0.95 else None
             self._no_pull = self._take("no_pull")
+            self._no_load = self._take("no_load")
         else:
             self._gripper = 0.0
             self._holding_since = None
@@ -55,11 +57,13 @@ class FakeArm:
         return True
 
     def go_home(self) -> None:
-        self._sleep(1.0)
+        if not self._sleep(1.0):
+            raise RuntimeError("Home motion stopped")
         self.pose = "home"
 
     def go_carry(self) -> None:
-        self._sleep(1.0)
+        if not self._sleep(1.0):
+            raise RuntimeError("Carry motion stopped")
         self.pose = "carry"
 
     def move_to(self, x: float, y: float, z: float, speed: float = 0.3) -> bool:
@@ -81,7 +85,8 @@ class FakeArm:
         return True
 
     def open_gripper(self) -> None:
-        self._sleep(0.3)
+        if not self._sleep(0.3):
+            raise RuntimeError("Gripper release stopped")
         self._gripper = 0.0
         self._holding_since = None
 
@@ -89,6 +94,8 @@ class FakeArm:
         return self._gripper
 
     def gripper_load(self) -> float:
+        if self._no_load:
+            raise RuntimeError("Gripper load unavailable; use explicit got_it release")
         held = self._holding_since
         if held is None or self.auto_pull_s is None:
             return LOAD_IDLE
@@ -98,6 +105,10 @@ class FakeArm:
 
     def freeze(self) -> None:
         self._frozen.set()
+
+    def resume(self) -> None:
+        """Operator rearm after a freeze (the controller calls it only on reset)."""
+        self._frozen.clear()
 
     def disconnect(self) -> None:
         pass
