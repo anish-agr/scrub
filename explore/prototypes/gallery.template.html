@@ -1,0 +1,148 @@
+<title>SO-101 Prototype Bench</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Familjen+Grotesk:wght@500;700&family=IBM+Plex+Sans:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500&display=swap" rel="stylesheet">
+<style>
+/* Layout: workbench. Left rail = parts bin of prototypes grouped by job; right = live preview on a bench mat. */
+:root{
+  --bg:#f3f2ee; --panel:#fbfaf7; --ink:#1d1f1c; --dim:#62665e; --line:#dcdad2;
+  --accent:#e2531b; --accent-ink:#ffffff; --pick:#2d6a4f; --chip:#ebe9e2;
+  --display:"Familjen Grotesk","Helvetica Neue",Arial,sans-serif;
+  --body:"IBM Plex Sans",system-ui,-apple-system,"Segoe UI",sans-serif;
+  --mono:"IBM Plex Mono",ui-monospace,Menlo,monospace;
+}
+@media (prefers-color-scheme:dark){:root:not([data-theme="light"]){
+  --bg:#151714; --panel:#1c1f1b; --ink:#ecebe5; --dim:#a2a69c; --line:#30342e;
+  --accent:#ff6a2e; --accent-ink:#1a0d06; --pick:#74c69d; --chip:#262a25; color-scheme:dark}}
+:root[data-theme="dark"]{
+  --bg:#151714; --panel:#1c1f1b; --ink:#ecebe5; --dim:#a2a69c; --line:#30342e;
+  --accent:#ff6a2e; --accent-ink:#1a0d06; --pick:#74c69d; --chip:#262a25; color-scheme:dark}
+*{box-sizing:border-box}
+html,body{height:100%}
+body{background:var(--bg);color:var(--ink);font:14px/1.5 var(--body);padding-inline:16px;padding-block:0}
+.app{display:grid;grid-template-columns:340px minmax(0,1fr);gap:16px;height:100%;padding-block:16px}
+header.brand{display:flex;flex-direction:column;gap:4px;padding:4px 2px 12px;border-bottom:1px solid var(--line)}
+h1{font:700 26px/1.1 var(--display);margin:0;letter-spacing:-.01em;text-wrap:balance}
+.sub{color:var(--dim);margin:0;font-size:13px}
+.stats{display:flex;gap:14px;font:500 12px var(--mono);color:var(--dim);margin-top:6px}
+.stats b{color:var(--ink);font-weight:500}
+aside{display:flex;flex-direction:column;min-height:0}
+.filters{display:flex;flex-wrap:wrap;gap:6px;padding:12px 0}
+.chipbtn{font:500 12px var(--mono);border:1px solid var(--line);background:var(--chip);color:var(--ink);border-radius:999px;padding:6px 10px;cursor:pointer;min-height:32px}
+.chipbtn[aria-pressed="true"]{background:var(--ink);color:var(--bg);border-color:var(--ink)}
+.chipbtn:focus-visible,.item:focus-visible,.btn:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
+.list{overflow:auto;min-height:0;display:flex;flex-direction:column;gap:18px;padding-bottom:16px}
+.group h2{font:500 11px var(--mono);text-transform:uppercase;letter-spacing:.08em;color:var(--dim);margin:0 0 6px}
+.group ul{list-style:none;margin:0;padding:0;display:flex;flex-direction:column;gap:2px}
+.item{display:grid;grid-template-columns:30px minmax(0,1fr);gap:8px;align-items:start;width:100%;text-align:left;background:none;border:0;border-radius:8px;padding:8px;color:inherit;cursor:pointer;font:inherit}
+.item:hover{background:var(--chip)}
+.item[aria-current="true"]{background:var(--panel);box-shadow:inset 0 0 0 1px var(--line)}
+.num{font:500 12px var(--mono);color:var(--dim);padding-top:2px;font-variant-numeric:tabular-nums}
+.item[aria-current="true"] .num{color:var(--accent)}
+.iname{font-weight:600;display:flex;gap:6px;align-items:center;flex-wrap:wrap}
+.idesc{color:var(--dim);font-size:12.5px;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden}
+.pick{font:500 10px var(--mono);text-transform:uppercase;letter-spacing:.06em;color:var(--pick);border:1px solid currentColor;border-radius:4px;padding:0 4px}
+main{display:grid;grid-template-rows:auto minmax(0,1fr) auto;gap:12px;min-height:0;min-width:0}
+.bar{display:flex;align-items:center;gap:12px;flex-wrap:wrap}
+.bar h3{font:700 22px/1.15 var(--display);margin:0;flex:1 1 260px;min-width:0;text-wrap:balance}
+.bar h3 small{display:block;font:400 13px var(--body);color:var(--dim);margin-top:2px}
+.seg{display:flex;border:1px solid var(--line);border-radius:8px;overflow:hidden}
+.seg button{border:0;background:var(--panel);color:var(--ink);font:500 12px var(--mono);padding:8px 12px;cursor:pointer;min-height:36px}
+.seg button[aria-pressed="true"]{background:var(--ink);color:var(--bg)}
+.btn{display:inline-flex;align-items:center;gap:6px;border-radius:8px;padding:8px 14px;min-height:36px;font:600 13px var(--body);text-decoration:none;background:var(--accent);color:var(--accent-ink);border:0;cursor:pointer}
+.stage{background:var(--panel);border:1px solid var(--line);border-radius:12px;overflow:hidden;display:flex;justify-content:center;align-items:stretch;min-height:0}
+.stage iframe{border:0;width:100%;height:100%;background:#fff;display:block}
+.stage.phone{padding:16px;background:repeating-linear-gradient(45deg,var(--panel),var(--panel) 10px,var(--chip) 10px,var(--chip) 20px)}
+.stage.phone iframe{width:390px;max-width:100%;border-radius:22px;box-shadow:0 0 0 8px var(--ink)}
+.meta{display:grid;grid-template-columns:minmax(0,1.6fr) minmax(0,1fr);gap:16px;max-height:30vh;overflow:auto;background:var(--panel);border:1px solid var(--line);border-radius:12px;padding:14px 16px}
+.meta h4{font:500 11px var(--mono);text-transform:uppercase;letter-spacing:.08em;color:var(--dim);margin:0 0 6px}
+.meta ul{margin:0;padding-left:18px;display:flex;flex-direction:column;gap:3px}
+.tags{display:flex;flex-wrap:wrap;gap:6px;margin-bottom:12px}
+.tag{font:500 11.5px var(--mono);background:var(--chip);border-radius:4px;padding:2px 7px}
+.hooks{font:12px/1.5 var(--mono);color:var(--dim);word-break:break-word}
+.empty{color:var(--dim)}
+@media (max-width:900px){
+  .app{grid-template-columns:1fr;height:auto}
+  .list{max-height:42vh}
+  main{grid-template-rows:auto 70vh auto}
+  .meta{grid-template-columns:1fr;max-height:none}
+}
+@media (prefers-reduced-motion:reduce){*{transition:none!important}}
+</style>
+
+<div class="app">
+  <aside>
+    <header class="brand">
+      <h1>SO-101 Prototype Bench</h1>
+      <p class="sub">DubHacks 2026 software concepts for the arm. Every page runs on a mock arm, no server needed.</p>
+      <div class="stats" id="stats"></div>
+    </header>
+    <div class="filters" id="filters" role="group" aria-label="Filter by sponsor track"></div>
+    <nav class="list" id="list" aria-label="Prototypes"></nav>
+  </aside>
+  <main>
+    <div class="bar">
+      <h3 id="ptitle">Select a prototype<small id="pdesc"></small></h3>
+      <div class="seg" role="group" aria-label="Preview width">
+        <button type="button" id="vDesk" aria-pressed="true">Desktop</button>
+        <button type="button" id="vPhone" aria-pressed="false">Phone</button>
+      </div>
+      <a class="btn" id="open" href="#" target="_blank" rel="noopener">Open full page</a>
+    </div>
+    <div class="stage" id="stage"><iframe id="frame" title="Prototype preview" loading="lazy"></iframe></div>
+    <section class="meta" aria-label="Prototype details">
+      <div><h4>Features</h4><ul id="feat"></ul></div>
+      <div><h4>Sponsor tracks</h4><div class="tags" id="spons"></div><h4>Backend hooks</h4><div class="hooks" id="hooks"></div></div>
+    </section>
+  </main>
+</div>
+
+<script>
+const DATA = /*DATA*/[];
+const GROUPS = [
+  ["Surgeon assistant", ["24","25","26","27","28","29","30","31","32","33","34","35"]],
+  ["Make the robot observable", ["01","02","11","12"]],
+  ["Robot learning tools", ["03","04","22","23"]],
+  ["People it serves", ["07","05","06","18","20","21"]],
+  ["Kitchen tasks", ["08","09","10","13","14","19"]],
+  ["Community and memory", ["15","16"]],
+  ["Demo day", ["17"]]
+];
+const PICKS = new Set(["24","25","30","34","31","35","01","11"]);
+const TRACKS = ["Perceptron","Photon","Gemini","Tiger","Backboard","Mongo","Solana","Vultr"];
+const $ = id => document.getElementById(id);
+const byId = Object.fromEntries(DATA.map(d => [d.id, d]));
+let filter = null, cur = null;
+function esc(s){return String(s).replace(/[&<>"]/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c]))}
+function matches(d){return !filter || d.sponsors.toLowerCase().includes(filter.toLowerCase())}
+function renderFilters(){
+  $("filters").innerHTML = ["All",...TRACKS].map(t=>{
+    const on = (t==="All"&&!filter)||t===filter;
+    return `<button type="button" class="chipbtn" data-t="${t}" aria-pressed="${on}">${t}</button>`}).join("");
+}
+function renderList(){
+  $("list").innerHTML = GROUPS.map(([g,ids])=>{
+    const items = ids.map(i=>byId[i]).filter(Boolean).filter(matches);
+    if(!items.length) return "";
+    return `<section class="group"><h2>${g}</h2><ul>${items.map(d=>`<li><button type="button" class="item" data-id="${d.id}" aria-current="${d.id===cur}"><span class="num">${d.id}</span><span><span class="iname">${esc(d.title)}${PICKS.has(d.id)?'<span class="pick">core pick</span>':''}</span><span class="idesc">${esc(d.desc)}</span></span></button></li>`).join("")}</ul></section>`;
+  }).join("") || '<p class="empty">No prototype uses this track yet.</p>';
+}
+function show(id){
+  const d = byId[id]; if(!d) return; cur = id;
+  $("ptitle").firstChild.nodeValue = d.title; $("pdesc").textContent = d.desc;
+  $("frame").src = d.file; $("open").href = d.file;
+  $("feat").innerHTML = d.features.map(f=>`<li>${esc(f)}</li>`).join("") || '<li class="empty">Not listed</li>';
+  $("spons").innerHTML = d.sponsors.split(/[,;]\s*(?![^()]*\))/).filter(Boolean).map(s=>`<span class="tag">${esc(s.replace(/\s*\(.*\)/,"").trim())}</span>`).join("");
+  $("hooks").textContent = d.hooks || "Not listed";
+  renderList();
+  try{localStorage.setItem("bench-cur",id)}catch(e){}
+  if(location.hash.slice(1)!==id) history.replaceState(null,"","#"+id);
+}
+$("filters").addEventListener("click",e=>{const b=e.target.closest("button");if(!b)return;filter=b.dataset.t==="All"?null:b.dataset.t;renderFilters();renderList()});
+$("list").addEventListener("click",e=>{const b=e.target.closest(".item");if(b)show(b.dataset.id)});
+function setView(phone){$("stage").classList.toggle("phone",phone);$("vPhone").setAttribute("aria-pressed",phone);$("vDesk").setAttribute("aria-pressed",!phone)}
+$("vDesk").onclick=()=>setView(false); $("vPhone").onclick=()=>setView(true);
+$("stats").innerHTML = `<span><b>${DATA.length}</b> prototypes</span><span><b>${PICKS.size}</b> core picks</span><span><b>0</b> servers needed</span>`;
+renderFilters();
+let start = location.hash.slice(1); try{ if(!byId[start]) start = localStorage.getItem("bench-cur") }catch(e){}
+show(byId[start] ? start : (byId["24"] ? "24" : "01"));
+</script>

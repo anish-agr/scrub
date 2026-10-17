@@ -1,0 +1,368 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>The Arm Remembers</title>
+<meta name="description" content="A household memory graph for an assistive robot arm: ask where things were last seen and get cited answers with snapshot frames, plus privacy controls.">
+<!-- FEATURES:
+ - Force-directed SVG knowledge graph (objects, places, people, preferences, events) with drag, hover, filter, select
+ - Chat panel: "where did you last see my glasses?" answered with cited memory, snapshot frame, timestamp
+ - Episodic timeline with generated thumbnails, click to focus the graph node
+ - Privacy: forget this memory, never record in a room (bedroom), pause recording, memory counts update live
+ - Live "learning" feed: new triples appear on the graph as the arm observes
+ - Latched STOP and "fetch this" action that routes through the Reach request contract (mock)
+-->
+<!-- SPONSORS: Backboard (persistent memory / RAG), Perceptron Perception (object localization, captioning, video events), Gemini API (answer synthesis), Perceptron Robotics (fetch), Tiger Data (episodic event timeline), MongoDB Atlas (graph store alt) -->
+<!-- BACKEND HOOKS: POST /api/memory/query {q} -> {answer, citations[]}; POST /api/memory/forget {id}; POST /api/memory/policy {room, record}; GET /api/state; POST /api/request (fetch item); POST /api/stop; WS /ws (observation events become triples via Backboard add_memory) -->
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Fraunces:ital,opsz,wght@0,9..144,300;0,9..144,500;1,9..144,300&family=Inter:wght@400;500;600&display=swap" rel="stylesheet">
+<style>
+:root{--bg1:#1c1640;--bg2:#3b2a6b;--bg3:#e58fb5;--glass:rgba(255,255,255,.09);--glass2:rgba(255,255,255,.16);--tx:#f6f1ff;--mut:#c4b8e6;--acc:#ffd6a5;--mint:#9ff0d4;--rose:#ff9fc0;--sky:#9ec9ff;--lav:#c8b3ff;--gold:#ffd98a}
+*{box-sizing:border-box;margin:0}
+body{min-height:100vh;color:var(--tx);font:15px/1.45 Inter,sans-serif;background:radial-gradient(1200px 700px at 15% 0%,#5b3ea6 0%,transparent 60%),radial-gradient(900px 700px at 100% 100%,#c9689a 0%,transparent 55%),linear-gradient(160deg,var(--bg1),var(--bg2));background-attachment:fixed;overflow-x:hidden}
+.orb{position:fixed;border-radius:50%;filter:blur(70px);opacity:.35;pointer-events:none;animation:float 18s ease-in-out infinite}
+.orb.a{width:340px;height:340px;background:#8fb8ff;top:10%;left:60%}
+.orb.b{width:300px;height:300px;background:#ff9fc0;bottom:5%;left:5%;animation-delay:-8s}
+@keyframes float{50%{transform:translate(-40px,30px)}}
+h1,h2,.serif{font-family:Fraunces,serif;font-weight:300}
+header{padding:22px 28px 6px;display:flex;justify-content:space-between;gap:12px;align-items:flex-end;flex-wrap:wrap}
+header h1{font-size:clamp(30px,5vw,52px);line-height:1;letter-spacing:-.02em}
+header h1 em{color:var(--acc);font-style:italic}
+header p{color:var(--mut);max-width:440px;font-size:14px;margin-top:6px}
+.stats{display:flex;gap:10px;flex-wrap:wrap}
+.chip{background:var(--glass);border:1px solid var(--glass2);border-radius:999px;padding:8px 14px;font-size:13px;backdrop-filter:blur(10px);display:inline-flex;gap:8px;align-items:center;min-height:44px;color:var(--tx)}
+.chip b{font-family:Fraunces;font-weight:500;font-size:18px}
+.rec{width:9px;height:9px;border-radius:50%;background:var(--mint);box-shadow:0 0 12px var(--mint);animation:br 2.4s infinite}
+.rec.off{background:#888;box-shadow:none;animation:none}
+@keyframes br{50%{opacity:.35}}
+main{display:grid;grid-template-columns:minmax(0,1.6fr) minmax(320px,1fr);gap:16px;padding:14px 28px 28px;max-width:1500px;margin:0 auto}
+.panel{background:var(--glass);border:1px solid var(--glass2);border-radius:24px;backdrop-filter:blur(18px);box-shadow:0 20px 60px rgba(10,5,40,.35);padding:16px;min-width:0;position:relative}
+.panel h2{font-size:20px;margin-bottom:10px;display:flex;justify-content:space-between;align-items:center;gap:8px}
+.graphwrap{grid-row:span 2}
+#graph{width:100%;height:520px;display:block;border-radius:16px;background:radial-gradient(circle at 50% 50%,rgba(255,255,255,.07),transparent 70%);cursor:grab;touch-action:none}
+.filters{display:flex;gap:6px;flex-wrap:wrap;margin-bottom:8px}
+.filters button,.btn{font:500 13px Inter;color:var(--tx);background:var(--glass);border:1px solid var(--glass2);border-radius:999px;padding:0 14px;min-height:44px;cursor:pointer;transition:.2s}
+.filters button.on{background:var(--tx);color:#2a1d59}
+.filters button:hover,.btn:hover{background:var(--glass2)}
+.filters button.on:hover{background:var(--tx)}
+button:focus-visible,input:focus-visible{outline:2px solid var(--acc);outline-offset:2px}
+.legend{display:flex;gap:12px;flex-wrap:wrap;font-size:12px;color:var(--mut);margin-top:6px}
+.legend i{display:inline-block;width:10px;height:10px;border-radius:50%;margin-right:5px}
+.detail{margin-top:10px;background:rgba(0,0,0,.2);border-radius:16px;padding:12px;min-height:84px;font-size:14px}
+.detail .serif{font-size:20px}
+.detail .edges{color:var(--mut);font-size:13px;margin-top:4px}
+.detail .row{display:flex;gap:8px;flex-wrap:wrap;margin-top:8px}
+.btn.danger{border-color:rgba(255,159,192,.6);color:var(--rose)}
+.btn.go{background:linear-gradient(135deg,var(--acc),var(--rose));color:#2a1d59;border:0;font-weight:600}
+.chat{display:flex;flex-direction:column;height:430px}
+.msgs{flex:1;overflow:auto;display:flex;flex-direction:column;gap:10px;padding:2px 2px 8px}
+.m{max-width:92%;padding:10px 14px;border-radius:18px;font-size:14px;animation:in .4s}
+@keyframes in{from{opacity:0;transform:translateY(8px)}}
+.m.u{align-self:flex-end;background:linear-gradient(135deg,#8c6bff,#d46aa8);border-bottom-right-radius:6px}
+.m.r{align-self:flex-start;background:var(--glass2);border-bottom-left-radius:6px}
+.cite{margin-top:8px;display:flex;gap:10px;background:rgba(0,0,0,.25);border-radius:12px;padding:8px;cursor:pointer;align-items:center;border:1px solid transparent}
+.cite:hover{border-color:var(--acc)}
+.cite canvas{width:96px;height:64px;border-radius:8px;flex:none}
+.cite small{display:block;color:var(--mut);font-size:12px}
+.cite b{font-size:12px;color:var(--acc);letter-spacing:.04em;text-transform:uppercase}
+.sugg{display:flex;gap:6px;flex-wrap:wrap;margin:6px 0}
+.sugg button{font-size:12px;padding:0 12px}
+.ask{display:flex;gap:8px}
+.ask input{flex:1;min-height:44px;border-radius:999px;border:1px solid var(--glass2);background:rgba(0,0,0,.25);color:var(--tx);padding:0 16px;font:15px Inter;min-width:0}
+.ask input::placeholder{color:#a99ad6}
+.typing span{display:inline-block;width:6px;height:6px;border-radius:50%;background:var(--mut);margin-right:3px;animation:br 1s infinite}
+.typing span:nth-child(2){animation-delay:.2s}.typing span:nth-child(3){animation-delay:.4s}
+.tl{display:flex;gap:12px;overflow-x:auto;padding:4px 2px 10px;scroll-snap-type:x proximity}
+.ep{flex:none;width:150px;scroll-snap-align:start;background:rgba(0,0,0,.22);border-radius:16px;padding:8px;cursor:pointer;border:1px solid transparent;transition:.2s;position:relative;text-align:left;color:var(--tx);font:inherit}
+.ep:hover,.ep.sel{border-color:var(--acc);transform:translateY(-3px)}
+.ep canvas{width:100%;height:80px;border-radius:10px;display:block}
+.ep time{display:block;font-size:11px;color:var(--acc);margin-top:6px;letter-spacing:.05em}
+.ep p{font-size:12px;color:var(--tx)}
+.ep.gone{opacity:.35;filter:grayscale(1)}
+.priv .rule{display:flex;justify-content:space-between;align-items:center;gap:10px;padding:8px 0;border-bottom:1px solid var(--glass2);font-size:14px;min-height:44px}
+.priv .rule small{display:block;color:var(--mut);font-size:12px}
+.sw{position:relative;width:52px;height:30px;flex:none;border-radius:99px;background:rgba(255,255,255,.2);border:0;cursor:pointer;transition:.2s}
+.sw::after{content:"";position:absolute;top:3px;left:3px;width:24px;height:24px;border-radius:50%;background:#fff;transition:.2s}
+.sw[aria-checked=true]{background:var(--mint)}
+.sw[aria-checked=true]::after{left:25px}
+.sw{min-height:44px;height:44px;border-radius:22px;width:64px}
+.sw::after{top:7px;left:7px;width:30px;height:30px}
+.sw[aria-checked=true]::after{left:27px}
+.stopbar{position:fixed;left:50%;bottom:14px;transform:translateX(-50%);z-index:30;display:flex;gap:10px;align-items:center;background:rgba(28,22,64,.85);backdrop-filter:blur(14px);border:1px solid var(--glass2);padding:6px 6px 6px 18px;border-radius:999px;font-size:13px;color:var(--mut)}
+.stop{background:#ff4d6d;color:#fff;border:0;border-radius:999px;font:700 14px Inter;min-height:44px;padding:0 24px;cursor:pointer;letter-spacing:.05em;box-shadow:0 0 24px rgba(255,77,109,.6)}
+.stop.latched{background:#222;color:#ff4d6d;box-shadow:none}
+.toast{position:fixed;top:16px;right:16px;background:rgba(255,255,255,.92);color:#2a1d59;border-radius:14px;padding:10px 16px;font-size:13px;z-index:40;opacity:0;transform:translateY(-10px);transition:.3s;pointer-events:none;max-width:300px}
+.toast.show{opacity:1;transform:none}
+.node{cursor:pointer;transition:opacity .3s}
+.node text{pointer-events:none;font:500 11px Inter;fill:#fff;paint-order:stroke;stroke:rgba(20,10,50,.7);stroke-width:3px}
+.edge{stroke:rgba(255,255,255,.28);stroke-width:1.3;transition:.3s}
+.edge.hl{stroke:var(--acc);stroke-width:2.4}
+.elabel{font:italic 10px Fraunces;fill:var(--mut);pointer-events:none;opacity:0;transition:.2s}
+.elabel.hl{opacity:1;fill:var(--acc)}
+.dim{opacity:.12}
+.born{animation:born 1.2s}
+@keyframes born{0%{opacity:0}30%{filter:drop-shadow(0 0 14px #fff)}100%{opacity:1}}
+@media(max-width:1000px){main{grid-template-columns:1fr;padding:12px 14px 90px}header{padding:18px 16px 4px}.graphwrap{grid-row:auto}#graph{height:420px}}
+@media(prefers-reduced-motion:reduce){*{animation:none!important}}
+</style>
+</head>
+<body>
+<div class="orb a"></div><div class="orb b"></div>
+<header>
+ <div><h1>The arm <em>remembers</em></h1><p>Every sighting becomes a small, inspectable memory. You decide what it keeps.</p></div>
+ <div class="stats">
+  <span class="chip"><span class="rec" id="recDot"></span><span id="recTxt">Learning</span></span>
+  <span class="chip"><b id="cNodes">0</b> things</span>
+  <span class="chip"><b id="cEdges">0</b> facts</span>
+  <span class="chip"><b id="cEps">0</b> moments</span>
+ </div>
+</header>
+<main>
+ <section class="panel graphwrap">
+  <h2>Household memory graph <span class="mono" style="font:12px Inter;color:var(--mut)">drag nodes, tap to inspect</span></h2>
+  <div class="filters" id="filters"></div>
+  <svg id="graph" role="img" aria-label="Force directed household knowledge graph"></svg>
+  <div class="legend" id="legend"></div>
+  <div class="detail" id="detail"><span class="serif">Tap anything in the graph.</span><div class="edges">The arm shows what it knows, where it learned it, and lets you erase it.</div></div>
+ </section>
+
+ <section class="panel">
+  <h2>Ask the arm <span style="font:12px Inter;color:var(--mut)">memory via Backboard</span></h2>
+  <div class="chat">
+   <div class="msgs" id="msgs" aria-live="polite"></div>
+   <div class="sugg" id="sugg"></div>
+   <form class="ask" id="ask"><input id="q" placeholder="Where did you last see my glasses?" aria-label="Ask a question" autocomplete="off"><button class="btn go" type="submit">Ask</button></form>
+  </div>
+ </section>
+
+ <section class="panel priv">
+  <h2>Privacy <span style="font:12px Inter;color:var(--mut)">you are always in control</span></h2>
+  <div class="rule"><div>Never record in bedroom<small>No frames, no memories from this room</small></div><button class="sw" role="switch" aria-checked="true" aria-label="Never record in bedroom" id="swBed"></button></div>
+  <div class="rule"><div>Never record in bathroom<small>Same rule, enforced on device</small></div><button class="sw" role="switch" aria-checked="true" aria-label="Never record in bathroom" id="swBath"></button></div>
+  <div class="rule"><div>Pause all learning<small>Existing memories stay</small></div><button class="sw" role="switch" aria-checked="false" aria-label="Pause learning" id="swPause"></button></div>
+  <div class="rule"><div>Auto forget after 30 days<small>Snapshots only, facts stay</small></div><button class="sw" role="switch" aria-checked="true" aria-label="Auto forget" id="swAuto"></button></div>
+  <div style="margin-top:10px"><button class="btn danger" id="btnWipe">Forget everything from today</button></div>
+ </section>
+
+ <section class="panel" style="grid-column:1/-1">
+  <h2>Episodic timeline <span style="font:12px Inter;color:var(--mut)" id="tlHint">newest first</span></h2>
+  <div class="tl" id="tl" role="list"></div>
+ </section>
+</main>
+<div class="stopbar"><span>Arm</span><button class="stop" id="stop" aria-pressed="false">STOP</button></div>
+<div class="toast" id="toast" role="status"></div>
+
+<script>
+const $=s=>document.querySelector(s),pick=a=>a[Math.floor(Math.random()*a.length)];
+const NS='http://www.w3.org/2000/svg';
+const COL={object:'#9ec9ff',place:'#9ff0d4',person:'#ff9fc0',pref:'#ffd98a',event:'#c8b3ff'};
+const TYPES=Object.keys(COL);
+const toast=m=>{const t=$('#toast');t.textContent=m;t.classList.add('show');clearTimeout(toast.h);toast.h=setTimeout(()=>t.classList.remove('show'),2600)};
+
+/* ---------- data ---------- */
+let N=[
+ ['keys','object'],['glasses','object'],['blue mug','object'],['pill organizer','object'],['phone charger','object'],['water bottle','object'],['remote','object'],
+ ['entry table','place'],['kitchen counter','place'],['nightstand','place'],['living room','place'],['bedroom','place'],
+ ['Grandma','person'],['Dad','person'],['Maya','person'],
+ ['peanuts','pref'],['decaf tea','pref'],['morning light','pref'],
+ ['pill reminder 8am','event'],['guests Sunday','event']
+].map(([id,type],i)=>({id,type,x:300+Math.cos(i)*160+Math.random()*30,y:260+Math.sin(i)*140+Math.random()*30,vx:0,vy:0,fixed:false}));
+let E=[
+ ['keys','usually','entry table'],['glasses','last seen','kitchen counter'],['glasses','sometimes','nightstand'],['blue mug','preferred by','Grandma'],['blue mug','lives on','kitchen counter'],
+ ['Dad','allergic','peanuts'],['Grandma','drinks','decaf tea'],['Grandma','likes','morning light'],['pill organizer','kept on','kitchen counter'],['Grandma','takes','pill reminder 8am'],
+ ['phone charger','plugged at','nightstand'],['nightstand','inside','bedroom'],['kitchen counter','inside','living room'],['entry table','inside','living room'],['water bottle','usually','kitchen counter'],
+ ['remote','usually','living room'],['Maya','visits','guests Sunday'],['Maya','owns','keys'],['Dad','uses','remote'],['Grandma','wears','glasses']
+].map(([a,r,b])=>({a,b,r}));
+const EP=[
+ {id:'e1',t:'Today 9:12',obj:'glasses',place:'kitchen counter',txt:'Glasses seen next to the fruit bowl.',kind:'glasses',min:0},
+ {id:'e2',t:'Today 8:02',obj:'pill organizer',place:'kitchen counter',txt:'Grandma took morning pills, confirmed by caregiver.',kind:'pill',min:70},
+ {id:'e3',t:'Yesterday 21:40',obj:'phone charger',place:'nightstand',txt:'Charger moved to the nightstand outlet.',kind:'charger',min:700},
+ {id:'e4',t:'Yesterday 18:05',obj:'keys',place:'entry table',txt:'Keys dropped on the entry table.',kind:'keys',min:900},
+ {id:'e5',t:'Yesterday 14:20',obj:'blue mug',place:'kitchen counter',txt:'Blue mug filled with decaf tea for Grandma.',kind:'mug',min:1200},
+ {id:'e6',t:'Mon 07:30',obj:'remote',place:'living room',txt:'Remote under the sofa cushion.',kind:'remote',min:2000}
+];
+EP[0].min=130; // glasses seen 2h ago
+const ID=n=>N.find(x=>x.id===n);
+const rules={bed:true,bath:true,pause:false};
+
+/* ---------- graph ---------- */
+const svg=$('#graph');let W=800,H=520,filt=new Set(TYPES),sel=null,drag=null,alpha=1;
+let gE,gN,gL;
+function build(){
+ svg.innerHTML='';
+ const defs=document.createElementNS(NS,'defs');
+ defs.innerHTML=TYPES.map(t=>`<radialGradient id="g-${t}"><stop offset="0" stop-color="#fff" stop-opacity=".95"/><stop offset="1" stop-color="${COL[t]}"/></radialGradient>`).join('');
+ svg.appendChild(defs);
+ gE=document.createElementNS(NS,'g');gL=document.createElementNS(NS,'g');gN=document.createElementNS(NS,'g');
+ svg.append(gE,gL,gN);
+ E.forEach(e=>{e.el=document.createElementNS(NS,'line');e.el.setAttribute('class','edge');gE.appendChild(e.el);
+  e.lb=document.createElementNS(NS,'text');e.lb.setAttribute('class','elabel');e.lb.setAttribute('text-anchor','middle');e.lb.textContent=e.r;gL.appendChild(e.lb)});
+ N.forEach(n=>{const g=document.createElementNS(NS,'g');g.setAttribute('class','node'+(n.born?' born':''));g.setAttribute('tabindex','0');g.setAttribute('role','button');g.setAttribute('aria-label',n.id+' ('+n.type+')');
+  const r=n.type==='person'?15:n.type==='place'?13:10;n.r=r;
+  g.innerHTML=`<circle r="${r+7}" fill="${COL[n.type]}" opacity=".18"/><circle r="${r}" fill="url(#g-${n.type})"/><text y="${r+14}" text-anchor="middle">${n.id}</text>`;
+  g.addEventListener('pointerdown',ev=>{drag=n;n.fixed=true;g.setPointerCapture(ev.pointerId);select(n.id);alpha=.6});
+  g.addEventListener('keydown',ev=>{if(ev.key==='Enter')select(n.id)});
+  n.el=g;gN.appendChild(g)});
+ n_born_clear();
+}
+function n_born_clear(){setTimeout(()=>N.forEach(n=>n.born=false),1300)}
+function pt(ev){const r=svg.getBoundingClientRect();return{x:(ev.clientX-r.left)/r.width*W,y:(ev.clientY-r.top)/r.height*H}}
+svg.addEventListener('pointermove',ev=>{if(drag){const p=pt(ev);drag.x=p.x;drag.y=p.y;alpha=.5}});
+svg.addEventListener('pointerup',()=>{if(drag){drag.fixed=false;drag=null}});
+function resize(){const r=svg.getBoundingClientRect();W=800;H=800*r.height/r.width;svg.setAttribute('viewBox',`0 0 ${W} ${H}`)}
+addEventListener('resize',resize);
+function visible(n){return filt.has(n.type)}
+function sim(){
+ const vn=N.filter(visible);
+ for(let i=0;i<vn.length;i++)for(let j=i+1;j<vn.length;j++){
+  const a=vn[i],b=vn[j];let dx=a.x-b.x,dy=a.y-b.y,d2=dx*dx+dy*dy+.1,d=Math.sqrt(d2),f=2600/d2*alpha;
+  a.vx+=dx/d*f;a.vy+=dy/d*f;b.vx-=dx/d*f;b.vy-=dy/d*f}
+ E.forEach(e=>{const a=ID(e.a),b=ID(e.b);if(!a||!b||!e.el||!a.el||!b.el)return;let dx=b.x-a.x,dy=b.y-a.y,d=Math.hypot(dx,dy)||1,f=(d-95)*.02*alpha;
+  a.vx+=dx/d*f;a.vy+=dy/d*f;b.vx-=dx/d*f;b.vy-=dy/d*f});
+ N.forEach(n=>{n.vx+=(W/2-n.x)*.0016;n.vy+=(H/2-n.y)*.0016;
+  // gentle drift so it feels alive
+  n.vx+=Math.sin(performance.now()/2000+n.x)*.015;n.vy+=Math.cos(performance.now()/2300+n.y)*.015;
+  if(!n.fixed){n.x+=n.vx;n.y+=n.vy}n.vx*=.82;n.vy*=.82;
+  n.x=Math.max(30,Math.min(W-30,n.x));n.y=Math.max(24,Math.min(H-34,n.y))});
+ alpha=Math.max(.12,alpha*.995);
+}
+function paint(){
+ N.forEach(n=>{if(!n.el)return;n.el.setAttribute('transform',`translate(${n.x.toFixed(1)} ${n.y.toFixed(1)})`);
+  const vis=visible(n);n.el.style.display=vis?'':'none';
+  n.el.classList.toggle('dim',!!sel&&!nbr(sel,n.id))});
+ E.forEach(e=>{const a=ID(e.a),b=ID(e.b);if(!a||!b||!e.el||!e.lb)return;const show=visible(a)&&visible(b);
+  e.el.style.display=e.lb.style.display=show?'':'none';
+  e.el.setAttribute('x1',a.x);e.el.setAttribute('y1',a.y);e.el.setAttribute('x2',b.x);e.el.setAttribute('y2',b.y);
+  e.lb.setAttribute('x',(a.x+b.x)/2);e.lb.setAttribute('y',(a.y+b.y)/2-3);
+  const hl=sel&&(e.a===sel||e.b===sel);e.el.classList.toggle('hl',!!hl);e.lb.classList.toggle('hl',!!hl)});
+}
+const nbr=(s,id)=>s===id||E.some(e=>(e.a===s&&e.b===id)||(e.b===s&&e.a===id));
+(function loop(){sim();paint();requestAnimationFrame(loop)})();
+
+function select(id){
+ sel=id;const n=ID(id);if(!n)return;
+ const fs=E.filter(e=>e.a===id||e.b===id);
+ const eps=EP.filter(e=>e.obj===id||e.place===id);
+ $('#detail').innerHTML=`<span class="serif">${id}</span> <span style="color:${COL[n.type]};font-size:12px">${n.type}</span>
+  <div class="edges">${fs.map(e=>`${e.a} <i>${e.r}</i> ${e.b}`).join('<br>')||'No facts yet.'}</div>
+  <div class="row">${n.type==='object'?`<button class="btn go" id="dFetch">Fetch ${id}</button>`:''}${eps.length?`<button class="btn" id="dEp">Show ${eps.length} moment${eps.length>1?'s':''}</button>`:''}<button class="btn danger" id="dForget">Forget this</button><button class="btn" id="dClear">Clear</button></div>`;
+ $('#dForget').onclick=()=>forget(id);$('#dClear').onclick=()=>{sel=null;$('#detail').innerHTML='<span class="serif">Tap anything in the graph.</span>'};
+ if($('#dFetch'))$('#dFetch').onclick=()=>{if(stopped)return toast('Arm is stopped. Reset first.');toast('Fetch request sent: '+id+' to lap tray (mock)')};
+ if($('#dEp'))$('#dEp').onclick=()=>{const e=eps[0];focusEp(e.id)};
+}
+function forget(id){
+ N=N.filter(n=>n.id!==id);E=E.filter(e=>e.a!==id&&e.b!==id);EP.forEach(e=>{if(e.obj===id||e.place===id)e.gone=true});
+ sel=null;build();drawTl();stats();$('#detail').innerHTML=`<span class="serif">Forgotten.</span><div class="edges">"${id}" and its facts were removed from memory and the snapshot frames deleted.</div>`;toast('Forgot '+id)}
+function stats(){$('#cNodes').textContent=N.length;$('#cEdges').textContent=E.length;$('#cEps').textContent=EP.filter(e=>!e.gone).length+214}
+
+/* filters + legend */
+$('#filters').innerHTML=TYPES.map(t=>`<button class="on" data-t="${t}">${t==='pref'?'preferences':t+'s'}</button>`).join('');
+$('#filters').onclick=e=>{const b=e.target.closest('button');if(!b)return;const t=b.dataset.t;filt.has(t)?filt.delete(t):filt.add(t);b.classList.toggle('on');alpha=.8};
+$('#legend').innerHTML=TYPES.map(t=>`<span><i style="background:${COL[t]}"></i>${t}</span>`).join('');
+
+/* ---------- snapshot generator ---------- */
+function snap(cv,kind,seed){
+ const x=cv.getContext('2d'),w=cv.width,h=cv.height;
+ const g=x.createLinearGradient(0,0,w,h);g.addColorStop(0,'#5a4a86');g.addColorStop(1,'#a8789c');x.fillStyle=g;x.fillRect(0,0,w,h);
+ x.fillStyle='rgba(255,255,255,.1)';x.fillRect(0,h*.62,w,h*.38);
+ x.fillStyle='rgba(20,10,50,.4)';x.fillRect(w*.08,h*.55,w*.84,h*.07);
+ const s=(a)=>a*w/192;
+ const o={
+  glasses:()=>{x.strokeStyle='#ffd98a';x.lineWidth=s(3);x.beginPath();x.arc(s(70),h*.5,s(16),0,7);x.stroke();x.beginPath();x.arc(s(112),h*.5,s(16),0,7);x.stroke();x.beginPath();x.moveTo(s(86),h*.48);x.lineTo(s(96),h*.48);x.stroke();
+   x.fillStyle='#ff7a8a';x.beginPath();x.arc(s(150),h*.52,s(14),0,7);x.fill();x.fillStyle='#ffd98a';x.beginPath();x.arc(s(150),h*.42,s(4),0,7);x.fill()},
+  pill:()=>{x.fillStyle='#fff';for(let i=0;i<7;i++)x.fillRect(s(40+i*16),h*.42,s(12),h*.15);x.fillStyle='#9ff0d4';x.fillRect(s(40+2*16),h*.42,s(12),h*.15)},
+  charger:()=>{x.fillStyle='#e6e0ff';x.fillRect(s(70),h*.4,s(40),h*.18);x.strokeStyle='#fff';x.lineWidth=s(3);x.beginPath();x.moveTo(s(110),h*.5);x.bezierCurveTo(s(140),h*.2,s(150),h*.8,s(170),h*.5);x.stroke()},
+  keys:()=>{x.strokeStyle='#ffd98a';x.lineWidth=s(3);x.beginPath();x.arc(s(80),h*.48,s(12),0,7);x.stroke();x.fillStyle='#ffd98a';for(let i=0;i<3;i++)x.fillRect(s(92+i*12),h*.44+i*3,s(10),s(5))},
+  mug:()=>{x.fillStyle='#6a9bff';x.fillRect(s(70),h*.32,s(44),h*.27);x.strokeStyle='#6a9bff';x.lineWidth=s(5);x.beginPath();x.arc(s(118),h*.46,s(10),-1.5,1.5);x.stroke();x.fillStyle='rgba(255,255,255,.5)';x.fillRect(s(74),h*.35,s(36),s(5))},
+  remote:()=>{x.fillStyle='#222';x.fillRect(s(60),h*.45,s(70),h*.1);x.fillStyle='#ff7a8a';x.beginPath();x.arc(s(72),h*.5,s(3),0,7);x.fill()}
+ }[kind];o&&o();
+ // scanlines + bbox
+ x.strokeStyle='rgba(159,240,212,.9)';x.lineWidth=1.5;x.strokeRect(w*.22,h*.22,w*.5,h*.48);
+ x.fillStyle='rgba(159,240,212,.9)';x.font=(w/16)+'px Inter';x.fillText(kind+' 0.9'+(3+seed%6),w*.23,h*.2);
+}
+function mkSnap(kind,seed,w=192,h=128){const c=document.createElement('canvas');c.width=w;c.height=h;snap(c,kind,seed||1);return c}
+
+/* ---------- timeline ---------- */
+function drawTl(){
+ const tl=$('#tl');tl.innerHTML='';
+ EP.forEach((e,i)=>{const b=document.createElement('button');b.className='ep'+(e.gone?' gone':'');b.id=e.id;b.setAttribute('role','listitem');
+  b.appendChild(e.gone?Object.assign(document.createElement('div'),{style:'height:80px;border-radius:10px;background:#222;display:grid;place-items:center;font-size:12px;color:#999',textContent:'deleted'}):mkSnap(e.kind,i));
+  b.insertAdjacentHTML('beforeend',`<time>${e.t.toUpperCase()}</time><p>${e.gone?'Memory forgotten.':e.txt}</p>`);
+  b.onclick=()=>focusEp(e.id);tl.appendChild(b)})}
+function focusEp(id){
+ document.querySelectorAll('.ep').forEach(x=>x.classList.toggle('sel',x.id===id));
+ const e=EP.find(x=>x.id===id);if(e&&!e.gone&&ID(e.obj)){select(e.obj);document.getElementById(id).scrollIntoView({behavior:'smooth',inline:'center',block:'nearest'})}}
+
+/* ---------- chat ---------- */
+const msgs=$('#msgs');
+function add(cls,html){const d=document.createElement('div');d.className='m '+cls;d.innerHTML=html;msgs.appendChild(d);msgs.scrollTop=msgs.scrollHeight;return d}
+const SUGG=['Where did you last see my glasses?','Where do my keys usually go?','What can Dad not eat?','Which mug does Grandma like?','What happened in the bedroom?'];
+$('#sugg').innerHTML=SUGG.map(s=>`<button class="btn" type="button">${s}</button>`).join('');
+$('#sugg').onclick=e=>{const b=e.target.closest('button');if(b){$('#q').value=b.textContent;$('#ask').requestSubmit()}};
+function answer(q){
+ const t=q.toLowerCase();
+ const cite=(ep)=>{const e=EP.find(x=>x.id===ep);return e&&!e.gone?e:null};
+ if(/glass/.test(t)){const e=cite('e1');if(!e||!ID('glasses'))return{a:'I do not have a memory of your glasses right now.'};return{a:'I last saw your glasses on the <b>kitchen counter</b>, beside the fruit bowl, about 2 hours ago. They also show up on the nightstand some evenings.',ep:e,hl:'glasses'}}
+ if(/key/.test(t)){const e=cite('e4');if(!e)return{a:'No memory of keys.'};return{a:'Keys usually live on the <b>entry table</b>. Last seen there yesterday evening, dropped by Maya.',ep:e,hl:'keys'}}
+ if(/dad|eat|allerg/.test(t))return{a:'Dad is <b>allergic to peanuts</b>. I flag any peanut label before I fetch food, and I would ask a caregiver first.',hl:'Dad',src:'Told by caregiver, 3 weeks ago'};
+ if(/mug|grandma/.test(t)){const e=cite('e5');return{a:'Grandma prefers the <b>blue mug</b> with decaf tea, usually from the kitchen counter.',ep:e,hl:'blue mug'}}
+ if(/bed/.test(t))return{a:'I do not record in the bedroom. Your rule blocks cameras there, so I only know what you told me: the phone charger is plugged in at the nightstand.',hl:'bedroom',src:'Privacy rule: never record in bedroom'};
+ return{a:'I am not sure. I have '+N.length+' things and '+E.length+' facts in memory, but nothing matching that. Try asking where something was last seen.'}
+}
+$('#ask').onsubmit=ev=>{
+ ev.preventDefault();const q=$('#q').value.trim();if(!q)return;$('#q').value='';
+ add('u',q.replace(/</g,'&lt;'));const ty=add('r typing','<span></span><span></span><span></span>');
+ setTimeout(()=>{
+  const r=answer(q);ty.className='m r';ty.innerHTML=r.a;
+  if(r.ep){const c=document.createElement('div');c.className='cite';c.tabIndex=0;
+   c.appendChild(mkSnap(r.ep.kind,2,192,128));
+   const d=document.createElement('div');d.innerHTML=`<b>Memory cited</b><small>${r.ep.t} at ${r.ep.place}</small><small>conf 0.94 / frame #${4000+Math.floor(Math.random()*900)}</small>`;c.appendChild(d);
+   c.onclick=()=>focusEp(r.ep.id);ty.appendChild(c)}
+  else if(r.src){ty.insertAdjacentHTML('beforeend',`<div class="cite" style="cursor:default"><div><b>Source</b><small>${r.src}</small></div></div>`)}
+  if(r.hl){select(r.hl);alpha=.7}
+  msgs.scrollTop=msgs.scrollHeight},900+Math.random()*500);
+};
+add('r','Hi, I am keeping track of the house. Ask me where something is, or tap a node to see what I know.');
+
+/* ---------- privacy ---------- */
+document.querySelectorAll('.sw').forEach(b=>b.onclick=()=>{
+ const on=b.getAttribute('aria-checked')!=='true';b.setAttribute('aria-checked',on);
+ if(b.id==='swBed'){rules.bed=on;toast(on?'Bedroom is off limits':'Bedroom recording allowed')}
+ if(b.id==='swBath'){rules.bath=on;toast(on?'Bathroom is off limits':'Bathroom recording allowed')}
+ if(b.id==='swPause'){rules.pause=on;$('#recDot').classList.toggle('off',on);$('#recTxt').textContent=on?'Paused':'Learning';toast(on?'Learning paused':'Learning resumed')}
+});
+$('#btnWipe').onclick=()=>{EP.forEach(e=>{if(e.t.startsWith('Today'))e.gone=true});drawTl();stats();toast('Today\'s moments deleted')};
+
+/* ---------- live learning ---------- */
+const NEW=[
+ [['water bottle','usually','living room'],['Water bottle seen on the side table.','water bottle','living room']],
+ [['reading lamp','object','Grandma','likes'],null]
+];
+let learnN=0;
+function learn(){
+ if(rules.pause)return;
+ const opts=[
+  {n:{id:'tea box',type:'object'},e:{a:'tea box',r:'kept on',b:'kitchen counter'},txt:'Tea box spotted on the kitchen counter.',kind:'mug'},
+  {n:{id:'umbrella',type:'object'},e:{a:'umbrella',r:'usually',b:'entry table'},txt:'Umbrella leaning by the entry table.',kind:'remote'},
+  {n:{id:'cardigan',type:'object'},e:{a:'Grandma',r:'wears',b:'cardigan'},txt:'Grandma\'s cardigan on the living room chair.',kind:'pill'}
+ ];
+ const o=opts[learnN++];if(!o)return;
+ if(rules.bed&&/bedroom/.test(o.txt))return;
+ const c=ID(o.e.b==='cardigan'?o.e.a:o.e.b)||{x:W/2,y:H/2};
+ N.push({...o.n,x:c.x+rand(),y:c.y+rand(),vx:0,vy:0,born:true});E.push(o.e);
+ EP.unshift({id:'n'+learnN,t:'Just now',obj:o.n.id,place:o.e.b,txt:o.txt,kind:o.kind});
+ build();drawTl();stats();toast('Learned: '+o.e.a+' '+o.e.r+' '+o.e.b);
+}
+const rand=()=>(Math.random()-.5)*60;
+setTimeout(learn,7000);setInterval(learn,15000);
+
+/* ---------- stop ---------- */
+let stopped=false;
+$('#stop').onclick=()=>{stopped=!stopped;$('#stop').classList.toggle('latched',stopped);$('#stop').textContent=stopped?'RESET':'STOP';$('#stop').setAttribute('aria-pressed',stopped);toast(stopped?'Arm stopped. Memory still works.':'Arm ready')};
+
+resize();build();drawTl();stats();
+setTimeout(()=>select('glasses'),600);
+</script>
+</body>
+</html>

@@ -1,0 +1,392 @@
+<!doctype html>
+<html lang="en">
+<head>
+<!--
+FEATURES:
+- Keynote-style 3-minute pitch presenter for the surgical assistant idea: 7 slides on a 16:9 stage that scales to any screen
+- Arrow keys / Space / PageUp / PageDown / swipe / on-screen buttons; Home and End; F for fullscreen
+- 3:00 countdown timer (T start/pause, R reset, auto-starts when you leave the title slide), per-slide time targets and ahead/behind pace pill
+- N toggles speaker notes with timing cues; B toggles a backup video slide (load a local screen recording or drop a file)
+- Live demo slot with big state ladder LISTENING > LOCATING > PICKING > WAITING FOR PALM > HANDOFF > VERIFIED, mock camera, latched STOP
+- Results slide with animated counters (mock values, labeled), architecture SVG with animated data flow, honest what's-next slide (sterility, FDA path), the ask
+- Statistics on the hook slide are deliberate [verify] placeholders. Nothing here is a clinical claim.
+-->
+<!--
+SPONSORS: Perceptron Robotics (SO-101 + policy), Perceptron Perception (detect/track, OCR, palm), Gemini API (intent), Photon (nurse approvals and alerts), Tiger Data (time series), Backboard (preference cards), Community Kitchen framing (healthcare access, patient safety)
+-->
+<!--
+BACKEND HOOKS: Demo slide would subscribe to WS /ws (state events: listening, locating, picking, waiting_palm, handoff, verified) and GET /api/state;
+POST /api/stop for the STOP button; results slide would read GET /api/stats (handoffs, success_rate, median_latency_ms, demos). Mock mode by default, see ../reach/CONTRACT.md.
+-->
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Surgeon Pitch Deck</title>
+<meta name="description" content="A dark cinematic three minute pitch presenter for the SO-101 surgical assistant with timer, speaker notes, live demo slot and backup video.">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Sora:wght@300;400;600;800&family=Inter:wght@400;500;600&family=IBM+Plex+Mono:wght@400;600&display=swap" rel="stylesheet">
+<style>
+:root{--bg:#04090b;--ink:#e9fbf8;--mute:#86a8a6;--teal:#14e0c9;--teal2:#0b8f84;--deep:#06302d;--line:#14343340;--amber:#ffb84d;--red:#ff5b5b}
+*{box-sizing:border-box}
+html,body{margin:0;height:100%;background:#000;color:var(--ink);font-family:Inter,system-ui,sans-serif;overflow:hidden}
+button{font:inherit;color:inherit;cursor:pointer;min-height:44px;min-width:44px;background:#0a1a1b;border:1px solid #1d4a47;border-radius:10px;padding:0 14px}
+button:hover{border-color:var(--teal)}
+button:focus-visible{outline:2px solid var(--amber);outline-offset:2px}
+#viewport{position:fixed;inset:0;display:grid;place-items:center}
+#stage{position:relative;width:1280px;height:720px;flex:none;transform-origin:center center;background:var(--bg);overflow:hidden;
+  background-image:radial-gradient(ellipse 70% 60% at 80% 0%,#0b4d49 0,transparent 60%),radial-gradient(ellipse 50% 50% at 0 100%,#07312f 0,transparent 70%)}
+#stage::after{content:"";position:absolute;inset:0;pointer-events:none;opacity:.18;mix-blend-mode:overlay;
+  background-image:url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='200' height='200'><filter id='n'><feTurbulence type='fractalNoise' baseFrequency='.9' numOctaves='2'/></filter><rect width='200' height='200' filter='url(%23n)'/></svg>")}
+#stage::before{content:"";position:absolute;inset:0;z-index:5;pointer-events:none;box-shadow:inset 0 0 200px 40px #000}
+.slide{position:absolute;inset:0;padding:70px 90px 80px;opacity:0;visibility:hidden;transform:translateY(24px) scale(.985);filter:blur(6px);transition:opacity .6s,transform .6s,filter .6s,visibility 0s .6s;display:flex;flex-direction:column;justify-content:center}
+.slide.active{opacity:1;visibility:visible;transform:none;filter:none;transition:opacity .6s,transform .6s,filter .6s}
+.eyebrow{font-family:"IBM Plex Mono",monospace;font-size:15px;letter-spacing:.28em;color:var(--teal);text-transform:uppercase;margin-bottom:22px}
+h1,h2{font-family:Sora,sans-serif;margin:0;letter-spacing:-.03em;line-height:1.02}
+h1{font-size:92px;font-weight:800}
+h2{font-size:64px;font-weight:800}
+h1 em,h2 em{font-style:normal;color:var(--teal);text-shadow:0 0 40px #14e0c966}
+.lede{font-size:26px;line-height:1.4;color:#bfe0dc;max-width:900px;margin:26px 0 0;font-weight:400}
+.mono{font-family:"IBM Plex Mono",monospace}
+.grid3{display:grid;grid-template-columns:repeat(3,1fr);gap:24px;margin-top:40px}
+.grid4{display:grid;grid-template-columns:repeat(4,1fr);gap:20px;margin-top:36px}
+.card{border:1px solid #1d4a47;border-radius:18px;padding:26px;background:linear-gradient(160deg,#0a1f20cc,#061214cc);position:relative}
+.card h3{margin:0 0 8px;font-family:Sora,sans-serif;font-size:24px}
+.card p{margin:0;color:#a9cbc7;font-size:18px;line-height:1.45}
+.verify{border-style:dashed;border-color:#7a5a1f}
+.badge{position:absolute;top:14px;right:14px;font-family:"IBM Plex Mono",monospace;font-size:11px;letter-spacing:.14em;color:#1a1100;background:var(--amber);border-radius:6px;padding:3px 8px;font-weight:600}
+.stat{font-family:Sora,sans-serif;font-weight:800;font-size:64px;line-height:1;color:var(--ink)}
+.stat small{font-size:20px;color:var(--mute);font-weight:400}
+.cap{color:var(--mute);font-size:16px;margin-top:10px;line-height:1.35}
+.beat{display:flex;gap:22px;align-items:flex-start}
+.beat .n{font-family:Sora,sans-serif;font-weight:800;font-size:72px;color:var(--teal);line-height:.9;opacity:.9}
+.foot{position:absolute;left:90px;bottom:62px;font-size:12px;color:#5d7f7c;letter-spacing:.04em;z-index:6}
+/* demo */
+#demoGrid{display:grid;grid-template-columns:1.25fr 1fr;gap:34px;align-items:center;margin-top:10px}
+#cam{width:100%;aspect-ratio:16/10;border-radius:16px;border:1px solid #1d4a47;background:#020708;display:block}
+#bigState{font-family:Sora,sans-serif;font-weight:800;font-size:68px;line-height:1;letter-spacing:-.02em;color:var(--teal);text-shadow:0 0 50px #14e0c988;min-height:70px}
+#bigState.verified{color:#9dffb0}
+#stateSub{font-family:"IBM Plex Mono",monospace;color:#a9cbc7;font-size:16px;margin:12px 0 22px;min-height:44px}
+#ladder{display:flex;flex-direction:column;gap:8px}
+.rung{display:flex;align-items:center;gap:12px;font-family:"IBM Plex Mono",monospace;font-size:15px;letter-spacing:.1em;color:#4f7270;padding:8px 14px;border:1px solid #123533;border-radius:10px;cursor:pointer;min-height:44px}
+.rung i{width:12px;height:12px;border-radius:50%;background:#143734}
+.rung.done{color:#8fd8cf}.rung.done i{background:var(--teal2)}
+.rung.now{color:#02211e;background:var(--teal);border-color:var(--teal)}.rung.now i{background:#02211e}
+#stop{background:var(--red);border-color:#fff;color:#fff;font-weight:800;letter-spacing:.1em;min-width:120px}
+#stop.latched{background:#7a1010}
+.democtl{display:flex;gap:12px;align-items:center;margin-top:18px;flex-wrap:wrap}
+.democtl a{color:var(--teal);font-size:14px;font-family:"IBM Plex Mono",monospace}
+/* arch */
+#archwrap{margin-top:30px;overflow-x:auto}
+#arch{width:100%;min-width:760px;height:auto;display:block}
+.flow{stroke-dasharray:6 8;animation:dash 1.2s linear infinite}
+@keyframes dash{to{stroke-dashoffset:-28}}
+/* hud */
+#hud{position:fixed;left:0;right:0;bottom:0;z-index:20;display:flex;gap:10px;align-items:center;justify-content:space-between;padding:8px 14px;background:linear-gradient(0deg,#000d,transparent);pointer-events:none}
+#hud>*{pointer-events:auto}
+#timer{font-family:"IBM Plex Mono",monospace;font-weight:600;font-size:22px;padding:8px 14px;border-radius:12px;background:#031211e6;border:1px solid #1d4a47;min-width:96px;text-align:center}
+#timer.warn{color:var(--amber);border-color:var(--amber)}
+#timer.crit{color:var(--red);border-color:var(--red);animation:pulse .8s infinite}
+@keyframes pulse{50%{opacity:.55}}
+#pace{font-family:"IBM Plex Mono",monospace;font-size:12px;color:var(--mute)}
+#dots{display:flex;gap:8px;align-items:center}
+#dots b{width:34px;height:6px;border-radius:3px;background:#143734;display:block;cursor:pointer}
+#dots b.on{background:var(--teal)}
+#dots b.past{background:var(--teal2)}
+.hbtns{display:flex;gap:8px}
+#notes{position:fixed;left:0;right:0;bottom:62px;z-index:25;max-height:42vh;overflow:auto;padding:18px 28px;background:#02100fee;border-top:2px solid var(--teal);display:none;font-size:18px;line-height:1.5}
+#notes.show{display:block}
+#notes h4{margin:0 0 6px;font-family:"IBM Plex Mono",monospace;letter-spacing:.14em;color:var(--teal);font-size:13px}
+#backup{position:fixed;inset:0;z-index:40;background:#000;display:none;flex-direction:column;align-items:center;justify-content:center;gap:16px;padding:20px;text-align:center}
+#backup.show{display:flex}
+#backup video{max-width:92vw;max-height:70vh;border:1px solid #1d4a47;border-radius:12px;background:#020708}
+#backup .ph{width:min(92vw,900px);aspect-ratio:16/9;border:2px dashed #1d4a47;border-radius:16px;display:grid;place-items:center;color:var(--mute);font-family:"IBM Plex Mono",monospace;padding:20px}
+.tag-b{font-family:"IBM Plex Mono",monospace;color:var(--amber);letter-spacing:.2em;font-size:13px}
+/* mobile: flowing slides */
+@media (max-width:760px){
+  html,body{overflow:auto;height:auto}
+  #viewport{position:static;display:block}
+  #stage{width:100%!important;height:auto!important;min-height:100vh;transform:none!important}
+  .slide{position:absolute;inset:auto;left:0;right:0;top:0;padding:28px 18px 120px;min-height:100vh;justify-content:flex-start}
+  .slide:not(.active){display:none}
+  .slide.active{position:relative}
+  h1{font-size:38px}h2{font-size:30px}.lede{font-size:16px}.eyebrow{font-size:11px;letter-spacing:.2em}
+  .grid3,.grid4,#demoGrid{grid-template-columns:1fr;gap:12px}
+  .card{padding:16px}.card p{font-size:14px}.card h3{font-size:18px}.stat{font-size:40px}
+  .beat .n{font-size:44px}
+  #bigState{font-size:34px}
+  .foot{position:static;margin-top:20px}
+  #hud{background:#000e}#dots,#pace{display:none}#hud button{padding:0 10px}
+  #notes{bottom:64px;font-size:15px}
+}
+@media (prefers-reduced-motion:reduce){*{animation:none!important;transition:none!important}}
+</style>
+</head>
+<body>
+<div id="viewport"><div id="stage">
+
+<!-- 1 HOOK -->
+<section class="slide" data-t="25" data-name="Hook">
+  <div class="eyebrow">Patient safety / healthcare access</div>
+  <h1>Every operating room<br>runs on <em>a count.</em></h1>
+  <p class="lede">Sponges, needles, instruments. Someone counts them by hand, and someone is always stretched thin.</p>
+  <div class="grid3">
+    <div class="card verify"><span class="badge">VERIFY</span><div class="stat">[N]<small> per yr</small></div><div class="cap">Retained surgical items reported as never events. Source: [add citation]</div></div>
+    <div class="card verify"><span class="badge">VERIFY</span><div class="stat">[X]%<small> vacancy</small></div><div class="cap">Surgical technologist / scrub nurse shortage. Source: [add citation]</div></div>
+    <div class="card verify"><span class="badge">VERIFY</span><div class="stat">[$]<small> per event</small></div><div class="cap">Cost of one retained item case. Source: [add citation]</div></div>
+  </div>
+  <div class="foot">Placeholders on purpose: fill from SURGEON_RESEARCH.md before presenting. Research and training prototype. Props only. Not for clinical use.</div>
+</section>
+
+<!-- 2 STORY -->
+<section class="slide" data-t="25" data-name="Story">
+  <div class="eyebrow">The story</div>
+  <h2>The surgeon holds out a hand.<br><em>Nobody is there.</em></h2>
+  <div class="grid3">
+    <div class="beat"><div class="n">1</div><div><h3 style="margin:0 0 6px;font-family:Sora">The wait</h3><p style="margin:0;color:#a9cbc7;font-size:19px;line-height:1.45">One scrub tech covers the tray, the count and the handoffs. Every second of wait is attention taken from the patient.</p></div></div>
+    <div class="beat"><div class="n">2</div><div><h3 style="margin:0 0 6px;font-family:Sora">The count</h3><p style="margin:0;color:#a9cbc7;font-size:19px;line-height:1.45">What leaves the tray should come back. A camera that sees every handoff can keep that ledger.</p></div></div>
+    <div class="beat"><div class="n">3</div><div><h3 style="margin:0 0 6px;font-family:Sora">The arm</h3><p style="margin:0;color:#a9cbc7;font-size:19px;line-height:1.45">An SO-101 hears the request, finds the tool, and presents it handle-first into an open palm. One move, done reliably.</p></div></div>
+  </div>
+  <p class="lede" style="font-size:22px">We start with training: the same arm, plastic props, and a scoreboard.</p>
+  <div class="foot">Research and training prototype. Props only. Not for clinical use.</div>
+</section>
+
+<!-- 3 DEMO -->
+<section class="slide" data-t="55" data-name="Live demo">
+  <div class="eyebrow">Live demo slot</div>
+  <div id="demoGrid">
+    <div><canvas id="cam" width="800" height="500" aria-label="Mock camera feed"></canvas>
+      <div class="democtl"><button id="stop">STOP</button><button id="demoAuto">Pause cycle</button><a href="34-handoff-challenge.html" target="_blank" rel="noopener">Open the judge challenge (34)</a></div></div>
+    <div><div id="bigState">LISTENING</div><div id="stateSub"></div><div id="ladder"></div></div>
+  </div>
+  <div class="foot">Mock feed. Swap the canvas for the real camera or an iframe of the live UI. Press B for the backup video.</div>
+</section>
+
+<!-- 4 RESULTS -->
+<section class="slide" data-t="20" data-name="Results">
+  <div class="eyebrow">Results</div>
+  <h2>We measure it, <em>including the misses.</em></h2>
+  <div class="grid4">
+    <div class="card"><div class="stat" data-count="128">0</div><div class="cap">Handoffs run by judges and team</div></div>
+    <div class="card"><div class="stat" data-count="91" data-suf="%">0</div><div class="cap">Correct tool, handle-first, verified</div></div>
+    <div class="card"><div class="stat" data-count="6.8" data-dec="1" data-suf="s">0</div><div class="cap">Median latency, call to release</div></div>
+    <div class="card"><div class="stat" data-count="63">0</div><div class="cap">Teleop demos collected for fine-tuning</div></div>
+  </div>
+  <p class="lede" style="font-size:21px">Failures we show on the scoreboard: wrong orientation and palm timeouts. Human scrub tech baseline row is shown next to ours.</p>
+  <div class="foot">MOCK numbers shown. Replace with the live scoreboard values before presenting. Research and training prototype.</div>
+</section>
+
+<!-- 5 ARCH -->
+<section class="slide" data-t="20" data-name="Architecture">
+  <div class="eyebrow">How it works</div>
+  <h2 style="font-size:50px">Language proposes. <em>A safety gate decides.</em></h2>
+  <div id="archwrap"><svg id="arch" viewBox="0 0 1240 420" role="img" aria-label="Architecture diagram: microphone and cameras to Gemini intent and Perceptron detect and track, to a fixed task menu, safety gate, LeRobot policy and SO-101, with Photon, Tiger Data and Backboard as side services"></svg></div>
+  <div class="foot">The model never emits free-form motor commands. It can only choose from a fixed menu. Research and training prototype.</div>
+</section>
+
+<!-- 6 NEXT -->
+<section class="slide" data-t="15" data-name="What's next">
+  <div class="eyebrow">What's next</div>
+  <h2>Honest about <em>the road.</em></h2>
+  <div class="grid3">
+    <div class="card"><h3>Clinical partners</h3><p>Sit with scrub techs and surgical educators in a simulation lab. Ask what they would actually trust the arm to do.</p></div>
+    <div class="card"><h3>Sterility</h3><p>Today: props, no sterile field. Next: drape-compatible grippers and a sterile transfer design. We have not solved this.</p></div>
+    <div class="card"><h3>FDA path</h3><p>This is a research and training prototype. Any clinical use needs device classification and a regulatory pathway: [verify with regulatory counsel]. We have not started a submission.</p></div>
+  </div>
+  <div class="foot">No clinical claims. Research and training prototype.</div>
+</section>
+
+<!-- 7 ASK -->
+<section class="slide" data-t="20" data-name="The ask">
+  <div class="eyebrow">The ask</div>
+  <h1 style="font-size:84px">Help us put a <em>hand</em><br>in the room.</h1>
+  <div class="grid3">
+    <div class="card"><h3>Introductions</h3><p>A surgical simulation lab or scrub tech program willing to try a prop-only pilot.</p></div>
+    <div class="card"><h3>Hardware time</h3><p>More arm hours and a second camera angle to harden the one handoff primitive.</p></div>
+    <div class="card"><h3>Your vote</h3><p>Healthcare access, patient safety, and more surgeons trained. Come try the challenge at our table.</p></div>
+  </div>
+  <div class="foot">Thank you. Research and training prototype. Props only. Not for clinical use.</div>
+</section>
+
+</div></div>
+
+<div id="notes"></div>
+<div id="backup"><div class="tag-b">BACKUP VIDEO</div>
+  <div class="ph" id="bph">No video loaded. Choose your recorded demo below.</div>
+  <video id="bvid" controls style="display:none"></video>
+  <div><input type="file" id="bfile" accept="video/*" aria-label="Choose backup video"> <button id="bclose">Close (B)</button></div></div>
+
+<div id="hud">
+  <div style="display:flex;gap:10px;align-items:center"><div id="timer">3:00</div><div id="pace"></div></div>
+  <div id="dots"></div>
+  <div class="hbtns"><button id="prev" aria-label="Previous slide">&larr;</button><button id="next" aria-label="Next slide">&rarr;</button><button id="nbtn" title="Notes (N)">Notes</button><button id="bbtn" title="Backup video (B)">Backup</button></div>
+</div>
+
+<script>
+"use strict";
+const $=id=>document.getElementById(id);
+const slides=[...document.querySelectorAll('.slide')];
+const NOTES=[
+ "HOOK, 0:00 to 0:25. Say the problem in one breath: every OR runs on a count and the people doing it are stretched. Read the stat tiles ONLY after they are verified, otherwise skip them and say 'we will cite these in the Q&A'. End on: 'What if the handoff itself could be logged?'",
+ "STORY, 0:25 to 0:50. Three beats: the wait, the count, the arm. Keep it human. Land on training: plastic props, same arm, a scoreboard. Do not claim clinical use.",
+ "LIVE DEMO, 0:50 to 1:45. Say 'scalpel, please' or have a judge call a tool. Narrate the ladder: listening, locating, picking, waiting for palm, handoff, verified. Show one honest miss if it happens and say what the system did (retry, safe return). If anything hangs, press B and play the backup, say so out loud. STOP is always on screen.",
+ "RESULTS, 1:45 to 2:05. Quote the live scoreboard, not these mock numbers. Mention the human baseline row and that failures are logged. Success is correct tool AND handle-first AND verified.",
+ "ARCHITECTURE, 2:05 to 2:25. Left to right in one sentence: voice and cameras, Gemini picks intent, Perceptron finds and tracks, the intent maps to a fixed task menu, a safety gate checks it, a LeRobot policy drives the SO-101. Side services: Photon texts the nurse, Tiger Data stores time series, Backboard remembers preference cards.",
+ "WHAT'S NEXT, 2:25 to 2:40. Be direct: sterility is unsolved, FDA path not started, we want clinical partners. Honesty here earns trust with judges.",
+ "ASK, 2:40 to 3:00. Three asks: introductions, hardware time, the vote. Invite judges to the table to run the challenge. Finish with time to spare."
+];
+let cur=0, seen=new Set();
+$('dots').innerHTML=slides.map((_,i)=>`<b data-i="${i}" title="${slides[i].dataset.name}"></b>`).join('');
+const budgets=slides.map(s=>+s.dataset.t); const cum=budgets.map((_,i)=>budgets.slice(0,i+1).reduce((a,b)=>a+b,0));
+function go(i){
+  i=Math.max(0,Math.min(slides.length-1,i)); cur=i;
+  slides.forEach((s,j)=>s.classList.toggle('active',j===i));
+  document.querySelectorAll('#dots b').forEach((d,j)=>{d.className=j===i?'on':j<i?'past':''});
+  if(i>0&&!running&&elapsed===0)startTimer();
+  renderNotes(); onEnter(i); updatePace(); if(innerWidth<=760)scrollTo(0,0);
+  try{history.replaceState(null,'','#'+(i+1));}catch(e){}
+}
+document.addEventListener('keydown',e=>{
+  if(e.target.tagName==='INPUT')return;
+  const k=e.key;
+  if(k==='ArrowRight'||k==='PageDown'||k===' '||k==='Enter'){e.preventDefault();go(cur+1);}
+  else if(k==='ArrowLeft'||k==='PageUp'||k==='Backspace'){e.preventDefault();go(cur-1);}
+  else if(k==='Home')go(0); else if(k==='End')go(slides.length-1);
+  else if(k==='n'||k==='N')toggleNotes();
+  else if(k==='b'||k==='B')toggleBackup();
+  else if(k==='t'||k==='T')running?pauseTimer():startTimer();
+  else if(k==='r'||k==='R')resetTimer();
+  else if(k==='f'||k==='F'){document.fullscreenElement?document.exitFullscreen():document.documentElement.requestFullscreen().catch(()=>{});}
+  else if(k==='Escape'){ if($('backup').classList.contains('show'))toggleBackup(); }
+});
+$('prev').onclick=()=>go(cur-1); $('next').onclick=()=>go(cur+1);
+$('dots').onclick=e=>{const i=e.target.dataset&&e.target.dataset.i; if(i!=null)go(+i);};
+let tx=null; addEventListener('touchstart',e=>{tx=e.touches[0].clientX},{passive:true});
+addEventListener('touchend',e=>{if(tx==null)return; const d=e.changedTouches[0].clientX-tx; if(Math.abs(d)>70)go(cur+(d<0?1:-1)); tx=null;},{passive:true});
+
+/* scaling */
+function fit(){ if(innerWidth<=760){$('stage').style.transform='none';return;} const s=Math.min(innerWidth/1280,innerHeight/720); $('stage').style.transform='scale('+s+')'; }
+addEventListener('resize',fit); fit();
+
+/* timer */
+const TOTAL=180; let elapsed=0, running=false, tick=null, last=0;
+function fmt(s){const a=Math.abs(s),m=Math.floor(a/60),r=Math.floor(a%60);return (s<0?'+':'')+m+':'+String(r).padStart(2,'0');}
+function drawTimer(){
+  const rem=TOTAL-elapsed, t=$('timer'); t.textContent=fmt(rem<0?-(-rem):rem); if(rem<0)t.textContent='+'+fmt(-rem).replace('+','');
+  t.className=rem<=0?'crit':rem<=10?'crit':rem<=30?'warn':''; updatePace();
+}
+function startTimer(){ if(running)return; running=true; last=performance.now(); tick=setInterval(()=>{const n=performance.now(); elapsed+=(n-last)/1000; last=n; drawTimer();},200); }
+function pauseTimer(){ running=false; clearInterval(tick); }
+function resetTimer(){ pauseTimer(); elapsed=0; drawTimer(); }
+function updatePace(){
+  const end=cum[cur], start=end-budgets[cur]; let txt='';
+  if(elapsed===0&&!running) txt='press T or advance to start';
+  else if(elapsed>end) txt='behind by '+Math.round(elapsed-end)+'s, wrap slide '+(cur+1);
+  else if(elapsed<start-3) txt='ahead by '+Math.round(start-elapsed)+'s';
+  else txt='on pace, slide target '+fmt(budgets[cur]);
+  $('pace').textContent=txt;
+}
+drawTimer();
+
+/* notes + backup */
+function renderNotes(){ $('notes').innerHTML='<h4>SPEAKER NOTES, SLIDE '+(cur+1)+' / '+slides.length+' ('+slides[cur].dataset.name.toUpperCase()+', target '+fmt(budgets[cur])+')</h4>'+NOTES[cur]; }
+function toggleNotes(){ $('notes').classList.toggle('show'); renderNotes(); }
+function toggleBackup(){ const b=$('backup'); b.classList.toggle('show'); if(!b.classList.contains('show'))$('bvid').pause(); }
+$('nbtn').onclick=toggleNotes; $('bbtn').onclick=toggleBackup; $('bclose').onclick=toggleBackup;
+$('bfile').onchange=e=>{const f=e.target.files[0]; if(!f)return; const v=$('bvid'); v.src=URL.createObjectURL(f); v.style.display='block'; $('bph').style.display='none';};
+
+/* count-up */
+function countUp(){
+  document.querySelectorAll('[data-count]').forEach(el=>{
+    const to=+el.dataset.count, dec=+(el.dataset.dec||0), suf=el.dataset.suf||''; const st=performance.now();
+    (function f(n){const t=Math.min(1,(n-st)/1400), e=1-Math.pow(1-t,3); el.textContent=(to*e).toFixed(dec)+suf; if(t<1)requestAnimationFrame(f);})(st);
+  });
+}
+
+/* architecture svg */
+(function arch(){
+  const NS='http://www.w3.org/2000/svg'; let h='';
+  const defs='<defs><marker id="ah" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="7" markerHeight="7" orient="auto"><path d="M0 0L10 5L0 10z" fill="#14e0c9"/></marker><marker id="ah2" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="6" markerHeight="6" orient="auto"><path d="M0 0L10 5L0 10z" fill="#7a9b98"/></marker><filter id="gl"><feGaussianBlur stdDeviation="4"/></filter></defs>';
+  const box=(x,y,w,hh,t,sub,o={})=>`<g><rect x="${x}" y="${y}" width="${w}" height="${hh}" rx="14" fill="${o.fill||'#071c1d'}" stroke="${o.stroke||'#14e0c9'}" stroke-width="${o.sw||1.6}" ${o.dash?'stroke-dasharray="6 5"':''}/><text x="${x+w/2}" y="${y+hh/2-(sub?5:-6)}" text-anchor="middle" fill="${o.tc||'#e9fbf8'}" font-family="Sora" font-weight="700" font-size="${o.fs||17}">${t}</text>${sub?`<text x="${x+w/2}" y="${y+hh/2+16}" text-anchor="middle" fill="#86a8a6" font-family="IBM Plex Mono" font-size="11.5">${sub}</text>`:''}</g>`;
+  const line=(d,o={})=>`<path d="${d}" fill="none" stroke="${o.c||'#14e0c9'}" stroke-width="${o.w||2}" ${o.dash?'class="flow"':''} marker-end="url(#${o.m||'ah'})" opacity="${o.op||1}"/>`;
+  const X=[20,226,432,638,844,1050], W=170;
+  h+=defs;
+  h+=box(X[0],150,W,100,'Mic + cameras','tray cam, wrist cam');
+  h+=box(X[1],70,W,90,'Gemini intent','voice to task',{});
+  h+=box(X[1],200,W,100,'Perceptron','detect + track + palm');
+  h+=box(X[2],150,W,100,'Fixed task menu','6 instruments only',{stroke:'#ffb84d',tc:'#ffe2b0'});
+  h+=box(X[3],150,W,100,'Safety gate','limits, STOP, approval',{stroke:'#ff5b5b',tc:'#ffd0d0'});
+  h+=box(X[4],150,W,100,'LeRobot policy','pick + present primitive');
+  h+=box(X[5],150,W,100,'SO-101','handle-first handoff',{fill:'#0a2f2c',sw:2.4});
+  // main flow
+  h+=line(`M${X[0]+W} 185 C ${X[0]+W+25} 185, ${X[1]-25} 115, ${X[1]} 115`,{dash:1});
+  h+=line(`M${X[0]+W} 215 C ${X[0]+W+25} 215, ${X[1]-25} 250, ${X[1]} 250`,{dash:1});
+  h+=line(`M${X[1]+W} 115 C ${X[1]+W+25} 115, ${X[2]-25} 185, ${X[2]} 185`,{dash:1});
+  h+=line(`M${X[1]+W} 250 C ${X[1]+W+25} 250, ${X[2]-25} 215, ${X[2]} 215`,{dash:1});
+  for(let i=2;i<5;i++)h+=line(`M${X[i]+W} 200 L ${X[i+1]} 200`,{dash:1});
+  // verification loop back
+  h+=`<path d="M${X[5]+W/2} 150 C ${X[5]+W/2} 30, ${X[2]+W/2} 30, ${X[2]+W/2} 150" fill="none" stroke="#7a9b98" stroke-width="1.5" stroke-dasharray="3 5" marker-end="url(#ah2)"/><text x="${(X[5]+X[2])/2+W/2}" y="26" text-anchor="middle" fill="#86a8a6" font-family="IBM Plex Mono" font-size="12">verify: camera confirms tool + orientation, else retry or safe return</text>`;
+  // side services
+  const sy=335, sh=64;
+  h+=box(X[2],sy,W,sh,'Backboard','preference cards',{dash:1,stroke:'#4b7f7b',fs:15});
+  h+=box(X[3],sy,W,sh,'Photon','text the nurse',{dash:1,stroke:'#4b7f7b',fs:15});
+  h+=box(X[5]-60,sy,W+60,sh,'Tiger Data','handoff time series',{dash:1,stroke:'#4b7f7b',fs:15});
+  h+=line(`M${X[2]+W/2} ${sy} L ${X[2]+W/2} 252`,{c:'#7a9b98',m:'ah2'});
+  h+=line(`M${X[3]+W/2} ${sy} L ${X[3]+W/2} 252`,{c:'#7a9b98',m:'ah2'});
+  h+=line(`M${X[5]+W/2} 252 L ${X[5]+W/2} ${sy}`,{c:'#7a9b98',m:'ah2'});
+  h+=`<text x="${X[0]}" y="372" fill="#5d7f7c" font-family="IBM Plex Mono" font-size="12">side services</text>`;
+  $('arch').innerHTML=h;
+})();
+
+/* DEMO: state machine + mock camera */
+const STATES=[
+ ['LISTENING','mic: "hemostat, please"  intent conf 0.96',1500],
+ ['LOCATING','Perceptron boxes the tray: 6 tools + 2 unknown',1500],
+ ['PICKING','policy: reach slot T4, grasp, lift, verify tool',1900],
+ ['WAITING FOR PALM','palm detector: hold open hand in zone',1700],
+ ['HANDOFF','present handle-first, release on contact',1800],
+ ['VERIFIED','correct tool, handle-first, logged to Tiger Data',1800]
+];
+$('ladder').innerHTML=STATES.map((s,i)=>`<div class="rung" data-i="${i}"><i></i>${s[0]}</div>`).join('');
+let ds=0, dAuto=true, dStopped=false, dT=0, dTimer=null;
+function setDemo(i){ ds=i; $('bigState').textContent=STATES[i][0]; $('bigState').className=i===5?'verified':''; $('stateSub').textContent=STATES[i][1];
+  document.querySelectorAll('.rung').forEach((r,j)=>r.className='rung'+(j<i?' done':j===i?' now':'')); dT=performance.now(); }
+function demoLoop(){ clearTimeout(dTimer); dTimer=setTimeout(()=>{ if(slides[cur].dataset.name==='Live demo'&&dAuto&&!dStopped) setDemo((ds+1)%STATES.length); demoLoop(); },STATES[ds][2]); }
+$('ladder').onclick=e=>{const r=e.target.closest('.rung'); if(r&&!dStopped)setDemo(+r.dataset.i);};
+$('demoAuto').onclick=()=>{dAuto=!dAuto; $('demoAuto').textContent=dAuto?'Pause cycle':'Resume cycle';};
+$('stop').onclick=()=>{dStopped=!dStopped; $('stop').textContent=dStopped?'RESET':'STOP'; $('stop').classList.toggle('latched',dStopped);
+  if(dStopped){$('bigState').textContent='E-STOP'; $('bigState').style.color='#ff5b5b'; $('stateSub').textContent='arm frozen, latched. Press RESET to continue.';}
+  else{$('bigState').style.color=''; setDemo(0);} };
+const cam=$('cam'), cx=cam.getContext('2d');
+function camFrame(now){
+  const w=cam.width,h=cam.height; cx.fillStyle='#03100f'; cx.fillRect(0,0,w,h);
+  // grid
+  cx.strokeStyle='#0f2f2d'; cx.lineWidth=1; for(let x=0;x<w;x+=40){cx.beginPath();cx.moveTo(x,0);cx.lineTo(x,h);cx.stroke();} for(let y=0;y<h;y+=40){cx.beginPath();cx.moveTo(0,y);cx.lineTo(w,y);cx.stroke();}
+  // tray
+  cx.strokeStyle='#14e0c9aa'; cx.lineWidth=2; cx.strokeRect(30,50,380,330);
+  const tools=['scalpel','forceps','scissors','hemostat','driver','retractor','?','?'];
+  tools.forEach((t,i)=>{const x=50+(i%3)*120, y=75+Math.floor(i/3)*100; cx.fillStyle=t==='?'?'#2b3a3a':'#45686a'; cx.fillRect(x,y+20,100,10);
+    const hot=ds>=1&&(t==='hemostat'); if(ds>=1&&ds<5){cx.strokeStyle=t==='?'?'#ffb84d':hot?'#14e0c9':'#3a6f6a'; cx.lineWidth=hot?3:1.2; cx.strokeRect(x-6,y+4,112,42); cx.fillStyle=cx.strokeStyle; cx.font='11px IBM Plex Mono'; cx.fillText(t==='?'?'unknown':t,x-4,y+1);}});
+  if(ds===1){const sx=30+((now/6)%380); cx.fillStyle='#14e0c944'; cx.fillRect(sx,50,6,330);}
+  // zone + palm
+  cx.setLineDash([8,6]); cx.strokeStyle='#14e0c9'; cx.strokeRect(470,70,290,300); cx.setLineDash([]);
+  cx.fillStyle='#86a8a6'; cx.font='12px IBM Plex Mono'; cx.fillText('HANDOFF ZONE',478,90);
+  const px=640,py=250;
+  if(ds>=3){cx.fillStyle='#3d8fd4'; cx.beginPath(); cx.roundRect(px-28,py-8,56,48,12); cx.fill(); [-21,-8,5,18].forEach(dx=>{cx.beginPath(); cx.roundRect(px+dx-5,py-42,10,40,5); cx.fill();});
+    cx.strokeStyle='#14e0c9'; cx.lineWidth=3; cx.strokeRect(px-46,py-56,92,106); cx.fillStyle='#14e0c9'; cx.fillText('palm 0.94',px-44,py-62);}
+  // arm
+  const phase=ds; let ax=330,ay=330;
+  if(phase===2){ax=50+3*120+20-300+ (now%1900)/1900*0; ax=110; ay=320-(Math.sin(now/300)*10)-110;}
+  if(phase===3){ax=470;ay=240;} if(phase>=4){ax=600;ay=250;} if(phase===0||phase===1){ax=330;ay=360;}
+  cx.strokeStyle='#0b8f84'; cx.lineWidth=14; cx.lineCap='round'; cx.beginPath(); cx.moveTo(430,440); cx.lineTo(430,300); cx.lineTo(ax,ay); cx.stroke();
+  cx.fillStyle='#ffb84d'; cx.beginPath(); cx.arc(430,440,12,0,7); cx.fill(); cx.beginPath(); cx.arc(ax,ay,8,0,7); cx.fill();
+  if(ds>=2&&ds<=4){cx.fillStyle='#9fb6b8'; cx.save(); cx.translate(ax,ay); cx.rotate(ds>=4?Math.PI:0); cx.fillRect(-10,-4,60,8); cx.restore();}
+  if(ds===5){cx.fillStyle='#9dffb0'; cx.font='700 28px Sora'; cx.fillText('VERIFIED',500,50);}
+  cx.fillStyle='#ff5b5b'; cx.beginPath(); cx.arc(20,24,5,0,7); cx.fill(); cx.fillStyle='#c9e8e4'; cx.font='12px IBM Plex Mono'; cx.fillText('MOCK CAM  tray + wrist',34,28);
+  requestAnimationFrame(camFrame);
+}
+setDemo(0); demoLoop(); requestAnimationFrame(camFrame);
+
+function onEnter(i){ if(slides[i].dataset.name==='Results')countUp(); if(slides[i].dataset.name==='Live demo'&&!dStopped)setDemo(0); }
+const h=parseInt(location.hash.slice(1)); go(h>=1&&h<=slides.length?h-1:0);
+</script>
+</body>
+</html>

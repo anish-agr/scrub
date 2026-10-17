@@ -1,0 +1,561 @@
+<!DOCTYPE html>
+<!--
+FEATURES:
+- Episode grid of 48 teleop demos (instrument handoff and interrupted suture) with canvas thumbnails drawn from the real mock trajectories, gesture strips, flags, success and review status, filters, batch actions
+- Label editor: simulated overhead video with tray slots, palm zone, no-fly zone and sterile boundary; Perceptron-suggested gesture lane vs final lane; drag boundaries to correct; change segment label; per-segment video Q&A with clip frames and confidence
+- Quality flags (tremor spikes, idle, no-fly zone collision, sterile breach) on a tremor signal lane, resolve or dismiss each, jump to moment
+- Success labels (success, failed, recovered) with failure reason
+- Coverage heatmap of instrument type x tray slot with gap detection; click a cell to filter the grid
+- Inter-annotator agreement (Annotator A, B, Perceptron, Final): live Cohen's kappa matrix, boundary error, per-gesture agreement, disagreement queue
+- LeRobot v2.1 export panel: filters, folder tree preview, info.json preview, fake multi-stage export with progress
+-->
+<!-- SPONSORS: Perceptron Robotics (cleaned demos for fine-tuning), Perceptron Perception (video Q&A, clips, event detection for gesture and flag suggestions), Tiger Data (tremor and tip time series), MongoDB Atlas (episode and annotation metadata), Backboard (annotator guidelines memory) -->
+<!-- BACKEND HOOKS: GET /api/datasets/{id}/episodes ; GET /api/episodes/{id}/video ; POST /api/perception/video-qa {episode, t0, t1, question} ; PUT /api/episodes/{id}/segments ; PATCH /api/episodes/{id} {success, reason} ; PATCH /api/episodes/{id}/flags/{fid} {resolved} ; GET /api/datasets/{id}/coverage ; GET /api/datasets/{id}/agreement ; POST /api/datasets/{id}/export {format:"lerobot-v2.1", filters} (SSE progress) -->
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Data Surgeon</title>
+<meta name="description" content="A labeling studio that cleans and annotates surgical-robot teleop demonstrations, then exports them in LeRobot format.">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+<style>
+:root{--bg:#0d1117;--p:#151b23;--p2:#1c242f;--line:#2a3441;--line2:#38465a;--ink:#e6edf3;--mute:#8b98a9;--faint:#5c6b7e;--acc:#4c8dff;--acc2:#2f6fe0;
+--ok:#3fb68b;--bad:#f0605d;--warn:#f0a23b;--vio:#a78bfa}
+*{box-sizing:border-box}html,body{margin:0}
+body{background:var(--bg);color:var(--ink);font:13.5px/1.45 Inter,system-ui,sans-serif;-webkit-font-smoothing:antialiased;min-height:100vh}
+button,select,input{font:inherit;color:inherit}button{cursor:pointer}
+.mono{font-family:"JetBrains Mono",monospace;font-size:12px}
+header{position:sticky;top:0;z-index:30;background:#0a0e14;border-bottom:1px solid var(--line)}
+.hr{display:flex;align-items:center;gap:12px;padding:8px 16px;flex-wrap:wrap}
+.logo{display:flex;align-items:center;gap:8px;font-weight:700;font-size:15px}
+.logo i{width:26px;height:26px;border-radius:7px;background:linear-gradient(135deg,var(--acc),var(--vio));display:grid;place-items:center;font-style:normal;font-size:13px}
+.ds{color:var(--mute)}.ds b{color:var(--ink);font-weight:600}
+.sp{flex:1}
+.stat{display:flex;gap:6px;flex-wrap:wrap}
+.kp{padding:3px 9px;border:1px solid var(--line);border-radius:6px;background:var(--p);font-size:12px;color:var(--mute)}.kp b{color:var(--ink);margin-left:4px}
+.tabs{display:flex;gap:0;padding:0 12px;overflow-x:auto}
+.tab{background:none;border:0;border-bottom:2px solid transparent;min-height:44px;padding:0 14px;color:var(--mute);font-weight:500;white-space:nowrap}
+.tab.on{color:var(--ink);border-color:var(--acc)}
+.warnb{background:#2a2112;color:#f5c26b;font-size:12px;padding:5px 16px;border-bottom:1px solid #3d3017}
+main{padding:16px}
+.view{display:none}.view.on{display:block}
+.btn{min-height:44px;padding:0 14px;border:1px solid var(--line2);background:var(--p2);border-radius:6px;font-weight:500;display:inline-flex;align-items:center;gap:6px}
+.btn:hover{background:#243040}
+.btn.pri{background:var(--acc2);border-color:var(--acc);color:#fff}.btn.pri:hover{background:var(--acc)}
+.btn.ok{background:#1b3a30;border-color:#2c6b55;color:#7fe0b8}
+.btn.bad{background:#3a1d1f;border-color:#74312f;color:#ff9d9a}
+.btn.sm{padding:0 10px;font-size:12.5px}
+.btn:disabled{opacity:.45;cursor:default}
+.chip{min-height:44px;padding:0 12px;border:1px solid var(--line2);background:var(--p);border-radius:999px;color:var(--mute);font-size:12.5px}
+.chip.on{background:var(--acc2);border-color:var(--acc);color:#fff}
+select,input[type=text],input[type=number]{min-height:44px;background:var(--p);border:1px solid var(--line2);border-radius:6px;padding:0 10px}
+.bar{display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin-bottom:12px}
+.grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(220px,1fr));gap:10px}
+.card{background:var(--p);border:1px solid var(--line);border-radius:8px;overflow:hidden;position:relative}
+.ep{cursor:pointer}.ep:hover{border-color:var(--line2)}
+.ep.sel{border-color:var(--acc);box-shadow:0 0 0 1px var(--acc)}
+.ep canvas{display:block;width:100%;height:auto}
+.eb{padding:8px 10px}
+.er{display:flex;align-items:center;gap:6px;flex-wrap:wrap}
+.gstrip{display:flex;height:6px;border-radius:3px;overflow:hidden;margin:6px 0}
+.gstrip i{display:block;height:100%}
+.pill{font-size:11px;font-weight:600;padding:1px 7px;border-radius:999px;border:1px solid transparent}
+.pill.ok{background:#14322a;color:#5fd3a5;border-color:#1f5a47}.pill.bad{background:#3a1d1f;color:#ff8a87;border-color:#6a2c2a}.pill.warn{background:#3a2b12;color:#f5b556;border-color:#664a1a}.pill.gray{background:var(--p2);color:var(--mute);border-color:var(--line)}.pill.vio{background:#2a2250;color:#bba8ff;border-color:#45398a}
+.chk{position:absolute;top:6px;left:6px;width:44px;height:44px;display:grid;place-items:center;z-index:2}
+.chk span{width:18px;height:18px;border-radius:4px;border:1.5px solid #cfd8e3;background:rgba(10,14,20,.6);display:grid;place-items:center;font-size:12px}
+.chk span.on{background:var(--acc);border-color:var(--acc)}
+.fl{display:flex;gap:4px}.fl b{width:18px;height:18px;border-radius:4px;display:grid;place-items:center;font-size:10px;color:#111}
+.panel{min-width:0;overflow-x:auto;background:var(--p);border:1px solid var(--line);border-radius:8px;padding:14px}
+.panel h3{margin:0 0 2px;font-size:14px}.panel .sub{color:var(--mute);font-size:12px;margin-bottom:10px}
+.lay{display:grid;grid-template-columns:minmax(0,1fr) 340px;gap:12px;align-items:start}
+.col{display:flex;flex-direction:column;gap:12px;min-width:0}
+.vwrap{position:relative;background:#05080c;border-radius:6px;overflow:hidden}
+canvas{max-width:100%}
+.vwrap canvas{display:block;width:100%;height:auto}
+.hud{position:absolute;left:8px;top:8px;display:flex;gap:6px;flex-wrap:wrap}
+.hud span{background:rgba(5,8,12,.78);border:1px solid var(--line2);border-radius:4px;padding:2px 7px;font-size:11px}
+.tlx{position:relative;margin-top:10px;user-select:none;touch-action:none}
+.lane{display:flex;align-items:center;gap:8px;margin-bottom:4px}
+.lane label{width:66px;flex:none;font-size:11px;color:var(--mute);line-height:1.15}
+.trk{position:relative;flex:1;height:34px;background:#0d131a;border:1px solid var(--line);border-radius:4px}
+.trk.h{height:44px}
+.sg{position:absolute;top:2px;bottom:2px;border-radius:3px;display:flex;align-items:center;padding:0 5px;font-size:11px;font-weight:600;color:#0a0e14;overflow:hidden;white-space:nowrap;cursor:pointer;border:1px solid rgba(0,0,0,.35)}
+.sg.sel{outline:2px solid #fff;z-index:2}
+.sg.low{background-image:repeating-linear-gradient(135deg,rgba(0,0,0,.28) 0 4px,transparent 4px 8px)}
+.bh{position:absolute;top:-2px;bottom:-2px;width:20px;margin-left:-10px;cursor:ew-resize;z-index:4;display:grid;place-items:center;touch-action:none}
+.bh i{width:3px;height:100%;background:#fff;border-radius:2px;box-shadow:0 0 0 1px rgba(0,0,0,.5)}
+.bh:hover i{background:var(--acc)}
+.fmk{position:absolute;top:2px;width:18px;height:18px;margin-left:-9px;border-radius:50%;border:2px solid #0d131a;cursor:pointer;display:grid;place-items:center;font-size:10px;font-weight:700;color:#111}
+.fmk.res{opacity:.35}
+.phx{position:absolute;top:0;bottom:0;width:2px;background:#ff5d5d;pointer-events:none;z-index:5}
+.phl{position:absolute;left:74px;right:0;top:0;bottom:0;pointer-events:none}
+.ctr{display:flex;align-items:center;gap:8px;margin-top:8px;flex-wrap:wrap}
+.kbd{font-family:"JetBrains Mono";font-size:11px;border:1px solid var(--line2);border-bottom-width:2px;border-radius:4px;padding:0 5px;color:var(--mute)}
+.qa{background:var(--p2);border:1px solid var(--line);border-radius:6px;padding:10px;margin-top:8px}
+.qa .q{color:var(--mute);font-size:12px}.qa .a{margin-top:4px}
+.conf{height:5px;border-radius:3px;background:#0d131a;margin-top:6px;overflow:hidden}.conf i{display:block;height:100%}
+.frames{display:flex;gap:4px;margin-top:6px}.frames canvas{width:33%;border-radius:4px;border:1px solid var(--line)}
+.fli{display:flex;gap:8px;align-items:center;padding:6px 0;border-bottom:1px solid var(--line)}
+.fli:last-child{border:0}
+.dot{width:10px;height:10px;border-radius:50%;flex:none}
+.hm{display:grid;gap:3px}
+.hmc{min-height:44px;border-radius:4px;display:grid;place-items:center;font-weight:600;font-size:12.5px;border:1px solid transparent;cursor:pointer;color:#fff}
+.hmc:hover{border-color:#fff}
+.hmh{font-size:11px;color:var(--mute);display:flex;align-items:center;justify-content:center;text-align:center}
+table{width:100%;border-collapse:collapse}
+th,td{text-align:left;padding:6px 8px;border-bottom:1px solid var(--line);font-size:12.5px}
+th{color:var(--mute);font-weight:500}
+.mx td.v{text-align:center;font-weight:600;font-family:"JetBrains Mono";color:#06101e}
+.bars .r{display:flex;align-items:center;gap:8px;margin:4px 0;font-size:12px}
+.bars .r span{width:160px;flex:none;color:var(--mute)}
+.bars .r div{flex:1;height:10px;background:#0d131a;border-radius:3px;overflow:hidden}.bars .r div i{display:block;height:100%}
+.two{display:grid;grid-template-columns:1fr 1fr;gap:12px}
+.tree{max-width:100%;font-family:"JetBrains Mono";font-size:12px;white-space:pre;overflow:auto;background:#0a0e14;border:1px solid var(--line);border-radius:6px;padding:10px;color:#b7c4d6;max-height:300px}
+.tree .d{color:#7fb0ff}.tree .n{color:#5c6b7e}
+.prog{height:8px;background:#0d131a;border-radius:4px;overflow:hidden;margin:6px 0}.prog i{display:block;height:100%;background:var(--acc);transition:width .2s}
+.stg{display:flex;gap:8px;align-items:center;font-size:12.5px;color:var(--mute);padding:3px 0}
+.stg.done{color:var(--ok)}.stg.run{color:var(--ink)}
+label.cb{display:flex;align-items:center;gap:8px;min-height:44px}
+label.cb input{width:18px;height:18px}
+.toast{position:fixed;bottom:16px;left:50%;transform:translateX(-50%);background:#1c2a3d;border:1px solid var(--acc);padding:8px 14px;border-radius:6px;z-index:50;opacity:0;pointer-events:none;transition:opacity .2s}
+.toast.on{opacity:1}
+@media(max-width:1000px){.two>*,.lay>*{min-width:0}.lay,.two{grid-template-columns:1fr}}
+@media(max-width:480px){main{padding:10px}.lane label{width:48px}.phl{left:56px}.bars .r span{width:100px}}
+</style>
+</head>
+<body>
+<header>
+  <div class="hr">
+    <div class="logo"><i>DS</i>Data Surgeon</div>
+    <div class="ds">dataset <b>so101-surgical-v3</b> &middot; LeRobot v2.1 &middot; handoff + interrupted suture</div>
+    <div class="sp"></div>
+    <div class="stat" id="kpis"></div>
+  </div>
+  <div class="tabs" id="tabs">
+    <button class="tab on" data-v="grid">Episodes</button><button class="tab" data-v="label">Label</button><button class="tab" data-v="cov">Coverage</button><button class="tab" data-v="agr">Agreement</button><button class="tab" data-v="exp">Export</button>
+  </div>
+</header>
+<div class="warnb">Training and research prototype, not for clinical use. Demonstrations use props only (plastic instruments, foam pad). This tool never moves the arm.</div>
+<main>
+<section class="view on" id="v-grid"></section>
+<section class="view" id="v-label"></section>
+<section class="view" id="v-cov"></section>
+<section class="view" id="v-agr"></section>
+<section class="view" id="v-exp"></section>
+</main>
+<div class="toast" id="toast"></div>
+
+<script>
+(function(){
+"use strict";
+const $=id=>document.getElementById(id);
+const COL={H1:"#63b3ff",H2:"#ffb454",H3:"#58d6c0",H4:"#c792ea",H5:"#7ee787",H6:"#ff7b9c",H7:"#9aa7b8",
+ G1:"#ff8a65",G2:"#ffd166",G3:"#2ec4b6",G4:"#6ea8ff",G5:"#b388ff",G6:"#f06292",G8:"#7bd88f",G9:"#e07a3f",G11:"#9aa7b8"};
+const VOC={handoff:{H1:"Reach tray slot",H2:"Grasp instrument",H3:"Lift clear of tray",H4:"Transport to palm zone",H5:"Present handle-first",H6:"Release into palm",H7:"Retract to home"},
+ suture:{G1:"Reaching for needle",G2:"Positioning needle",G3:"Pushing needle through tissue",G4:"Transferring needle",G5:"Moving to center",G6:"Pulling suture",G8:"Orienting needle",G9:"Tightening suture",G11:"Dropping suture, moving to end points"}};
+const SEQ={handoff:["H1","H2","H3","H4","H5","H6","H7"],suture:["G1","G2","G3","G6","G4","G8","G2","G3","G6","G9","G11"]};
+const INSTR=["Needle driver","Forceps","Scissors","Hemostat clamp","Scalpel handle","Gauze sponge"];
+const ICOL=["#4c8dff","#3fb68b","#f0a23b","#a78bfa","#f0605d","#d6dde6"];
+const FLT={tremor:{n:"Tremor spike",c:"#f0605d",s:"T"},idle:{n:"Idle",c:"#f0a23b",s:"I"},nofly:{n:"No-fly zone",c:"#ff4fa3",s:"N"},sterile:{n:"Sterile breach",c:"#4fd1ff",s:"S"}};
+function rnd(seed){let s=seed*9301+49297;return()=>{s=(s*9301+49297)%233280;return s/233280}}
+function ease(u){return u*u*(3-2*u)}
+function cl(v,a,b){return Math.max(a,Math.min(b,v))}
+function fmt(t){const m=Math.floor(t/60),s=t-m*60;return m+":"+(s<10?"0":"")+s.toFixed(1)}
+function toast(m){const t=$("toast");t.textContent=m;t.classList.add("on");clearTimeout(toast.h);toast.h=setTimeout(()=>t.classList.remove("on"),1800)}
+
+// ---------- data
+const BASEDUR={H1:3,H2:2,H3:1.6,H4:4,H5:2.6,H6:1.5,H7:3,G1:5,G2:6,G3:7,G4:7,G5:4,G6:6,G8:5,G9:8,G11:5};
+function perturb(segs,jit,swap,r,task,model){
+  const T=segs[segs.length-1].e,b=[];
+  for(let i=0;i<segs.length-1;i++)b.push(segs[i].e+(r()-.5)*2*jit);
+  b.sort((x,y)=>x-y);for(let i=0;i<b.length;i++){b[i]=cl(b[i],(i?b[i-1]:0)+.3,T-.3*(b.length-i))}
+  const keys=Object.keys(VOC[task]);
+  return segs.map((s,i)=>{const sw=r()<swap;const g=sw?keys[Math.floor(r()*keys.length)]:s.g;
+    return {g,s:i?b[i-1]:0,e:i<b.length?b[i]:T,conf:model?(sw?.35+r()*.25:.7+r()*.29):1,ai:sw}})
+}
+const EPS=[];
+(function gen(){
+  for(let n=0;n<48;n++){
+    const r=rnd(n*13+5),task=r()<.58?"handoff":"suture",seq=SEQ[task];
+    let t=0;const gold=seq.map(g=>{const d=BASEDUR[g]*(.75+r()*.55);const s={g,s:t,e:t+d};t+=d;return s});
+    const dur=t;
+    const instr=task==="suture"?(r()<.65?0:1):Math.min(5,Math.floor(Math.pow(r(),1.3)*6)),slot=Math.min(7,Math.floor(Math.pow(r(),1.4)*8));
+    const rs=r(),success=rs<.72?"success":rs<.9?"failed":"recovered";
+    const reasons=["Instrument dropped","Missed palm zone","Timeout","Grasp slip"];
+    const flags=[];let fid=0;
+    const nt=Math.floor(r()*3.2);for(let i=0;i<nt;i++)flags.push({id:fid++,type:"tremor",t:1+r()*(dur-2),sev:.5+r()*.5,res:false});
+    if(r()<.4)flags.push({id:fid++,type:"idle",t:r()*(dur-4),d:1.5+r()*2.5,res:false});
+    if(r()<.17)flags.push({id:fid++,type:"nofly",t:2+r()*(dur-4),res:false});
+    if(r()<.1)flags.push({id:fid++,type:"sterile",t:2+r()*(dur-4),res:false});
+    const reviewed=r()<.65;
+    const auto=perturb(gold,.5,.1,r,task,true);
+    EPS.push({id:n,name:"ep_"+String(n).padStart(4,"0"),task,dur,instr,slot,success,reason:success==="failed"?reasons[Math.floor(r()*4)]:"",
+      flags,gold,auto,A:perturb(gold,.3,.05,r,task,false),B:perturb(gold,.5,.1,r,task,false),
+      final:(reviewed?gold:auto).map(s=>({g:s.g,s:s.s,e:s.e,conf:s.conf||1,ai:!!s.ai&&!reviewed})),
+      status:reviewed?"done":(r()<.3?"review":"new"),op:"op-"+(1+Math.floor(r()*3)),ts:"Oct "+(12+Math.floor(r()*5))+", "+(9+Math.floor(r()*9))+":"+String(Math.floor(r()*60)).padStart(2,"0"),sel:false,seed:n});
+  }
+})();
+function quality(e){let q=100;e.flags.forEach(f=>{if(f.res)return;q-=f.type==="tremor"?7*f.sev+3:f.type==="idle"?f.d*3:f.type==="nofly"?25:30});return Math.round(cl(q,5,100))}
+function openFlags(e){return e.flags.filter(f=>!f.res)}
+function segIdx(segs,t){for(let i=0;i<segs.length;i++)if(t<segs[i].e)return i;return segs.length-1}
+
+// ---------- scene model
+const HOME=[.5,.92],PALM=[.84,.5];
+function slotXY(i){return [.09+(i%2)*.11,.24+Math.floor(i/2)*.15]}
+function target(e,g){
+  const s=slotXY(e.slot);
+  return ({H1:[s[0],s[1]-.07],H2:s,H3:[s[0]+.09,s[1]-.2],H4:[.62,.34],H5:PALM,H6:PALM,H7:HOME,
+   G1:[.72,.3],G2:[.6,.55],G3:[.5,.5],G4:[.4,.45],G5:[.5,.5],G6:[.3,.35],G8:[.55,.62],G9:[.45,.5],G11:[.9,.14]})[g];
+}
+function pos(e,t){
+  const sg=e.gold,i=segIdx(sg,t),s=sg[i];
+  const a=i?target(e,sg[i-1].g):HOME,b=target(e,s.g);
+  const u=ease(cl((t-s.s)/(s.e-s.s),0,1));
+  let p=[a[0]+(b[0]-a[0])*u,a[1]+(b[1]-a[1])*u];
+  e.flags.forEach(f=>{
+    if(f.type==="nofly"||f.type==="sterile"){
+      const w=Math.exp(-Math.pow((t-f.t)/.45,2)),tg=f.type==="nofly"?[.5,.42]:[.97,.78];
+      p=[p[0]+(tg[0]-p[0])*w,p[1]+(tg[1]-p[1])*w];
+    }
+    if(f.type==="tremor"){const w=Math.exp(-Math.pow((t-f.t)/.25,2))*.012*f.sev;p=[p[0]+Math.sin(t*60)*w,p[1]+Math.cos(t*47)*w]}
+  });
+  return p;
+}
+function tremorSig(e){
+  if(e.tr)return e.tr;const r=rnd(e.seed+99),n=Math.ceil(e.dur*10),a=[];
+  for(let i=0;i<n;i++){const t=i/10;let v=.1+.05*Math.sin(t*4+e.seed)+r()*.06;
+    e.flags.forEach(f=>{if(f.type==="tremor")v+=f.sev*.8*Math.exp(-Math.pow((t-f.t)/.25,2))});a.push(v)}
+  return e.tr=a;
+}
+function drawScene(c,W,H,e,t,full){
+  c.clearRect(0,0,W,H);
+  c.fillStyle="#0c1218";c.fillRect(0,0,W,H);
+  const X=p=>p[0]*W,Y=p=>p[1]*H;
+  // sterile field
+  c.strokeStyle="rgba(79,209,255,.45)";c.setLineDash([8,6]);c.lineWidth=full?1.5:1;c.strokeRect(W*.02,H*.04,W*.94,H*.9);c.setLineDash([]);
+  if(full){c.fillStyle="rgba(79,209,255,.7)";c.font="600 10px Inter";c.fillText("STERILE FIELD",W*.03,H*.09)}
+  const tl=e.task==="handoff";
+  if(tl){
+    // tray
+    c.fillStyle="#18222d";c.strokeStyle="#334152";c.lineWidth=1.5;c.beginPath();c.roundRect(W*.04,H*.14,W*.3,H*.7,6);c.fill();c.stroke();
+    for(let i=0;i<8;i++){const p=slotXY(i);c.strokeStyle=i===e.slot?"#4c8dff":"#2d3a4a";c.lineWidth=i===e.slot?2:1;c.beginPath();c.roundRect(p[0]*W-W*.04,p[1]*H-H*.055,W*.08,H*.11,4);c.stroke();
+      if(full){c.fillStyle="#5c6b7e";c.font="10px JetBrains Mono";c.fillText("S"+(i+1),p[0]*W-W*.035,p[1]*H+H*.085)}}
+    // palm
+    c.fillStyle="rgba(240,190,160,.2)";c.strokeStyle="#e7b898";c.lineWidth=1.5;c.beginPath();c.ellipse(PALM[0]*W,PALM[1]*H,W*.08,H*.15,0,0,7);c.fill();c.stroke();
+    if(full){c.fillStyle="#e7b898";c.font="600 10px Inter";c.fillText("PALM ZONE",PALM[0]*W-W*.05,PALM[1]*H+H*.2)}
+  }else{
+    c.fillStyle="#d89a96";c.strokeStyle="#a86b67";c.lineWidth=2;c.beginPath();c.roundRect(W*.25,H*.2,W*.5,H*.6,18);c.fill();c.stroke();
+    c.setLineDash([6,5]);c.strokeStyle="#5a2a2a";c.beginPath();c.moveTo(W*.5,H*.28);c.lineTo(W*.5,H*.72);c.stroke();c.setLineDash([]);
+  }
+  // no-fly zone
+  c.fillStyle="rgba(255,79,163,.1)";c.strokeStyle="#ff4fa3";c.setLineDash([5,4]);c.lineWidth=1.5;c.beginPath();c.arc(W*.5,H*.42,H*.13,0,7);c.fill();c.stroke();c.setLineDash([]);
+  if(full){c.fillStyle="#ff4fa3";c.font="600 10px Inter";c.fillText("NO-FLY",W*.5-W*.03,H*.42+H*.19)}
+  // instrument
+  const p=pos(e,t),i=segIdx(e.gold,t),ic=ICOL[e.instr];
+  const tp=tl?(i>=1&&i<=4?p:i>=5?[PALM[0]-.02,PALM[1]]:slotXY(e.slot)):null;
+  if(tp){c.fillStyle=ic;c.strokeStyle="#000";c.lineWidth=1;c.beginPath();c.roundRect(X(tp)-W*.035,Y(tp)-H*.018,W*.07,H*.036,3);c.fill();c.stroke()}
+  // gripper arm
+  c.strokeStyle="#7a8aa0";c.lineWidth=full?8:5;c.lineCap="round";c.beginPath();c.moveTo(W*.5,H);c.lineTo(X(p),Y(p));c.stroke();
+  c.strokeStyle="#e6edf3";c.lineWidth=full?3:2;c.beginPath();c.moveTo(X(p),Y(p));c.lineTo(X(p)-W*.015,Y(p)-H*.04);c.moveTo(X(p),Y(p));c.lineTo(X(p)+W*.015,Y(p)-H*.04);c.stroke();
+  // flag blink
+  e.flags.forEach(f=>{if((f.type==="nofly"||f.type==="sterile")&&Math.abs(t-f.t)<.5&&full){c.fillStyle=FLT[f.type].c;c.font="700 13px Inter";c.fillText("! "+FLT[f.type].n.toUpperCase(),W*.5-60,H*.1)}});
+}
+function thumb(cv,e){
+  const c=cv.getContext("2d"),W=cv.width,H=cv.height;
+  drawScene(c,W,H,e,0,false);
+  c.lineWidth=2;c.lineJoin="round";
+  e.gold.forEach(s=>{c.strokeStyle=COL[s.g];c.beginPath();for(let t=s.s;t<=s.e;t+=.15){const p=pos(e,t);t===s.s?c.moveTo(p[0]*W,p[1]*H):c.lineTo(p[0]*W,p[1]*H)}c.stroke()});
+}
+
+// ---------- state
+const st={view:"grid",filt:{task:"all",flag:"all",status:"all",succ:"all",q:"",cell:null},cur:0,t:0,play:false,seg:0,sp:1,exp:{onlyOk:true,nofly:true,sterile:true,tremor:false,idle:false,minQ:60,repo:"caide/so101-surgical-v3",incGest:true,prog:-1,stage:0}};
+const kappaCache={v:-1,m:null};
+let ver=0;
+function dirty(){ver++}
+
+// ---------- header
+function renderKpis(){
+  const done=EPS.filter(e=>e.status==="done").length,fl=EPS.reduce((a,e)=>a+openFlags(e).length,0);
+  const k=agreement().mx[0][3];
+  $("kpis").innerHTML=`<span class="kp">Episodes<b>${EPS.length}</b></span><span class="kp">Reviewed<b>${done}/${EPS.length}</b></span><span class="kp">Open flags<b>${fl}</b></span><span class="kp">Agreement (A vs Final) kappa<b>${k.toFixed(2)}</b></span>`;
+}
+document.querySelectorAll("#tabs .tab").forEach(b=>b.onclick=()=>go(b.dataset.v));
+function go(v){
+  st.view=v;document.querySelectorAll("#tabs .tab").forEach(b=>b.classList.toggle("on",b.dataset.v===v));
+  document.querySelectorAll(".view").forEach(s=>s.classList.toggle("on",s.id==="v-"+v));
+  st.play=false;render();window.scrollTo(0,0);
+}
+function render(){renderKpis();({grid:rGrid,label:rLabel,cov:rCov,agr:rAgr,exp:rExp})[st.view]()}
+
+// ---------- grid
+function filtered(){
+  const f=st.filt;
+  return EPS.filter(e=>(f.task==="all"||e.task===f.task)&&(f.flag==="all"||(f.flag==="any"?openFlags(e).length:openFlags(e).some(x=>x.type===f.flag)))&&
+   (f.status==="all"||e.status===f.status)&&(f.succ==="all"||e.success===f.succ)&&(!f.q||e.name.includes(f.q))&&(!f.cell||(e.instr===f.cell[0]&&e.slot===f.cell[1])));
+}
+function opt(v,arr,cur){return arr.map(a=>`<option value="${a[0]}" ${cur===a[0]?"selected":""}>${a[1]}</option>`).join("")}
+function rGrid(){
+  const L=filtered(),sel=EPS.filter(e=>e.sel).length;
+  let h=`<div class="bar">
+   <select id="fT" aria-label="Task">${opt(0,[["all","All tasks"],["handoff","Handoff"],["suture","Suture"]],st.filt.task)}</select>
+   <select id="fF" aria-label="Flag">${opt(0,[["all","Any flags"],["any","Has open flags"],["tremor","Tremor"],["idle","Idle"],["nofly","No-fly"],["sterile","Sterile breach"]],st.filt.flag)}</select>
+   <select id="fS" aria-label="Status">${opt(0,[["all","Any status"],["new","New"],["review","In review"],["done","Done"]],st.filt.status)}</select>
+   <select id="fU" aria-label="Success">${opt(0,[["all","Any outcome"],["success","Success"],["failed","Failed"],["recovered","Recovered"]],st.filt.succ)}</select>
+   <input type="text" id="fQ" placeholder="Search ep_00..." value="${st.filt.q}" style="width:150px">
+   ${st.filt.cell?`<button class="chip on" id="clrC">${INSTR[st.filt.cell[0]]} x S${st.filt.cell[1]+1} &times;</button>`:""}
+   <span class="sp"></span><span style="color:var(--mute)">${L.length} shown &middot; ${sel} selected</span>
+   <button class="btn sm" id="bAll">Select all</button>
+   <button class="btn sm ok" id="bAcc" ${sel?"":"disabled"}>Accept auto labels</button>
+   <button class="btn sm" id="bDone" ${sel?"":"disabled"}>Mark done</button>
+   <button class="btn sm bad" id="bDrop" ${sel?"":"disabled"}>Exclude from export</button></div><div class="grid">`;
+  L.forEach(e=>{
+    const q=quality(e),of=openFlags(e),tot=e.dur;
+    h+=`<div class="card ep ${e.sel?"sel":""}" data-id="${e.id}"><div class="chk" data-c="${e.id}"><span class="${e.sel?"on":""}">${e.sel?"✓":""}</span></div>
+     <canvas width="320" height="180" data-th="${e.id}"></canvas><div class="eb"><div class="er"><b class="mono">${e.name}</b><span class="pill ${e.task==="handoff"?"vio":"gray"}">${e.task}</span><span style="margin-left:auto" class="mono" title="Quality score">Q${q}</span></div>
+     <div class="gstrip">${e.final.map(s=>`<i style="width:${(s.e-s.s)/tot*100}%;background:${COL[s.g]}"></i>`).join("")}</div>
+     <div class="er"><span class="pill ${e.success==="success"?"ok":e.success==="failed"?"bad":"warn"}">${e.success}</span><span class="pill ${e.status==="done"?"ok":e.status==="review"?"warn":"gray"}">${e.status}</span><span class="fl" style="margin-left:auto">${of.map(f=>`<b style="background:${FLT[f.type].c}" title="${FLT[f.type].n}">${FLT[f.type].s}</b>`).join("")}</span></div>
+     <div class="er mono" style="color:var(--faint);margin-top:4px">${e.dur.toFixed(0)}s &middot; ${INSTR[e.instr]} &middot; S${e.slot+1}</div></div></div>`;
+  });
+  $("v-grid").innerHTML=h+"</div>";
+  document.querySelectorAll("[data-th]").forEach(cv=>thumb(cv,EPS[+cv.dataset.th]));
+  const on=(id,fn)=>{const el=$(id);if(el)el.onchange=fn};
+  on("fT",e=>{st.filt.task=e.target.value;rGrid()});on("fF",e=>{st.filt.flag=e.target.value;rGrid()});on("fS",e=>{st.filt.status=e.target.value;rGrid()});on("fU",e=>{st.filt.succ=e.target.value;rGrid()});
+  $("fQ").oninput=e=>{st.filt.q=e.target.value;const pos=e.target.selectionStart;rGrid();$("fQ").focus();$("fQ").setSelectionRange(pos,pos)};
+  if($("clrC"))$("clrC").onclick=()=>{st.filt.cell=null;rGrid()};
+  $("bAll").onclick=()=>{const all=L.every(e=>e.sel);L.forEach(e=>e.sel=!all);rGrid()};
+  $("bAcc").onclick=()=>{EPS.filter(e=>e.sel).forEach(e=>{e.final=e.auto.map(s=>({g:s.g,s:s.s,e:s.e,conf:s.conf,ai:false}));e.status="review"});dirty();toast("Auto labels accepted");rGrid();renderKpis()};
+  $("bDone").onclick=()=>{EPS.filter(e=>e.sel).forEach(e=>e.status="done");toast("Marked done");rGrid();renderKpis()};
+  $("bDrop").onclick=()=>{EPS.filter(e=>e.sel).forEach(e=>{e.excl=true;e.sel=false});toast("Excluded from export");rGrid()};
+  document.querySelectorAll(".chk").forEach(c=>c.onclick=ev=>{ev.stopPropagation();const e=EPS[+c.dataset.c];e.sel=!e.sel;rGrid()});
+  document.querySelectorAll(".ep").forEach(c=>c.onclick=()=>{st.cur=+c.dataset.id;st.t=0;st.seg=0;go("label")});
+}
+
+// ---------- label view
+function qaText(e,i){
+  const s=e.final[i],a=e.auto.find(x=>x.s<=(s.s+s.e)/2&&x.e>(s.s+s.e)/2)||e.auto[i];
+  const voc=VOC[e.task];
+  return {q:`Clip ${fmt(s.s)} to ${fmt(s.e)}: which gesture is the operator performing?`,a:`${a.g} ${voc[a.g]}`,conf:a.conf,g:a.g};
+}
+function rLabel(){
+  const e=EPS[st.cur],voc=VOC[e.task],tot=e.dur,tr=tremorSig(e);
+  const seg=e.final[st.seg]||e.final[0];
+  const qa=qaText(e,st.seg);
+  $("v-label").innerHTML=`<div class="bar"><button class="btn sm" id="pv">&larr; Prev</button><b class="mono" style="font-size:14px">${e.name}</b><span class="pill vio">${e.task}</span><span class="pill gray">${INSTR[e.instr]} / slot S${e.slot+1}</span><span class="pill gray">${e.op} &middot; ${e.ts}</span><span class="sp"></span><span style="color:var(--mute)">Quality <b style="color:var(--ink)">${quality(e)}</b></span><button class="btn sm" id="nx">Next &rarr;</button></div>
+  <div class="lay"><div class="col">
+   <div class="panel"><div class="vwrap"><canvas id="sc" width="640" height="360" aria-label="Overhead demo video"></canvas><div class="hud"><span class="mono" id="hudT"></span><span id="hudG"></span></div></div>
+    <div class="ctr"><button class="btn pri" id="pl">${st.play?"Pause":"Play"}</button>
+     <select id="spd" aria-label="Speed">${[1,2,4].map(s=>`<option ${st.sp===s?"selected":""}>${s}</option>`).join("")}</select><span style="color:var(--mute)">x</span>
+     <span class="kbd">Space</span><span class="kbd">N</span><span class="kbd">P</span><span style="color:var(--faint);font-size:12px">play, next, previous</span></div>
+    <div class="tlx" id="tlx">
+     <div class="lane"><label>Perceptron suggestion</label><div class="trk" id="tA"></div></div>
+     <div class="lane"><label>Final (drag edges)</label><div class="trk h" id="tF"></div></div>
+     <div class="lane"><label>Flags</label><div class="trk" id="tFl"></div></div>
+     <div class="lane"><label>Tremor</label><div class="trk"><canvas id="tc" width="800" height="34" style="width:100%;height:100%;display:block"></canvas></div></div>
+     <div class="phl"><div class="phx" id="phx"></div></div></div></div>
+   <div class="panel"><h3>Selected segment</h3><div class="sub">${seg.g} &middot; ${fmt(seg.s)} to ${fmt(seg.e)} (${(seg.e-seg.s).toFixed(1)}s)</div>
+    <div class="ctr" style="margin:0"><select id="gsel" aria-label="Gesture label">${Object.keys(voc).map(g=>`<option value="${g}" ${g===seg.g?"selected":""}>${g} ${voc[g]}</option>`).join("")}</select>
+     <button class="btn sm" id="split">Split at playhead</button><button class="btn sm bad" id="merge">Merge with next</button></div>
+    <div class="qa"><div class="q"><b style="color:var(--acc)">Perceptron video Q&amp;A</b> &middot; ${qa.q}</div>
+     <div class="a" id="qaA"><b>${qa.a}</b> <span class="mono" style="color:var(--mute)">conf ${qa.conf.toFixed(2)}</span></div>
+     <div class="conf"><i style="width:${qa.conf*100}%;background:${qa.conf<.6?"var(--warn)":"var(--ok)"}"></i></div>
+     <div class="frames"><canvas width="160" height="90" data-fr="0"></canvas><canvas width="160" height="90" data-fr="1"></canvas><canvas width="160" height="90" data-fr="2"></canvas></div>
+     <div class="ctr"><button class="btn sm ok" id="accA">${qa.g===seg.g?"Confirmed":"Accept "+qa.g}</button><button class="btn sm" id="rerun">Re-run on clip</button></div></div></div>
+  </div>
+  <div class="col">
+   <div class="panel"><h3>Outcome</h3><div class="sub">Success label for training</div>
+    <div class="ctr" style="margin:0">${["success","failed","recovered"].map(o=>`<button class="chip ${e.success===o?"on":""}" data-o="${o}">${o}</button>`).join("")}</div>
+    ${e.success==="failed"?`<div style="margin-top:8px;color:var(--mute)">Reason: <select id="rsn">${["Instrument dropped","Missed palm zone","Timeout","Grasp slip"].map(r=>`<option ${e.reason===r?"selected":""}>${r}</option>`).join("")}</select></div>`:""}
+    <div class="ctr"><button class="btn ok" id="done">${e.status==="done"?"Reviewed":"Mark reviewed"}</button><label class="cb"><input type="checkbox" id="ex" ${e.excl?"checked":""}>Exclude from export</label></div></div>
+   <div class="panel"><h3>Quality flags</h3><div class="sub">${openFlags(e).length} open of ${e.flags.length}</div>
+    ${e.flags.length?e.flags.map(f=>`<div class="fli"><span class="dot" style="background:${FLT[f.type].c}"></span><div style="flex:1;${f.res?"opacity:.45;text-decoration:line-through":""}"><b>${FLT[f.type].n}</b><div class="mono" style="color:var(--mute)">${fmt(f.t)}${f.d?" for "+f.d.toFixed(1)+"s":""}</div></div><button class="btn sm" data-j="${f.id}">Jump</button><button class="btn sm" data-r="${f.id}">${f.res?"Reopen":"Resolve"}</button></div>`).join(""):`<div style="color:var(--ok)">No flags. Clean demonstration.</div>`}</div>
+   <div class="panel"><h3>Ask Perceptron</h3><div class="sub">Video Q&amp;A on the whole episode</div>
+    <div class="ctr" style="margin:0">${["Entered the no-fly zone?","Sterile field breached?","Did the handoff succeed?"].map((q,i)=>`<button class="chip" data-q="${i}">${q}</button>`).join("")}</div><div class="qa" id="ask" style="display:none"></div></div>
+  </div></div>`;
+  drawTL();bindLabel();paintFrames();
+}
+function pct(t){return t/EPS[st.cur].dur*100+"%"}
+function drawTL(){
+  const e=EPS[st.cur],voc=VOC[e.task];
+  $("tA").innerHTML=e.auto.map(s=>`<div class="sg ${s.conf<.6?"low":""}" style="left:${pct(s.s)};width:${(s.e-s.s)/e.dur*100}%;background:${COL[s.g]};opacity:${.5+s.conf*.5}" title="${s.g} ${voc[s.g]} conf ${s.conf.toFixed(2)}">${s.g}</div>`).join("");
+  $("tF").innerHTML=e.final.map((s,i)=>`<div class="sg ${i===st.seg?"sel":""}" data-s="${i}" style="left:${pct(s.s)};width:${(s.e-s.s)/e.dur*100}%;background:${COL[s.g]}" title="${s.g} ${voc[s.g]}">${s.g}</div>`).join("")+
+    e.final.slice(0,-1).map((s,i)=>`<div class="bh" data-b="${i}" style="left:${pct(s.e)}"><i></i></div>`).join("");
+  $("tFl").innerHTML=e.flags.map(f=>`<div class="fmk ${f.res?"res":""}" data-j="${f.id}" style="left:${pct(f.t)};background:${FLT[f.type].c}" title="${FLT[f.type].n} ${fmt(f.t)}">${FLT[f.type].s}</div>`).join("");
+  const c=$("tc").getContext("2d"),tr=tremorSig(e),W=800,H=34;c.clearRect(0,0,W,H);
+  c.strokeStyle="rgba(240,96,93,.5)";c.setLineDash([4,4]);c.beginPath();c.moveTo(0,H*.38);c.lineTo(W,H*.38);c.stroke();c.setLineDash([]);
+  c.strokeStyle="#6ea8ff";c.lineWidth=1.5;c.beginPath();tr.forEach((v,i)=>{const x=i/(tr.length-1)*W,y=H-2-v/1.0*(H-4);i?c.lineTo(x,y):c.moveTo(x,y)});c.stroke();
+}
+function paintFrames(){
+  const e=EPS[st.cur],s=e.final[st.seg]||e.final[0];
+  document.querySelectorAll("[data-fr]").forEach(cv=>{const f=+cv.dataset.fr,t=s.s+(s.e-s.s)*(.1+f*.4);drawScene(cv.getContext("2d"),160,90,e,t,false)});
+}
+function bindLabel(){
+  const e=EPS[st.cur];
+  $("pv").onclick=()=>step(-1);$("nx").onclick=()=>step(1);
+  $("pl").onclick=()=>{st.play=!st.play;$("pl").textContent=st.play?"Pause":"Play"};
+  $("spd").onchange=ev=>st.sp=+ev.target.value;
+  const trk=$("tF");
+  const tAt=ev=>{const r=trk.getBoundingClientRect();return cl((ev.clientX-r.left)/r.width,0,1)*e.dur};
+  let drag=-1;
+  $("tlx").addEventListener("pointerdown",ev=>{
+    const b=ev.target.closest(".bh");
+    if(b){drag=+b.dataset.b;ev.preventDefault();return}
+    const f=ev.target.closest(".fmk");if(f){st.t=e.flags[+f.dataset.j].t-.3;return}
+    const sg=ev.target.closest(".sg[data-s]");if(sg){st.seg=+sg.dataset.s;st.t=tAt(ev);drawTL();updSel();return}
+    if(ev.target.closest(".trk"))st.t=tAt(ev);
+  });
+  window.onpointermove=ev=>{if(drag<0)return;const t=tAt(ev),F=e.final;
+    F[drag].e=cl(t,F[drag].s+.3,F[drag+1].e-.3);F[drag+1].s=F[drag].e;e.status=e.status==="done"?"done":"review";drawTL();paintFrames()};
+  window.onpointerup=()=>{if(drag>=0){drag=-1;dirty();toast("Boundary adjusted");renderKpis()}};
+  $("gsel").onchange=ev=>{e.final[st.seg].g=ev.target.value;e.final[st.seg].ai=false;dirty();rLabel();renderKpis()};
+  $("split").onclick=()=>{const i=segIdx(e.final,st.t),s=e.final[i];if(st.t-s.s<.4||s.e-st.t<.4){toast("Move playhead inside the segment");return}
+    e.final.splice(i+1,0,{g:s.g,s:st.t,e:s.e,conf:1,ai:false});s.e=st.t;st.seg=i;dirty();rLabel()};
+  $("merge").onclick=()=>{const i=st.seg;if(i>=e.final.length-1)return;e.final[i].e=e.final[i+1].e;e.final.splice(i+1,1);dirty();rLabel()};
+  $("accA").onclick=()=>{const q=qaText(e,st.seg);e.final[st.seg].g=q.g;e.final[st.seg].ai=false;dirty();toast("Suggestion accepted");rLabel();renderKpis()};
+  $("rerun").onclick=()=>{$("qaA").innerHTML='<span style="color:var(--mute)">Querying Perception API on clip...</span>';setTimeout(()=>{const a=e.auto.find(x=>x.s<=e.final[st.seg].s+.1&&x.e>e.final[st.seg].s+.1)||e.auto[st.seg];a.conf=Math.min(.98,a.conf+.12);rLabel();toast("Clip re-scored (mock)")},700)};
+  document.querySelectorAll("[data-o]").forEach(b=>b.onclick=()=>{e.success=b.dataset.o;if(e.success==="failed"&&!e.reason)e.reason="Timeout";rLabel()});
+  if($("rsn"))$("rsn").onchange=ev=>e.reason=ev.target.value;
+  $("done").onclick=()=>{e.status="done";toast("Marked reviewed");renderKpis();rLabel()};
+  $("ex").onchange=ev=>e.excl=ev.target.checked;
+  document.querySelectorAll("#v-label [data-j]").forEach(b=>{if(b.tagName==="BUTTON")b.onclick=()=>{st.t=Math.max(0,e.flags[+b.dataset.j].t-.3)}});
+  document.querySelectorAll("[data-r]").forEach(b=>b.onclick=()=>{const f=e.flags[+b.dataset.r];f.res=!f.res;renderKpis();rLabel()});
+  document.querySelectorAll("[data-q]").forEach(b=>b.onclick=()=>{
+    const i=+b.dataset.q,a=$("ask");a.style.display="block";
+    const nf=e.flags.some(f=>f.type==="nofly"),sb=e.flags.some(f=>f.type==="sterile");
+    const ans=[nf?"Yes. Tip enters the circular zone at "+fmt(e.flags.find(f=>f.type==="nofly").t)+".":"No entry detected.",sb?"Yes. Instrument leaves the field at "+fmt(e.flags.find(f=>f.type==="sterile").t)+".":"No breach detected.",e.success==="failed"?"No. "+e.reason+".":"Yes. Instrument released into palm zone."][i];
+    a.innerHTML=`<div class="q">${b.textContent}</div><div class="a"><b>${ans}</b> <span class="mono" style="color:var(--mute)">conf ${(.82+i*.04).toFixed(2)}</span></div>`});
+}
+function updSel(){document.querySelectorAll("#tF .sg").forEach(d=>d.classList.toggle("sel",+d.dataset.s===st.seg));paintFrames()}
+function step(d){st.cur=(st.cur+d+EPS.length)%EPS.length;st.t=0;st.seg=0;st.play=false;rLabel()}
+function tickLabel(){
+  const e=EPS[st.cur],cv=$("sc");if(!cv)return;
+  const i=segIdx(e.final,st.t);
+  drawScene(cv.getContext("2d"),640,360,e,st.t,true);
+  $("hudT").textContent=fmt(st.t)+" / "+fmt(e.dur);
+  const s=e.final[i];$("hudG").innerHTML=`<span style="border-color:${COL[s.g]};color:${COL[s.g]}">${s.g} ${VOC[e.task][s.g]}</span>`;
+  $("phx").style.left=pct(st.t);
+  if(i!==st.seg&&st.play){st.seg=i;updSel()}
+}
+let last=performance.now();
+function frame(n){
+  const dt=Math.min(.1,(n-last)/1000);last=n;
+  if(st.view==="label"){const e=EPS[st.cur];if(st.play){st.t+=dt*st.sp;if(st.t>=e.dur){st.t=0}}tickLabel()}
+  requestAnimationFrame(frame);
+}
+window.addEventListener("keydown",ev=>{
+  if(st.view!=="label"||/INPUT|SELECT|TEXTAREA/.test(ev.target.tagName))return;
+  if(ev.code==="Space"){ev.preventDefault();st.play=!st.play;$("pl").textContent=st.play?"Pause":"Play"}
+  if(ev.key==="n")step(1);if(ev.key==="p")step(-1);
+});
+
+// ---------- coverage
+function rCov(){
+  const cnt=INSTR.map(()=>Array(8).fill(0));EPS.forEach(e=>{if(!e.excl)cnt[e.instr][e.slot]++});
+  const mx=Math.max(...cnt.flat()),gaps=[];
+  cnt.forEach((r,i)=>r.forEach((v,j)=>{if(v<2)gaps.push([i,j,v])}));
+  const rec=gaps.sort((a,b)=>a[2]-b[2]).slice(0,5).filter(g=>g[0]<5||true);
+  const colr=v=>v===0?"#3a1d1f":`rgba(76,141,255,${.2+.8*v/mx})`;
+  let h=`<div class="lay"><div class="panel"><h3>Coverage: instrument type x tray slot</h3><div class="sub">Episodes per cell (non-excluded). Target is at least 2 per cell. Click a cell to filter the episode grid.</div>
+   <div class="hm" style="grid-template-columns:110px repeat(8,minmax(0,1fr))"><div></div>${[...Array(8)].map((_,j)=>`<div class="hmh">S${j+1}</div>`).join("")}`;
+  cnt.forEach((r,i)=>{h+=`<div class="hmh" style="justify-content:flex-start">${INSTR[i]}</div>`+r.map((v,j)=>`<div class="hmc" data-c="${i},${j}" style="background:${colr(v)};${v<2?"border:1px dashed #ff8a87":""}">${v}</div>`).join("")});
+  h+=`</div><div style="margin-top:10px;color:var(--mute);display:flex;gap:12px;flex-wrap:wrap"><span><i class="dot" style="display:inline-block;background:#3a1d1f;border:1px dashed #ff8a87"></i> gap (0 or 1)</span><span><i class="dot" style="display:inline-block;background:rgba(76,141,255,.9)"></i> well covered</span></div></div>
+   <div class="col"><div class="panel"><h3>Next recordings to collect</h3><div class="sub">${gaps.length} of 48 cells under target</div>${rec.map(g=>`<div class="fli"><span class="dot" style="background:${ICOL[g[0]]}"></span><div style="flex:1"><b>${INSTR[g[0]]}</b> from slot S${g[1]+1}<div style="color:var(--mute)">${g[2]} demos, need ${2-g[2]} more</div></div></div>`).join("")}</div>
+   <div class="panel"><h3>Outcome balance</h3><div class="sub">Across ${EPS.length} episodes</div><div class="bars">${["success","failed","recovered"].map(o=>{const n=EPS.filter(e=>e.success===o).length;return `<div class="r"><span>${o}</span><div><i style="width:${n/EPS.length*100}%;background:${o==="success"?"var(--ok)":o==="failed"?"var(--bad)":"var(--warn)"}"></i></div>${n}</div>`}).join("")}</div></div></div></div>`;
+  $("v-cov").innerHTML=h;
+  document.querySelectorAll(".hmc").forEach(c=>c.onclick=()=>{const [i,j]=c.dataset.c.split(",").map(Number);st.filt.cell=[i,j];go("grid")});
+}
+
+// ---------- agreement
+function labelAt(segs,t){return segs[segIdx(segs,t)].g}
+const RATERS=[["A","Annotator A"],["B","Annotator B"],["auto","Perceptron"],["final","Final"]];
+function kappa(pairs){
+  const n=pairs.length;if(!n)return 0;const ca={},cb={};let ag=0;
+  pairs.forEach(([a,b])=>{ca[a]=(ca[a]||0)+1;cb[b]=(cb[b]||0)+1;if(a===b)ag++});
+  const po=ag/n;let pe=0;Object.keys(ca).forEach(k=>{pe+=(ca[k]/n)*((cb[k]||0)/n)});
+  return pe>=1?1:(po-pe)/(1-pe);
+}
+function agreement(){
+  if(kappaCache.v===ver)return kappaCache.m;
+  const mx=RATERS.map(()=>RATERS.map(()=>[])),per=[],gestAg={},gestN={};
+  EPS.forEach(e=>{
+    const ep=RATERS.map(()=>RATERS.map(()=>[]));
+    for(let t=.1;t<e.dur;t+=.25){
+      const L=RATERS.map(r=>labelAt(e[r[0]],t));
+      for(let a=0;a<4;a++)for(let b=0;b<4;b++){mx[a][b].push([L[a],L[b]]);ep[a][b].push([L[a],L[b]])}
+      const f=L[3];gestN[f]=(gestN[f]||0)+1;if(L[0]===f&&L[1]===f)gestAg[f]=(gestAg[f]||0)+1;
+    }
+    per.push({e,k:kappa(ep[0][1])});
+  });
+  const km=mx.map(r=>r.map(p=>kappa(p)));
+  // boundary error A vs B
+  let be=0,bn=0;EPS.forEach(e=>{for(let i=0;i<e.A.length-1;i++){be+=Math.abs(e.A[i].e-e.B[i].e);bn++}});
+  const m={mx:km,per:per.sort((a,b)=>a.k-b.k),gestAg,gestN,be:be/bn};
+  kappaCache.v=ver;kappaCache.m=m;return m;
+}
+function kcol(k){const a=cl((k-.4)/.55,0,1);return `hsl(${10+a*125},70%,${52+a*6}%)`}
+function rAgr(){
+  const m=agreement();
+  const lbl=k=>k>.8?"Almost perfect":k>.6?"Substantial":k>.4?"Moderate":"Fair";
+  let h=`<div class="two"><div class="panel"><h3>Pairwise Cohen's kappa (frame level, 4 fps)</h3><div class="sub">Computed from every episode. Edit a boundary in the Label tab and Final updates live.</div>
+   <table class="mx"><tr><th></th>${RATERS.map(r=>`<th>${r[1]}</th>`).join("")}</tr>${RATERS.map((r,a)=>`<tr><th>${r[1]}</th>${RATERS.map((_,b)=>`<td class="v" style="background:${a===b?"#202b38":kcol(m.mx[a][b])};color:${a===b?"#5c6b7e":"#06101e"}">${a===b?"-":m.mx[a][b].toFixed(2)}</td>`).join("")}</tr>`).join("")}</table>
+   <div style="margin-top:10px;color:var(--mute)">A vs B: <b style="color:var(--ink)">${m.mx[0][1].toFixed(2)}</b> (${lbl(m.mx[0][1])}). Mean boundary error between humans <b style="color:var(--ink)">${m.be.toFixed(2)} s</b>. Perceptron vs Final: <b style="color:var(--ink)">${m.mx[2][3].toFixed(2)}</b>.</div></div>
+   <div class="panel"><h3>Where annotators agree, per gesture</h3><div class="sub">Frames where A and B both match the final label</div><div class="bars">${Object.keys(m.gestN).sort().map(g=>{const v=(m.gestAg[g]||0)/m.gestN[g]*100;return `<div class="r"><span><i class="dot" style="display:inline-block;background:${COL[g]};margin-right:6px"></i>${g} ${(VOC.handoff[g]||VOC.suture[g]).slice(0,18)}</span><div><i style="width:${v}%;background:${v<70?"var(--warn)":"var(--ok)"}"></i></div>${v.toFixed(0)}%</div>`}).join("")}</div></div></div>
+   <div class="panel" style="margin-top:12px"><h3>Disagreement queue</h3><div class="sub">Lowest A vs B kappa first. Open to adjudicate.</div><table><tr><th>Episode</th><th>Task</th><th>kappa</th><th>Status</th><th></th></tr>
+   ${m.per.slice(0,8).map(p=>`<tr><td class="mono">${p.e.name}</td><td>${p.e.task}</td><td class="mono">${p.k.toFixed(2)}</td><td><span class="pill ${p.e.status==="done"?"ok":"warn"}">${p.e.status}</span></td><td><button class="btn sm" data-o="${p.e.id}">Adjudicate</button></td></tr>`).join("")}</table></div>`;
+  $("v-agr").innerHTML=h;
+  document.querySelectorAll("#v-agr [data-o]").forEach(b=>b.onclick=()=>{st.cur=+b.dataset.o;st.t=0;st.seg=0;go("label")});
+}
+
+// ---------- export
+function expSel(){
+  const x=st.exp;
+  return EPS.filter(e=>!e.excl&&(!x.onlyOk||e.success!=="failed")&&quality(e)>=x.minQ&&!(x.nofly&&openFlags(e).some(f=>f.type==="nofly"))&&!(x.sterile&&openFlags(e).some(f=>f.type==="sterile"))&&!(x.tremor&&openFlags(e).some(f=>f.type==="tremor"))&&!(x.idle&&openFlags(e).some(f=>f.type==="idle")));
+}
+function rExp(){
+  const x=st.exp,S=expSel(),unrev=S.filter(e=>e.status!=="done").length,frames=Math.round(S.reduce((a,e)=>a+e.dur*30,0));
+  const nT=S.filter(e=>e.task==="handoff").length,nS=S.length-nT;
+  const tree=`<span class="d">${x.repo.split("/")[1]}/</span>
+<span class="d">  meta/</span>
+    info.json            <span class="n"># codebase_version v2.1, fps 30, features</span>
+    episodes.jsonl       <span class="n"># ${S.length} rows incl. gesture segments</span>
+    episodes_stats.jsonl
+    tasks.jsonl          <span class="n"># 2 tasks: handoff, suture</span>
+<span class="d">  data/chunk-000/</span>
+${S.slice(0,4).map((e,i)=>"    episode_"+String(i).padStart(6,"0")+".parquet").join("\n")}
+    <span class="n">... ${Math.max(0,S.length-4)} more</span>
+<span class="d">  videos/chunk-000/observation.images.top/</span>
+${S.slice(0,2).map((e,i)=>"    episode_"+String(i).padStart(6,"0")+".mp4").join("\n")}
+    <span class="n">... ${Math.max(0,S.length-2)} more</span>`;
+  const info={codebase_version:"v2.1",robot_type:"so101",total_episodes:S.length,total_frames:frames,fps:30,
+    features:{action:{dtype:"float32",shape:[6]},"observation.state":{dtype:"float32",shape:[6]},"observation.images.top":{dtype:"video"}}};
+  if(x.incGest)info.features["annotation.gesture"]={dtype:"int16",shape:[1],names:"JIGSAWS + handoff vocab"};
+  info.features["next.success"]={dtype:"bool",shape:[1]};
+  const stages=["Validate schema","Write parquet","Encode videos (AV1)","Write meta + stats","Push to Hugging Face Hub"];
+  $("v-exp").innerHTML=`<div class="lay"><div class="col"><div class="panel"><h3>Export to LeRobot format</h3><div class="sub">Filters decide which episodes ship. Flags still open count against the episode.</div>
+   <label class="cb"><input type="checkbox" data-x="onlyOk" ${x.onlyOk?"checked":""}>Drop failed episodes (keep success and recovered)</label>
+   <label class="cb"><input type="checkbox" data-x="nofly" ${x.nofly?"checked":""}>Drop episodes with open no-fly zone collisions</label>
+   <label class="cb"><input type="checkbox" data-x="sterile" ${x.sterile?"checked":""}>Drop episodes with open sterile breaches</label>
+   <label class="cb"><input type="checkbox" data-x="tremor" ${x.tremor?"checked":""}>Drop episodes with open tremor spikes</label>
+   <label class="cb"><input type="checkbox" data-x="idle" ${x.idle?"checked":""}>Drop episodes with open idle flags</label>
+   <label class="cb"><input type="checkbox" data-x="incGest" ${x.incGest?"checked":""}>Include per-frame gesture label column</label>
+   <div class="ctr">Min quality <input type="number" id="mq" min="0" max="100" value="${x.minQ}" style="width:80px"> Repo <input type="text" id="rp" value="${x.repo}" style="flex:1;min-width:160px"></div></div>
+   <div class="panel"><h3>Preview</h3><div class="two"><div><div class="tree">${tree}</div></div><div><div class="tree">${JSON.stringify(info,null,2)}</div></div></div></div></div>
+   <div class="col"><div class="panel"><h3>Ready to export</h3><div class="sub">${S.length} of ${EPS.length} episodes</div>
+    <div class="bars"><div class="r"><span>Handoff</span><div><i style="width:${nT/Math.max(1,S.length)*100}%;background:var(--vio)"></i></div>${nT}</div><div class="r"><span>Suture</span><div><i style="width:${nS/Math.max(1,S.length)*100}%;background:var(--acc)"></i></div>${nS}</div></div>
+    <div style="color:var(--mute);margin:8px 0" class="mono">${frames.toLocaleString()} frames @ 30 fps &middot; ~${(frames*.0021).toFixed(0)} MB</div>
+    ${unrev?`<div class="warnb" style="border-radius:6px;border:1px solid #3d3017">${unrev} included episodes are not marked reviewed.</div>`:`<div style="color:var(--ok)">All included episodes reviewed.</div>`}
+    <div class="ctr"><button class="btn pri" id="go" ${S.length?"":"disabled"}>Export dataset</button></div>
+    <div class="prog" ${x.prog<0?'style="visibility:hidden"':""}><i style="width:${Math.max(0,x.prog)}%"></i></div>
+    ${stages.map((s,i)=>`<div class="stg ${x.prog>=100||i<x.stage?"done":i===x.stage&&x.prog>=0?"run":""}">${x.prog>=100||i<x.stage?"✓":i===x.stage&&x.prog>=0?"●":"○"} ${s}</div>`).join("")}
+    ${x.prog>=100?`<div class="tree" style="margin-top:8px">from lerobot.datasets.lerobot_dataset import LeRobotDataset\nds = LeRobotDataset("${x.repo}")</div>`:""}</div></div></div>`;
+  document.querySelectorAll("[data-x]").forEach(c=>c.onchange=()=>{x[c.dataset.x]=c.checked;x.prog=-1;rExp()});
+  $("mq").onchange=ev=>{x.minQ=+ev.target.value;x.prog=-1;rExp()};$("rp").onchange=ev=>{x.repo=ev.target.value||"user/dataset";rExp()};
+  $("go").onclick=()=>{x.prog=0;x.stage=0;const iv=setInterval(()=>{x.prog+=4;x.stage=Math.min(4,Math.floor(x.prog/20));if(x.prog>=100){x.prog=100;clearInterval(iv);toast("Export complete (mock)")}if(st.view==="exp")rExp()},90)};
+}
+window.addEventListener("error",e=>console.log("ERR",e.message));
+render();requestAnimationFrame(frame);
+window.__t={go,EPS,st};
+})();
+</script>
+</body>
+</html>

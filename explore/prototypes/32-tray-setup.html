@@ -1,0 +1,421 @@
+<!-- FEATURES:
+- Pick or upload a surgeon preference card; Perceptron OCR (mock) extracts procedure, surgeon, instruments with quantities, glove size, special requests
+- Backboard memory of each surgeon's layout preferences (e.g. needle driver on the right), applied to the plan, editable, saved from a finished layout
+- Arm lays out instruments from a supply bin onto the Mayo tray, step by step, with detected vs expected per slot (green check / red mismatch, auto-corrected)
+- Missing item alert pauses the run, Photon text to supply with simulated replies, then resumes (or skip item)
+- Latched STOP, speed control, run log, printable-looking final layout sheet (no print button)
+-->
+<!-- SPONSORS: Perceptron Robotics (SO-101 pick and place), Perceptron Perception (OCR of card, instrument detection per slot), Backboard (surgeon preference memory), Photon (supply text), Community Kitchen (healthcare, patient safety) -->
+<!-- BACKEND HOOKS: POST /api/ocr {image} -> fields; POST /api/detect {slot} -> label+conf; POST /api/request {action:"place", item, slot} via safety gate; GET/PUT /api/memory/{surgeon} (Backboard); POST /api/photon/send {to, body}; WS /ws events: arm_state, slot_verified, stop -->
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Tray Setup Planner</title>
+<meta name="description" content="Pre-op Mayo tray setup from a surgeon preference card, with OCR, remembered preferences, arm layout and per-slot verification.">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Caveat:wght@500&family=IBM+Plex+Mono:wght@400;500&family=IBM+Plex+Sans:wght@400;500;600&display=swap" rel="stylesheet">
+<style>
+:root{--bg:#f2f6f7;--panel:#fff;--ink:#0e2a33;--mut:#5d7580;--line:#d8e3e7;--teal:#0e7c86;--teal2:#e3f3f4;--ok:#1b9a5f;--okbg:#e4f6ec;--bad:#d23f3f;--badbg:#fdeaea;--warn:#c97b06;--warnbg:#fff3dc}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--ink);font:14px/1.45 "IBM Plex Sans",system-ui,sans-serif}
+button,select,input{font:inherit;color:inherit}
+button{min-height:44px;cursor:pointer}
+.mono{font-family:"IBM Plex Mono",monospace}
+header{background:#fff;border-bottom:1px solid var(--line);position:sticky;top:0;z-index:20}
+.hrow{display:flex;gap:12px;align-items:center;padding:10px 16px;flex-wrap:wrap}
+.logo{display:flex;align-items:center;gap:10px;font-weight:600;font-size:16px}
+.logo i{width:30px;height:30px;border-radius:8px;background:var(--teal);display:grid;place-items:center;color:#fff;font-style:normal}
+.disc{font-size:12px;color:var(--warn);background:var(--warnbg);border:1px solid #f0d49a;padding:4px 10px;border-radius:99px}
+.sp{flex:1}
+#stop{background:var(--bad);color:#fff;border:0;border-radius:10px;padding:0 20px;font-weight:600;letter-spacing:.04em;min-width:110px}
+#stop.latched{background:#7a1111;outline:3px solid #f5b5b5}
+#stopbar{display:none;background:var(--bad);color:#fff;padding:10px 16px;align-items:center;gap:12px}
+#stopbar.on{display:flex}
+#stopbar button{background:#fff;color:var(--bad);border:0;border-radius:8px;padding:0 14px;font-weight:600}
+.steps{display:flex;gap:8px;padding:0 16px 10px;overflow-x:auto}
+.st{display:flex;align-items:center;gap:8px;padding:6px 12px;border:1px solid var(--line);border-radius:99px;white-space:nowrap;color:var(--mut);background:#fff}
+.st b{width:20px;height:20px;border-radius:50%;background:var(--line);display:grid;place-items:center;font-size:11px;color:#fff}
+.st.cur{border-color:var(--teal);color:var(--teal);background:var(--teal2)}.st.cur b{background:var(--teal)}
+.st.done{color:var(--ok)}.st.done b{background:var(--ok)}
+main{display:grid;grid-template-columns:330px minmax(0,1fr) 340px;gap:14px;padding:14px 16px;max-width:1500px;margin:auto}
+@media(max-width:1180px){main{grid-template-columns:1fr 1fr}.center{grid-column:1/-1;order:-1}}
+@media(max-width:760px){main{grid-template-columns:1fr}}
+.card{background:var(--panel);border:1px solid var(--line);border-radius:12px;padding:14px;margin-bottom:14px}
+.card h2{margin:0 0 10px;font-size:12px;letter-spacing:.09em;text-transform:uppercase;color:var(--mut);display:flex;align-items:center;gap:8px}
+.card h2 .tag{margin-left:auto;text-transform:none;letter-spacing:0;font-weight:500;font-size:11px;background:var(--teal2);color:var(--teal);padding:2px 8px;border-radius:99px}
+.picks{display:flex;gap:8px;flex-wrap:wrap;margin-bottom:10px}
+.pick{flex:1;min-width:90px;border:1px solid var(--line);background:#fff;border-radius:10px;padding:6px 10px;text-align:left;font-size:12px}
+.pick.sel{border-color:var(--teal);background:var(--teal2)}
+.pick small{display:block;color:var(--mut)}
+.btn{border:1px solid var(--teal);background:var(--teal);color:#fff;border-radius:10px;padding:0 16px;font-weight:600}
+.btn.ghost{background:#fff;color:var(--teal)}
+.btn:disabled{opacity:.45;cursor:not-allowed}
+.cardimg{position:relative;border:1px solid var(--line);border-radius:8px;overflow:hidden;background:#fbfaf4}
+.cardimg svg{display:block;width:100%;height:auto}
+.scan{position:absolute;left:0;right:0;height:3px;background:linear-gradient(90deg,transparent,var(--teal),transparent);box-shadow:0 0 14px var(--teal);top:0;opacity:0}
+.scan.go{animation:scan 1.8s linear 1;opacity:1}
+@keyframes scan{from{top:0}to{top:100%}}
+.obox{fill:rgba(14,124,134,.12);stroke:var(--teal);stroke-width:1.2;opacity:0;transition:opacity .3s}
+.obox.on{opacity:1}
+.fields{display:grid;gap:6px;margin-top:10px}
+.fld{display:flex;justify-content:space-between;gap:8px;border-bottom:1px dashed var(--line);padding:4px 0;font-size:13px;opacity:0;transform:translateY(4px);transition:.3s}
+.fld.on{opacity:1;transform:none}
+.fld span:first-child{color:var(--mut);font-size:11px;text-transform:uppercase;letter-spacing:.06em;padding-top:2px;min-width:70px}
+.fld em{font-style:normal;font-family:"IBM Plex Mono";font-size:10px;color:var(--teal);margin-left:6px}
+.mem{display:flex;gap:8px;align-items:flex-start;padding:8px;border:1px solid var(--line);border-radius:8px;margin-bottom:6px;font-size:13px}
+.mem.app{border-color:var(--teal);background:var(--teal2)}
+.mem button{min-height:44px;min-width:44px;border:0;background:none;color:var(--mut);font-size:16px}
+.mem .ap{font-size:10px;color:var(--teal);font-weight:600;text-transform:uppercase}
+.memform{display:grid;grid-template-columns:1fr 1fr auto;gap:6px;margin-top:8px}
+.memform select{min-height:44px;border:1px solid var(--line);border-radius:8px;padding:0 6px;background:#fff;min-width:0}
+.recall{font-size:11px;color:var(--mut);margin-bottom:8px}
+.bar{display:flex;gap:10px;align-items:center;flex-wrap:wrap;margin-bottom:10px}
+.bar label{font-size:12px;color:var(--mut);display:flex;align-items:center;gap:6px}
+.bar input[type=range]{width:90px}
+.stage{background:linear-gradient(#f9fcfc,#eef5f6);border:1px solid var(--line);border-radius:12px;padding:6px}
+.stage svg{display:block;width:100%;height:auto}
+.alert{display:none;border:1px solid #f0b3b3;background:var(--badbg);color:#7a1717;border-radius:10px;padding:10px 12px;margin-bottom:10px;gap:10px;align-items:center;flex-wrap:wrap}
+.alert.on{display:flex}.alert b{flex:1;min-width:200px}
+.alert button{background:#fff;border:1px solid #e3a0a0;border-radius:8px;padding:0 12px;color:#7a1717}
+.vrow{display:grid;grid-template-columns:34px 1fr 1fr 28px;gap:6px;align-items:center;padding:7px 0;border-bottom:1px solid var(--line);font-size:12px}
+.vrow:last-child{border:0}
+.vrow .sl{font-family:"IBM Plex Mono";font-weight:500;color:var(--teal)}
+.vrow small{display:block;color:var(--mut);font-size:10px;text-transform:uppercase}
+.chk{width:24px;height:24px;border-radius:50%;display:grid;place-items:center;color:#fff;font-size:13px;background:var(--line)}
+.chk.ok{background:var(--ok)}.chk.bad{background:var(--bad)}.chk.scan{background:var(--warn);animation:pulse .8s infinite alternate}
+@keyframes pulse{to{opacity:.4}}
+.phone{background:#eef2f4;border-radius:12px;padding:10px;min-height:120px;max-height:260px;overflow:auto;display:flex;flex-direction:column;gap:6px}
+.bub{max-width:88%;padding:7px 10px;border-radius:14px;font-size:12.5px}
+.bub.out{align-self:flex-end;background:#2f7cf6;color:#fff;border-bottom-right-radius:4px}
+.bub.in{align-self:flex-start;background:#fff;border-bottom-left-radius:4px}
+.bub small{display:block;opacity:.7;font-size:10px}
+.empty{color:var(--mut);font-size:12px;text-align:center;margin:auto}
+#log{font:11px/1.6 "IBM Plex Mono",monospace;max-height:190px;overflow:auto;color:#37525c}
+#log div{border-bottom:1px solid #edf2f4}
+#log .e{color:var(--bad)}#log .g{color:var(--ok)}#log .w{color:var(--warn)}
+.paperwrap{max-width:1500px;margin:0 auto;padding:0 16px 40px}
+.locked{border:2px dashed var(--line);border-radius:12px;padding:30px;text-align:center;color:var(--mut)}
+.paper{background:#fff;color:#111;max-width:820px;margin:0 auto;padding:36px 40px;box-shadow:0 8px 30px rgba(14,42,51,.18),0 0 0 1px #d9d9d9;font-family:"IBM Plex Sans";position:relative}
+.paper h3{margin:0;font-size:20px;letter-spacing:.02em}
+.paper .ph{display:flex;justify-content:space-between;border-bottom:2px solid #111;padding-bottom:10px;margin-bottom:14px;gap:12px;flex-wrap:wrap}
+.paper .meta{display:grid;grid-template-columns:repeat(auto-fit,minmax(170px,1fr));gap:8px 18px;margin-bottom:14px;font-size:13px}
+.paper .meta span{display:block;font-size:10px;color:#666;text-transform:uppercase;letter-spacing:.08em}
+.paper table{width:100%;border-collapse:collapse;font-size:12.5px;margin-top:10px}
+.paper th,.paper td{border-bottom:1px solid #ccc;text-align:left;padding:5px 6px}
+.paper th{font-size:10px;text-transform:uppercase;letter-spacing:.08em;color:#555}
+.paper .sig{display:flex;gap:30px;margin-top:30px;flex-wrap:wrap}
+.paper .sig div{flex:1;min-width:180px;border-top:1px solid #111;padding-top:4px;font-size:11px;color:#555}
+.paper .foot{margin-top:18px;font-size:10px;color:#777;text-align:center}
+.paper .stamp{position:absolute;right:36px;top:70px;border:3px solid var(--ok);color:var(--ok);padding:2px 10px;font-weight:600;transform:rotate(-8deg);border-radius:6px;font-size:13px;letter-spacing:.1em}
+.paper svg{width:100%;height:auto;border:1px solid #bbb;margin-top:6px}
+@media(max-width:600px){.paper{padding:18px 14px}.paper .stamp{position:static;display:inline-block;margin-bottom:8px}.paper table{font-size:11px}.paper th,.paper td{padding:4px 3px}.hrow{padding:8px 12px}}
+.legend{font-size:11px;color:var(--mut);margin-top:6px}
+</style>
+</head>
+<body>
+<header>
+  <div class="hrow">
+    <div class="logo"><i>&#10010;</i>Tray Setup Planner</div>
+    <span class="disc">Training and research prototype. Props only, not for clinical use.</span>
+    <span class="sp"></span>
+    <span class="mono" style="font-size:12px;color:var(--mut)" id="clock"></span>
+    <button id="stop" aria-label="Stop arm">STOP</button>
+  </div>
+  <div id="stopbar"><b>STOPPED.</b><span>Arm is held in place. Nothing moves until released.</span><span class="sp"></span><button id="rel">Release</button></div>
+  <div class="steps" id="steps"></div>
+</header>
+
+<main>
+  <section class="left">
+    <div class="card">
+      <h2>1 Preference card <span class="tag">Perceptron OCR</span></h2>
+      <div class="picks" id="picks"></div>
+      <div class="bar">
+        <button class="btn ghost" id="upload">Upload card photo</button>
+        <input type="file" id="file" accept="image/*" hidden>
+        <span style="font-size:11px;color:var(--mut)" id="upnote">Mock mode: any photo reads as the next sample card.</span>
+      </div>
+      <div class="cardimg" id="cardimg"></div>
+      <div class="fields" id="fields"></div>
+    </div>
+    <div class="card">
+      <h2>2 Surgeon memory <span class="tag">Backboard</span></h2>
+      <div class="recall" id="recall"></div>
+      <div id="mems"></div>
+      <div class="memform">
+        <select id="mi" aria-label="Instrument"></select>
+        <select id="ms" aria-label="Slot"></select>
+        <button class="btn" id="madd">Remember</button>
+      </div>
+    </div>
+  </section>
+
+  <section class="center">
+    <div class="card">
+      <h2>3 Lay out the Mayo tray <span class="tag" id="armtag">arm idle</span></h2>
+      <div class="bar">
+        <button class="btn" id="run" disabled>Start layout</button>
+        <button class="btn ghost" id="reset">Reset tray</button>
+        <label>Speed <input type="range" id="spd" min="1" max="4" step=".5" value="2" aria-label="Speed"><span id="spdv" class="mono">2x</span></label>
+        <span class="sp"></span>
+        <span class="mono" style="font-size:12px" id="prog">0 / 0 verified</span>
+      </div>
+      <div class="alert" id="alert"><b id="alertmsg"></b><button id="skip">Skip item</button></div>
+      <div class="stage"><svg id="svg" viewBox="0 0 760 450" role="img" aria-label="Supply bin, robot arm and Mayo tray top view"></svg></div>
+      <div class="legend">Top view. Dashed outlines are the planned layout. Boxes are detected labels from the tray camera.</div>
+    </div>
+  </section>
+
+  <section class="right">
+    <div class="card">
+      <h2>Slot verification <span class="tag">detected vs expected</span></h2>
+      <div id="ver"><div class="empty">Load a card to see the plan.</div></div>
+    </div>
+    <div class="card">
+      <h2>Supply line <span class="tag">Photon</span></h2>
+      <div class="phone" id="phone"><div class="empty">No messages. A text goes to Supply if an item is missing.</div></div>
+    </div>
+    <div class="card">
+      <h2>Run log</h2>
+      <div id="log"></div>
+    </div>
+  </section>
+</main>
+
+<div class="paperwrap">
+  <div class="card"><h2>4 Final layout sheet</h2>
+    <div id="final"><div class="locked">Complete the layout to generate the verified tray sheet.</div></div>
+  </div>
+</div>
+
+<script>
+const CAT={
+ driver:{n:'Needle driver',s:'Needle drvr',t:'driver'},mayo:{n:'Mayo scissors',s:'Mayo scis.',t:'scissors'},
+ metz:{n:'Metzenbaum scissors',s:'Metzenbaum',t:'scissors'},hemo:{n:'Hemostat clamp',s:'Hemostat',t:'clamp'},
+ kelly:{n:'Kelly clamp',s:'Kelly',t:'clamp'},allis:{n:'Allis clamp',s:'Allis',t:'clamp'},
+ debakey:{n:'DeBakey forceps',s:'DeBakey',t:'forceps'},adson:{n:'Adson forceps',s:'Adson',t:'forceps'},
+ sc3:{n:'Scalpel handle #3',s:'Scalpel #3',t:'scalpel'},sc10:{n:'Scalpel handle #10',s:'Scalpel #10',t:'scalpel'},
+ sc15:{n:'Scalpel handle #15',s:'Scalpel #15',t:'scalpel'},army:{n:'Army-Navy retractor',s:'Army-Navy',t:'retractor'},
+ senn:{n:'Senn retractor',s:'Senn',t:'retractor'},gauze:{n:'Gauze sponges',s:'Gauze',t:'sponge'}};
+const BIN=['driver','mayo','metz','hemo','kelly','allis','debakey','adson','sc3','sc10','sc15','army','senn','gauze'];
+const CARDS=[
+ {id:'patel',surgeon:'Dr. Anita Patel',procedure:'Lap cholecystectomy',glove:'6.5 latex free',items:[['driver',1],['mayo',1],['hemo',2],['debakey',1],['sc3',1],['gauze',10],['army',2]],special:'Warm saline basin. Light handle covers.',trap:null},
+ {id:'nguyen',surgeon:'Dr. Minh Nguyen',procedure:'Appendectomy',glove:'8.0 sterile',items:[['metz',1],['kelly',3],['adson',1],['sc10',1],['driver',1],['gauze',10]],special:'Left handed. Suction tip on drape.',trap:'metz'},
+ {id:'okafor',surgeon:'Dr. Ife Okafor',procedure:'Inguinal hernia repair',glove:'7.0 sterile',items:[['mayo',1],['allis',2],['debakey',1],['driver',1],['sc15',1],['gauze',5],['senn',2]],special:'Mesh on back table. Extra 3-0 suture.',trap:null}];
+const SLOTN=['A1','A2','A3','A4','B1','B2','B3','B4'];
+const MEM0=[
+ {id:1,surg:'patel',item:'driver',slot:3,note:'Needle driver on the right'},
+ {id:2,surg:'patel',item:'gauze',slot:4,note:'Sponges near the left hand'},
+ {id:3,surg:'nguyen',item:'driver',slot:0,note:'Left handed: driver on the left'},
+ {id:4,surg:'okafor',item:'sc15',slot:3,note:'Scalpel at the right edge'}];
+let mems=MEM0.slice(),nid=10;
+try{const m=JSON.parse(localStorage.getItem('bb_mem32')||'null');if(m){mems=m;nid=Math.max(10,...m.map(x=>x.id+1))}}catch(e){}
+const saveMem=()=>{try{localStorage.setItem('bb_mem32',JSON.stringify(mems))}catch(e){}};
+
+let cur=null,plan=[],slots=Array.from({length:8},()=>({key:null,state:'',det:null,conf:0})),stock={},stopped=false,gen=0,running=false,speed=2,skipFlag=false,stats={},stepNo=1;
+const $=id=>document.getElementById(id);
+const sleep=ms=>new Promise(r=>setTimeout(r,ms));
+const SX=i=>262+(i%4)*120, SY=i=>50+Math.floor(i/4)*170;
+const SC=i=>[SX(i)+54,SY(i)+72];
+const BX=k=>{const i=BIN.indexOf(k);return [24+(i%2)*92+43,44+Math.floor(i/2)*44+20]};
+
+function glyph(t,c){c=c||'#51636b';const R=`<circle cx="-9" cy="46" r="8" fill="none" stroke="${c}" stroke-width="3"/><circle cx="9" cy="46" r="8" fill="none" stroke="${c}" stroke-width="3"/>`;
+ const sh=`<path d="M-9 39L0 10M9 39L0 10" stroke="${c}" stroke-width="3" fill="none"/>`;
+ switch(t){
+ case'scissors':return R+sh+`<path d="M0 10L-7 -52M0 10L7 -52" stroke="${c}" stroke-width="3.5"/><circle cy="10" r="2.5" fill="${c}"/>`;
+ case'clamp':return R+sh+`<path d="M0 10L-4 -50M0 10L4 -50" stroke="${c}" stroke-width="4.5" stroke-linecap="round"/><path d="M-6 28h12M-5 23h10M-4 18h8" stroke="${c}" stroke-width="1.6"/>`;
+ case'driver':return R+sh+`<path d="M0 10L-4 -34L0 -46L4 -34Z" fill="${c}" stroke="${c}" stroke-width="3" stroke-linejoin="round"/><path d="M-6 28h12M-5 23h10" stroke="${c}" stroke-width="1.6"/>`;
+ case'forceps':return `<path d="M-7 54L-3 -50M7 54L3 -50" stroke="${c}" stroke-width="3.2"/><path d="M-4 -50L0 -58L4 -50" fill="none" stroke="${c}" stroke-width="3"/><path d="M-5 20h10M-5 26h10M-5 32h10" stroke="${c}" stroke-width="1.4"/>`;
+ case'scalpel':return `<rect x="-5" y="-18" width="10" height="72" rx="4" fill="#dfe7ea" stroke="${c}" stroke-width="2.4"/><rect x="-2" y="-46" width="4" height="30" fill="${c}"/><path d="M-3 -46h6" stroke="${c}" stroke-width="3"/><path d="M-5 0h10M-5 6h10M-5 12h10" stroke="${c}" stroke-width="1.2"/>`;
+ case'retractor':return `<path d="M0 54L0 -30L24 -30L24 -46" stroke="${c}" stroke-width="6" stroke-linecap="round" stroke-linejoin="round" fill="none"/>`;
+ case'sponge':return `<rect x="-22" y="-14" width="44" height="44" rx="3" fill="#fff" stroke="#c88" stroke-width="1.6"/><rect x="-18" y="-22" width="44" height="44" rx="3" fill="#fff" stroke="#c88" stroke-width="1.6"/><rect x="-26" y="-6" width="44" height="44" rx="3" fill="#fff" stroke="#c88" stroke-width="1.6"/><path d="M-10 4h20M-10 12h20M-10 20h20" stroke="#e6b0b0" stroke-width="1.6"/><rect x="8" y="26" width="8" height="3" fill="#3b82c4"/>`;}
+ return''}
+const clk=()=>{$('clock').textContent=new Date().toLocaleTimeString([], {hour:'2-digit',minute:'2-digit'})+' · OR 4';};clk();setInterval(clk,30000);
+
+function log(m,c){const d=document.createElement('div');if(c)d.className=c;d.textContent=new Date().toLocaleTimeString([], {hour12:false})+'  '+m;$('log').prepend(d)}
+function setStep(n){stepNo=n;$('steps').innerHTML=['Preference card','Memory recall','Tray layout','Final sheet'].map((t,i)=>`<div class="st ${i+1<n?'done':i+1===n?'cur':''}"><b>${i+1<n?'&#10003;':i+1}</b>${t}</div>`).join('')}
+
+/* ---------- card + OCR ---------- */
+function cardSVG(c){
+ const rows=[];let y=84;
+ const ink='#1f3a8a';
+ const t=(txt,x,y,sz)=>`<text x="${x}" y="${y}" font-family="Caveat" font-size="${sz||17}" fill="${ink}">${txt}</text>`;
+ let s=`<svg viewBox="0 0 300 400"><rect width="300" height="400" fill="#fbfaf4"/><rect x="10" y="10" width="280" height="380" fill="none" stroke="#c9c4ae"/>
+ <text x="22" y="34" font-family="IBM Plex Sans" font-size="11" font-weight="600" fill="#444" letter-spacing="1.5">PHYSICIAN PREFERENCE CARD</text><text x="22" y="48" font-size="8" font-family="IBM Plex Sans" fill="#888">Cascade General  OR Services  Rev 4</text><path d="M22 54h256" stroke="#aaa"/>
+ <g font-size="8" font-family="IBM Plex Sans" fill="#999"><text x="22" y="76">PROCEDURE</text><text x="22" y="106">SURGEON</text><text x="22" y="136">GLOVE SIZE</text><text x="22" y="164">INSTRUMENTS (QTY)</text><text x="22" y="354">SPECIAL REQUESTS</text></g>`;
+ const boxes=[];
+ s+=t(c.procedure,22,92)+t(c.surgeon,22,122)+t(c.glove,22,150);boxes.push([18,78,230,18],[18,108,200,18],[18,137,160,18]);
+ c.items.forEach((it,i)=>{const yy=186+i*21;s+=t(`${i+1}. ${CAT[it[0]].n}`,26,yy,16)+t('x'+it[1],236,yy,17);boxes.push([20,yy-14,262,19])});
+ s+=t(c.special,22,376,14);boxes.push([18,362,264,18]);
+ s+=boxes.map((b,i)=>`<rect class="obox" data-i="${i}" x="${b[0]}" y="${b[1]}" width="${b[2]}" height="${b[3]}" rx="2"/>`).join('');
+ return s+'</svg><div class="scan" id="scanl"></div>'}
+async function loadCard(c){
+ gen++;resetTray(true);cur=c;
+ document.querySelectorAll('.pick').forEach(p=>p.classList.toggle('sel',p.dataset.id===c.id));
+ $('cardimg').innerHTML=cardSVG(c);$('fields').innerHTML='';$('run').disabled=true;setStep(1);
+ $('scanl').classList.add('go');log('OCR started on card image ('+c.id+')');
+ const fl=[['Procedure',c.procedure],['Surgeon',c.surgeon],['Glove',c.glove],...c.items.map((it,i)=>['Item '+(i+1),CAT[it[0]].n+'  x'+it[1]]),['Special',c.special]];
+ $('fields').innerHTML=fl.map((f,i)=>`<div class="fld" id="f${i}"><span>${f[0]}</span><span>${f[1]}<em>${(0.93+((i*7)%6)/100).toFixed(2)}</em></span></div>`).join('');
+ const my=gen;
+ for(let i=0;i<fl.length;i++){await sleep(1800/fl.length+40);if(gen!==my)return;
+  const b=document.querySelector(`.obox[data-i="${i}"]`);if(b)b.classList.add('on');$('f'+i).classList.add('on')}
+ log('OCR done: '+fl.length+' fields, glove '+c.glove,'g');
+ buildPlan();setStep(2);$('run').disabled=false;
+}
+$('picks').innerHTML=CARDS.map(c=>`<button class="pick" data-id="${c.id}">${c.surgeon.replace('Dr. ','Dr ')}<small>${c.procedure}</small></button>`).join('');
+$('picks').onclick=e=>{const b=e.target.closest('.pick');if(b)loadCard(CARDS.find(c=>c.id===b.dataset.id))};
+$('upload').onclick=()=>$('file').click();
+$('file').onchange=e=>{if(!e.target.files[0])return;const i=(CARDS.indexOf(cur)+1)%CARDS.length;$('upnote').textContent='Read "'+e.target.files[0].name+'" as a sample card (mock).';loadCard(CARDS[i])};
+
+/* ---------- memory + plan ---------- */
+function surgId(){return cur.id}
+function buildPlan(){
+ const used=new Set(),assign={};const ms=mems.filter(m=>m.surg===cur.id&&cur.items.some(i=>i[0]===m.item));
+ ms.forEach(m=>{if(!used.has(m.slot)){assign[m.item]=m.slot;used.add(m.slot)}});
+ let f=0;plan=cur.items.map(([k,q])=>{if(assign[k]===undefined){while(used.has(f))f++;assign[k]=f;used.add(f)}return{key:k,qty:q,slot:assign[k],pinned:ms.some(m=>m.item===k&&m.slot===assign[k])}});
+ slots=Array.from({length:8},()=>({key:null,state:'',det:null,conf:0}));
+ stock={};BIN.forEach(k=>stock[k]=k==='gauze'?30:4);
+ if(cur.id==='patel')stock.debakey=0;
+ stats={t0:0,mis:0,alerts:0,skipped:[]};
+ renderMem(ms);renderAll();
+ $('recall').textContent=`Backboard recall for ${cur.surgeon}: ${ms.length} preference${ms.length===1?'':'s'} applied in ${90+ms.length*17} ms.`;
+ if(ms.length)log('Backboard: '+ms.map(m=>m.note).join('; '),'g');
+}
+function renderMem(ms){
+ const all=mems.filter(m=>m.surg===cur.id);
+ $('mems').innerHTML=all.length?all.map(m=>{const ap=ms.includes(m);return`<div class="mem ${ap?'app':''}"><div style="flex:1"><div>${m.note}</div><div class="ap">${CAT[m.item].s} &rarr; slot ${SLOTN[m.slot]} ${ap?'· applied':'· not on this card'}</div></div><button data-d="${m.id}" aria-label="Forget">&times;</button></div>`}).join(''):'<div class="recall">No stored preferences yet for this surgeon.</div>';
+ $('mi').innerHTML=cur.items.map(i=>`<option value="${i[0]}">${CAT[i[0]].n}</option>`).join('');
+ $('ms').innerHTML=SLOTN.map((s,i)=>`<option value="${i}">Slot ${s}${i%4===3?' (right)':i%4===0?' (left)':''}</option>`).join('');
+}
+$('mems').onclick=e=>{const b=e.target.closest('[data-d]');if(!b)return;mems=mems.filter(m=>m.id!==+b.dataset.d);saveMem();buildPlan();log('Backboard: preference forgotten')};
+$('madd').onclick=()=>{if(!cur||running)return;const item=$('mi').value,slot=+$('ms').value;
+ mems=mems.filter(m=>!(m.surg===cur.id&&m.item===item));
+ mems.push({id:nid++,surg:cur.id,item,slot,note:`${CAT[item].n} at slot ${SLOTN[slot]}`});saveMem();buildPlan();log('Backboard: stored '+CAT[item].s+' at '+SLOTN[slot],'g')};
+
+/* ---------- tray render ---------- */
+function bin(){let s=`<rect x="10" y="20" width="198" height="366" rx="10" fill="#e9f0f2" stroke="#b9cbd1"/><text x="22" y="37" font-size="11" fill="#5d7580" font-weight="600" letter-spacing="1.2">SUPPLY BIN</text>`;
+ BIN.forEach((k,i)=>{const x=24+(i%2)*92,y=44+Math.floor(i/2)*44,n=stock[k]||0;
+  s+=`<rect x="${x}" y="${y}" width="86" height="40" rx="6" fill="${n?'#fff':'#fdeaea'}" stroke="${n?'#cbd8dc':'#e3a0a0'}" ${n?'':'stroke-dasharray="4 3"'}/><text x="${x+6}" y="${y+16}" font-size="10.5" fill="#0e2a33">${CAT[k].s}</text><text x="${x+6}" y="${y+32}" font-size="10" class="mono" fill="${n?'#5d7580':'#d23f3f'}">${n?'in stock '+n:'EMPTY'}</text>`});
+ return s}
+function renderAll(){
+ const p=[];
+ p.push(`<defs><filter id="sh"><feDropShadow dx="0" dy="2" stdDeviation="2" flood-opacity=".25"/></filter></defs>`);
+ p.push(bin());
+ p.push(`<rect x="250" y="20" width="490" height="370" rx="14" fill="#fff" stroke="#9bb5bc" stroke-width="1.5"/><text x="264" y="38" font-size="11" fill="#5d7580" font-weight="600" letter-spacing="1.2">MAYO TRAY</text><text x="726" y="38" text-anchor="end" font-size="10" fill="#0e7c86">surgeon's right &rarr;</text>`);
+ for(let i=0;i<8;i++){
+  const pl=plan.find(x=>x.slot===i),sl=slots[i],x=SX(i),y=SY(i),[cx,cy]=SC(i);
+  const col=sl.state==='ok'?'#1b9a5f':sl.state==='bad'?'#d23f3f':sl.state==='scan'?'#c97b06':'#c3d3d8';
+  p.push(`<rect x="${x}" y="${y}" width="108" height="150" rx="8" fill="${sl.state==='ok'?'#f2fbf6':sl.state==='bad'?'#fff5f5':'#fafcfc'}" stroke="${col}" stroke-width="${sl.state?2.2:1.2}" ${sl.state?'':'stroke-dasharray="5 4"'}/><text x="${x+6}" y="${y+14}" class="mono" font-size="10" fill="#0e7c86">${SLOTN[i]}</text>`);
+  if(pl&&!sl.key)p.push(`<text x="${cx}" y="${cy+4}" text-anchor="middle" font-size="11" fill="#9db1b8">${CAT[pl.key].s}</text>${pl.pinned?`<text x="${cx}" y="${cy+20}" text-anchor="middle" font-size="9" fill="#0e7c86">remembered</text>`:''}`);
+  if(sl.key){const t=CAT[sl.key].t;p.push(`<g transform="translate(${cx},${cy-4}) scale(${t==='sponge'?1:1.05})">${glyph(t)}</g>`);
+   if(sl.state==='scan')p.push(`<rect x="${x+4}" y="${y+20}" width="100" height="126" fill="none" stroke="#c97b06" stroke-dasharray="3 3"><animate attributeName="stroke-opacity" values="1;.2;1" dur=".6s" repeatCount="indefinite"/></rect>`);
+   if(sl.state==='ok'||sl.state==='bad'){p.push(`<rect x="${x+4}" y="${y+20}" width="100" height="126" fill="none" stroke="${col}" stroke-width="1.4"/><rect x="${x+4}" y="${y+130}" width="100" height="16" fill="${col}"/><text x="${x+8}" y="${y+142}" font-size="9" fill="#fff" class="mono">${CAT[sl.det].s.toLowerCase().replace(/ /g,'_')} ${sl.conf.toFixed(2)}</text>`);
+    p.push(`<circle cx="${x+92}" cy="${y+14}" r="9" fill="${col}"/><text x="${x+92}" y="${y+18}" text-anchor="middle" fill="#fff" font-size="12" font-weight="700">${sl.state==='ok'?'&#10003;':'!'}</text>`)}
+   if(pl&&pl.qty>1&&sl.state==='ok')p.push(`<text x="${x+100}" y="${y+118}" text-anchor="end" font-size="13" font-weight="600" fill="#0e2a33" class="mono">x${pl.qty}</text>`)}
+ }
+ p.push(`<g id="arm"></g>`);
+ $('svg').innerHTML=p.join('');drawArm();renderVer();
+}
+function renderVer(){
+ if(!plan.length)return;
+ const rows=plan.slice().sort((a,b)=>a.slot-b.slot).map(pl=>{const sl=slots[pl.slot];
+  const skipped=stats.skipped.includes(pl.key);
+  const c=skipped?'bad':sl.state==='ok'?'ok':sl.state==='bad'?'bad':sl.state==='scan'?'scan':'';
+  return`<div class="vrow"><span class="sl">${SLOTN[pl.slot]}</span><div><small>Expected</small>${CAT[pl.key].s} x${pl.qty}</div><div><small>Detected</small>${skipped?'<span style="color:var(--bad)">missing</span>':sl.det?CAT[sl.det].s+` <span class="mono" style="color:var(--mut)">${sl.conf.toFixed(2)}</span>`:'<span style="color:var(--mut)">waiting</span>'}</div><span class="chk ${c}">${c==='ok'?'&#10003;':c==='bad'?'&#10005;':c==='scan'?'&hellip;':''}</span></div>`}).join('');
+ $('ver').innerHTML=rows;
+ const n=slots.filter(s=>s.state==='ok').length;$('prog').textContent=n+' / '+plan.length+' verified';
+}
+
+/* ---------- arm ---------- */
+const BASE=[250,418],L=290;let A=[-2.2,-0.9],carry=null;
+function ik(x,y){let dx=x-BASE[0],dy=y-BASE[1],d=Math.min(Math.hypot(dx,dy),2*L-1),b=Math.atan2(dy,dx),a=Math.acos((d*d)/(2*L*d));
+ const c=[b-a,b+a].map(s1=>({s1,ey:BASE[1]+Math.sin(s1)*L}));c.sort((p,q)=>p.ey-q.ey);const s1=c[0].s1;
+ const ex=BASE[0]+Math.cos(s1)*L,ey=BASE[1]+Math.sin(s1)*L;return[s1,Math.atan2(y-ey,x-ex)]}
+function drawArm(){const g=$('arm');if(!g)return;const e1=[BASE[0]+Math.cos(A[0])*L,BASE[1]+Math.sin(A[0])*L],e2=[e1[0]+Math.cos(A[1])*L,e1[1]+Math.sin(A[1])*L];
+ g.innerHTML=`<g filter="url(#sh)"><circle cx="${BASE[0]}" cy="${BASE[1]}" r="20" fill="#254a54"/><line x1="${BASE[0]}" y1="${BASE[1]}" x2="${e1[0]}" y2="${e1[1]}" stroke="#2d6370" stroke-width="16" stroke-linecap="round"/><line x1="${e1[0]}" y1="${e1[1]}" x2="${e2[0]}" y2="${e2[1]}" stroke="#0e7c86" stroke-width="12" stroke-linecap="round"/><circle cx="${e1[0]}" cy="${e1[1]}" r="9" fill="#e3f3f4" stroke="#254a54" stroke-width="3"/><circle cx="${e2[0]}" cy="${e2[1]}" r="9" fill="#254a54"/></g>${carry?`<g transform="translate(${e2[0]},${e2[1]}) scale(.62)" opacity=".95">${glyph(CAT[carry].t)}</g>`:''}`}
+let target=null;
+async function moveTo(x,y,ms){const g=gen,from=A.slice(),to=ik(x,y);
+ for(let i=0;i<2;i++){let d=to[i]-from[i];while(d>Math.PI)d-=2*Math.PI;while(d<-Math.PI)d+=2*Math.PI;to[i]=from[i]+d}
+ ms=ms/speed;let t=0,last=performance.now();
+ while(t<ms){await new Promise(r=>requestAnimationFrame(r));if(gen!==g)throw'abort';const n=performance.now();if(!stopped)t+=n-last;last=n;
+  const k=Math.min(1,t/ms),e=k<.5?2*k*k:1-Math.pow(-2*k+2,2)/2;A=[from[0]+(to[0]-from[0])*e,from[1]+(to[1]-from[1])*e];drawArm()}}
+async function wait(ms){const g=gen;let t=0;ms/=speed;while(t<ms){await sleep(50);if(gen!==g)throw'abort';if(!stopped)t+=50}}
+
+/* ---------- Photon ---------- */
+function bub(cls,txt){const p=$('phone');if(p.querySelector('.empty'))p.innerHTML='';const d=document.createElement('div');d.className='bub '+cls;d.innerHTML=txt+`<small>${new Date().toLocaleTimeString([], {hour:'2-digit',minute:'2-digit'})}${cls==='out'?' · sent via Photon':''}</small>`;p.appendChild(d);p.scrollTop=1e5}
+
+/* ---------- run ---------- */
+function setArm(t){$('armtag').textContent=t}
+function resetTray(soft){gen++;running=false;carry=null;A=[-2.2,-0.9];if(cur&&!soft){buildPlan()}else{slots=Array.from({length:8},()=>({key:null,state:'',det:null,conf:0}));plan=[];$('ver').innerHTML='<div class="empty">Load a card to see the plan.</div>'; if(!cur)renderAll()}
+ $('alert').classList.remove('on');setArm('arm idle');$('run').disabled=!cur;$('run').textContent='Start layout'}
+$('reset').onclick=()=>{resetTray(false);log('Tray reset');$('final').innerHTML='<div class="locked">Complete the layout to generate the verified tray sheet.</div>';if(cur)setStep(2)};
+async function detect(i,expected,got){const sl=slots[i];sl.state='scan';renderAll();setArm('verifying '+SLOTN[i]);await wait(750);
+ sl.det=got;sl.conf=got===expected?0.94+Math.random()*0.05:0.88+Math.random()*0.05;sl.state=got===expected?'ok':'bad';renderAll();
+ log(`${SLOTN[i]} expected ${CAT[expected].s}, detected ${CAT[got].s} ${sl.conf.toFixed(2)}`,got===expected?'g':'e');return got===expected}
+async function missing(pl){
+ const k=pl.key;stats.alerts++;setArm('waiting on supply');
+ $('alertmsg').textContent=`Missing item: ${CAT[k].n}. Bin compartment is empty. Run paused.`;$('alert').classList.add('on');skipFlag=false;
+ log('MISSING '+CAT[k].n+', paging supply','e');renderAll();
+ bub('out',`OR 4 needs 1x ${CAT[k].n} for ${cur.surgeon} (${cur.procedure}). Bin is empty. Reply ETA please.`);
+ const w=async(ms)=>{const g=gen;let t=0;ms/=speed;while(t<ms){await sleep(100);if(gen!==g)throw'abort';if(skipFlag)return true;t+=100}return false};
+ if(await w(3000))return false;bub('in','Marcus (Supply): Checking sterile core now.');
+ if(await w(3000))return false;bub('in','Marcus (Supply): Found one. Courier is walking it over, about 2 min.');
+ if(await w(4000))return false;bub('in','Marcus (Supply): Delivered to the OR 4 pass-through.');
+ stock[k]=1;$('alert').classList.remove('on');log('Supply delivered '+CAT[k].s,'g');renderAll();return true}
+$('skip').onclick=()=>{skipFlag=true;$('alert').classList.remove('on')};
+async function place(pl){
+ const k=pl.key,[bx,by]=BX(k),[sx,sy]=SC(pl.slot);
+ setArm('fetching '+CAT[k].s);await moveTo(bx,by,1000);
+ if(!stock[k]){const ok=await missing(pl);if(!ok){stats.skipped.push(k);log('Skipped '+CAT[k].s+', flagged on sheet','w');renderAll();return}
+  setArm('fetching '+CAT[k].s);await moveTo(bx,by,400)}
+ let pick=k;if(cur.trap===k&&!stats.trapped){stats.trapped=true;pick='mayo'}
+ await wait(250);stock[pick]--;carry=pick;
+ await moveTo(sx,sy,1100);await wait(200);slots[pl.slot].key=pick;carry=null;renderAll();
+ const ok=await detect(pl.slot,k,pick);
+ if(!ok){stats.mis++;log('Mismatch at '+SLOTN[pl.slot]+', returning wrong item and re-picking','w');await wait(500);
+  setArm('correcting');carry=pick;slots[pl.slot].key=null;slots[pl.slot].state='';renderAll();
+  await moveTo(bx-30,by,1000);stock[pick]++;carry=null;await wait(200);
+  await moveTo(bx,by+2,300);stock[k]--;carry=k;await moveTo(sx,sy,1100);slots[pl.slot].key=k;carry=null;renderAll();await detect(pl.slot,k,k)}
+ if(k==='gauze')log('Sponge count '+pl.qty+' of '+pl.qty+' matches card','g');
+}
+$('run').onclick=async()=>{
+ if(running||!cur)return;resetTray(true);buildPlan();running=true;$('run').disabled=true;$('run').textContent='Laying out...';setStep(3);const g=gen;stats.t0=Date.now();
+ log('Layout started for '+cur.surgeon);
+ try{for(const pl of plan){await place(pl)}
+  await moveTo(330,415,900);setArm('arm idle');running=false;$('run').textContent='Start layout';$('run').disabled=false;
+  log('Layout complete in '+Math.round((Date.now()-stats.t0)/1000)+' s','g');finish()}
+ catch(e){if(e!=='abort')throw e}};
+function finish(){
+ setStep(5);
+ const el=Math.round((Date.now()-stats.t0)/1000),ver=slots.filter(s=>s.state==='ok').length,complete=stats.skipped.length===0;
+ const rows=plan.slice().sort((a,b)=>a.slot-b.slot).map(pl=>{const sk=stats.skipped.includes(pl.key);return`<tr><td>${SLOTN[pl.slot]}</td><td>${CAT[pl.key].n}</td><td>${pl.qty}</td><td>${sk?'<b style="color:#b00">NOT SUPPLIED</b>':'Verified'}</td><td>${pl.pinned?'Surgeon pref.':'Default'}</td></tr>`}).join('');
+ let tray='<svg viewBox="250 14 500 382"><rect x="250" y="14" width="490" height="376" fill="#fff"/>';
+ for(let i=0;i<8;i++){const pl=plan.find(x=>x.slot===i),[cx,cy]=SC(i);tray+=`<rect x="${SX(i)}" y="${SY(i)}" width="108" height="150" fill="none" stroke="#999" stroke-dasharray="4 3"/><text x="${SX(i)+5}" y="${SY(i)+13}" font-size="10" font-family="IBM Plex Mono" fill="#555">${SLOTN[i]}</text>`;
+  if(pl&&!stats.skipped.includes(pl.key))tray+=`<g transform="translate(${cx},${cy-6})">${glyph(CAT[pl.key].t,'#222')}</g><text x="${cx}" y="${SY(i)+144}" text-anchor="middle" font-size="10" font-family="IBM Plex Sans" fill="#111">${CAT[pl.key].s}${pl.qty>1?' x'+pl.qty:''}</text>`}
+ tray+='<text x="736" y="388" text-anchor="end" font-size="9" fill="#555" font-family="IBM Plex Sans">surgeon\'s right</text></svg>';
+ $('final').innerHTML=`<div class="paper">${complete?'<div class="stamp">VERIFIED</div>':'<div class="stamp" style="border-color:#c97b06;color:#c97b06">OPEN ITEM</div>'}
+  <div class="ph"><div><h3>MAYO TRAY LAYOUT</h3><div style="font-size:12px;color:#555">Cascade General OR 4 · Training prototype sheet</div></div><div class="mono" style="font-size:12px;text-align:right">${new Date().toLocaleDateString()}<br>Set-up ${el} s (accelerated)</div></div>
+  <div class="meta"><div><span>Procedure</span>${cur.procedure}</div><div><span>Surgeon</span>${cur.surgeon}</div><div><span>Glove size</span>${cur.glove}</div><div><span>Special requests</span>${cur.special}</div></div>
+  ${tray}
+  <table><tr><th>Slot</th><th>Instrument</th><th>Qty</th><th>Status</th><th>Source</th></tr>${rows}</table>
+  <div style="font-size:12px;margin-top:10px">Slots verified ${ver} of ${plan.length} · mismatches corrected ${stats.mis} · supply alerts ${stats.alerts}</div>
+  <div class="sig"><div>Scrub tech</div><div>Circulating nurse</div><div>Surgeon initials</div></div>
+  <div class="foot">Prop instruments only. Training and research prototype, not for clinical use.</div></div>
+  <div class="bar" style="justify-content:center;margin-top:14px"><button class="btn ghost" id="remember">Remember this layout for ${cur.surgeon.replace('Dr. ','Dr ')}</button></div>`;
+ $('remember').onclick=()=>{plan.forEach(pl=>{mems=mems.filter(m=>!(m.surg===cur.id&&m.item===pl.key));mems.push({id:nid++,surg:cur.id,item:pl.key,slot:pl.slot,note:`${CAT[pl.key].n} at slot ${SLOTN[pl.slot]}`})});saveMem();buildPlan();log('Backboard: layout saved','g');$('remember').textContent='Saved to Backboard'};
+ $('final').scrollIntoView({behavior:'smooth',block:'nearest'});
+}
+
+/* ---------- STOP ---------- */
+function setStop(v){stopped=v;$('stop').classList.toggle('latched',v);$('stop').textContent=v?'STOPPED':'STOP';$('stopbar').classList.toggle('on',v);if(v)log('STOP latched','e');else log('STOP released')}
+$('stop').onclick=()=>setStop(true);$('rel').onclick=()=>setStop(false);
+$('spd').oninput=e=>{speed=+e.target.value;$('spdv').textContent=speed+'x'};
+document.addEventListener('keydown',e=>{if(e.key==='Escape')setStop(true)});
+
+setStep(1);renderAll();
+loadCard(CARDS[0]);
+</script>
+</body>
+</html>

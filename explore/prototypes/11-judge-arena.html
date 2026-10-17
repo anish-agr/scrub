@@ -1,0 +1,430 @@
+<!doctype html>
+<!-- FEATURES:
+- Scene randomizer slot machine (object position, distractors, lighting, table color) with lock/reroll per reel
+- Top-down table map: drag and drop the target object before each trial, base + reach envelope shown
+- One-click "Run trial": all three policies attempt the same scene, animated arm sweep, result stamped
+- Scoreboard: scripted IK baseline vs ACT fine-tuned vs Perceptron checkpoint, success rate, Wilson 95% CI bars, avg time
+- Scatter of trial positions colored success/fail per policy (filterable) to reveal weak zones
+- Giant audience number "N trials, X% success", leader banner, trial log
+- Share results QR (generated fake QR pattern seeded from results) + copyable link
+- Latched STOP, auto-judge mode (auto-spin + auto-run), reset
+-->
+<!-- SPONSORS: Perceptron Robotics (checkpoint vs fine-tune comparison), Perceptron Perception (object localization feeding the map), Tiger Data (trial time series), MongoDB Atlas (trial documents), Solana (optional on-chain result attestation), GoDaddy (share domain) -->
+<!-- BACKEND HOOKS: GET /api/state, POST /api/detect (object xy for the map), POST /api/request {item, xy, policy}, WS /ws events: policy_step, trial_result, estop; POST /api/trials (persist), GET /api/trials?policy= -->
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Generalization Arena</title>
+<meta name="description" content="A live judging arena where judges randomize the scene and three robot policies compete trial by trial with honest confidence intervals.">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Bungee&family=Rajdhani:wght@500;600;700&family=JetBrains+Mono:wght@400;700&display=swap" rel="stylesheet">
+<style>
+:root{
+  --bg:#0b0a16;--panel:#15132b;--panel2:#1d1a3a;--line:#2e2a5a;--text:#f2f0ff;--mut:#9a95c9;
+  --ik:#ffb02e;--act:#35e0ff;--perc:#ff4fd8;--ok:#3dff9a;--bad:#ff4d6a;
+}
+*{box-sizing:border-box}
+html,body{margin:0}
+body{background:radial-gradient(1200px 600px at 80% -10%,#2a1b5e55,transparent),radial-gradient(900px 500px at -10% 10%,#0e3a5a55,transparent),var(--bg);color:var(--text);font-family:Rajdhani,system-ui,sans-serif;font-size:17px;min-height:100vh}
+button{font:inherit;color:inherit;cursor:pointer;min-height:44px}
+.mono{font-family:'JetBrains Mono',monospace}
+header{display:flex;align-items:center;gap:14px;padding:12px 20px;border-bottom:1px solid var(--line);flex-wrap:wrap}
+.logo{font-family:Bungee,sans-serif;font-size:26px;letter-spacing:1px;background:linear-gradient(90deg,var(--act),var(--perc));-webkit-background-clip:text;background-clip:text;color:transparent}
+.live{display:flex;align-items:center;gap:6px;font-weight:700;color:var(--ok);letter-spacing:2px;font-size:14px}
+.live i{width:9px;height:9px;border-radius:50%;background:var(--ok);animation:pulse 1.2s infinite}
+@keyframes pulse{50%{opacity:.25;transform:scale(.7)}}
+.sp{flex:1}
+.stop{background:var(--bad);border:3px solid #fff;color:#fff;font-family:Bungee;letter-spacing:2px;padding:6px 22px;border-radius:10px;min-width:120px;box-shadow:0 0 0 0 #ff4d6a88;animation:glow 2s infinite}
+@keyframes glow{50%{box-shadow:0 0 22px 4px #ff4d6a66}}
+.stop.latched{background:#400;border-color:var(--bad);animation:none}
+.ghost{background:transparent;border:1px solid var(--line);padding:6px 14px;border-radius:8px}
+.ghost:hover{border-color:var(--act)}
+.ghost.on{border-color:var(--ok);color:var(--ok)}
+main{display:grid;grid-template-columns:minmax(0,1.1fr) minmax(0,1fr);gap:16px;padding:16px 20px;max-width:1500px;margin:0 auto}
+@media(max-width:980px){main{grid-template-columns:1fr;padding:12px}}
+.card{background:linear-gradient(180deg,var(--panel),#110f24);border:1px solid var(--line);border-radius:16px;padding:14px}
+h2{font-family:Bungee;font-size:15px;letter-spacing:1.5px;margin:0 0 10px;color:var(--mut);font-weight:400;display:flex;align-items:center;gap:8px}
+h2 b{color:var(--text);font-weight:400}
+.hero{grid-column:1/-1;display:grid;grid-template-columns:1.3fr 1fr;gap:16px;align-items:center}
+@media(max-width:780px){.hero{grid-template-columns:1fr}}
+.big{font-family:Bungee;line-height:.95}
+.big .n{font-size:clamp(64px,13vw,150px);background:linear-gradient(180deg,#fff,var(--act));-webkit-background-clip:text;background-clip:text;color:transparent}
+.big .lbl{font-size:clamp(18px,3vw,32px);color:var(--mut);display:block;margin-top:4px}
+.big .pct{color:var(--ok)}
+.leader{font-size:20px;font-weight:700}
+.chips{display:flex;gap:8px;flex-wrap:wrap;margin-top:8px}
+.chip{border:1px solid var(--line);border-radius:999px;padding:4px 12px;font-size:14px;font-weight:600;color:var(--mut)}
+/* slot machine */
+.slots{display:grid;grid-template-columns:repeat(4,1fr);gap:8px}
+.reel{background:#08071a;border:2px solid var(--line);border-radius:12px;height:96px;overflow:hidden;position:relative;text-align:center}
+.reel .cap{position:absolute;top:4px;left:0;right:0;font-size:11px;letter-spacing:1.5px;color:var(--mut);z-index:2}
+.reel .win{position:absolute;inset:18px 0 0 0;display:flex;flex-direction:column;align-items:center;justify-content:center;font-weight:700;font-size:19px;line-height:1.1;padding:0 4px}
+.reel.spin .win{animation:blur .08s infinite;filter:blur(1px)}
+@keyframes blur{50%{transform:translateY(-6px);opacity:.6}}
+.reel.lock{border-color:var(--ok)}
+.reel .ico{font-size:26px}
+.reel button{position:absolute;right:2px;bottom:2px;min-height:24px;width:24px;font-size:12px;border:0;background:#ffffff14;border-radius:6px;z-index:3;padding:0}
+.reel button.lk{background:var(--ok);color:#000}
+@media(max-width:560px){.slots{grid-template-columns:repeat(2,1fr)}}
+.row{display:flex;gap:10px;flex-wrap:wrap;margin-top:10px}
+.cta{font-family:Bungee;letter-spacing:1px;border:0;border-radius:12px;padding:8px 22px;color:#10061f;background:linear-gradient(90deg,var(--act),var(--ok));font-size:17px}
+.cta.alt{background:linear-gradient(90deg,var(--perc),var(--ik))}
+.cta:disabled{opacity:.4;cursor:not-allowed}
+/* table */
+#mapwrap{position:relative;touch-action:none}
+#map{width:100%;height:auto;border-radius:12px;display:block;cursor:grab;touch-action:none}
+.hint{font-size:14px;color:var(--mut);margin-top:6px}
+/* scoreboard */
+.pol{display:grid;grid-template-columns:minmax(0,1.4fr) 62px 74px minmax(0,2fr) 62px;gap:8px;align-items:center;padding:10px 0;border-top:1px solid var(--line)}
+.pol.head{border:0;font-size:12px;letter-spacing:1.5px;color:var(--mut);padding:0 0 4px}
+.pn{font-weight:700;display:flex;align-items:center;gap:8px;line-height:1.05}
+.dot{width:12px;height:12px;border-radius:50%;flex:none}
+.pn small{display:block;color:var(--mut);font-weight:500;font-size:13px}
+.ci{height:22px;position:relative;background:#08071a;border-radius:6px;border:1px solid var(--line)}
+.ci .band{position:absolute;top:3px;bottom:3px;border-radius:4px;opacity:.55;transition:all .5s}
+.ci .pt{position:absolute;top:0;bottom:0;width:3px;background:#fff;transition:left .5s}
+.ci .lab{position:absolute;inset:0;display:flex;align-items:center;justify-content:center;font-size:11px;font-family:'JetBrains Mono';text-shadow:0 0 3px #000}
+.rate{font-family:Bungee;font-size:20px}
+@media(max-width:560px){.pol{grid-template-columns:1fr 50px 60px;} .pol .ci{grid-column:1/-1;order:5}.pol.head .cih{display:none}.pol .tm{display:none}}
+/* scatter */
+#scatter{width:100%;height:auto;background:#08071a;border-radius:12px;border:1px solid var(--line)}
+.seg{display:flex;gap:6px;flex-wrap:wrap;margin-bottom:8px}
+.seg button{border:1px solid var(--line);background:transparent;border-radius:8px;padding:4px 12px;font-weight:600}
+.seg button.on{background:var(--panel2);border-color:var(--act)}
+/* log */
+#log{max-height:230px;overflow:auto;font-family:'JetBrains Mono';font-size:12.5px}
+.lg{display:grid;grid-template-columns:34px 1fr auto;gap:8px;padding:5px 0;border-top:1px solid #ffffff10}
+.lg .r{display:flex;gap:4px}
+.tag{padding:1px 6px;border-radius:4px;font-weight:700;color:#000}
+.qr{display:flex;gap:14px;align-items:center;flex-wrap:wrap}
+#qr{background:#fff;padding:8px;border-radius:10px;image-rendering:pixelated;width:150px;height:150px}
+.toast{position:fixed;left:50%;bottom:24px;transform:translateX(-50%) translateY(80px);background:var(--panel2);border:1px solid var(--act);padding:10px 18px;border-radius:12px;transition:transform .3s;z-index:50;font-weight:700}
+.toast.show{transform:translateX(-50%) translateY(0)}
+.banner{display:none;grid-column:1/-1;background:#400;border:2px solid var(--bad);padding:10px 16px;border-radius:12px;font-family:Bungee;text-align:center}
+.banner.show{display:block}
+.pt-ring{animation:ring 1s ease-out}
+</style>
+</head>
+<body>
+<header>
+  <div class="logo">GENERALIZATION ARENA</div>
+  <div class="live"><i></i>LIVE JUDGING</div>
+  <div class="sp"></div>
+  <button class="ghost" id="auto">Auto-judge: off</button>
+  <button class="ghost" id="reset">Reset board</button>
+  <button class="stop" id="stop" aria-label="Emergency stop">STOP</button>
+</header>
+<main>
+  <div class="banner" id="banner">ARM STOPPED. Press STOP again to release the latch.</div>
+
+  <section class="card hero">
+    <div class="big">
+      <span class="n"><span id="nTr">0</span></span>
+      <span class="lbl">TRIALS &middot; <span class="pct" id="pctBig">--%</span> SUCCESS <span style="font-size:.6em;color:var(--mut)" id="bigWho"></span></span>
+    </div>
+    <div>
+      <div class="leader" id="leader">Waiting for the first trial...</div>
+      <div class="chips" id="condChips"></div>
+      <div class="hint">Same scene, three policies, no cherry picking. Intervals are Wilson 95%.</div>
+    </div>
+  </section>
+
+  <section class="card">
+    <h2><b>1. SPIN THE SCENE</b> randomize challenge conditions</h2>
+    <div class="slots" id="slots"></div>
+    <div class="row">
+      <button class="cta alt" id="spin">SPIN</button>
+      <button class="ghost" id="clearLocks">Unlock all</button>
+    </div>
+    <h2 style="margin-top:16px"><b>2. PLACE THE OBJECT</b> drag the mug anywhere</h2>
+    <div id="mapwrap"><canvas id="map" width="640" height="420"></canvas></div>
+    <div class="hint" id="posHint">Drag the mug. Dashed ring is the arm reach envelope.</div>
+    <div class="row">
+      <button class="cta" id="run">RUN TRIAL</button>
+      <button class="ghost" id="rndpos">Random position</button>
+    </div>
+  </section>
+
+  <section class="card">
+    <h2><b>SCOREBOARD</b> head to head</h2>
+    <div class="pol head"><div>POLICY</div><div>WIN</div><div>RATE</div><div class="cih">95% CI (Wilson)</div><div class="tm">AVG T</div></div>
+    <div id="board"></div>
+    <h2 style="margin-top:16px"><b>WHERE IT BREAKS</b> trial positions</h2>
+    <div class="seg" id="seg"></div>
+    <canvas id="scatter" width="640" height="360"></canvas>
+    <div class="hint"><span style="color:var(--ok)">&#9679;</span> success &nbsp; <span style="color:var(--bad)">&#10005;</span> fail &nbsp; Red haze = estimated weak zone.</div>
+  </section>
+
+  <section class="card">
+    <h2><b>TRIAL LOG</b></h2>
+    <div id="log"><div class="hint">No trials yet. Spin, place, run.</div></div>
+  </section>
+
+  <section class="card">
+    <h2><b>SHARE RESULTS</b></h2>
+    <div class="qr">
+      <canvas id="qr" width="150" height="150"></canvas>
+      <div>
+        <div class="mono" id="shareUrl" style="font-size:13px;word-break:break-all">arena.example.dev/r/---</div>
+        <div class="hint">Scan to open the live scoreboard and per-trial video. QR is a mock pattern seeded from the results.</div>
+        <button class="ghost" id="copy">Copy link</button>
+      </div>
+    </div>
+  </section>
+</main>
+<div class="toast" id="toast"></div>
+
+<script>
+const $=s=>document.querySelector(s);
+const POL=[
+ {id:'ik',name:'Scripted IK',sub:'baseline, no learning',color:'#ffb02e'},
+ {id:'act',name:'ACT fine-tuned',sub:'62 demos, 30k steps',color:'#35e0ff'},
+ {id:'perc',name:'Perceptron ckpt',sub:'pre-trained, zero-shot',color:'#ff4fd8'}
+];
+const REELS=[
+ {k:'pos',cap:'POSITION',opts:[['◎','Center'],['↖','Far left'],['↗','Far right'],['↓','Near base'],['↑','Far reach']]},
+ {k:'dis',cap:'DISTRACTORS',opts:[['0','None'],['2','Two cups'],['4','Clutter'],['3','Spoons+bowl'],['1','One lookalike']]},
+ {k:'light',cap:'LIGHTING',opts:[['☀','Bright'],['☼','Normal'],['☾','Dim'],['✶','Harsh glare'],['◑','Side shadow']]},
+ {k:'table',cap:'TABLE',opts:[['■','Wood'],['□','White'],['■','Black'],['■','Green mat'],['▦','Checker']]}
+];
+const TABLE_COL={'Wood':'#8a5a33','White':'#e9e6df','Black':'#1a1a1f','Green mat':'#2f6b45','Checker':'#777'};
+const BASE={x:320,y:392}, REACH=330;
+const state={cond:{},locks:{},obj:{x:320,y:210},trials:[],filter:'all',stopped:false,busy:false,auto:false,spinning:false};
+let seed=7; const rnd=()=>{seed=(seed*16807)%2147483647;return (seed-1)/2147483646};
+const clamp=(v,a,b)=>Math.max(a,Math.min(b,v));
+
+/* ---- reels ---- */
+function buildReels(){
+  $('#slots').innerHTML=REELS.map(r=>`<div class="reel" id="r-${r.k}"><div class="cap">${r.cap}</div><div class="win"><div class="ico">?</div><div>--</div></div><button title="Lock" data-k="${r.k}">&#9919;</button></div>`).join('');
+  document.querySelectorAll('.reel button').forEach(b=>b.onclick=()=>{const k=b.dataset.k;state.locks[k]=!state.locks[k];b.classList.toggle('lk',state.locks[k]);$('#r-'+k).classList.toggle('lock',state.locks[k])});
+}
+function setReel(k,o){const w=$('#r-'+k+' .win');w.innerHTML=`<div class="ico">${o[0]}</div><div>${o[1]}</div>`}
+function spin(){
+  if(state.spinning)return;state.spinning=true;$('#spin').disabled=true;
+  const targets={};
+  REELS.forEach((r,i)=>{
+    if(state.locks[r.k]&&state.cond[r.k]){targets[r.k]=state.cond[r.k];return}
+    const el=$('#r-'+r.k);el.classList.add('spin');
+    const final=r.opts[Math.floor(Math.random()*r.opts.length)];targets[r.k]=final[1];
+    let n=0;const iv=setInterval(()=>{setReel(r.k,r.opts[Math.floor(Math.random()*r.opts.length)]);n++;
+      if(n>9+i*6){clearInterval(iv);el.classList.remove('spin');setReel(r.k,final);
+        if(i===REELS.length-1||true){checkDone()}}},70);
+  });
+  let doneCount=0;const need=REELS.filter(r=>!(state.locks[r.k]&&state.cond[r.k])).length;
+  function checkDone(){doneCount++;if(doneCount>=need){state.cond={...state.cond,...targets};state.spinning=false;$('#spin').disabled=false;applyCond();}}
+  if(need===0){state.spinning=false;$('#spin').disabled=false}
+}
+function applyCond(){
+  const c=state.cond;
+  // position reel moves the object
+  const P={'Center':[320,220],'Far left':[110,200],'Far right':[530,200],'Near base':[320,325],'Far reach':[320,95]};
+  if(P[c.pos]){const p=P[c.pos];state.obj={x:p[0]+(Math.random()-.5)*30,y:p[1]+(Math.random()-.5)*20}}
+  makeDistractors();
+  $('#condChips').innerHTML=Object.values(c).map(v=>`<span class="chip">${v}</span>`).join('');
+  drawMap();
+}
+let distractors=[];
+function makeDistractors(){
+  const n={'None':0,'Two cups':2,'Clutter':4,'Spoons+bowl':3,'One lookalike':1}[state.cond.dis]||0;
+  distractors=[];
+  for(let i=0;i<n;i++){let x,y,t=0;do{x=60+Math.random()*520;y=50+Math.random()*290;t++}while(Math.hypot(x-state.obj.x,y-state.obj.y)<70&&t<30);distractors.push({x,y,k:i%3})}
+}
+
+/* ---- map ---- */
+const map=$('#map'),mx=map.getContext('2d');
+function lightFilter(){const l=state.cond.light;return l==='Dim'?.45:l==='Bright'?1.15:1}
+function drawMug(ctx,x,y,s=1,col='#f4f1ea',stroke='#222'){
+  ctx.save();ctx.translate(x,y);ctx.scale(s,s);
+  ctx.fillStyle=col;ctx.strokeStyle=stroke;ctx.lineWidth=2;
+  ctx.beginPath();ctx.arc(0,0,20,0,7);ctx.fill();ctx.stroke();
+  ctx.fillStyle='#3a2a1a';ctx.beginPath();ctx.arc(0,0,14,0,7);ctx.fill();
+  ctx.lineWidth=6;ctx.strokeStyle=col;ctx.beginPath();ctx.arc(24,0,9,-1.4,1.4);ctx.stroke();
+  ctx.restore();
+}
+function drawMap(armAngle,armLen,flash){
+  const c=state.cond,W=640,H=420;
+  mx.clearRect(0,0,W,H);
+  const tc=TABLE_COL[c.table]||'#8a5a33';
+  mx.fillStyle=tc;mx.fillRect(0,0,W,H);
+  if(c.table==='Checker'){mx.fillStyle='#222';for(let i=0;i<16;i++)for(let j=0;j<11;j++)if((i+j)%2)mx.fillRect(i*40,j*40,40,40)}
+  if(c.table==='Wood'){mx.strokeStyle='#00000022';for(let y=10;y<H;y+=22){mx.beginPath();mx.moveTo(0,y);mx.lineTo(W,y+(y%3));mx.stroke()}}
+  // reach envelope
+  mx.setLineDash([8,6]);mx.strokeStyle='#ffffffaa';mx.lineWidth=2;mx.beginPath();mx.arc(BASE.x,BASE.y,REACH,Math.PI*1.08,Math.PI*1.92);mx.stroke();mx.setLineDash([]);
+  // camera view cone
+  mx.fillStyle='#35e0ff10';mx.beginPath();mx.moveTo(BASE.x,H);mx.lineTo(60,0);mx.lineTo(580,0);mx.fill();
+  distractors.forEach(d=>{
+    if(d.k===0){mx.fillStyle='#c9d4ff';mx.beginPath();mx.arc(d.x,d.y,17,0,7);mx.fill();mx.strokeStyle='#223';mx.stroke()}
+    else if(d.k===1){mx.fillStyle='#bbb';mx.fillRect(d.x-4,d.y-24,8,48);mx.beginPath();mx.arc(d.x,d.y-24,9,0,7);mx.fill()}
+    else{mx.fillStyle='#e07a5f';mx.beginPath();mx.arc(d.x,d.y,22,0,7);mx.fill();mx.strokeStyle='#222';mx.stroke()}
+  });
+  if(c.dis==='One lookalike'&&distractors[0]){drawMug(mx,distractors[0].x,distractors[0].y,1,'#e8e2d4')}
+  // arm
+  mx.fillStyle='#222';mx.beginPath();mx.arc(BASE.x,BASE.y,26,0,7);mx.fill();mx.fillStyle='#ffb02e';mx.beginPath();mx.arc(BASE.x,BASE.y,10,0,7);mx.fill();
+  if(armLen!=null){
+    mx.strokeStyle=flash||'#ffb02e';mx.lineWidth=12;mx.lineCap='round';
+    const ex=BASE.x+Math.cos(armAngle)*armLen,ey=BASE.y+Math.sin(armAngle)*armLen;
+    const mxid=BASE.x+Math.cos(armAngle+.35)*armLen*.55,myid=BASE.y+Math.sin(armAngle+.35)*armLen*.55;
+    mx.beginPath();mx.moveTo(BASE.x,BASE.y);mx.lineTo(mxid,myid);mx.lineTo(ex,ey);mx.stroke();
+    mx.fillStyle='#fff';mx.beginPath();mx.arc(ex,ey,8,0,7);mx.fill();
+  }
+  drawMug(mx,state.obj.x,state.obj.y,1.1,'#f4f1ea');
+  mx.strokeStyle='#3dff9a';mx.lineWidth=2;mx.beginPath();mx.arc(state.obj.x,state.obj.y,34,0,7);mx.stroke();
+  mx.fillStyle='#3dff9a';mx.font='bold 12px JetBrains Mono';mx.fillText('MUG',state.obj.x-14,state.obj.y-40);
+  // lighting overlay
+  const lf=lightFilter();
+  if(lf<1){mx.fillStyle='rgba(0,0,20,'+(1-lf)*.85+')';mx.fillRect(0,0,W,H)}
+  if(c.light==='Harsh glare'){const g=mx.createRadialGradient(480,90,5,480,90,200);g.addColorStop(0,'rgba(255,255,230,.85)');g.addColorStop(1,'rgba(255,255,230,0)');mx.fillStyle=g;mx.fillRect(0,0,W,H)}
+  if(c.light==='Side shadow'){const g=mx.createLinearGradient(0,0,W,0);g.addColorStop(0,'rgba(0,0,0,.6)');g.addColorStop(.6,'rgba(0,0,0,0)');mx.fillStyle=g;mx.fillRect(0,0,W,H)}
+  if(c.light==='Bright'){mx.fillStyle='rgba(255,255,255,.12)';mx.fillRect(0,0,W,H)}
+}
+// drag
+let drag=false;
+function mpos(e){const r=map.getBoundingClientRect();const t=e.touches?e.touches[0]:e;return {x:(t.clientX-r.left)*640/r.width,y:(t.clientY-r.top)*420/r.height}}
+map.addEventListener('pointerdown',e=>{if(state.busy)return;const p=mpos(e);if(Math.hypot(p.x-state.obj.x,p.y-state.obj.y)<50){drag=true;map.setPointerCapture(e.pointerId);map.style.cursor='grabbing'}});
+map.addEventListener('pointermove',e=>{if(!drag)return;const p=mpos(e);state.obj={x:clamp(p.x,30,610),y:clamp(p.y,30,390)};posHint();drawMap()});
+map.addEventListener('pointerup',()=>{drag=false;map.style.cursor='grab'});
+function reachInfo(){const dx=state.obj.x-BASE.x,dy=state.obj.y-BASE.y;return {d:Math.hypot(dx,dy),a:Math.atan2(dy,dx)}}
+function posHint(){const r=reachInfo();const cm=(r.d/BASE.y*28).toFixed(0);$('#posHint').textContent=`Mug at x ${(state.obj.x/640*60-30).toFixed(0)} cm, reach ${cm} cm`+(r.d>REACH?'  (OUTSIDE envelope)':'')}
+
+/* ---- policy model ---- */
+function pSuccess(pol,o,c){
+  const nx=(o.x-320)/320, r=reachInfo().d/REACH;
+  let p;
+  if(pol==='ik'){ p=.9-.35*Math.abs(nx)-.3*Math.max(0,r-.8)*2;
+    if(c.light==='Dim')p-=.45; if(c.light==='Harsh glare')p-=.3; if(c.light==='Side shadow')p-=.15;
+    p-={'None':0,'Two cups':.12,'Clutter':.35,'Spoons+bowl':.25,'One lookalike':.4}[c.dis]||0;
+    if(c.table==='Checker')p-=.2; if(c.table==='Black')p-=.1;
+  } else if(pol==='act'){ p=.93-.12*Math.abs(nx);
+    if(nx<-.55)p-=.45; // weak far left (not enough demos)
+    p-=.25*Math.max(0,r-.88)*3;
+    if(c.light==='Dim')p-=.2; if(c.light==='Harsh glare')p-=.12;
+    p-={'None':0,'Two cups':.04,'Clutter':.14,'Spoons+bowl':.1,'One lookalike':.22}[c.dis]||0;
+    if(c.table==='Checker')p-=.1;
+  } else { p=.84-.1*Math.abs(nx);
+    if(r>.9)p-=.35; if(r<.3)p-=.3; // weak near base
+    if(c.light==='Dim')p-=.3;
+    p-={'None':0,'Two cups':.05,'Clutter':.1,'Spoons+bowl':.08,'One lookalike':.15}[c.dis]||0;
+    if(c.table==='Green mat')p+=.05;
+  }
+  if(r>1.02)p=Math.min(p,.05);
+  return clamp(p,.02,.98);
+}
+function timeFor(pol,o,ok){const base={ik:6.5,act:9.2,perc:8.1}[pol];return +(base+reachInfo().d/160+Math.random()*1.6+(ok?0:2.5)).toFixed(1)}
+
+/* ---- run trial ---- */
+async function run(){
+  if(state.busy||state.stopped)return;
+  if(!state.cond.pos){toast('Spin the scene first');return}
+  state.busy=true;$('#run').disabled=true;$('#spin').disabled=true;
+  const o={...state.obj},c={...state.cond},res={};
+  const info=reachInfo();
+  for(const P of POL){
+    const ok=Math.random()<pSuccess(P.id,o,c);
+    res[P.id]={ok,t:timeFor(P.id,o,ok)};
+  }
+  // animate sweep for each policy
+  for(const P of POL){
+    if(state.stopped)break;
+    const ang=-Math.PI/2+0.0, target=info.a;
+    const start=performance.now(),dur=650;
+    await new Promise(rs=>{(function f(now){
+      if(state.stopped){rs();return}
+      const k=clamp((now-start)/dur,0,1),e=k<.5?2*k*k:1-Math.pow(-2*k+2,2)/2;
+      drawMap(ang+(target-ang)*e+(res[P.id].ok?0:Math.sin(k*9)*.08*(1-k)),Math.min(info.d,REACH)*e);
+      $('#leader').textContent=`${P.name} attempting...`;
+      k<1?requestAnimationFrame(f):rs()})(start)});
+    drawMap(target+(res[P.id].ok?0:.09),Math.min(info.d,REACH),res[P.id].ok?'#3dff9a':'#ff4d6a');
+    stampFlash(P,res[P.id].ok);
+    await new Promise(r=>setTimeout(r,380));
+  }
+  if(!state.stopped){
+    state.trials.push({n:state.trials.length+1,o,c,res});
+    update();
+  }
+  drawMap();state.busy=false;$('#run').disabled=false;$('#spin').disabled=false;
+  if(state.auto&&!state.stopped)setTimeout(autoStep,700);
+}
+function stampFlash(P,ok){toast(`${P.name}: ${ok?'SUCCESS':'MISS'}`)}
+let tt;function toast(m){const t=$('#toast');t.textContent=m;t.classList.add('show');clearTimeout(tt);tt=setTimeout(()=>t.classList.remove('show'),900)}
+
+/* ---- stats ---- */
+function wilson(k,n,z=1.96){if(!n)return [0,1,0];const p=k/n,d=1+z*z/n,c=(p+z*z/(2*n))/d,m=z*Math.sqrt(p*(1-p)/n+z*z/(4*n*n))/d;return [Math.max(0,c-m),Math.min(1,c+m),p]}
+function stats(id){const T=state.trials;const k=T.filter(t=>t.res[id].ok).length;const n=T.length;
+  const avg=n?T.reduce((s,t)=>s+t.res[id].t,0)/n:0;return {k,n,avg,w:wilson(k,n)}}
+function update(){
+  const T=state.trials,n=T.length;
+  $('#nTr').textContent=n;
+  const S=POL.map(p=>({...p,...stats(p.id)}));
+  const best=[...S].sort((a,b)=>b.w[2]-a.w[2]||b.w[0]-a.w[0])[0];
+  $('#pctBig').textContent=n?Math.round(best.w[2]*100)+'%':'--%';
+  $('#bigWho').textContent=n?'('+best.name+')':'';
+  const sorted=[...S].sort((a,b)=>b.w[2]-a.w[2]);
+  $('#leader').innerHTML=n?`<span style="color:${sorted[0].color}">${sorted[0].name}</span> leads`+(n<8?' (small sample, intervals still wide)':sorted[0].w[0]>sorted[1].w[1]?' with a clear margin':' but the gap is within noise'):'Waiting for the first trial...';
+  $('#board').innerHTML=sorted.map(s=>{const [lo,hi,p]=s.w;
+    return `<div class="pol"><div class="pn"><span class="dot" style="background:${s.color}"></span><div>${s.name}<small>${s.sub}</small></div></div>
+    <div class="mono">${s.k}/${s.n}</div><div class="rate" style="color:${s.color}">${s.n?Math.round(p*100):'--'}%</div>
+    <div class="ci"><div class="band" style="left:${lo*100}%;width:${(hi-lo)*100}%;background:${s.color}"></div><div class="pt" style="left:${p*100}%"></div><div class="lab">${s.n?Math.round(lo*100)+' to '+Math.round(hi*100)+'%':'no data'}</div></div>
+    <div class="mono tm">${s.n?s.avg.toFixed(1)+'s':'--'}</div></div>`}).join('');
+  $('#seg').innerHTML=[['all','All'],...POL.map(p=>[p.id,p.name])].map(([id,l])=>`<button data-f="${id}" class="${state.filter===id?'on':''}">${l}</button>`).join('');
+  document.querySelectorAll('#seg button').forEach(b=>b.onclick=()=>{state.filter=b.dataset.f;update()});
+  drawScatter();
+  const last=[...T].reverse().slice(0,40);
+  $('#log').innerHTML=last.map(t=>`<div class="lg"><div>#${t.n}</div><div>${t.c.pos} / ${t.c.dis} / ${t.c.light} / ${t.c.table}</div><div class="r">${POL.map(p=>`<span class="tag" style="background:${t.res[p.id].ok?p.color:'#555'};${t.res[p.id].ok?'':'color:#ddd;text-decoration:line-through'}">${p.id.toUpperCase()}</span>`).join('')}</div></div>`).join('')||'<div class="hint">No trials yet.</div>';
+  drawQR();
+}
+function drawScatter(){
+  const c=$('#scatter'),x=c.getContext('2d');x.clearRect(0,0,640,360);
+  x.strokeStyle='#ffffff10';for(let i=0;i<=16;i++){x.beginPath();x.moveTo(i*40,0);x.lineTo(i*40,360);x.stroke()}for(let j=0;j<=9;j++){x.beginPath();x.moveTo(0,j*40);x.lineTo(640,j*40);x.stroke()}
+  const sx=v=>v/640*640,sy=v=>v/420*360;
+  x.strokeStyle='#ffffff44';x.setLineDash([6,5]);x.beginPath();x.arc(BASE.x,sy(BASE.y),REACH*.86,Math.PI*1.08,Math.PI*1.92);x.stroke();x.setLineDash([]);
+  x.fillStyle='#ffb02e';x.beginPath();x.arc(BASE.x,sy(BASE.y),7,0,7);x.fill();
+  const ids=state.filter==='all'?POL.map(p=>p.id):[state.filter];
+  // weak-zone haze from fails
+  ids.forEach(id=>state.trials.forEach(t=>{if(!t.res[id].ok){const g=x.createRadialGradient(sx(t.o.x),sy(t.o.y),0,sx(t.o.x),sy(t.o.y),48);g.addColorStop(0,'rgba(255,77,106,.28)');g.addColorStop(1,'rgba(255,77,106,0)');x.fillStyle=g;x.fillRect(sx(t.o.x)-50,sy(t.o.y)-50,100,100)}}));
+  ids.forEach((id,i)=>{const P=POL.find(p=>p.id===id);const off=state.filter==='all'?(i-1)*7:0;
+    state.trials.forEach(t=>{const px=sx(t.o.x)+off,py=sy(t.o.y);
+      if(t.res[id].ok){x.fillStyle='#3dff9a';x.strokeStyle=P.color;x.lineWidth=2;x.beginPath();x.arc(px,py,5,0,7);x.fill();x.stroke()}
+      else{x.strokeStyle='#ff4d6a';x.lineWidth=3;x.beginPath();x.moveTo(px-5,py-5);x.lineTo(px+5,py+5);x.moveTo(px+5,py-5);x.lineTo(px-5,py+5);x.stroke()}})});
+  if(!state.trials.length){x.fillStyle='#9a95c9';x.font='16px Rajdhani';x.textAlign='center';x.fillText('Run trials to map the policy weak spots',320,180);x.textAlign='left'}
+}
+/* fake QR */
+function drawQR(){
+  const c=$('#qr'),x=c.getContext('2d'),N=25,s=150/N;
+  let h=state.trials.length*977+state.trials.reduce((a,t)=>a+POL.reduce((q,p,i)=>q+(t.res[p.id].ok?1<<i:0),0)*31,0)+13;
+  const r=()=>{h=(h*1103515245+12345)&0x7fffffff;return h/0x7fffffff};
+  x.fillStyle='#fff';x.fillRect(0,0,150,150);x.fillStyle='#111';
+  const fin=(a,b)=>{x.fillRect(a*s,b*s,7*s,7*s);x.fillStyle='#fff';x.fillRect((a+1)*s,(b+1)*s,5*s,5*s);x.fillStyle='#111';x.fillRect((a+2)*s,(b+2)*s,3*s,3*s)};
+  const inF=(i,j)=>(i<8&&j<8)||(i>N-9&&j<8)||(i<8&&j>N-9);
+  for(let i=0;i<N;i++)for(let j=0;j<N;j++)if(!inF(i,j)&&r()>.52)x.fillRect(i*s,j*s,s,s);
+  fin(0,0);fin(N-7,0);fin(0,N-7);
+  const code=(h%46656).toString(36).padStart(3,'0');
+  $('#shareUrl').textContent='arena.example.dev/r/'+code+'?n='+state.trials.length;
+}
+/* auto judge */
+function autoStep(){if(!state.auto||state.stopped||state.busy)return;
+  state.locks={};spin();const w=setInterval(()=>{if(!state.spinning){clearInterval(w);setTimeout(run,500)}},200)}
+$('#auto').onclick=()=>{state.auto=!state.auto;$('#auto').textContent='Auto-judge: '+(state.auto?'on':'off');$('#auto').classList.toggle('on',state.auto);if(state.auto)autoStep()};
+$('#spin').onclick=spin;$('#run').onclick=run;
+$('#clearLocks').onclick=()=>{state.locks={};document.querySelectorAll('.reel').forEach(e=>e.classList.remove('lock'));document.querySelectorAll('.reel button').forEach(b=>b.classList.remove('lk'))};
+$('#rndpos').onclick=()=>{if(state.busy)return;state.obj={x:60+Math.random()*520,y:60+Math.random()*290};makeDistractors();posHint();drawMap()};
+$('#reset').onclick=()=>{state.trials=[];update();toast('Board reset')};
+$('#copy').onclick=()=>{try{navigator.clipboard.writeText($('#shareUrl').textContent)}catch(e){}toast('Link copied')};
+$('#stop').onclick=()=>{state.stopped=!state.stopped;$('#stop').classList.toggle('latched',state.stopped);$('#stop').textContent=state.stopped?'RELEASE':'STOP';$('#banner').classList.toggle('show',state.stopped);
+  if(state.stopped){state.auto=false;$('#auto').textContent='Auto-judge: off';$('#auto').classList.remove('on')}};
+
+/* init: seed with a few trials so it feels alive */
+buildReels();
+state.cond={pos:'Center',dis:'Two cups',light:'Normal',table:'Wood'};
+REELS.forEach(r=>setReel(r.k,r.opts.find(o=>o[1]===state.cond[r.k])));
+$('#condChips').innerHTML=Object.values(state.cond).map(v=>`<span class="chip">${v}</span>`).join('');
+makeDistractors();
+for(let i=0;i<14;i++){const o={x:60+rnd()*520,y:60+rnd()*300};const c={pos:'-',dis:['None','Two cups','Clutter'][i%3],light:['Normal','Dim','Bright'][i%3],table:'Wood'};
+  const save=state.obj;state.obj=o;const res={};POL.forEach(p=>res[p.id]={ok:rnd()<pSuccess(p.id,o,c),t:+(6+rnd()*6).toFixed(1)});state.obj=save;
+  state.trials.push({n:i+1,o,c:{...c,pos:o.x<200?'Far left':o.x>440?'Far right':'Center'},res})}
+posHint();drawMap();update();
+// idle ambient sweep so the arm feels alive
+let amb=0;setInterval(()=>{if(state.busy||drag||state.stopped)return;amb+=.05;drawMap(-Math.PI/2+Math.sin(amb)*.25,170+Math.sin(amb*1.3)*20)},120);
+</script>
+</body>
+</html>

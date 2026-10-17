@@ -1,0 +1,513 @@
+<!DOCTYPE html>
+<!-- FEATURES:
+- three.js SO-101 style 6-DOF arm twin (box/cylinder approximation) on a lab table with bottle, cup, block, tray
+- Joint sliders, recorded mock trajectory playback with scrubber timeline and speed control
+- Ghost arm + path trace of the policy's predicted trajectory vs actual executed trajectory, with live deviation readout
+- Reachability heat dome (workspace envelope) toggle
+- Click the table to place a target; fake IK animates the arm there, refuses unreachable or keep-out targets
+- Safety keep-out zone around a moving human hand; arm holds when breached; latched STOP
+- Camera presets: orbit, top, front, side, follow tip
+-->
+<!-- SPONSORS: Perceptron Robotics (policy vs actual replay, fine-tune demo review), Tiger Data (trajectory time series source), Vultr (policy inference host), Photon (breach alert hook) -->
+<!-- BACKEND HOOKS: GET /api/state (joint targets, latched), WebSocket /ws (state, step, safety, detections), POST /api/stop, POST /api/reset, POST /api/request {task, target_id}, GET /api/trials. Defaults to mock mode, no server needed. -->
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>SO-101 Digital Twin</title>
+<meta name="description" content="A 3D digital twin of the SO-101 arm with trajectory replay, policy ghost overlay, workspace heat dome and a human-hand safety zone.">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500&display=swap" rel="stylesheet">
+<style>
+:root{--bg:#eef2f5;--panel:#ffffff;--ink:#16222d;--dim:#5b6b79;--line:#d7dfe6;--accent:#0a7ea4;--accent2:#e8590c;--ok:#0b8a4f;--bad:#c92a2a;--warn:#b86e00}
+*{box-sizing:border-box}
+html,body{margin:0;height:100%;font-family:Inter,system-ui,sans-serif;color:var(--ink);background:var(--bg);font-size:14px}
+.app{display:grid;grid-template-columns:1fr 320px;grid-template-rows:auto 1fr auto;height:100vh;height:100dvh}
+header{grid-column:1/3;display:flex;align-items:center;gap:12px;padding:8px 16px;background:var(--panel);border-bottom:1px solid var(--line);flex-wrap:wrap}
+h1{font-size:17px;margin:0;font-weight:700;letter-spacing:-.01em}
+h1 small{font-weight:500;color:var(--dim);margin-left:6px}
+.sp{flex:1}
+button,select{font:inherit;min-height:44px;padding:0 14px;border:1px solid var(--line);background:#fff;border-radius:8px;color:var(--ink);cursor:pointer}
+button:hover{border-color:var(--accent)}
+button:focus-visible,input:focus-visible,select:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
+button.on{background:var(--accent);color:#fff;border-color:var(--accent)}
+button.stop{background:var(--bad);color:#fff;border-color:var(--bad);font-weight:700;letter-spacing:.12em;min-width:120px}
+button.stop.latched{animation:pl .8s infinite alternate}
+@keyframes pl{to{box-shadow:0 0 0 5px rgba(201,42,42,.3)}}
+.badge{font-family:'IBM Plex Mono',monospace;font-size:12px;padding:6px 10px;border-radius:999px;background:#e6f5ec;color:var(--ok);border:1px solid #b8e2c9}
+.badge.bad{background:#fdecec;color:var(--bad);border-color:#f3b8b8}
+.badge.warn{background:#fff3df;color:var(--warn);border-color:#f2d6a0}
+#view{position:relative;min-height:0;background:linear-gradient(#f7fafc,#e3eaf0)}
+#view canvas{display:block;width:100%;height:100%;touch-action:none}
+.hud{position:absolute;left:12px;top:12px;display:flex;flex-direction:column;gap:6px;pointer-events:none}
+.hud .badge{background:rgba(255,255,255,.9)}
+.cams{position:absolute;left:12px;bottom:12px;display:flex;gap:6px;flex-wrap:wrap}
+.cams button{min-height:44px;padding:0 12px;background:rgba(255,255,255,.92)}
+.hint{position:absolute;right:12px;bottom:12px;background:rgba(255,255,255,.92);border:1px solid var(--line);padding:6px 10px;border-radius:8px;font-size:12px;color:var(--dim);max-width:240px}
+aside{background:var(--panel);border-left:1px solid var(--line);overflow:auto;padding:12px 14px}
+aside h2{font-size:11px;letter-spacing:.14em;text-transform:uppercase;color:var(--dim);margin:14px 0 8px}
+aside h2:first-child{margin-top:0}
+.row{display:grid;grid-template-columns:96px 1fr 46px;align-items:center;gap:8px;min-height:36px;font-size:13px}
+.row output{font-family:'IBM Plex Mono',monospace;font-size:12px;text-align:right}
+input[type=range]{width:100%;height:44px;accent-color:var(--accent)}
+.tog{display:flex;align-items:center;gap:10px;min-height:44px;cursor:pointer}
+.tog input{width:20px;height:20px;accent-color:var(--accent)}
+.legend{display:flex;gap:12px;font-size:12px;color:var(--dim);flex-wrap:wrap}
+.legend i{display:inline-block;width:14px;height:4px;border-radius:2px;margin-right:5px;vertical-align:middle}
+.stat{display:grid;grid-template-columns:1fr auto;gap:2px 8px;font-size:13px}
+.stat b{font-family:'IBM Plex Mono',monospace;font-weight:500}
+.timeline{grid-column:1/3;background:var(--panel);border-top:1px solid var(--line);padding:6px 16px;display:grid;grid-template-columns:auto auto 1fr auto auto;gap:12px;align-items:center}
+.timeline .t{font-family:'IBM Plex Mono',monospace;font-size:12px;min-width:92px}
+#scrub{width:100%}
+.marks{position:relative;height:14px;margin:-8px 0 0;font-size:10px;color:var(--dim)}
+.tl{display:flex;flex-direction:column;min-width:0}
+@media(max-width:820px){
+  .app{grid-template-columns:1fr;grid-template-rows:auto 56vh auto auto;height:auto;min-height:100vh}
+  header,.timeline{grid-column:1}
+  aside{border-left:0;border-top:1px solid var(--line)}
+  .timeline{grid-template-columns:auto auto 1fr;}
+  .timeline .t:last-child{display:none}
+  .hint{display:none}
+  .sp{display:none}
+}
+</style>
+</head>
+<body>
+<div class="app">
+<header>
+  <h1>SO-101 Digital Twin <small>mock mode</small></h1>
+  <span class="badge" id="status">SAFE</span>
+  <span class="badge" id="mode">mode: replay</span>
+  <div class="sp"></div>
+  <button class="stop" id="stop" aria-label="Emergency stop, latched">STOP</button>
+  <button id="reset">Reset</button>
+</header>
+
+<div id="view">
+  <div class="hud"><span class="badge" id="hudTip">tip x 0.00 y 0.00 z 0.00</span><span class="badge" id="hudDev">deviation 0.0 cm</span></div>
+  <div class="cams" id="cams"></div>
+  <div class="hint">Click the table to send the arm to that spot. Drag to orbit, scroll to zoom.</div>
+</div>
+
+<aside>
+  <h2>Joints</h2>
+  <div id="sliders"></div>
+  <h2>Overlays</h2>
+  <label class="tog"><input type="checkbox" id="oGhost" checked> Policy ghost + predicted path</label>
+  <label class="tog"><input type="checkbox" id="oDome"> Reachability heat dome</label>
+  <label class="tog"><input type="checkbox" id="oHand" checked> Human hand + keep-out zone</label>
+  <label class="tog"><input type="checkbox" id="oSweep" checked> Hand sweeps automatically</label>
+  <div class="row"><label for="hand">Hand pos</label><input type="range" id="hand" min="0" max="100" value="20"><output id="handO">20</output></div>
+  <div class="legend"><span><i style="background:#e8590c"></i>actual</span><span><i style="background:#0a7ea4"></i>predicted</span><span><i style="background:#c92a2a"></i>keep-out</span></div>
+  <h2>Replay metrics</h2>
+  <div class="stat"><span>Task</span><b>fetch bottle</b><span>Checkpoint</span><b>ACT v3</b><span>Max deviation</span><b id="mDev">0.0 cm</b><span>Safety holds</span><b id="mHold">0</b><span>Targets placed</span><b id="mPlace">0</b></div>
+  <h2>Last event</h2>
+  <div id="evt" style="font-size:13px;color:var(--dim);min-height:40px">Replaying demo 017.</div>
+</aside>
+
+<div class="timeline">
+  <button id="play" aria-label="Play or pause">Pause</button>
+  <select id="speed" aria-label="Playback speed"><option value="0.5">0.5x</option><option value="1" selected>1x</option><option value="2">2x</option></select>
+  <div class="tl"><input type="range" id="scrub" min="0" max="1000" value="0" aria-label="Timeline scrubber"><div class="marks" id="marks"></div></div>
+  <span class="t" id="tcur">0.00 / 9.00 s</span>
+  <span class="t" id="tphase">home</span>
+</div>
+</div>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+<script>
+(function(){
+"use strict";
+if(!window.THREE){document.getElementById('view').innerHTML='<p style="padding:20px">three.js failed to load. Check your connection.</p>';return;}
+const $=id=>document.getElementById(id);
+const D2R=Math.PI/180,R2D=180/Math.PI;
+const clamp=(v,a,b)=>Math.max(a,Math.min(b,v));
+const L1=1.2,L2=1.2,L3=0.35,LG=0.35,HB=0.5; // link lengths, shoulder height
+const JN=[
+ {n:'Shoulder pan',min:-120,max:120},
+ {n:'Shoulder lift',min:-20,max:130},
+ {n:'Elbow flex',min:-10,max:150},
+ {n:'Wrist flex',min:-60,max:200},
+ {n:'Wrist roll',min:-150,max:150},
+ {n:'Gripper',min:0,max:100}
+];
+const HOME=[0,20,100,60,0,60];
+
+/* ---------- scene ---------- */
+const view=$('view');
+const renderer=new THREE.WebGLRenderer({antialias:true});
+renderer.setPixelRatio(Math.min(devicePixelRatio,2));
+renderer.shadowMap.enabled=true;
+view.appendChild(renderer.domElement);
+const scene=new THREE.Scene();
+scene.background=new THREE.Color(0xeaf0f5);
+scene.fog=new THREE.Fog(0xeaf0f5,14,30);
+const camera=new THREE.PerspectiveCamera(45,1,.1,100);
+scene.add(new THREE.HemisphereLight(0xffffff,0xb8c4cf,.85));
+const sun=new THREE.DirectionalLight(0xffffff,.7);sun.position.set(4,8,3);sun.castShadow=true;
+sun.shadow.mapSize.set(1024,1024);Object.assign(sun.shadow.camera,{left:-6,right:6,top:6,bottom:-6});
+scene.add(sun);
+
+// floor + table
+const floor=new THREE.Mesh(new THREE.PlaneGeometry(40,40),new THREE.MeshStandardMaterial({color:0xdde5eb,roughness:1}));
+floor.rotation.x=-Math.PI/2;floor.position.y=-.8;floor.receiveShadow=true;scene.add(floor);
+const table=new THREE.Mesh(new THREE.BoxGeometry(7,.8,4.6),new THREE.MeshStandardMaterial({color:0xf8fafb,roughness:.7}));
+table.position.y=-.4;table.receiveShadow=true;scene.add(table);
+const grid=new THREE.GridHelper(7,14,0xc4d0da,0xdbe3ea);grid.position.y=.003;grid.scale.z=4.6/7;scene.add(grid);
+// tray
+const tray=new THREE.Mesh(new THREE.BoxGeometry(1.1,.06,.9),new THREE.MeshStandardMaterial({color:0x7fc8a9}));
+tray.position.set(-1.6,.03,1.4);tray.receiveShadow=true;scene.add(tray);
+const trayRim=new THREE.LineSegments(new THREE.EdgesGeometry(new THREE.BoxGeometry(1.1,.06,.9)),new THREE.LineBasicMaterial({color:0x0b8a4f}));
+trayRim.position.copy(tray.position);scene.add(trayRim);
+
+// objects
+const mat=c=>new THREE.MeshStandardMaterial({color:c,roughness:.5});
+const bottle=new THREE.Group();
+{const m=new THREE.Mesh(new THREE.CylinderGeometry(.14,.14,.4,20),mat(0xf59f00));m.position.set(0,.2,0);bottle.add(m);}
+{const m=new THREE.Mesh(new THREE.CylinderGeometry(.1,.1,.08,20),mat(0xffffff));m.position.set(0,.44,0);bottle.add(m);}
+bottle.position.set(1.7,0,-.7);
+const cup=new THREE.Mesh(new THREE.CylinderGeometry(.2,.15,.3,24),mat(0x339af0));cup.position.set(1.0,.15,1.3);
+const block=new THREE.Mesh(new THREE.BoxGeometry(.3,.3,.3),mat(0x845ef7));block.position.set(2.5,.15,.6);block.rotation.y=.5;
+[bottle,cup,block].forEach(o=>{o.traverse(m=>{if(m.isMesh){m.castShadow=true;}});scene.add(o);});
+const items=[bottle,cup,block];
+
+// target marker
+const marker=new THREE.Mesh(new THREE.RingGeometry(.12,.17,32),new THREE.MeshBasicMaterial({color:0xe8590c,side:THREE.DoubleSide}));
+marker.rotation.x=-Math.PI/2;marker.position.y=.01;marker.visible=false;scene.add(marker);
+
+/* ---------- arm builder ---------- */
+function buildArm(ghost){
+  const M=(c)=>ghost?new THREE.MeshBasicMaterial({color:0x0a7ea4,transparent:true,opacity:.28,depthWrite:false}):new THREE.MeshStandardMaterial({color:c,roughness:.4,metalness:.1});
+  const dark=0x2b3a47,body=0xf2f4f6,acc=0xe8590c;
+  const A={};
+  const root=new THREE.Group();
+  const base=new THREE.Mesh(new THREE.CylinderGeometry(.5,.55,.2,32),M(dark));base.position.y=.1;root.add(base);
+  const turret=new THREE.Mesh(new THREE.CylinderGeometry(.32,.38,.3,32),M(body));turret.position.y=.35;root.add(turret);
+  A.pan=new THREE.Group();A.pan.position.y=HB-.05;root.add(A.pan);
+  A.sh=new THREE.Group();A.sh.position.y=.05;A.pan.add(A.sh);
+  const shMot=new THREE.Mesh(new THREE.BoxGeometry(.28,.28,.5),M(dark));A.sh.add(shMot);
+  const up=new THREE.Mesh(new THREE.BoxGeometry(.24,L1,.3),M(body));up.position.y=L1/2;A.sh.add(up);
+  A.el=new THREE.Group();A.el.position.y=L1;A.sh.add(A.el);
+  const elMot=new THREE.Mesh(new THREE.CylinderGeometry(.19,.19,.42,20),M(acc));elMot.rotation.x=Math.PI/2;A.el.add(elMot);
+  const fore=new THREE.Mesh(new THREE.BoxGeometry(.2,L2,.26),M(body));fore.position.y=L2/2;A.el.add(fore);
+  A.wr=new THREE.Group();A.wr.position.y=L2;A.el.add(A.wr);
+  const wrMot=new THREE.Mesh(new THREE.BoxGeometry(.22,.22,.3),M(dark));A.wr.add(wrMot);
+  A.roll=new THREE.Group();A.wr.add(A.roll);
+  const wlink=new THREE.Mesh(new THREE.CylinderGeometry(.09,.09,L3,16),M(body));wlink.position.y=L3/2;A.roll.add(wlink);
+  const palm=new THREE.Mesh(new THREE.BoxGeometry(.26,.1,.12),M(dark));palm.position.y=L3;A.roll.add(palm);
+  A.jawL=new THREE.Mesh(new THREE.BoxGeometry(.04,LG,.1),M(acc));A.jawR=new THREE.Mesh(new THREE.BoxGeometry(.04,LG,.1),M(acc));
+  A.jawL.position.y=L3+LG/2;A.jawR.position.y=L3+LG/2;A.roll.add(A.jawL,A.jawR);
+  A.tip=new THREE.Object3D();A.tip.position.y=L3+LG;A.roll.add(A.tip);
+  root.traverse(m=>{if(m.isMesh&&!ghost){m.castShadow=true;}});
+  A.root=root;
+  A.set=function(q){
+    A.pan.rotation.y=q[0]*D2R;
+    A.sh.rotation.z=-q[1]*D2R;
+    A.el.rotation.z=-q[2]*D2R;
+    A.wr.rotation.z=-q[3]*D2R;
+    A.roll.rotation.y=q[4]*D2R;
+    const g=.02+q[5]/100*.12;A.jawL.position.x=-g;A.jawR.position.x=g;
+  };
+  A.tipPos=function(q,out){A.set(q);root.updateMatrixWorld(true);return A.tip.getWorldPosition(out||new THREE.Vector3());};
+  return A;
+}
+const arm=buildArm(false),gh=buildArm(true);
+scene.add(arm.root,gh.root);
+const tmpV=new THREE.Vector3();
+
+/* ---------- IK (fake fine): planar 2-link, gripper pointing down ---------- */
+function ik(x,y,z){
+  const pan=Math.atan2(z,x)*-1; // arm extends along +x at pan 0, rotation.y positive turns toward -z
+  const r=Math.hypot(x,z);
+  const px=r,py=y+L3+LG-0.0; // wrist pivot above tip
+  const dx=px,dy=py-HB;
+  const d=Math.hypot(dx,dy);
+  const c2=(d*d-L1*L1-L2*L2)/(2*L1*L2);
+  if(c2>1||c2<-1)return null;
+  const t2=Math.acos(c2);
+  const phi=Math.atan2(dx,dy);
+  const t1=phi-Math.atan2(L2*Math.sin(t2),L1+L2*Math.cos(t2));
+  const t3=Math.PI-t1-t2;
+  const q=[pan*R2D,t1*R2D,t2*R2D,t3*R2D,0,60];
+  if(q[1]<-20||q[1]>130||q[3]<-60||q[3]>200||q[2]<-10||q[2]>150)return null;
+  return q;
+}
+const ikv=(p,y,g)=>{const q=ik(p.x,y,p.z);if(q&&g!=null)q[5]=g;return q;};
+
+/* ---------- mock recorded trajectory ---------- */
+const DUR=9,N=Math.round(DUR*30);
+const PHASES=[['home',0],['approach',.14],['grasp',.34],['lift',.5],['deliver',.72],['release',.86],['home',1]];
+let REF=[],PRED=[],ACT=[];
+function buildTrajectory(){
+  const b=bottle.position,t=tray.position;
+  const keys=[
+    [0,HOME.slice()],
+    [.14,ikv(b,.9,100)],
+    [.30,ikv(b,.28,100)],
+    [.38,ikv(b,.28,10)],
+    [.52,ikv(b,1.0,10)],
+    [.70,ikv({x:t.x,z:t.z},1.0,10)],
+    [.80,ikv({x:t.x,z:t.z},.4,10)],
+    [.86,ikv({x:t.x,z:t.z},.4,100)],
+    [1,HOME.slice()]
+  ];
+  for(let i=1;i<keys.length;i++)if(!keys[i][1])keys[i][1]=keys[i-1][1].slice();
+  REF=[];
+  for(let i=0;i<=N;i++){
+    const u=i/N;let k=0;while(k<keys.length-2&&u>keys[k+1][0])k++;
+    const a=keys[k],c=keys[k+1];let s=clamp((u-a[0])/(c[0]-a[0]),0,1);s=s*s*(3-2*s);
+    REF.push(a[1].map((v,j)=>v+(c[1][j]-v)*s));
+  }
+  PRED=REF.map((q,i)=>{const u=i/N,amp=Math.sin(u*Math.PI)*1;return q.map((v,j)=>j===5?v:v+Math.sin(u*9+j*1.7)*3.2*amp+(u>.45&&u<.75?4*Math.sin((u-.45)*Math.PI/.3):0));});
+  ACT=REF.map((q,i)=>q.map((v,j)=>v+Math.sin(i*.37+j)*.35));
+}
+buildTrajectory();
+
+// path lines
+function lineFor(color,dashed){
+  const g=new THREE.BufferGeometry();
+  const m=dashed?new THREE.LineDashedMaterial({color,dashSize:.1,gapSize:.06}):new THREE.LineBasicMaterial({color});
+  const l=new THREE.Line(g,m);l.frustumCulled=false;scene.add(l);return l;
+}
+const predLine=lineFor(0x0a7ea4,true),actLine=lineFor(0xe8590c,false);
+function setLine(l,pts){l.geometry.setFromPoints(pts);if(l.material.isLineDashedMaterial)l.computeLineDistances();}
+let PRED_PTS=[],ACT_PTS=[];
+function computePaths(){
+  PRED_PTS=PRED.map(q=>gh.tipPos(q).clone());
+  ACT_PTS=ACT.map(q=>gh.tipPos(q).clone());
+  setLine(predLine,PRED_PTS);
+}
+computePaths();
+
+/* ---------- heat dome ---------- */
+const dome=(function(){
+  const R=L1+L2-.1;
+  const g=new THREE.SphereGeometry(R,48,24,0,Math.PI*2,0,Math.PI/2*1.15);
+  const pos=g.attributes.position,cols=[];
+  for(let i=0;i<pos.count;i++){
+    const y=pos.getY(i),x=pos.getX(i),z=pos.getZ(i);
+    const h=clamp(y/R,0,1),r=Math.hypot(x,z)/R;
+    // fake dexterity: best near mid-height, mid-radius
+    const dex=clamp(1-Math.abs(h-.45)*1.3-Math.abs(r-.62)*.9,0,1);
+    const c=new THREE.Color().setHSL(.02+dex*.33,.8,.5);cols.push(c.r,c.g,c.b);
+  }
+  g.setAttribute('color',new THREE.Float32BufferAttribute(cols,3));
+  const m=new THREE.Mesh(g,new THREE.MeshBasicMaterial({vertexColors:true,transparent:true,opacity:.22,side:THREE.DoubleSide,depthWrite:false}));
+  const w=new THREE.Mesh(g,new THREE.MeshBasicMaterial({vertexColors:true,wireframe:true,transparent:true,opacity:.25}));
+  const grp=new THREE.Group();grp.add(m,w);grp.position.y=HB;grp.visible=false;scene.add(grp);return grp;
+})();
+
+/* ---------- human hand + keep out zone ---------- */
+const hand=new THREE.Group();
+const skin=new THREE.MeshStandardMaterial({color:0xe9b99a,roughness:.7});
+const palmM=new THREE.Mesh(new THREE.BoxGeometry(.4,.1,.45),skin);hand.add(palmM);
+for(let i=0;i<4;i++){const f=new THREE.Mesh(new THREE.BoxGeometry(.07,.07,.3),skin);f.position.set(-.15+i*.1,0,.35);hand.add(f);}
+const th=new THREE.Mesh(new THREE.BoxGeometry(.07,.07,.25),skin);th.position.set(.27,0,.15);th.rotation.y=-.6;hand.add(th);
+const wristM=new THREE.Mesh(new THREE.BoxGeometry(.3,.12,.5),new THREE.MeshStandardMaterial({color:0x3b5bdb}));wristM.position.z=-.45;hand.add(wristM);
+hand.position.y=.6;hand.rotation.y=Math.PI;
+const zoneR=.95;
+const zone=new THREE.Mesh(new THREE.CylinderGeometry(zoneR,zoneR,1.8,40,1,true),new THREE.MeshBasicMaterial({color:0xc92a2a,transparent:true,opacity:.16,side:THREE.DoubleSide,depthWrite:false}));
+const zoneRing=new THREE.Mesh(new THREE.RingGeometry(zoneR-.04,zoneR,48),new THREE.MeshBasicMaterial({color:0xc92a2a,side:THREE.DoubleSide}));
+zoneRing.rotation.x=-Math.PI/2;
+const handGrp=new THREE.Group();handGrp.add(hand,zone,zoneRing);scene.add(handGrp);
+zone.position.y=.9;zoneRing.position.y=.012;
+const HAND_A=new THREE.Vector3(2.6,0,1.9),HAND_B=new THREE.Vector3(-.4,0,-.2),HAND_C=new THREE.Vector3(-1.4,0,1.0);
+function placeHand(p){ // p 0..100 : A -> B -> C path
+  const u=p/100;let v;
+  if(u<.5)v=HAND_A.clone().lerp(HAND_B,u*2);else v=HAND_B.clone().lerp(HAND_C,(u-.5)*2);
+  handGrp.position.set(v.x,0,v.z);
+  hand.rotation.y=Math.atan2(HAND_B.x-v.x||.01,HAND_B.z-v.z||.01);
+  $('hand').value=p;$('handO').textContent=Math.round(p);
+}
+
+/* ---------- state ---------- */
+const S={q:HOME.slice(),mode:'replay',playing:true,t:0,speed:1,latched:false,hold:false,holds:0,placed:0,maxDev:0,ikAnim:null,sweep:true,sweepT:20,sweepDir:1};
+function setMode(m){S.mode=m;$('mode').textContent='mode: '+m;}
+function evt(t){$('evt').textContent=t;}
+function setStatus(txt,cls){const s=$('status');s.textContent=txt;s.className='badge '+(cls||'');}
+
+/* sliders */
+JN.forEach((j,i)=>{
+  const r=document.createElement('div');r.className='row';
+  r.innerHTML='<label for="s'+i+'">'+j.n+'</label><input type="range" id="s'+i+'" min="'+j.min+'" max="'+j.max+'" step="0.5" value="'+HOME[i]+'"><output id="o'+i+'">0</output>';
+  $('sliders').appendChild(r);
+  r.querySelector('input').addEventListener('input',e=>{
+    if(S.latched)return;
+    S.playing=false;$('play').textContent='Play';setMode('manual');S.ikAnim=null;
+    S.q[i]=+e.target.value;
+  });
+});
+function syncSliders(){S.q.forEach((v,i)=>{$('s'+i).value=v;$('o'+i).textContent=Math.round(v);});}
+
+/* marks */
+$('marks').innerHTML=PHASES.slice(0,-1).map(p=>'<span style="position:absolute;left:'+p[1]*100+'%">|'+p[0]+'</span>').join('');
+
+/* ---------- controls ---------- */
+$('play').onclick=()=>{if(S.latched)return;S.playing=!S.playing;if(S.playing){setMode('replay');S.ikAnim=null;}$('play').textContent=S.playing?'Pause':'Play';};
+$('speed').onchange=e=>S.speed=+e.target.value;
+$('scrub').oninput=e=>{S.t=e.target.value/1000*DUR;S.playing=false;$('play').textContent='Play';setMode('scrub');S.ikAnim=null;applyReplay();};
+$('oDome').onchange=e=>dome.visible=e.target.checked;
+$('oHand').onchange=e=>handGrp.visible=e.target.checked;
+$('oSweep').onchange=e=>S.sweep=e.target.checked;
+$('oGhost').onchange=e=>{gh.root.visible=predLine.visible=actLine.visible=e.target.checked;};
+$('hand').oninput=e=>{S.sweep=false;$('oSweep').checked=false;S.sweepT=+e.target.value;placeHand(S.sweepT);};
+$('stop').onclick=stop;
+function stop(){
+  if(S.latched)return;
+  S.latched=true;S.playing=false;S.ikAnim=null;
+  $('stop').classList.add('latched');$('stop').textContent='LATCHED';
+  setStatus('STOPPED','bad');evt('Operator STOP. Torque released, latched until reset.');
+}
+$('reset').onclick=reset;
+function reset(){
+  S.latched=false;S.hold=false;$('stop').classList.remove('latched');$('stop').textContent='STOP';
+  S.t=0;S.playing=true;$('play').textContent='Pause';setMode('replay');marker.visible=false;
+  evt('Latch cleared. Replaying demo 017.');
+}
+document.addEventListener('keydown',e=>{
+  if(e.code==='Space'&&e.target.tagName!=='BUTTON'&&e.target.tagName!=='INPUT'){e.preventDefault();stop();}
+});
+
+/* ---------- camera ---------- */
+const cam={theta:.9,phi:1.0,r:9.5,tx:0,ty:.8,tz:0,follow:false};
+const PRESETS={
+  Orbit:{theta:.9,phi:1.0,r:9.5,tx:0,ty:.8,tz:0},
+  Top:{theta:0,phi:.001,r:10,tx:0,ty:0,tz:0},
+  Front:{theta:0,phi:1.35,r:9,tx:0,ty:1,tz:0},
+  Side:{theta:Math.PI/2,phi:1.3,r:9,tx:0,ty:1,tz:0},
+  'Follow tip':{follow:true}
+};
+let camGoal=null;
+Object.keys(PRESETS).forEach(k=>{
+  const b=document.createElement('button');b.textContent=k;b.onclick=()=>{
+    document.querySelectorAll('#cams button').forEach(x=>x.classList.remove('on'));b.classList.add('on');
+    cam.follow=!!PRESETS[k].follow;if(!cam.follow)camGoal=Object.assign({},PRESETS[k]);
+  };
+  if(k==='Orbit')b.classList.add('on');
+  $('cams').appendChild(b);
+});
+let drag=null,moved=0;
+const el=renderer.domElement;
+el.addEventListener('pointerdown',e=>{drag={x:e.clientX,y:e.clientY};moved=0;el.setPointerCapture(e.pointerId);camGoal=null;});
+el.addEventListener('pointermove',e=>{
+  if(!drag)return;const dx=e.clientX-drag.x,dy=e.clientY-drag.y;moved+=Math.abs(dx)+Math.abs(dy);
+  drag={x:e.clientX,y:e.clientY};
+  if(!cam.follow){cam.theta-=dx*.006;cam.phi=clamp(cam.phi-dy*.006,.01,1.52);}
+});
+el.addEventListener('pointerup',e=>{
+  if(drag&&moved<5)clickTable(e);drag=null;
+});
+el.addEventListener('wheel',e=>{e.preventDefault();cam.r=clamp(cam.r*(1+e.deltaY*.001),3,16);},{passive:false});
+function updateCam(){
+  if(camGoal){for(const k in camGoal){cam[k]+=(camGoal[k]-cam[k])*.12;}}
+  if(cam.follow){
+    arm.tip.getWorldPosition(tmpV);
+    const a=S.q[0]*-D2R;
+    camera.position.set(tmpV.x-Math.cos(a)*.1+Math.sin(a)*0,tmpV.y+.9,tmpV.z+Math.sin(a)*.1+.1);
+    camera.position.set(tmpV.x-Math.cos(a)*1.0,tmpV.y+.8,tmpV.z-Math.sin(a)*1.0*-1);
+    camera.lookAt(tmpV.x,.1,tmpV.z);return;
+  }
+  camera.position.set(cam.tx+cam.r*Math.sin(cam.phi)*Math.sin(cam.theta),cam.ty+cam.r*Math.cos(cam.phi),cam.tz+cam.r*Math.sin(cam.phi)*Math.cos(cam.theta));
+  camera.lookAt(cam.tx,cam.ty,cam.tz);
+}
+
+/* ---------- click to place ---------- */
+const ray=new THREE.Raycaster(),ndc=new THREE.Vector2(),plane=new THREE.Plane(new THREE.Vector3(0,1,0),0);
+function clickTable(e){
+  if(S.latched){evt('Refused: STOP is latched. Reset first.');return;}
+  const rc=el.getBoundingClientRect();
+  ndc.set(((e.clientX-rc.left)/rc.width)*2-1,-((e.clientY-rc.top)/rc.height)*2+1);
+  ray.setFromCamera(ndc,camera);
+  const p=new THREE.Vector3();if(!ray.ray.intersectPlane(plane,p))return;
+  if(Math.abs(p.x)>3.4||Math.abs(p.z)>2.2){evt('Click landed off the table.');return;}
+  marker.position.set(p.x,.012,p.z);marker.visible=true;
+  const q=ik(p.x,.3,p.z);
+  if(!q){marker.material.color.set(0xc92a2a);evt('Target unreachable ('+p.x.toFixed(2)+', '+p.z.toFixed(2)+'). Outside workspace.');setStatus('UNREACHABLE','warn');setTimeout(()=>{if(!S.hold&&!S.latched)setStatus('SAFE');},1500);return;}
+  if(handGrp.visible&&Math.hypot(p.x-handGrp.position.x,p.z-handGrp.position.z)<zoneR+.1){
+    marker.material.color.set(0xc92a2a);evt('Target refused: inside the human keep-out zone.');setStatus('KEEP-OUT','bad');setTimeout(()=>{if(!S.hold&&!S.latched)setStatus('SAFE');},1500);return;}
+  marker.material.color.set(0xe8590c);
+  S.placed++;$('mPlace').textContent=S.placed;
+  // fake IK path: hover above, then descend
+  const above=ik(p.x,1.0,p.z);
+  S.ikAnim={from:S.q.slice(),legs:[above,q],leg:0,t:0};
+  S.playing=false;$('play').textContent='Play';setMode('ik move');
+  evt('IK solved for ('+p.x.toFixed(2)+', '+p.z.toFixed(2)+'). Moving.');
+}
+
+/* ---------- update loop ---------- */
+function applyReplay(){
+  const f=clamp(S.t/DUR*N,0,N),i=Math.floor(f),j=Math.min(i+1,N),u=f-i;
+  S.q=ACT[i].map((v,k)=>v+(ACT[j][k]-v)*u);
+  gh.set(PRED[i].map((v,k)=>v+(PRED[j][k]-v)*u));
+  $('scrub').value=S.t/DUR*1000;
+  $('tcur').textContent=S.t.toFixed(2)+' / '+DUR.toFixed(2)+' s';
+  let ph=PHASES[0][0];PHASES.forEach(p=>{if(S.t/DUR>=p[1]&&p[1]<1)ph=p[0];});
+  $('tphase').textContent=ph;
+  // actual path trace up to t
+  setLine(actLine,ACT_PTS.slice(0,Math.max(2,i+1)));
+}
+let lastT=performance.now(),handClock=0;
+function frame(now){
+  const dt=Math.min((now-lastT)/1000,.1);lastT=now;
+  // hand sweep
+  if(S.sweep){S.sweepT+=S.sweepDir*dt*9;if(S.sweepT>100){S.sweepT=100;S.sweepDir=-1;}if(S.sweepT<0){S.sweepT=0;S.sweepDir=1;}placeHand(S.sweepT);}
+  // safety: tip near hand zone
+  arm.tip.getWorldPosition(tmpV);
+  const dH=Math.hypot(tmpV.x-handGrp.position.x,tmpV.z-handGrp.position.z);
+  const breach=handGrp.visible&&dH<zoneR&&tmpV.y<1.9;
+  const near=handGrp.visible&&dH<zoneR+.6;
+  if(!S.latched){
+    if(breach&&!S.hold){S.hold=true;S.holds++;$('mHold').textContent=S.holds;evt('Keep-out breach. Motion held until the hand clears.');}
+    if(!breach&&S.hold){S.hold=false;evt('Hand cleared. Resuming.');}
+    if(S.hold)setStatus('HOLD: HAND IN ZONE','bad');
+    else if(near)setStatus('SLOW: HAND NEAR','warn');
+    else if($('status').textContent!=='UNREACHABLE'&&$('status').textContent!=='KEEP-OUT')setStatus('SAFE');
+  }
+  zone.material.opacity=breach?.38:near?.24:.14;
+  const go=!S.latched&&!S.hold;
+  const spd=near?.5:1;
+  if(S.mode==='replay'&&S.playing&&go){
+    S.t+=dt*S.speed*spd;if(S.t>=DUR)S.t=0;applyReplay();
+  }else if(S.mode==='scrub'||(S.mode==='replay'&&!S.playing)){applyReplay();}
+  else if(S.mode==='ik move'&&S.ikAnim&&go){
+    const a=S.ikAnim;a.t+=dt*spd/1.1;
+    const from=a.leg===0?a.from:a.legs[0],to=a.legs[a.leg];
+    const s=clamp(a.t,0,1),e=s*s*(3-2*s);
+    S.q=from.map((v,k)=>v+(to[k]-v)*e);
+    if(a.t>=1){a.t=0;a.leg++;if(a.leg>=a.legs.length){S.ikAnim=null;setMode('manual');evt('Arrived at target. Gripper closed.');}}
+  }
+  if(S.mode==='manual'||S.mode==='ik move')gh.set(S.q);
+  arm.set(S.q);
+  arm.root.updateMatrixWorld(true);
+  if(S.mode!=='replay'||!S.playing)syncSlidersThrottled();else syncSlidersThrottled();
+  // deviation
+  if(S.mode==='replay'||S.mode==='scrub'){
+    const a=arm.tip.getWorldPosition(new THREE.Vector3()),b=gh.tipPos(PRED[Math.round(clamp(S.t/DUR,0,1)*N)],new THREE.Vector3());
+    arm.set(S.q);
+    const dev=a.distanceTo(b)*10;S.maxDev=Math.max(S.maxDev,dev);
+    $('hudDev').textContent='deviation '+dev.toFixed(1)+' cm';$('mDev').textContent=S.maxDev.toFixed(1)+' cm';
+    $('hudDev').className='badge'+(dev>3?' warn':'');
+    // restore ghost pose to predicted (tipPos set it already)
+  }else{$('hudDev').textContent='deviation n/a (manual)';}
+  arm.tip.getWorldPosition(tmpV);
+  $('hudTip').textContent='tip x '+tmpV.x.toFixed(2)+'  y '+tmpV.y.toFixed(2)+'  z '+tmpV.z.toFixed(2);
+  // marker pulse
+  marker.scale.setScalar(1+Math.sin(now/200)*.08);
+  updateCam();
+  renderer.render(scene,camera);
+  requestAnimationFrame(frame);
+}
+let sl=0;function syncSlidersThrottled(){if(++sl%3===0)syncSliders();}
+
+function resize(){
+  const w=view.clientWidth,h=view.clientHeight;
+  renderer.setSize(w,h);camera.aspect=w/h;camera.updateProjectionMatrix();
+}
+addEventListener('resize',resize);
+resize();
+placeHand(20);applyReplay();
+requestAnimationFrame(frame);
+})();
+</script>
+</body>
+</html>
