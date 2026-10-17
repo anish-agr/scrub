@@ -64,6 +64,43 @@ endpoints on this arm and preserve the raw 0..100 convention for inference.
 Run `python -m unittest arm.test_kinematics -v` without an arm. Physical A7
 acceptance (five test points within ~2 cm) is still pending.
 
+### A6 offline implementation and hardware acceptance
+
+Implemented the complete `Arm` interface with a LeRobot backend, persistent
+30 Hz bus-owner/playback thread, and a single synchronous inference caller
+every 15 rows. RTC uses delay 12, a strict capture+400 ms acceptance deadline,
+committed rows (including rate limits), and boundary-based chunk switching.
+Expired coverage holds and resets histories; late replies cannot execute.
+Stop conditions: max_s (false), closed-and-still (true; controller checks grasp),
+or a latched nonblocking freeze (false). Session reset between same-instruction
+runs; changed instruction deletes the old session and requests a new grant.
+Signed Feetech load is read directly, never taken from the policy.
+
+On Python 3.10.11, all 26 offline tests pass:
+`python -m unittest discover -s arm -t . -p "test_*.py" -v`.
+`python -m arm --dry-run --self-test` also succeeds with synthetic saved PNGs
+and fake joints, reporting `closed_and_still`. This does not validate the remote
+API, learned behavior, calibration, orientation, or physical safety.
+
+Remaining checks at the arm, with a clear workspace and an operator ready to
+stop power (no sharp tool or person in the work envelope initially):
+
+1. Complete the measured rig/contract/environment checklist in `arm/README.md`.
+   No real connection is allowed by the shipped template.
+2. Resolve Caiden's four integration items in `arm/README.md` before calling
+   the whole controller flow reliable. His files were not edited.
+3. `python -m controller --real-arm`: confirm calibrated joints/camera feeds,
+   then request `pick the hemostat`. Confirm the arm holds on an empty/late
+   response and on stop, does not replay an old reply, and never releases during
+   carry. Use a blunt practice object for first motion tests.
+4. Verify five measured in-region targets through the controller with the
+   smallest suitable speed; measure tip error (goal ~2 cm), check tool attitude
+   and handle-first presentation separately. FK/IK round trips are not a
+   substitute for this physical check.
+5. Measure load changes and test explicit `got_it`, safe-spot arrival/release,
+   stopped-state rearm, and unavailable-policy handling. No claim of clinical
+   validation or hardware success has been made.
+
 The dataset format, training and inference calls are in `docs/PERCEPTRON-ROBOTICS.md`. Short version: 30 FPS, cameras named `side` and `wrist` at 640x480, six joint values with the gripper at 0 to 100, and a public Hugging Face repo or a direct upload.
 
 ## Connecting (LeRobot SO-101)
@@ -75,10 +112,14 @@ The dataset format, training and inference calls are in `docs/PERCEPTRON-ROBOTIC
 5. `hf auth login`, then `lerobot-record`:
     - `--dataset.single_task "pick the hemostat"` (the instruction)
     - `--dataset.num_episodes 15`
-    - right arrow ends a demo early, left arrow re-records it, Escape stops and uploads
+    - `--robot.use_degrees=true --dataset.fps=30`
+    - `--dataset.episode_time_s=25 --dataset.reset_time_s=10`
+    - one dataset `<user>/scrub`, one calibration and fixed camera mounts
+    - append later batches with `--resume=true --dataset.root=<same local root>`
+    - right arrow or n ends an episode, left arrow or r re-records it, Escape or q stops and encodes; Hub push only if configured
     - `--dataset.push_to_hub=false` if we're not using the Hub
-6. Fine-tune with Perceptron's endpoint (the LeRobot equivalent is `lerobot-train`).
-7. Run with `lerobot-rollout` (policy path, robot, `--task`), or Perceptron's inference endpoint.
+6. Replay episode 0, check the ~30 Hz cadence report and API validation before spending a training run.
+7. Fine-tune with `python -m arm.train`; remote inference runs through `Arm`, not a local LeRobot policy rollout.
 
 Perceptron's arms come assembled, so skip `lerobot-setup-motors` unless they say otherwise.
 
@@ -110,7 +151,7 @@ If arm time turns out short, cut in this order: bench put-back, dental put-back,
 
 1. **Run 1:** right after the operating room set, to see early whether grasps work.
 2. **Run 2:** all three settings.
-3. Any item under about 70% after a run gets 10 more demos before the next run.
+3. Add corrective demos to the same dataset before run 2. The workshop budget is only two successful jobs; no third fix-up run unless live capabilities explicitly allow it. Each run starts from the base model, so run 2 includes every earlier episode too.
 
 ## Item placement
 

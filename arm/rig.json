@@ -1,5 +1,6 @@
 {
   "hardware_verified": false,
+  "verified_contract_id": null,
   "notes": "UNMEASURED template. Do not enable hardware until axes, signs, offsets, gripper endpoints, poses and region are measured. URDF mid-range zero; no collision checking.",
   "urdf": "so101_chain.urdf",
   "joint_signs": [1, 1, 1, 1, 1],

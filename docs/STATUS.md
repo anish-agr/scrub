@@ -11,8 +11,9 @@ Agents: the first unchecked box in your person's section is the next task. Tick 
 - [ ] A4 operating room demos recorded (75)
 - [ ] A5 fine-tuning run 1 started
 - [ ] A6 `arm/real_arm.py` with `run_skill`
+  - [x] Offline implementation/dry-run: complete interface, LeRobot adapter, 30 Hz playback + RTC predicts, stop/load/session tests. `python -m arm --dry-run --self-test` succeeds; all 26 arm tests pass on Python 3.10.11. Live API/hardware acceptance pending. Caiden integration items are in `arm/README.md`.
 - [ ] A7 `move_to` with IK
-  - Offline FK/IK, handoff-box preflight and speed-limited trajectories implemented. Run `python -m unittest arm.test_kinematics -v`. Real calibration and five-point ~2 cm hardware acceptance still pending; rig is an unmeasured, hardware-disabled template.
+  - [x] Offline FK/IK, random round trips, handoff-box preflight, speed limits and fake-joint `Arm.move_to` pass. Run `python -m unittest arm.test_kinematics arm.test_real_arm -v`. Real calibration and five-point ~2 cm hardware acceptance still pending; rig is an unmeasured, hardware-disabled template.
 - [ ] A8 first real handoff by voice
 - [ ] A9 dental and bench demos recorded
 - [ ] A10 fine-tuning run 2, all 9 items

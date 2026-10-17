@@ -55,6 +55,9 @@ def put_file(client, reservation, path, *, poll_timeout=300):
     url = reservation["url"]
     if urlparse(url).scheme != "https":
         raise ValueError("Signed upload requires HTTPS")
+    if reservation.get("method", "PUT") != "PUT":
+        raise ValueError("Expected a PUT upload reservation")
+    upload_origin = urlparse(url)
     headers = reservation.get("headers", {})
     if any(k.lower() in {"authorization", "modal-authorization"} for k in headers):
         raise ValueError("Unexpected credentials in upload reservation")
@@ -64,7 +67,8 @@ def put_file(client, reservation, path, *, poll_timeout=300):
         deadline = time.monotonic() + poll_timeout
         while response.status_code == 303:
             location = response.headers.get("location", "")
-            if urlparse(location).scheme != "https":
+            target = urlparse(location)
+            if target.scheme != "https" or (target.hostname, target.port) != (upload_origin.hostname, upload_origin.port):
                 raise APIError("Missing or unsafe upload poll Location")
             if time.monotonic() >= deadline:
                 raise APIError("Upload polling timed out; do not finalize")
