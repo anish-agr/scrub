@@ -58,8 +58,10 @@ Agents: the first unchecked box in your person's section is the next task. Tick 
 
 ## Evan
 
-- [ ] E1 three settings files
-- [ ] E2 dashboard live on the controller
+- [x] E1 three settings files
+  - `settings/surgical.json`, `dental.json`, and `bench.json`. Only the scalpel is sharp. Slot and return boxes are null until Brandon sends them.
+- [x] E2 dashboard live on the controller
+  - Open http://localhost:8000/ after `python -m controller --fake-arm`. A handover updates the step, the log, what's out, and the handoff time. If the controller is down, the page shows a sample handover.
 - [ ] E3 ledger in MongoDB Atlas
 - [ ] E4 data log kept during recording
 - [ ] E5 Devpost draft submitted by 10:00 PM
