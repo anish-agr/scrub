@@ -1,0 +1,34 @@
+{
+  "id": "bench",
+  "label": "Robotics bench",
+  "items": [
+    {
+      "id": "needle_nose_pliers",
+      "name": "needle-nose pliers",
+      "aliases": ["needle nose", "needlenose", "long nose pliers", "needle nose pliers"],
+      "sharp": false,
+      "slot": null,
+      "pick_instruction": "pick the needle-nose pliers",
+      "return_instruction": "return the needle-nose pliers"
+    },
+    {
+      "id": "wire_cutters",
+      "name": "wire cutters",
+      "aliases": ["cutters", "dikes", "dykes", "snips", "diagonal cutters"],
+      "sharp": false,
+      "slot": null,
+      "pick_instruction": "pick the wire cutters",
+      "return_instruction": "return the wire cutters"
+    },
+    {
+      "id": "hex_key",
+      "name": "hex key",
+      "aliases": ["allen key", "allen", "allen wrench", "hex wrench"],
+      "sharp": false,
+      "slot": null,
+      "pick_instruction": "pick the hex key",
+      "return_instruction": "return the hex key"
+    }
+  ],
+  "return_spot": null
+}

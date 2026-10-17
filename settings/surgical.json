@@ -1,0 +1,34 @@
+{
+  "id": "surgical",
+  "label": "Operating room",
+  "items": [
+    {
+      "id": "scalpel",
+      "name": "scalpel",
+      "aliases": ["knife", "blade", "scalpel handle", "handle"],
+      "sharp": true,
+      "slot": null,
+      "pick_instruction": "pick the scalpel",
+      "return_instruction": "return the scalpel"
+    },
+    {
+      "id": "hemostat",
+      "name": "hemostat",
+      "aliases": ["kelly", "clamp", "hemo", "kelly clamp", "snap"],
+      "sharp": false,
+      "slot": null,
+      "pick_instruction": "pick the hemostat",
+      "return_instruction": "return the hemostat"
+    },
+    {
+      "id": "mayo_scissors",
+      "name": "mayo scissors",
+      "aliases": ["mayo", "scissors", "shears", "mayo scissor"],
+      "sharp": false,
+      "slot": null,
+      "pick_instruction": "pick the mayo scissors",
+      "return_instruction": "return the mayo scissors"
+    }
+  ],
+  "return_spot": null
+}
