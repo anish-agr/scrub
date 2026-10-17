@@ -29,7 +29,8 @@ Agents: the first unchecked box in your person's section is the next task. Tick 
 - [ ] C3 Photon call reaches `voice/`
 - [ ] C4 Gemini commands, stop path, spoken replies
 - [ ] C5 Checkpoint 1 shown
-- [ ] C6 real controller flows and failure cases
+- [x] C6 real controller flows and failure cases
+  - `.venv/bin/python -m controller.test_flows` forces each failure on the fake arm: 17/17 pass. Covers grasp check + one retry, wait for pull/`got_it` (30 s), freeze on hand lost or path blocked, slow near the hand, the request-to-hand timer. Force live failures with `POST /fake/force`.
 - [ ] C7 end-of-case summary text
 - [ ] C8 ten clean full runs
 - [ ] P4 demo mode and backup run
