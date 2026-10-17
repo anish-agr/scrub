@@ -1,0 +1,300 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Table Template</title>
+<meta name="description" content="True-scale printable tiles of the Scrub table: arm base, tray slots, return spot, safe spot, hand zone, handoff region and camera view, with crop marks and a 100 mm check ruler.">
+<!--
+STYLE: Cutting mat / sewing pattern sheet (green self-healing mat ground on screen, white pattern paper tiles, thin grid, dimension lines, grain-line arrows, tile numbers, notches). Print output is black line art on white.
+FEATURES:
+- Reads sim/layout.json from sim :8002/layout when up, else an embedded copy of the current values (badge says which)
+- Draws at true scale in mm (SVG user unit = 1 mm, tile sizes in CSS mm, @page size set from the paper choice) and splits into letter or A4 tiles with crop marks, trim-to-here corner ticks and tile numbers
+- Arm base footprint and pan axis cross, 400 mm reach arc, tray outline, three slot boxes with item names, return spot, scalpel safe spot, hand zone (x, y, with z noted), handoff region outline, camera field of view footprint at table height, table edge
+- 10 mm and 50 mm grid with mm labels, 100 mm scale-check ruler on tile 1 plus a "measure this, it must be 100 mm" note
+- Setting switcher for item labels (surgical, dental, bench, 3 items each), paper (Letter or A4), orientation, area (working area or full table), layer toggles
+- Overview map with tile grid; tile count shown before you print
+- Print: browser print dialog, scale 100 percent, margins none, headers and footers off. Esc not needed: this page never moves the arm
+SPONSORS: Perceptron Robotics (camera to table calibration markers), Perceptron Perception (slot boxes match the tray detection)
+BACKEND HOOKS: GET sim :8002/layout (override with ?sim=). Nothing is written back.
+HELPS: Anish A3 (tape positions on the table), Brandon B5 (slot boxes to mark), B6 (tape corners as calibration markers)
+-->
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Archivo+Narrow:wght@500;700&family=IBM+Plex+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+<style id="pagecss">@page{size:215.9mm 279.4mm;margin:0}</style>
+<style>
+:root{--mat:#2f5d4e;--mat2:#264d40;--matline:#4b7a69;--yellow:#e8c547;--ink:#111;--paper:#fff}
+*{box-sizing:border-box}
+html,body{margin:0}
+body{background:var(--mat);color:#f2f0e4;font:500 14px/1.4 "IBM Plex Mono",monospace;font-variant-numeric:tabular-nums}
+.ui{max-width:1200px;margin:0 auto;padding:14px 16px}
+h1{font:700 26px/1.1 "Archivo Narrow",sans-serif;text-transform:uppercase;letter-spacing:.1em;margin:0}
+h2{font:700 14px "Archivo Narrow",sans-serif;text-transform:uppercase;letter-spacing:.12em;margin:0 0 6px;color:var(--yellow)}
+.top{display:flex;flex-wrap:wrap;gap:8px 24px;justify-content:space-between;align-items:flex-end;border-bottom:2px solid var(--yellow);padding-bottom:8px}
+.badge{display:inline-block;padding:4px 8px;font:600 12px "IBM Plex Mono",monospace;text-transform:uppercase;letter-spacing:.06em;border:1px solid #fff}
+.badge.live{background:#3f8a52}.badge.emb{background:#b86a00}
+.panel{display:grid;grid-template-columns:repeat(auto-fit,minmax(210px,1fr));gap:12px 18px;margin:12px 0}
+.grp{background:var(--mat2);border:1px solid var(--matline);padding:8px 10px}
+.btns{display:flex;flex-wrap:wrap;gap:6px}
+button,select{min-height:44px;padding:0 12px;font:600 12px "IBM Plex Mono",monospace;background:#1b3a30;color:#f2f0e4;border:1px solid var(--matline);cursor:pointer;text-transform:uppercase;letter-spacing:.05em}
+button.on{background:var(--yellow);color:#111;border-color:var(--yellow)}
+button.print{background:#fff;color:#111;font-size:14px;border:2px solid #111;min-width:160px}
+label.chk{display:flex;gap:8px;align-items:center;min-height:32px;font-size:13px}
+label.chk input{width:20px;height:20px}
+.check{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr);gap:16px;align-items:start}
+@media(max-width:700px){.check{grid-template-columns:minmax(0,1fr)}}
+.overview{background:var(--mat2);border:1px solid var(--matline);padding:8px}
+.overview svg{width:100%;height:auto;max-height:520px;display:block;background:#fff}
+.note{font-size:12.5px;color:#d7e3dc;margin:4px 0}
+.note b{color:var(--yellow)}
+ol.steps{margin:4px 0 0;padding-left:20px;font-size:12.5px}
+.sheets{zoom:var(--z,1);display:flex;flex-direction:column;align-items:center;gap:18px;padding:8px 0 24px}
+.page{position:relative;background:var(--paper);color:var(--ink);page-break-after:always;break-after:page;box-shadow:0 0 0 1px #0006}
+.tile{position:absolute;overflow:hidden;background:#fff}
+.tile svg{display:block}
+.crop{position:absolute;background:#000}
+.pinfo{position:absolute;font:500 2.6mm/1.2 "IBM Plex Mono",monospace;color:#000}
+footer{padding:8px 16px 20px;font-size:11px;color:#b9cdc3;text-align:center}
+@media print{
+  html,body{background:#fff}
+  .ui,footer,.noprint{display:none !important}
+  .sheets{zoom:1 !important;display:block;padding:0;gap:0}
+  .page{box-shadow:none;margin:0}
+  .page:last-child{page-break-after:auto;break-after:auto}
+}
+</style>
+</head>
+<body>
+<div class="ui noprint">
+  <div class="top">
+    <div>
+      <div style="font-size:11px;letter-spacing:.14em;color:var(--yellow)">SCRUB PATTERN SHEET 45, SCALE 1:1, UNITS MM</div>
+      <h1>Table template</h1>
+    </div>
+    <div><span class="badge emb" id="src">checking sim</span></div>
+  </div>
+
+  <div class="panel">
+    <div class="grp"><h2>Setting (item labels)</h2><div class="btns" id="setBtns"></div></div>
+    <div class="grp"><h2>Paper</h2><div class="btns" id="paperBtns"></div><div class="btns" style="margin-top:6px" id="oriBtns"></div></div>
+    <div class="grp"><h2>Area</h2><div class="btns" id="areaBtns"></div></div>
+    <div class="grp"><h2>Layers</h2><div id="layers"></div></div>
+  </div>
+
+  <div class="check">
+    <div class="overview">
+      <h2>Overview, <span id="tileinfo"></span></h2>
+      <svg id="ovsvg" xmlns="http://www.w3.org/2000/svg"></svg>
+    </div>
+    <div>
+      <div class="grp"><h2>Before you print</h2>
+        <ol class="steps">
+          <li>Print dialog: paper <b id="pp">Letter</b>, scale <b>100 percent</b> (not "fit to page"), margins <b>none</b>, headers and footers <b>off</b>.</li>
+          <li>Print tile 1 only first. Measure the 100 mm ruler with a real ruler. It must read 100 mm.</li>
+          <li>Trim to the crop marks, butt the tiles by their numbers, tape the back. Table origin is the pan axis cross, arm at the bottom of the sheet.</li>
+          <li>Tape positions for the three slots, return spot and safe spot come from <span id="srcname">layout.json</span>.</li>
+        </ol>
+        <div class="btns" style="margin-top:10px"><button class="print" id="printBtn">Print tiles</button><button id="printOne">Print tile 1 only</button></div>
+        <p class="note">Arm base footprint is drawn as a 100 x 100 mm square, an estimate: measure your clamp and fix it with <b>?base=W,D</b> in the URL (mm). The pan axis is the layout origin (0, 0). The 400 mm arc is the ~0.4 m reach from the docs, not a tested limit.</p>
+        <p class="note">This page does not move the arm and has no STOP; it only draws.</p>
+      </div>
+    </div>
+  </div>
+  <h2 style="margin-top:14px">Tiles (preview, screen scaled; print is true size)</h2>
+</div>
+
+<div class="sheets" id="sheets"></div>
+<footer class="noprint">Terms (placeholder) , Privacy (placeholder) , Training and research prototype, not a medical device.</footer>
+
+<script>
+"use strict";
+const Q=new URLSearchParams(location.search);
+const SIM=(Q.get('sim')||'http://localhost:8002').replace(/\/$/,'');
+const $=id=>document.getElementById(id);
+const NS='http://www.w3.org/2000/svg';
+
+// embedded copy of sim/layout.json (meters) as of this file
+const EMBED={setting:"surgical",table:{center:[0.25,0.0],size:[0.9,0.8]},tray:{center:[0.24,0.0],size:[0.10,0.26]},
+ slots:[[0.24,-0.08],[0.24,0.0],[0.24,0.08]],
+ setting_items:{surgical:["hemostat","scalpel","mayo_scissors"],dental:["mouth_mirror","explorer","cotton_pliers"],bench:["needle_nose_pliers","wire_cutters","hex_key"]},
+ return_spot:[0.17,0.17],safe_spot:[0.17,-0.18],hand_zone:[0.28,-0.14,0.14],
+ handoff_region:{min:[0.14,-0.25,0.06],max:[0.35,0.25,0.30]},overhead_cam:{pos:[0.24,0.0,0.75],fovy:55}};
+let L=EMBED, fromSim=false;
+const baseWD=(Q.get('base')||'100,100').split(',').map(Number);
+const PAPERS={Letter:[215.9,279.4],A4:[210,297]};
+const S={setting:'surgical',paper:'Letter',ori:'Portrait',area:'work',layers:{grid:true,reach:true,fov:true,hand:true,handoff:true,table:true}};
+const MARGIN=12; // mm, crop marks and tile numbers live here
+const mm=v=>v*1000;
+
+// paper coordinates: sx = -y (arm left is paper left), sy = -x (forward is up). Units mm.
+const P=(x,y)=>[-y,-x];
+function areaBox(){ // in arm mm: [xmin,xmax,ymin,ymax]
+  if(S.area==='work')return[-60,470,-310,310];
+  const t=L.table,c=t.center,s=t.size;return[mm(c[0]-s[0]/2),mm(c[0]+s[0]/2),mm(c[1]-s[1]/2),mm(c[1]+s[1]/2)];
+}
+function region(){const[a,b,c,d]=areaBox();return{x:-d,y:-b,w:d-c,h:b-a};} // svg box
+function tiling(){
+  let[pw,ph]=PAPERS[S.paper];if(S.ori==='Landscape')[pw,ph]=[ph,pw];
+  const tw=pw-2*MARGIN,th=ph-2*MARGIN,r=region();
+  return{pw,ph,tw,th,cols:Math.ceil(r.w/tw),rows:Math.ceil(r.h/th),r};
+}
+
+// ---------- the art, in svg user units of mm ----------
+function el(tag,attrs,txt){const e=document.createElementNS(NS,tag);for(const k in attrs)e.setAttribute(k,attrs[k]);if(txt!=null)e.textContent=txt;return e;}
+function buildArt(){
+  const g=el('g',{id:'art',fill:'none',stroke:'#000','stroke-width':.35,'font-family':'IBM Plex Mono, monospace'});
+  const T=(x,y,s,size,anchor,extra)=>{const[px,py]=P(x,y);g.appendChild(el('text',Object.assign({x:px,y:py,'font-size':size||4,fill:'#000',stroke:'none','text-anchor':anchor||'middle'},extra||{}),s));};
+  const rectXY=(cx,cy,sx,sy,attrs)=>{const[px,py]=P(cx,cy);return el('rect',Object.assign({x:px-sy/2,y:py-sx/2,width:sy,height:sx},attrs));}; // sx along arm x, sy along arm y
+  const r=region();
+  const[ax0,ax1,ay0,ay1]=areaBox();
+  // grid
+  if(S.layers.grid){
+    for(let x=Math.ceil(ax0/10)*10;x<=ax1;x+=10){const maj=x%50===0;const a=P(x,ay0),b=P(x,ay1);g.appendChild(el('line',{x1:a[0],y1:a[1],x2:b[0],y2:b[1],stroke:'#000','stroke-opacity':maj?.4:.15,'stroke-width':maj?.25:.12}));
+      if(maj)T(x,ay1-3,x+'',3,'end',{'fill-opacity':.6});}
+    for(let y=Math.ceil(ay0/10)*10;y<=ay1;y+=10){const maj=y%50===0;const a=P(ax0,y),b=P(ax1,y);g.appendChild(el('line',{x1:a[0],y1:a[1],x2:b[0],y2:b[1],stroke:'#000','stroke-opacity':maj?.4:.15,'stroke-width':maj?.25:.12}));
+      if(maj)T(ax0+4,y,y+'',3,'middle',{'fill-opacity':.6});}
+    T(ax1-6,ay1-12,'x mm (forward)',3.2,'end',{'fill-opacity':.7});T(ax0+14,ay0+22,'y mm (left is paper left)',3.2,'start',{'fill-opacity':.7});
+  }
+  // table edge
+  if(S.layers.table){const t=L.table;const e=rectXY(mm(t.center[0]),mm(t.center[1]),mm(t.size[0]),mm(t.size[1]),{'stroke-width':.8,'stroke-dasharray':'8 3'});g.appendChild(e);
+    T(mm(t.center[0]+t.size[0]/2)-8,mm(t.center[1]-t.size[1]/2)+4,'TABLE EDGE '+mm(t.size[0])+' x '+mm(t.size[1])+' mm',3.2,'start');}
+  // camera FOV footprint on the table plane
+  if(S.layers.fov){const c=L.overhead_cam,h=mm(c.pos[2]),fy=c.fovy*Math.PI/180,hh=h*Math.tan(fy/2),hw=hh*4/3;
+    g.appendChild(rectXY(mm(c.pos[0]),mm(c.pos[1]),2*hh,2*hw,{'stroke-width':.6,'stroke-dasharray':'2 2 8 2'}));
+    T(mm(c.pos[0])+hh-6,mm(c.pos[1])+hw-6,'CAMERA VIEW '+Math.round(2*hw)+' x '+Math.round(2*hh)+' mm at z 0 (640x480, fovy '+c.fovy+')',3.2,'start');
+    const[cx,cy]=P(mm(c.pos[0]),mm(c.pos[1]));g.appendChild(el('circle',{cx,cy,r:3,'stroke-width':.5}));}
+  // reach arc
+  if(S.layers.reach){const[o0,o1]=P(0,0);g.appendChild(el('circle',{cx:o0,cy:o1,r:400,'stroke-width':.5,'stroke-dasharray':'6 3'}));T(392,-60,'~400 mm reach (docs, not tested)',3.2,'start',{transform:`rotate(-0 0 0)`});}
+  // handoff region
+  if(S.layers.handoff){const h=L.handoff_region;const cx=mm((h.min[0]+h.max[0])/2),cy=mm((h.min[1]+h.max[1])/2),sx=mm(h.max[0]-h.min[0]),sy=mm(h.max[1]-h.min[1]);
+    g.appendChild(rectXY(cx,cy,sx,sy,{'stroke-width':.7,'stroke-dasharray':'12 3 2 3'}));
+    T(mm(h.max[0])-6,mm(h.max[1])-4,'HANDOFF REGION x '+mm(h.min[0])+'..'+mm(h.max[0])+' y '+mm(h.min[1])+'..'+mm(h.max[1])+' z '+mm(h.min[2])+'..'+mm(h.max[2])+' mm',3.2,'end');}
+  // tray + slots
+  const tr=L.tray;g.appendChild(rectXY(mm(tr.center[0]),mm(tr.center[1]),mm(tr.size[0]),mm(tr.size[1]),{'stroke-width':1}));
+  T(mm(tr.center[0]+tr.size[0]/2)+6,mm(tr.center[1]),'TRAY '+mm(tr.size[0])+' x '+mm(tr.size[1])+' mm',3.4);
+  const items=L.setting_items[S.setting];
+  L.slots.forEach((s,i)=>{
+    g.appendChild(rectXY(mm(s[0]),mm(s[1]),90,72,{'stroke-width':.9,rx:2}));
+    const cx=mm(s[0]),cy=mm(s[1]);
+    const[px,py]=P(cx,cy);g.appendChild(el('path',{d:`M${px-4},${py}H${px+4}M${px},${py-4}V${py+4}`,'stroke-width':.5}));
+    T(cx+14,cy,'SLOT '+(i+1),3.2);T(cx-8,cy,(items[i]||'').replace(/_/g,' ').toUpperCase(),3.8,'middle',{'font-weight':700});
+    T(cx-18,cy,'('+cx+', '+cy+')',2.8);
+  });
+  // return spot
+  {const rs=L.return_spot,cx=mm(rs[0]),cy=mm(rs[1]),[px,py]=P(cx,cy);g.appendChild(el('circle',{cx:px,cy:py,r:30,'stroke-width':.9}));g.appendChild(el('path',{d:`M${px-6},${py}H${px+6}M${px},${py-6}V${py+6}`,'stroke-width':.5}));
+    T(cx+8,cy,'RETURN SPOT',3.6,'middle',{'font-weight':700});T(cx-8,cy,'('+cx+', '+cy+')',2.8);}
+  // safe spot
+  {const rs=L.safe_spot,cx=mm(rs[0]),cy=mm(rs[1]),[px,py]=P(cx,cy);g.appendChild(el('circle',{cx:px,cy:py,r:30,'stroke-width':1.1}));g.appendChild(el('circle',{cx:px,cy:py,r:23,'stroke-width':.4,'stroke-dasharray':'2 2'}));
+    g.appendChild(el('path',{d:`M${px-6},${py}H${px+6}M${px},${py-6}V${py+6}`,'stroke-width':.5}));
+    const items0=(L.setting_items[S.setting]||[])[1]||'sharp';
+    T(cx+8,cy,'SAFE SPOT',3.6,'middle',{'font-weight':700});T(cx+13,cy,'sharps / '+items0.replace(/_/g,' '),2.9);T(cx-8,cy,'('+cx+', '+cy+')',2.8);}
+  // hand zone
+  if(S.layers.hand){const hz=L.hand_zone,cx=mm(hz[0]),cy=mm(hz[1]),[px,py]=P(cx,cy);g.appendChild(el('ellipse',{cx:px,cy:py,rx:60,ry:60,'stroke-width':.7,'stroke-dasharray':'3 3'}));
+    g.appendChild(el('path',{d:`M${px-6},${py}H${px+6}M${px},${py-6}V${py+6}`,'stroke-width':.5}));
+    T(cx+6,cy,'HAND ZONE',3.6,'middle',{'font-weight':700});T(cx-6,cy,'open palm centre, z '+mm(hz[2])+' mm up',2.9);T(cx-12,cy,'('+cx+', '+cy+')',2.8);}
+  // arm base + pan axis
+  {const[w,d]=baseWD;const[px,py]=P(0,0);
+    g.appendChild(el('rect',{x:px-w/2,y:py-d/2,width:w,height:d,'stroke-width':1.1}));
+    g.appendChild(el('path',{d:`M${px-30},${py}H${px+30}M${px},${py-30}V${py+30}`,'stroke-width':.5}));g.appendChild(el('circle',{cx:px,cy:py,r:10,'stroke-width':.5}));g.appendChild(el('circle',{cx:px,cy:py,r:2,fill:'#000'}));
+    T(0,0+0,'',1);T(-d/2-8,0,'ARM BASE '+w+' x '+d+' mm (estimate)',3.4);T(-d/2-14,0,'PAN AXIS (0, 0)',3.6,'middle',{'font-weight':700});}
+  // grain line arrow
+  {const[a0,a1]=P(ax0+20,ay0+40),[b0,b1]=P(ax0+70,ay0+40);g.appendChild(el('path',{d:`M${a0},${a1}L${b0},${b1}M${b0-3},${b1+4}L${b0},${b1}L${b0+3},${b1+4}M${a0-3},${a1-4}L${a0},${a1}L${a0+3},${a1-4}`,'stroke-width':.5}));T(ax0+45,ay0+46,'GRAIN: arm +x, away from you',2.8);}
+  // title block + scale ruler at the paper top-left corner of region
+  {const x0=r.x+8,y0=r.y+8;
+    g.appendChild(el('text',{x:x0,y:y0+6,'font-size':6,fill:'#000',stroke:'none','font-weight':700},'SCRUB TABLE 1:1  setting: '+S.setting.toUpperCase()));
+    g.appendChild(el('text',{x:x0,y:y0+11,'font-size':3,fill:'#000',stroke:'none'},'arm base frame, mm, x forward, y left, z up. Origin = pan axis. Layout: '+(fromSim?'sim /layout':'embedded copy')));
+    const ry=y0+26;g.appendChild(el('line',{x1:x0,y1:ry,x2:x0+100,y2:ry,'stroke-width':.5}));
+    for(let i=0;i<=100;i+=10){g.appendChild(el('line',{x1:x0+i,y1:ry-(i%50===0?5:3),x2:x0+i,y2:ry+(i%50===0?5:3),'stroke-width':.4}));if(i%20===0||i===100)g.appendChild(el('text',{x:x0+i,y:ry+9,'font-size':2.8,'text-anchor':'middle',fill:'#000',stroke:'none'},i+''));}
+    for(let i=0;i<100;i+=1)if(i%10)g.appendChild(el('line',{x1:x0+i,y1:ry,x2:x0+i,y2:ry+1.5,'stroke-width':.15}));
+    g.appendChild(el('text',{x:x0,y:ry-8,'font-size':3.4,fill:'#000',stroke:'none','font-weight':700},'SCALE CHECK: measure this, it must be 100 mm'));
+    g.appendChild(el('rect',{x:x0+110,y:ry-7,width:20,height:20,'stroke-width':.5}));g.appendChild(el('text',{x:x0+120,y:ry+16,'font-size':2.6,'text-anchor':'middle',fill:'#000',stroke:'none'},'20 x 20 mm'));
+    g.appendChild(el('text',{x:x0,y:ry+15,'font-size':2.8,fill:'#000',stroke:'none'},'If it is not 100 mm: print dialog scale must be 100 percent, not fit to page.'));}
+  return g;
+}
+
+// ---------- tiles ----------
+function render(){
+  const t=tiling(),{pw,ph,tw,th,cols,rows,r}=t;
+  $('pagecss').textContent=`@page{size:${pw}mm ${ph}mm;margin:0}`;
+  $('pp').textContent=S.paper+' '+S.ori.toLowerCase();
+  $('tileinfo').textContent=cols+' x '+rows+' = '+(cols*rows)+' tiles of '+tw.toFixed(1)+' x '+th.toFixed(1)+' mm, area '+r.w+' x '+r.h+' mm';
+  const art=buildArt();
+  const defs=el('svg',{width:0,height:0,style:'position:absolute'});const dd=el('defs',{});art.setAttribute('id','art');dd.appendChild(art);defs.appendChild(dd);
+  const sheets=$('sheets');sheets.innerHTML='';sheets.appendChild(defs);
+  // fit screen
+  const avail=Math.min(window.innerWidth-32,pw*3.7795);document.documentElement.style.setProperty('--z',Math.min(1,avail/(pw*3.7795)).toFixed(4));
+  let n=0;const N=cols*rows;
+  for(let rr=0;rr<rows;rr++)for(let cc=0;cc<cols;cc++){
+    n++;
+    const pg=document.createElement('div');pg.className='page';pg.id='tile'+n;pg.style.width=pw+'mm';pg.style.height=ph+'mm';
+    const tile=document.createElement('div');tile.className='tile';tile.style.cssText=`left:${MARGIN}mm;top:${MARGIN}mm;width:${tw}mm;height:${th}mm`;
+    const vx=r.x+cc*tw,vy=r.y+rr*th;
+    const svg=el('svg',{xmlns:NS,width:tw+'mm',height:th+'mm',viewBox:`${vx} ${vy} ${tw} ${th}`});
+    // clip outside region: white mask handled by region frame
+    svg.appendChild(el('use',{href:'#art'}));
+    // region outline (cut line of the whole sheet)
+    svg.appendChild(el('rect',{x:r.x,y:r.y,width:r.w,height:r.h,fill:'none',stroke:'#000','stroke-width':.8}));
+    // neighbor labels at tile edges
+    const nb=(txt,x,y,anchor)=>svg.appendChild(el('text',{x:vx+x,y:vy+y,'font-size':3,'text-anchor':anchor,fill:'#000'},txt));
+    if(cc>0)nb('< tile '+(n-1),3,th/2,'start');if(cc<cols-1)nb('tile '+(n+1)+' >',tw-3,th/2,'end');
+    if(rr>0)nb('^ tile '+(n-cols),tw/2,6,'middle');if(rr<rows-1)nb('v tile '+(n+cols),tw/2,th-4,'middle');
+    // large tile number watermark corner
+    svg.appendChild(el('text',{x:vx+tw-6,y:vy+th-14,'font-size':16,'text-anchor':'end',fill:'#000','fill-opacity':.12,'font-weight':700},'T'+n));
+    tile.appendChild(svg);pg.appendChild(tile);
+    // crop marks: L ticks outside each tile corner
+    const M=MARGIN,len=8,w=.25;
+    [[0,0],[1,0],[0,1],[1,1]].forEach(([ix,iy])=>{
+      const x=M+ix*tw,y=M+iy*th;
+      const h=document.createElement('div');h.className='crop';h.style.cssText=`left:${ix?x+1.5:x-1.5-len}mm;top:${y-w/2}mm;width:${len}mm;height:${w}mm`;
+      const v=document.createElement('div');v.className='crop';v.style.cssText=`top:${iy?y+1.5:y-1.5-len}mm;left:${x-w/2}mm;height:${len}mm;width:${w}mm`;
+      pg.appendChild(h);pg.appendChild(v);
+    });
+    const info=document.createElement('div');info.className='pinfo';info.style.cssText=`left:${M}mm;top:${ph-M+3}mm;width:${tw}mm`;
+    info.textContent=`TILE ${n} of ${N}  (row ${rr+1}, col ${cc+1})   ${S.paper} ${S.ori.toLowerCase()}   print at 100%, no scaling   ${S.setting}`;
+    pg.appendChild(info);
+    const info2=document.createElement('div');info2.className='pinfo';info2.style.cssText=`left:${M}mm;top:3mm;width:${tw}mm;text-align:right`;
+    info2.textContent=`sheet origin x ${Math.round(-(vy+th))}..${Math.round(-vy)} mm, y ${Math.round(-(vx+tw))}..${Math.round(-vx)} mm`;
+    pg.appendChild(info2);
+    sheets.appendChild(pg);
+  }
+  renderOverview(t);
+}
+function renderOverview(t){
+  const sv=$('ovsvg');sv.innerHTML='';const r=t.r,pad=30;
+  sv.setAttribute('viewBox',`${r.x-pad} ${r.y-pad} ${r.w+2*pad} ${r.h+2*pad}`);
+  const u=el('use',{href:'#art'});sv.appendChild(u);
+  let n=0;
+  for(let rr=0;rr<t.rows;rr++)for(let cc=0;cc<t.cols;cc++){n++;
+    const x=r.x+cc*t.tw,y=r.y+rr*t.th;
+    sv.appendChild(el('rect',{x,y,width:t.tw,height:t.th,fill:'none',stroke:'#c0392b','stroke-width':1.2,'stroke-dasharray':'6 4'}));
+    sv.appendChild(el('text',{x:x+8,y:y+t.th-8,'font-size':22,fill:'#c0392b','font-weight':700,'font-family':'IBM Plex Mono'},'T'+n));}
+}
+
+// ---------- controls ----------
+function mk(cont,opts,key,cur){const c=$(cont);c.innerHTML='';opts.forEach(o=>{const b=document.createElement('button');b.textContent=o[1];b.className=S[key]===o[0]?'on':'';b.onclick=()=>{S[key]=o[0];mk(cont,opts,key);render();};c.appendChild(b);});}
+function controls(){
+  const names={surgical:'Operating room',dental:'Dental office',bench:'Robotics bench'};
+  mk('setBtns',Object.keys(L.setting_items).map(k=>[k,names[k]||k]),'setting');
+  mk('paperBtns',Object.keys(PAPERS).map(k=>[k,k]),'paper');
+  mk('oriBtns',[['Portrait','Portrait'],['Landscape','Landscape']],'ori');
+  mk('areaBtns',[['work','Working area 620 x 530 mm'],['full','Full table 900 x 800 mm']],'area');
+  const ly=$('layers');ly.innerHTML='';
+  [['grid','10 mm grid'],['reach','Reach arc'],['fov','Camera view'],['hand','Hand zone'],['handoff','Handoff region'],['table','Table edge']].forEach(([k,lab])=>{
+    const l=document.createElement('label');l.className='chk';const i=document.createElement('input');i.type='checkbox';i.checked=S.layers[k];i.onchange=()=>{S.layers[k]=i.checked;render();};l.appendChild(i);l.appendChild(document.createTextNode(lab));ly.appendChild(l);});
+}
+$('printBtn').onclick=()=>window.print();
+$('printOne').onclick=()=>{const ps=[...document.querySelectorAll('.page')];ps.forEach((p,i)=>{if(i)p.classList.add('noprint');});window.print();setTimeout(()=>ps.forEach(p=>p.classList.remove('noprint')),500);};
+addEventListener('resize',()=>{const t=tiling();document.documentElement.style.setProperty('--z',Math.min(1,Math.min(innerWidth-32,t.pw*3.7795)/(t.pw*3.7795)).toFixed(4));});
+
+async function init(){
+  try{const c=new AbortController();setTimeout(()=>c.abort(),1500);const j=await (await fetch(SIM+'/layout',{signal:c.signal})).json();
+    if(j&&j.slots&&j.tray&&j.setting_items&&j.table&&j.handoff_region&&j.overhead_cam){L=j;fromSim=true;}}catch(e){}
+  S.setting=L.setting&&L.setting_items[L.setting]?L.setting:'surgical';
+  const b=$('src');b.className='badge '+(fromSim?'live':'emb');b.textContent=fromSim?'layout.json LIVE from sim :8002':'sim :8002 not up, using embedded copy of layout.json';
+  $('srcname').textContent=fromSim?'sim /layout':'the embedded copy of layout.json';
+  controls();render();
+}
+init();
+</script>
+</body>
+</html>

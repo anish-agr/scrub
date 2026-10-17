@@ -110,17 +110,13 @@ main{display:grid;grid-template-rows:auto minmax(0,1fr) auto;gap:12px;min-height
 <script>
 const DATA = /*DATA*/[];
 const GROUPS = [
-  ["Scrub: voice pick and hand", ["36","37","38","24","25","32","34","30","31","35"]],
-  ["Scrub: further out", ["29"]],
+  ["Scrub: voice pick and hand", ["36","37","38","24","25","32","34","35"]],
+  ["Arm operations: the physical SO-101", ["39","40","41","42","43","44","45","46"]],
+  ["Scrub: supporting", ["30","31","29"]],
   ["Off concept: surgery tasks (kept for reference)", ["26","27","28","33"]],
-  ["Make the robot observable", ["01","02","11","12"]],
-  ["Robot learning tools", ["03","04","22","23"]],
-  ["People it serves", ["07","05","06","18","20","21"]],
-  ["Kitchen tasks", ["08","09","10","13","14","19"]],
-  ["Community and memory", ["15","16"]],
-  ["Demo day", ["17"]]
+  ["Earlier concepts, not Scrub", ["01","02","11","12","03","04","22","23","07","05","06","18","20","21","08","09","10","13","14","19","15","16","17"]]
 ];
-const PICKS = new Set(["36","37","38","24","25","34","35"]);
+const PICKS = new Set(["36","37","38","39","40","41","45"]);
 const TRACKS = ["Perceptron","Photon","Gemini","Tiger","Backboard","Mongo","Solana","Vultr"];
 const $ = id => document.getElementById(id);
 const byId = Object.fromEntries(DATA.map(d => [d.id, d]));

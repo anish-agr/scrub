@@ -1,0 +1,374 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Inference Loop Monitor</title>
+<meta name="description" content="Logic-analyzer view of the Isaac 0.5 arm loop: 30 Hz playback, chunk requests, 400 ms deadline, holds, round-trip times and uplink bandwidth, with a network condition slider.">
+<!--
+FEATURES:
+- Simulates the real Isaac 0.5 loop from the workshop notes: 30 Hz playback of 30 row x 6 joint action chunks,
+  a new chunk requested every 15 rows, RTC delay 12 rows, deadline_ms 400, replies after 400 ms dropped,
+  old chunk has 3 reserve rows (15 + 12 + 3 = 30) then the arm holds, exactly one request in flight per session.
+- Logic-analyzer timeline: REQ, FLIGHT, DEADLINE window, REPLY (accepted or dropped), active CHUNK, row index.
+- Six joint target traces from the chunks (degrees; gripper 0 to 100), hold stretches shaded red.
+- Round-trip histogram with p50 / p95, the 400 ms deadline line, and the workshop p95 283 ms reference line.
+- Counters: requests, accepted, late drops, lost, hold events, hold time. Uplink Mbit/s vs the 8 Mbit/s budget.
+- Network sliders (latency, jitter, loss, uplink cap, PNG size), presets, predicted late fraction (Monte Carlo), pause, step, reset.
+- Hook for real timing: ?timing=http://host:port/path polls JSON events, or call window.armRunnerTiming(ev) from the console.
+SPONSORS: Perceptron Robotics (Isaac 0.5 inference loop, real-time chunking).
+BACKEND HOOKS: GET {timing} returning [{seq, sent_ms, rtt_ms, accepted, rows?}] from arm/real_arm.py (does not exist yet; nothing
+  in controller/server.py serves it). No arm motion is commanded from this page, so there is no STOP control here.
+STYLE: Oscilloscope / logic analyzer screen. Near-black ground, muted phosphor trace, IEC 60601-1-8 alarm colors
+  (red high, amber medium, cyan info), IBM Plex Mono, 1px graticule rules, square corners.
+MOCK: all data is generated in this page unless the live hook is connected. The page says so in the header.
+-->
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600&family=IBM+Plex+Sans+Condensed:wght@500;600&display=swap" rel="stylesheet">
+<style>
+:root{--bg:#0a0e0c;--panel:#0e1411;--rule:#1d2b23;--grat:#16231b;--ink:#b4c4b9;--dim:#6d7f73;--ph:#79d198;--amb:#e3a52f;--red:#ec5a5a;--cyn:#4cbfd6}
+*{box-sizing:border-box}
+html,body{margin:0;background:var(--bg);color:var(--ink);font:13px/1.4 "IBM Plex Mono",ui-monospace,monospace;font-variant-numeric:tabular-nums}
+header{display:flex;flex-wrap:wrap;gap:8px 20px;align-items:center;padding:10px 16px;border-bottom:1px solid var(--rule)}
+h1{font:600 15px "IBM Plex Sans Condensed",sans-serif;letter-spacing:.12em;text-transform:uppercase;margin:0;color:var(--ph)}
+.badge{border:1px solid var(--amb);color:var(--amb);padding:2px 8px;font-weight:600;letter-spacing:.08em}
+.badge.live{border-color:var(--ph);color:var(--ph)}
+.sub{color:var(--dim)}
+main{display:grid;grid-template-columns:minmax(0,1fr) 380px;gap:12px;padding:12px 16px}
+@media(max-width:980px){main{grid-template-columns:minmax(0,1fr)}}
+section{border:1px solid var(--rule);background:var(--panel);min-width:0}
+section h2{margin:0;padding:5px 10px;font:600 11px "IBM Plex Sans Condensed",sans-serif;letter-spacing:.14em;text-transform:uppercase;color:var(--dim);border-bottom:1px solid var(--rule);display:flex;justify-content:space-between;gap:8px}
+canvas{display:block;width:100%}
+.col{display:flex;flex-direction:column;gap:12px;min-width:0}
+.tiles{display:grid;grid-template-columns:repeat(3,1fr)}
+.tile{padding:6px 10px;border-right:1px solid var(--rule);border-bottom:1px solid var(--rule)}
+.tile:nth-child(3n){border-right:0}
+.tile b{display:block;font-size:22px;font-weight:500;color:var(--ph)}
+.tile small{color:var(--dim);font-size:10px;letter-spacing:.08em;text-transform:uppercase}
+.tile.warn b{color:var(--amb)}.tile.bad b{color:var(--red)}
+.ctl{padding:8px 10px;display:grid;gap:8px}
+.ctl label{display:grid;grid-template-columns:96px 1fr 76px;align-items:center;gap:8px;min-height:32px}
+.ctl output{text-align:right;color:var(--ph)}
+input[type=range]{width:100%;accent-color:var(--ph);height:32px}
+.btns{display:flex;flex-wrap:wrap;gap:6px;padding:8px 10px;border-top:1px solid var(--rule)}
+button{font:500 12px "IBM Plex Mono",monospace;color:var(--ink);background:transparent;border:1px solid var(--dim);padding:0 10px;min-height:44px;cursor:pointer;border-radius:0}
+button:hover{border-color:var(--ph);color:var(--ph)}
+button[aria-pressed=true]{border-color:var(--ph);color:var(--ph)}
+.note{padding:8px 10px;color:var(--dim);font-size:12px;border-top:1px solid var(--rule)}
+.note b{color:var(--ink);font-weight:500}
+.pred{padding:6px 10px;border-top:1px solid var(--rule)}
+.pred b{font-weight:600}
+.legend{display:flex;flex-wrap:wrap;gap:4px 14px;padding:6px 10px;border-top:1px solid var(--rule);font-size:11px;color:var(--dim)}
+.legend i{display:inline-block;width:10px;height:10px;margin-right:5px;vertical-align:-1px}
+footer{padding:10px 16px 18px;color:var(--dim);font-size:11px}
+footer a{color:var(--dim)}
+</style>
+</head>
+<body>
+<header>
+  <h1>Inference Loop Monitor</h1>
+  <span id="badge" class="badge">MOCK DATA, NOT THE ARM</span>
+  <span class="sub">Isaac 0.5 / SO-101 / 30 Hz control, chunk 30 x 6, request every 15 rows, delay 12 rows, deadline 400 ms</span>
+</header>
+<main>
+  <div class="col">
+    <section><h2><span>Loop timeline (last 7 s, 210 rows)</span><span id="clk">T+0.0 s</span></h2>
+      <canvas id="tl" height="250"></canvas>
+      <div class="legend">
+        <span><i style="background:var(--ph)"></i>reply accepted</span>
+        <span><i style="background:var(--red)"></i>reply late, dropped</span>
+        <span><i style="background:var(--amb)"></i>lost, waits for 2 s timeout</span>
+        <span><i style="background:var(--cyn)"></i>0 to 400 ms deadline window</span>
+        <span><i style="background:var(--red);opacity:.5"></i>arm holding</span>
+      </div>
+    </section>
+    <section><h2><span>Joint targets from chunks (deg, gripper 0 to 100)</span><span>one trace per joint</span></h2>
+      <canvas id="jt" height="330"></canvas>
+    </section>
+  </div>
+  <div class="col">
+    <section><h2><span>Counters</span><span id="state">RUN</span></h2>
+      <div class="tiles">
+        <div class="tile"><b id="n_req">0</b><small>requests</small></div>
+        <div class="tile"><b id="n_ok">0</b><small>accepted</small></div>
+        <div class="tile" id="t_late"><b id="n_late">0</b><small>dropped late</small></div>
+        <div class="tile" id="t_lost"><b id="n_lost">0</b><small>lost</small></div>
+        <div class="tile" id="t_hold"><b id="n_hold">0</b><small>hold events</small></div>
+        <div class="tile"><b id="n_holdms">0</b><small>hold ms</small></div>
+      </div>
+      <div class="tile" style="border-right:0"><small>in flight now</small><b id="n_fl" style="font-size:16px">0 of 1 allowed</b></div>
+    </section>
+    <section><h2><span>Round trip (ms)</span><span id="pct">p50 -- p95 --</span></h2>
+      <canvas id="hist" height="170"></canvas>
+      <div class="pred" id="pred"></div>
+    </section>
+    <section><h2><span>Uplink, 2 PNGs per request</span><span id="up">0.0 Mbit/s</span></h2>
+      <canvas id="upc" height="56"></canvas>
+      <div class="note">Budget 8 Mbit/s per robot (about 0.5 MB per request at 2 Hz). One request is <b id="mb">4.0 Mbit</b>, so it needs <b id="txms">80 ms</b> on the wire at the cap below.</div>
+    </section>
+    <section><h2><span>Network condition</span><span>mock</span></h2>
+      <div class="ctl">
+        <label>Latency<input id="lat" type="range" min="40" max="500" step="5" value="130"><output id="lat_o"></output></label>
+        <label>Jitter<input id="jit" type="range" min="0" max="200" step="5" value="25"><output id="jit_o"></output></label>
+        <label>Loss<input id="loss" type="range" min="0" max="30" step="0.5" value="0"><output id="loss_o"></output></label>
+        <label>Uplink cap<input id="cap" type="range" min="4" max="100" step="1" value="50"><output id="cap_o"></output></label>
+        <label>PNG pair<input id="png" type="range" min="0.2" max="0.8" step="0.05" value="0.5"><output id="png_o"></output></label>
+      </div>
+      <div class="btns">
+        <button data-p="workshop">Workshop path</button>
+        <button data-p="wifi">Venue Wi-Fi</button>
+        <button data-p="bad">Congested</button>
+        <button data-p="cap8">8 Mbit cap</button>
+      </div>
+      <div class="btns">
+        <button id="pause" aria-pressed="false">Pause</button>
+        <button id="step">Step 1 row</button>
+        <button id="reset">Reset counters</button>
+      </div>
+      <div class="note">Defaults give p95 near the workshop's 283 ms. Latency here means network plus model time; the cap adds transmit time. <b>Workshop</b> p95 is for one robot on their private cluster path; internet is slower.</div>
+    </section>
+    <section><h2><span>Real timing hook</span><span id="hookstate">not connected</span></h2>
+      <div class="note">Open with <b>?timing=http://host:port/path</b>. The page polls it for JSON events <b>{seq, sent_ms, rtt_ms, accepted, rows?}</b> and replaces the mock, with the badge turned to LIVE. No such endpoint exists yet; arm/real_arm.py (A6) would add it. Console: <b>window.armRunnerTiming(ev)</b>.</div>
+    </section>
+  </div>
+</main>
+<footer>Mock simulation of the loop in explore/research/isaac-workshop-notes.md. The 2 s reply timeout and the shifted-exponential latency model are this page's assumptions. <a href="#">Terms</a> / <a href="#">Privacy</a> (placeholders)</footer>
+<script>
+const HZ=30, CAD=15, DELAY=12, LEN=30, DEADLINE_MS=400, TIMEOUT_T=60, WIN=210, TICK_MS=1000/HZ;
+const J=['shoulder_pan','shoulder_lift','elbow_flex','wrist_flex','wrist_roll','gripper'];
+const UNIT=['deg','deg','deg','deg','deg','%'];
+const RANGE=[[-100,100],[-100,100],[-100,100],[-100,100],[-100,100],[0,100]];
+const css=n=>getComputedStyle(document.documentElement).getPropertyValue(n).trim();
+const C={ph:css('--ph'),amb:css('--amb'),red:css('--red'),cyn:css('--cyn'),grat:css('--grat'),dim:css('--dim'),ink:css('--ink')};
+const $=id=>document.getElementById(id);
+/* ---- smooth target trajectory (stand-in for what the policy would plan), degrees ---- */
+function f(j,t){
+  const p=t/9*2*Math.PI; // 9 s pick-and-hand cycle
+  switch(j){
+    case 0:return 28*Math.sin(p)+6*Math.sin(2.3*p);
+    case 1:return -20+35*Math.sin(p-0.8)+8*Math.sin(2*p);
+    case 2:return 45-30*Math.sin(p-0.4);
+    case 3:return 10+22*Math.sin(1.5*p+1);
+    case 4:return 40*Math.sin(0.5*p);
+    default:return 45+40*Math.tanh(3*Math.sin(2*p));
+  }
+}
+const rnd=()=>Math.random();
+const gauss=()=>{let u=0,v=0;while(!u)u=rnd();while(!v)v=rnd();return Math.sqrt(-2*Math.log(u))*Math.cos(2*Math.PI*v)};
+/* ---- state ---- */
+let net={lat:130,jit:25,loss:0,cap:50,png:0.5};
+let S;
+function fresh(){
+  const r0={id:0,c:-DELAY,rtt:0,arr:-DELAY,state:'ok',bytes:0,rows:mkRows(-DELAY)};
+  S={T:0,reqs:[r0],nextId:1,lastSend:-CAD,hist:[],rtts:[],n:{req:0,ok:0,late:0,lost:0,hold:0,holdT:0},
+     out:[],prevHold:false,sent:[],paused:S?S.paused:false,live:S?S.live:false};
+}
+function mkRows(c){
+  const b=[0,1,2,3,4,5].map(()=>gauss()*1.6), rows=[];
+  for(let i=0;i<LEN;i++){const s=Math.sin(Math.PI*i/LEN);rows.push(J.map((_,j)=>f(j,(c+i)/HZ)+b[j]*s));}
+  return rows;
+}
+function sampleRtt(){
+  const bytes=net.png*8; // Mbit
+  const tx=bytes/net.cap*1000;
+  const rtt=net.lat+tx+net.jit*(-Math.log(1-rnd()));
+  return {rtt,lost:rnd()*100<net.loss};
+}
+function tick(){
+  const T=S.T;
+  // resolve replies
+  for(const r of S.reqs){
+    if(r.state==='flight'&&T>=r.arr){
+      if(r.lost){r.state='lost';S.n.lost++;}
+      else{S.rtts.push(r.rtt);if(S.rtts.length>400)S.rtts.shift();
+        if(r.rtt<=DEADLINE_MS){r.state='ok';S.n.ok++;}else{r.state='late';S.n.late++;}}
+    }
+  }
+  // scheduler: one in flight, at least 15 rows apart (mock mode only)
+  const inflight=S.reqs.some(r=>r.state==='flight');
+  if(!S.live&&!inflight&&T-S.lastSend>=CAD){
+    const s=sampleRtt(), bytes=net.png*8*(0.95+0.1*rnd());
+    const r={id:S.nextId++,c:T,rtt:s.rtt,lost:s.lost,state:'flight',bytes,
+      arr:s.lost?T+TIMEOUT_T:T+s.rtt/TICK_MS,rows:null};
+    r.rows=mkRows(T);S.reqs.push(r);S.lastSend=T;S.n.req++;S.sent.push({t:T,bytes});
+  }
+  // playback: newest accepted chunk with c+12 <= T < c+30
+  let best=null;
+  for(const r of S.reqs){if(r.state==='ok'&&T>=r.c+DELAY&&T<r.c+LEN&&(!best||r.c>best.c))best=r;}
+  const last=S.out.length?S.out[S.out.length-1]:null;
+  let rec;
+  if(best){const row=T-best.c;rec={v:best.rows[row],id:best.id,row,hold:false};}
+  else{rec={v:last?last.v:mkRows(0)[0],id:last?last.id:0,row:last?last.row:0,hold:true};}
+  rec.T=T;S.out.push(rec);if(S.out.length>WIN+20)S.out.shift();
+  if(rec.hold){S.n.holdT++;if(!S.prevHold)S.n.hold++;}
+  S.prevHold=rec.hold;
+  // trim old
+  S.reqs=S.reqs.filter(r=>r.state==='flight'||r.c>T-WIN-60);
+  S.sent=S.sent.filter(s=>s.t>T-150);
+  S.T++;
+}
+/* ---- drawing ---- */
+function setup(cv){const d=window.devicePixelRatio||1,w=cv.clientWidth,h=+cv.getAttribute('height');
+  if(cv.width!==Math.round(w*d)||cv.height!==Math.round(h*d)){cv.width=Math.round(w*d);cv.height=Math.round(h*d);}
+  const g=cv.getContext('2d');g.setTransform(d,0,0,d,0,0);g.clearRect(0,0,w,h);g.font='11px "IBM Plex Mono",monospace';return {g,w,h};}
+function drawTimeline(){
+  const {g,w,h}=setup($('tl')), L=74, R=w-8, T0=S.T-WIN;
+  const X=t=>L+(t-T0)/WIN*(R-L);
+  const lanes=['REQ','FLIGHT','REPLY','CHUNK','ROW'];
+  const lh=(h-22)/lanes.length;
+  // graticule: every 30 rows (1 s)
+  g.lineWidth=1;
+  for(let t=Math.max(0,Math.ceil(T0/HZ)*HZ);t<=S.T;t+=HZ){g.strokeStyle=C.grat;g.beginPath();g.moveTo(X(t)+.5,0);g.lineTo(X(t)+.5,h-18);g.stroke();
+    g.fillStyle=C.dim;g.textAlign='center';g.fillText('T+'+(t/HZ)+'s',X(t),h-5);}
+  lanes.forEach((n,i)=>{const y=i*lh;g.strokeStyle=C.grat;g.beginPath();g.moveTo(L,y+lh+.5);g.lineTo(R,y+lh+.5);g.stroke();
+    g.fillStyle=C.dim;g.textAlign='left';g.fillText(n,6,y+lh/2+4);});
+  // hold shading (all lanes)
+  g.fillStyle='rgba(236,90,90,.16)';
+  let hs=null;
+  for(const o of S.out){if(o.hold&&hs===null)hs=o.T;if(!o.hold&&hs!==null){g.fillRect(X(hs),0,X(o.T)-X(hs),h-18);hs=null;}}
+  if(hs!==null)g.fillRect(X(hs),0,X(S.T)-X(hs),h-18);
+  // requests
+  for(const r of S.reqs){
+    if(r.c+LEN<T0&&r.state!=='flight')continue;
+    const y0=0,y1=lh,y2=lh*2,y3=lh*3;
+    const x=X(r.c);
+    // REQ lane
+    g.strokeStyle=C.ph;g.lineWidth=2;g.beginPath();g.moveTo(x,y0+lh-4);g.lineTo(x,y0+5);g.stroke();g.lineWidth=1;
+    g.fillStyle=C.ink;g.textAlign='left';if(r.id>0)g.fillText('#'+r.id,x+3,y0+14);
+    if(r.id===0)continue;
+    // FLIGHT lane: deadline window box and bar
+    const dEnd=X(r.c+DELAY);
+    g.fillStyle='rgba(76,191,214,.14)';g.fillRect(x,y1+4,dEnd-x,lh-8);
+    g.strokeStyle=C.cyn;g.setLineDash([3,3]);g.beginPath();g.moveTo(dEnd+.5,y1+2);g.lineTo(dEnd+.5,y1+lh-2);g.stroke();g.setLineDash([]);
+    const endT=r.state==='flight'?S.T:r.arr;
+    const col=r.state==='ok'?C.ph:r.state==='late'?C.red:r.state==='lost'?C.amb:(r.lost?C.amb:(S.T-r.c>DELAY?C.red:C.ph));
+    g.fillStyle=col;g.fillRect(x,y1+lh/2-3,Math.max(2,X(endT)-x),6);
+    // REPLY lane
+    if(r.state==='ok'||r.state==='late'){
+      const xa=X(r.arr);g.strokeStyle=col;g.fillStyle=col;
+      if(r.state==='ok'){g.beginPath();g.moveTo(xa,y2+lh-5);g.lineTo(xa-5,y2+5);g.lineTo(xa+5,y2+5);g.closePath();g.fill();}
+      else{g.lineWidth=2;g.beginPath();g.moveTo(xa-5,y2+5);g.lineTo(xa+5,y2+lh-5);g.moveTo(xa+5,y2+5);g.lineTo(xa-5,y2+lh-5);g.stroke();g.lineWidth=1;}
+      g.fillStyle=C.dim;g.textAlign='left';g.fillText(Math.round(r.rtt)+'ms',xa+7,y2+lh/2+4);
+    }else if(r.state==='lost'){g.fillStyle=C.amb;g.fillText('lost',X(r.arr)-10,y2+lh/2+4);}
+  }
+  // CHUNK lane: segments by id
+  let seg=null;const y3=lh*3;
+  const flush=(endT)=>{if(!seg)return;const x0=X(seg.t0),x1=X(endT);
+    g.fillStyle=seg.hold?'rgba(236,90,90,.55)':(seg.id%2?'rgba(121,209,152,.35)':'rgba(121,209,152,.18)');
+    g.fillRect(x0,y3+5,Math.max(1,x1-x0-1),lh-10);
+    if(x1-x0>34){g.fillStyle=seg.hold?'#fff':C.ink;g.textAlign='left';g.fillText(seg.hold?'HOLD':'chunk '+seg.id,x0+4,y3+lh/2+4);}};
+  for(const o of S.out){const key=o.hold?'h':o.id;
+    if(!seg||seg.key!==key){flush(o.T);seg={key,id:o.id,hold:o.hold,t0:o.T};}}
+  flush(S.T);
+  // ROW lane: sawtooth of row index
+  const y4=lh*4;g.strokeStyle=C.ph;g.beginPath();let pen=false,pr=-1;
+  for(const o of S.out){const x=X(o.T),y=y4+lh-4-(o.row/(LEN-1))*(lh-8);
+    if(o.hold){g.stroke();g.beginPath();pen=false;continue;}
+    if(!pen||o.row<pr-3){if(pen){g.stroke();g.beginPath();}g.moveTo(x,y);pen=true;}else g.lineTo(x,y);pr=o.row;}
+  g.stroke();
+  // now cursor
+  g.strokeStyle=C.ink;g.beginPath();g.moveTo(R-.5,0);g.lineTo(R-.5,h-18);g.stroke();
+}
+function drawJoints(){
+  const {g,w,h}=setup($('jt')), L=96, R=w-8, T0=S.T-WIN, X=t=>L+(t-T0)/WIN*(R-L);
+  const lh=h/6;
+  J.forEach((n,j)=>{
+    const y=j*lh, [lo,hi]=RANGE[j], Y=v=>y+lh-4-(v-lo)/(hi-lo)*(lh-8);
+    g.strokeStyle=C.grat;g.beginPath();g.moveTo(L,y+lh+.5);g.lineTo(R,y+lh+.5);g.stroke();
+    g.beginPath();g.moveTo(L,Y((lo+hi)/2)+.5);g.lineTo(R,Y((lo+hi)/2)+.5);g.setLineDash([2,4]);g.stroke();g.setLineDash([]);
+    g.fillStyle=C.dim;g.textAlign='left';g.fillText(n.replace('_',' '),6,y+13);
+    const cur=S.out.length?S.out[S.out.length-1].v[j]:0;
+    g.fillStyle=C.ph;g.fillText(cur.toFixed(1)+' '+UNIT[j],6,y+27);
+    // hold shading
+    g.fillStyle='rgba(236,90,90,.16)';let hs=null;
+    for(const o of S.out){if(o.hold&&hs===null)hs=o.T;if(!o.hold&&hs!==null){g.fillRect(X(hs),y,X(o.T)-X(hs),lh);hs=null;}}
+    if(hs!==null)g.fillRect(X(hs),y,X(S.T)-X(hs),lh);
+    g.strokeStyle=C.ph;g.lineWidth=1.5;g.beginPath();let first=true;
+    for(const o of S.out){const x=X(o.T),yy=Y(o.v[j]);if(first){g.moveTo(x,yy);first=false;}else g.lineTo(x,yy);}
+    g.stroke();g.lineWidth=1;
+    // chunk seams
+    g.strokeStyle='rgba(76,191,214,.35)';let pid=null;
+    for(const o of S.out){if(pid!==null&&o.id!==pid&&!o.hold){g.beginPath();g.moveTo(X(o.T)+.5,y+2);g.lineTo(X(o.T)+.5,y+lh-2);g.stroke();}if(!o.hold)pid=o.id;}
+  });
+}
+function pct(a,p){if(!a.length)return NaN;const s=[...a].sort((x,y)=>x-y);return s[Math.min(s.length-1,Math.floor(p*(s.length-1)+.5))];}
+function drawHist(){
+  const {g,w,h}=setup($('hist')), L=30, R=w-8, B=h-18, TOP=8, MAXMS=800, BIN=25, nb=MAXMS/BIN;
+  const bins=new Array(nb).fill(0);for(const r of S.rtts)bins[Math.min(nb-1,Math.floor(r/BIN))]++;
+  const mx=Math.max(4,...bins), X=ms=>L+ms/MAXMS*(R-L), bw=(R-L)/nb;
+  g.strokeStyle=C.grat;for(let i=0;i<=4;i++){const y=B-(B-TOP)*i/4;g.beginPath();g.moveTo(L,y+.5);g.lineTo(R,y+.5);g.stroke();}
+  g.fillStyle=C.dim;g.textAlign='right';g.fillText(mx,L-4,TOP+8);g.fillText('0',L-4,B);
+  bins.forEach((c,i)=>{if(!c)return;const late=(i*BIN)>=DEADLINE_MS;g.fillStyle=late?C.red:C.ph;const bh=(B-TOP)*c/mx;g.fillRect(L+i*bw+1,B-bh,bw-2,bh);});
+  g.textAlign='center';g.fillStyle=C.dim;for(let ms=0;ms<=MAXMS;ms+=200)g.fillText(ms,X(ms),h-4);
+  const vl=(ms,col,lab,dy)=>{g.strokeStyle=col;g.setLineDash([4,3]);g.beginPath();g.moveTo(X(ms)+.5,TOP);g.lineTo(X(ms)+.5,B);g.stroke();g.setLineDash([]);g.fillStyle=col;g.textAlign='left';g.fillText(lab,X(ms)+3,TOP+10+dy);};
+  vl(283,C.cyn,'283 workshop p95',0);vl(400,C.red,'400 deadline',12);
+  const p50=pct(S.rtts,.5),p95=pct(S.rtts,.95);
+  if(!isNaN(p50)){g.strokeStyle=C.amb;g.beginPath();g.moveTo(X(p95)+.5,B-14);g.lineTo(X(p95)+.5,B);g.stroke();g.beginPath();g.moveTo(X(p50)+.5,B-14);g.lineTo(X(p50)+.5,B);g.stroke();}
+  $('pct').textContent=isNaN(p50)?'p50 -- p95 --':'p50 '+Math.round(p50)+' ms  p95 '+Math.round(p95)+' ms';
+}
+function drawUp(){
+  const {g,w,h}=setup($('upc'));
+  const bits=S.sent.reduce((a,s)=>a+s.bytes,0), span=Math.min(150,S.T)+CAD, mbps=bits/(span/HZ);
+  $('up').textContent=mbps.toFixed(1)+' Mbit/s';
+  const L=8,R=w-8,max=16,X=v=>L+v/max*(R-L);
+  g.strokeStyle=C.grat;g.strokeRect(L+.5,14.5,R-L,22);
+  g.fillStyle=mbps>8?C.amb:C.ph;g.fillRect(L+1,15,X(Math.min(mbps,max))-L-1,21);
+  g.strokeStyle=C.red;g.beginPath();g.moveTo(X(8)+.5,8);g.lineTo(X(8)+.5,42);g.stroke();
+  g.fillStyle=C.red;g.textAlign='left';g.fillText('8 budget',X(8)+4,10);
+  g.fillStyle=C.dim;g.textAlign='left';g.fillText('0',L,h-4);g.textAlign='right';g.fillText('16 Mbit/s',R,h-4);
+}
+/* ---- predicted late fraction, Monte Carlo on current sliders ---- */
+function predict(){
+  let late=0,N=3000;const tx=net.png*8/net.cap*1000;const a=[];
+  for(let i=0;i<N;i++){const r=net.lat+tx+net.jit*(-Math.log(1-rnd()));a.push(r);if(r>DEADLINE_MS)late++;}
+  const fl=(late/N)*100, bad=fl+net.loss*(1-late/N);
+  const p95=pct(a,.95);
+  let verdict,col;
+  if(bad<1){verdict='arm moves smoothly';col=C.ph;}else if(bad<10){verdict='occasional holds expected';col=C.amb;}else{verdict='arm will hold often';col=C.red;}
+  $('pred').innerHTML='Model p95 <b>'+Math.round(p95)+' ms</b>, over 400 ms: <b>'+fl.toFixed(1)+'%</b>, plus loss '+net.loss.toFixed(1)+'%. <b style="color:'+col+'">'+verdict+'.</b> A bad reply costs a hold of about 15 rows (500 ms) until the next chunk lands.';
+  $('mb').textContent=(net.png*8).toFixed(1)+' Mbit';$('txms').textContent=Math.round(tx)+' ms';
+}
+function counters(){
+  const n=S.n;$('n_req').textContent=n.req;$('n_ok').textContent=n.ok;$('n_late').textContent=n.late;$('n_lost').textContent=n.lost;
+  $('n_hold').textContent=n.hold;$('n_holdms').textContent=Math.round(n.holdT*TICK_MS);
+  $('t_late').className='tile'+(n.late?' bad':'');$('t_lost').className='tile'+(n.lost?' warn':'');$('t_hold').className='tile'+(n.hold?' bad':'');
+  const fl=S.reqs.filter(r=>r.state==='flight').length;$('n_fl').textContent=fl+' of 1 allowed';
+  $('clk').textContent='T+'+(S.T/HZ).toFixed(1)+' s';
+  const cur=S.out[S.out.length-1];$('state').textContent=S.paused?'PAUSED':(cur&&cur.hold?'HOLD':'RUN');
+  $('state').style.color=S.paused?C.amb:(cur&&cur.hold?C.red:C.ph);
+}
+function render(){drawTimeline();drawJoints();drawHist();drawUp();counters();}
+/* ---- clock ---- */
+let acc=0,lastT=performance.now();
+function frame(now){
+  const dt=Math.min(250,now-lastT);lastT=now;
+  if(!S.paused){acc+=dt;while(acc>=TICK_MS){acc-=TICK_MS;tick();}}
+  render();requestAnimationFrame(frame);
+}
+/* ---- controls ---- */
+function bind(id,key,fmt){const el=$(id),o=$(id+'_o');const upd=()=>{net[key]=+el.value;o.textContent=fmt(+el.value);predict();};el.addEventListener('input',upd);upd();return upd;}
+const upds=[bind('lat','lat',v=>v+' ms'),bind('jit','jit',v=>v+' ms'),bind('loss','loss',v=>v.toFixed(1)+' %'),bind('cap','cap',v=>v+' Mbit/s'),bind('png','png',v=>v.toFixed(2)+' MB')];
+const PRESETS={workshop:{lat:130,jit:25,loss:0,cap:50,png:.5},wifi:{lat:170,jit:70,loss:1,cap:30,png:.5},bad:{lat:260,jit:110,loss:4,cap:20,png:.5},cap8:{lat:130,jit:25,loss:0,cap:8,png:.5}};
+document.querySelectorAll('[data-p]').forEach(b=>b.onclick=()=>{const p=PRESETS[b.dataset.p];for(const k in p)$(k).value=p[k];upds.forEach(u=>u());});
+$('pause').onclick=e=>{S.paused=!S.paused;e.target.setAttribute('aria-pressed',S.paused);e.target.textContent=S.paused?'Resume':'Pause';};
+$('step').onclick=()=>{S.paused=true;$('pause').setAttribute('aria-pressed',true);$('pause').textContent='Resume';tick();};
+$('reset').onclick=()=>{const p=S.paused;fresh();S.paused=p;};
+document.addEventListener('keydown',e=>{if(e.target.tagName==='INPUT')return;if(e.key===' '){e.preventDefault();$('pause').click();}});
+/* ---- real timing hook ---- */
+window.armRunnerTiming=function(ev){
+  // ev: {seq, sent_ms (arm clock), rtt_ms, accepted:boolean, rows?:30x6}
+  if(!S.live){S.live=true;fresh();S.live=true;$('badge').textContent='LIVE TIMING FROM ARM RUNNER';$('badge').classList.add('live');$('hookstate').textContent='receiving';}
+  const T=S.T, sendT=T-Math.round(ev.rtt_ms/TICK_MS);
+  const ok=ev.accepted&&ev.rtt_ms<=DEADLINE_MS;
+  const r={id:S.nextId++,c:sendT,rtt:ev.rtt_ms,lost:false,state:ok?'ok':'late',bytes:net.png*8,arr:T,rows:ev.rows||mkRows(sendT)};
+  S.reqs.push(r);S.n.req++;S.rtts.push(ev.rtt_ms);ok?S.n.ok++:S.n.late++;S.sent.push({t:sendT,bytes:r.bytes});
+};
+(function(){const q=new URLSearchParams(location.search).get('timing');if(!q)return;
+  $('hookstate').textContent='polling '+q;let seen=-1;
+  setInterval(async()=>{try{const r=await fetch(q);const a=await r.json();for(const ev of a){if(ev.seq>seen){seen=ev.seq;window.armRunnerTiming(ev);}}}catch(e){if(!S.live)$('hookstate').textContent='unreachable, still MOCK';}},500);})();
+fresh();S.paused=false;
+window.addEventListener('resize',render);
+requestAnimationFrame(frame);
+</script>
+</body>
+</html>
