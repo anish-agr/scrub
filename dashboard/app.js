@@ -432,6 +432,50 @@ function openSocket() {
   };
 }
 
+function percent(rate) {
+  if (rate == null || Number.isNaN(Number(rate))) return "—";
+  return `${Math.round(Number(rate) * 100)}%`;
+}
+
+function seconds(value) {
+  if (value == null || Number.isNaN(Number(value))) return "—";
+  return `${Number(value).toFixed(1)}s`;
+}
+
+function fillTable(tableId, rows, labelKey) {
+  const body = document.querySelector(`#${tableId} tbody`);
+  body.replaceChildren();
+  rows.forEach((row) => {
+    const tr = document.createElement("tr");
+    const label = labelKey === "item" ? nameOf(row.item) : row[labelKey];
+    [label, row.attempts, percent(row.success_rate), seconds(row.median_request_to_hand_s)].forEach((value) => {
+      const cell = document.createElement("td");
+      cell.textContent = value;
+      tr.appendChild(cell);
+    });
+    body.appendChild(tr);
+  });
+}
+
+function paintStats(report) {
+  const rows = (report && report.by_item ? report.by_item.length : 0) + (report && report.by_lighting ? report.by_lighting.length : 0);
+  $("median").textContent = `Median handoff ${seconds(report && report.median_request_to_hand_s)}`;
+  fillTable("by-item", (report && report.by_item) || [], "item");
+  fillTable("by-lighting", (report && report.by_lighting) || [], "lighting");
+  document.querySelector(".tables").classList.toggle("has-rows", rows > 0);
+}
+
+async function loadStats() {
+  if (!model.live) return;
+  try {
+    const response = await fetch("/stats", { cache: "no-store" });
+    if (!response.ok) return;
+    paintStats(await response.json());
+  } catch (error) {
+    /* tables stay as they were */
+  }
+}
+
 async function pollState() {
   try {
     const response = await fetch("/state", { cache: "no-store" });
@@ -516,6 +560,8 @@ async function connect() {
     applyState(await response.json());
     openSocket();
     pollTimer = setInterval(pollState, 400);
+    loadStats();
+    setInterval(loadStats, 2000);
   } catch (error) {
     showSampleList();
   }
