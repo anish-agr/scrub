@@ -34,6 +34,8 @@ Every part codes against these. Build against fake inputs that match them, and t
 | `GET /stats` | | the success tables, from the ledger |
 | `WS /events` | | a stream of Events |
 | `GET /` | | the dashboard (static files from `dashboard/`) |
+| `GET /setting` | | the current setting file (optional, added Sat 2 PM) |
+| `GET /events/recent?n=50` | | the last n Events, oldest first (optional) |
 
 ## Command (voice, keyboard or dashboard to the controller)
 
@@ -122,6 +124,8 @@ Every part codes against these. Build against fake inputs that match them, and t
 - `type` is one of `command`, `step`, `picked`, `handed`, `set_down`, `released`, `returned`, `missed`, `count`, `stopped`, `error`.
 - `say` is the line the voice server speaks, or `null`. Only the controller writes these lines, so wording lives in one place.
 - Every field except `type` and `t` can be `null`.
+- The voice server speaks Event `say` lines only. The `say` in the `/command` reply repeats the same line, for keyboard and curl use.
+- Optional extra fields on `command` events: `action`, `heard`, `source`, `accepted`, `reason`. On `count` events: `out`. On `error` events: `error`.
 
 ## Setting file (`settings/<id>.json`)
 
