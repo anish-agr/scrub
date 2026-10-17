@@ -1,6 +1,7 @@
 <!doctype html>
 <html lang="en">
 <head>
+<!-- STYLE: Swiss poster / Luxury Typography slides (flush-left Instrument Serif over Public Sans, strict grid, one vermilion accent, numbered running header and footer) -->
 <!--
 FEATURES:
 - Keynote-style 3-minute pitch presenter for the surgical assistant idea: 7 slides on a 16:9 stage that scales to any screen
@@ -21,100 +22,102 @@ POST /api/stop for the STOP button; results slide would read GET /api/stats (han
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Surgeon Pitch Deck</title>
-<meta name="description" content="A dark cinematic three minute pitch presenter for the SO-101 surgical assistant with timer, speaker notes, live demo slot and backup video.">
+<meta name="description" content="A Swiss-poster style three minute pitch presenter for the SO-101 surgical assistant with timer, speaker notes, live demo slot and backup video.">
 <link rel="preconnect" href="https://fonts.googleapis.com">
-<link href="https://fonts.googleapis.com/css2?family=Sora:wght@300;400;600;800&family=Inter:wght@400;500;600&family=IBM+Plex+Mono:wght@400;600&display=swap" rel="stylesheet">
+<link href="https://fonts.googleapis.com/css2?family=Instrument+Serif:ital@0;1&family=Public+Sans:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;600&display=swap" rel="stylesheet">
 <style>
-:root{--bg:#04090b;--ink:#e9fbf8;--mute:#86a8a6;--teal:#14e0c9;--teal2:#0b8f84;--deep:#06302d;--line:#14343340;--amber:#ffb84d;--red:#ff5b5b}
+:root{--bg:#f4f1ea;--ink:#111;--mute:#5c5a53;--teal:#e63312;--teal2:#111;--deep:#e9e5da;--line:#111;--amber:#b35900;--red:#e63312;--accent:#e63312;--paper:#f4f1ea}
 *{box-sizing:border-box}
-html,body{margin:0;height:100%;background:#000;color:var(--ink);font-family:Inter,system-ui,sans-serif;overflow:hidden}
-button{font:inherit;color:inherit;cursor:pointer;min-height:44px;min-width:44px;background:#0a1a1b;border:1px solid #1d4a47;border-radius:10px;padding:0 14px}
-button:hover{border-color:var(--teal)}
-button:focus-visible{outline:2px solid var(--amber);outline-offset:2px}
+html,body{margin:0;height:100%;background:var(--paper);color:var(--ink);font-family:"Public Sans",system-ui,sans-serif;overflow:hidden}
+button{font:inherit;font-size:14px;color:var(--ink);cursor:pointer;min-height:44px;min-width:44px;background:var(--paper);border:1px solid var(--ink);border-radius:0;padding:0 14px}
+button:hover{background:var(--ink);color:var(--paper)}
+button:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
 #viewport{position:fixed;inset:0;display:grid;place-items:center}
-#stage{position:relative;width:1280px;height:720px;flex:none;transform-origin:center center;background:var(--bg);overflow:hidden;
-  background-image:radial-gradient(ellipse 70% 60% at 80% 0%,#0b4d49 0,transparent 60%),radial-gradient(ellipse 50% 50% at 0 100%,#07312f 0,transparent 70%)}
-#stage::after{content:"";position:absolute;inset:0;pointer-events:none;opacity:.18;mix-blend-mode:overlay;
-  background-image:url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='200' height='200'><filter id='n'><feTurbulence type='fractalNoise' baseFrequency='.9' numOctaves='2'/></filter><rect width='200' height='200' filter='url(%23n)'/></svg>")}
-#stage::before{content:"";position:absolute;inset:0;z-index:5;pointer-events:none;box-shadow:inset 0 0 200px 40px #000}
-.slide{position:absolute;inset:0;padding:70px 90px 80px;opacity:0;visibility:hidden;transform:translateY(24px) scale(.985);filter:blur(6px);transition:opacity .6s,transform .6s,filter .6s,visibility 0s .6s;display:flex;flex-direction:column;justify-content:center}
-.slide.active{opacity:1;visibility:visible;transform:none;filter:none;transition:opacity .6s,transform .6s,filter .6s}
-.eyebrow{font-family:"IBM Plex Mono",monospace;font-size:15px;letter-spacing:.28em;color:var(--teal);text-transform:uppercase;margin-bottom:22px}
-h1,h2{font-family:Sora,sans-serif;margin:0;letter-spacing:-.03em;line-height:1.02}
-h1{font-size:92px;font-weight:800}
-h2{font-size:64px;font-weight:800}
-h1 em,h2 em{font-style:normal;color:var(--teal);text-shadow:0 0 40px #14e0c966}
-.lede{font-size:26px;line-height:1.4;color:#bfe0dc;max-width:900px;margin:26px 0 0;font-weight:400}
+#stage{position:relative;width:1280px;height:720px;flex:none;transform-origin:center center;background:var(--bg);overflow:hidden}
+.slide{position:absolute;inset:0;padding:96px 90px 110px;opacity:0;visibility:hidden;transition:opacity .3s,visibility 0s .3s;display:flex;flex-direction:column;justify-content:center}
+.slide.active{opacity:1;visibility:visible;transition:opacity .3s}
+.run{position:absolute;left:90px;right:90px;top:34px;display:flex;justify-content:space-between;font-size:12px;letter-spacing:.14em;text-transform:uppercase;border-bottom:1px solid var(--ink);padding-bottom:10px;font-variant-numeric:tabular-nums}
+.run b{font-weight:700}
+.eyebrow{font-family:"Public Sans",sans-serif;font-size:13px;font-weight:600;letter-spacing:.2em;color:var(--accent);text-transform:uppercase;margin-bottom:22px}
+h1,h2{font-family:"Instrument Serif",serif;font-weight:400;margin:0;letter-spacing:-.025em;line-height:.98}
+h1{font-size:104px}
+h2{font-size:72px}
+h1 em,h2 em{font-style:italic;color:var(--accent)}
+.lede{font-size:24px;line-height:1.4;color:#2b2a26;max-width:860px;margin:26px 0 0;font-weight:400}
 .mono{font-family:"IBM Plex Mono",monospace}
-.grid3{display:grid;grid-template-columns:repeat(3,1fr);gap:24px;margin-top:40px}
-.grid4{display:grid;grid-template-columns:repeat(4,1fr);gap:20px;margin-top:36px}
-.card{border:1px solid #1d4a47;border-radius:18px;padding:26px;background:linear-gradient(160deg,#0a1f20cc,#061214cc);position:relative}
-.card h3{margin:0 0 8px;font-family:Sora,sans-serif;font-size:24px}
-.card p{margin:0;color:#a9cbc7;font-size:18px;line-height:1.45}
-.verify{border-style:dashed;border-color:#7a5a1f}
-.badge{position:absolute;top:14px;right:14px;font-family:"IBM Plex Mono",monospace;font-size:11px;letter-spacing:.14em;color:#1a1100;background:var(--amber);border-radius:6px;padding:3px 8px;font-weight:600}
-.stat{font-family:Sora,sans-serif;font-weight:800;font-size:64px;line-height:1;color:var(--ink)}
-.stat small{font-size:20px;color:var(--mute);font-weight:400}
-.cap{color:var(--mute);font-size:16px;margin-top:10px;line-height:1.35}
-.beat{display:flex;gap:22px;align-items:flex-start}
-.beat .n{font-family:Sora,sans-serif;font-weight:800;font-size:72px;color:var(--teal);line-height:.9;opacity:.9}
-.foot{position:absolute;left:90px;bottom:62px;font-size:12px;color:#5d7f7c;letter-spacing:.04em;z-index:6}
+.grid3{display:grid;grid-template-columns:repeat(3,1fr);gap:32px;margin-top:40px}
+.grid4{display:grid;grid-template-columns:repeat(4,1fr);gap:32px;margin-top:36px}
+.card{border:0;border-top:3px solid var(--ink);border-radius:0;padding:14px 0 0;background:none;position:relative}
+.card h3{margin:0 0 8px;font-family:"Instrument Serif",serif;font-weight:400;font-size:34px;letter-spacing:-.01em}
+.card p{margin:0;color:#2b2a26;font-size:17px;line-height:1.45}
+.verify{border-top-style:dashed;border-top-color:var(--accent)}
+.badge{position:absolute;top:14px;right:0;font-family:"IBM Plex Mono",monospace;font-size:11px;letter-spacing:.14em;color:var(--accent);border:1px solid var(--accent);border-radius:0;padding:2px 7px;font-weight:600}
+.stat{font-family:"Instrument Serif",serif;font-weight:400;font-size:84px;line-height:1;color:var(--ink);font-variant-numeric:tabular-nums}
+.stat small{font-family:"Public Sans",sans-serif;font-size:16px;color:var(--mute);font-weight:400}
+.cap{color:var(--mute);font-size:15px;margin-top:10px;line-height:1.4}
+.beat{display:flex;gap:18px;align-items:flex-start;border-top:3px solid var(--ink);padding-top:14px}
+.beat .n{font-family:"Instrument Serif",serif;font-size:72px;color:var(--accent);line-height:.9}
+.foot{position:absolute;left:90px;right:90px;bottom:64px;font-size:11.5px;color:var(--mute);letter-spacing:.03em;z-index:6;border-top:1px solid var(--ink);padding-top:8px;display:flex;justify-content:space-between;gap:24px;font-variant-numeric:tabular-nums}
+.foot .lg{white-space:nowrap;color:var(--ink)}
+.foot .lg a{color:var(--ink);margin-right:14px}
 /* demo */
 #demoGrid{display:grid;grid-template-columns:1.25fr 1fr;gap:34px;align-items:center;margin-top:10px}
-#cam{width:100%;aspect-ratio:16/10;border-radius:16px;border:1px solid #1d4a47;background:#020708;display:block}
-#bigState{font-family:Sora,sans-serif;font-weight:800;font-size:68px;line-height:1;letter-spacing:-.02em;color:var(--teal);text-shadow:0 0 50px #14e0c988;min-height:70px}
-#bigState.verified{color:#9dffb0}
-#stateSub{font-family:"IBM Plex Mono",monospace;color:#a9cbc7;font-size:16px;margin:12px 0 22px;min-height:44px}
-#ladder{display:flex;flex-direction:column;gap:8px}
-.rung{display:flex;align-items:center;gap:12px;font-family:"IBM Plex Mono",monospace;font-size:15px;letter-spacing:.1em;color:#4f7270;padding:8px 14px;border:1px solid #123533;border-radius:10px;cursor:pointer;min-height:44px}
-.rung i{width:12px;height:12px;border-radius:50%;background:#143734}
-.rung.done{color:#8fd8cf}.rung.done i{background:var(--teal2)}
-.rung.now{color:#02211e;background:var(--teal);border-color:var(--teal)}.rung.now i{background:#02211e}
-#stop{background:var(--red);border-color:#fff;color:#fff;font-weight:800;letter-spacing:.1em;min-width:120px}
+#cam{width:100%;aspect-ratio:16/10;border-radius:0;border:2px solid var(--ink);background:#03100f;display:block}
+#bigState{font-family:"Instrument Serif",serif;font-weight:400;font-size:84px;line-height:1;letter-spacing:-.02em;color:var(--ink);min-height:84px}
+#bigState.verified{color:#1a7a3c}
+#stateSub{font-family:"IBM Plex Mono",monospace;color:#2b2a26;font-size:15px;margin:12px 0 22px;min-height:44px}
+#ladder{display:flex;flex-direction:column;gap:0;border-top:1px solid var(--ink)}
+.rung{display:flex;align-items:center;gap:12px;font-family:"IBM Plex Mono",monospace;font-size:14px;letter-spacing:.1em;color:#7a776d;padding:6px 10px;border-bottom:1px solid var(--ink);border-radius:0;cursor:pointer;min-height:44px}
+.rung i{width:10px;height:10px;border-radius:0;background:#cfcabc}
+.rung.done{color:var(--ink)}.rung.done i{background:var(--ink)}
+.rung.now{color:var(--paper);background:var(--ink)}.rung.now i{background:var(--accent)}
+#stop{background:var(--accent);border-color:var(--ink);color:#fff;font-weight:700;letter-spacing:.1em;min-width:120px}
+#stop:hover{background:var(--ink)}
 #stop.latched{background:#7a1010}
 .democtl{display:flex;gap:12px;align-items:center;margin-top:18px;flex-wrap:wrap}
-.democtl a{color:var(--teal);font-size:14px;font-family:"IBM Plex Mono",monospace}
+.democtl a{color:var(--ink);font-size:13px;font-family:"IBM Plex Mono",monospace}
 /* arch */
 #archwrap{margin-top:30px;overflow-x:auto}
 #arch{width:100%;min-width:760px;height:auto;display:block}
 .flow{stroke-dasharray:6 8;animation:dash 1.2s linear infinite}
 @keyframes dash{to{stroke-dashoffset:-28}}
 /* hud */
-#hud{position:fixed;left:0;right:0;bottom:0;z-index:20;display:flex;gap:10px;align-items:center;justify-content:space-between;padding:8px 14px;background:linear-gradient(0deg,#000d,transparent);pointer-events:none}
+#hud{position:fixed;left:0;right:0;bottom:0;z-index:20;display:flex;gap:10px;align-items:center;justify-content:space-between;padding:8px 14px;background:var(--paper);border-top:1px solid var(--ink);pointer-events:none}
 #hud>*{pointer-events:auto}
-#timer{font-family:"IBM Plex Mono",monospace;font-weight:600;font-size:22px;padding:8px 14px;border-radius:12px;background:#031211e6;border:1px solid #1d4a47;min-width:96px;text-align:center}
+#timer{font-family:"IBM Plex Mono",monospace;font-weight:600;font-size:20px;padding:6px 14px;border-radius:0;background:var(--paper);border:1px solid var(--ink);min-width:96px;text-align:center;font-variant-numeric:tabular-nums}
 #timer.warn{color:var(--amber);border-color:var(--amber)}
 #timer.crit{color:var(--red);border-color:var(--red);animation:pulse .8s infinite}
 @keyframes pulse{50%{opacity:.55}}
 #pace{font-family:"IBM Plex Mono",monospace;font-size:12px;color:var(--mute)}
 #dots{display:flex;gap:8px;align-items:center}
-#dots b{width:34px;height:6px;border-radius:3px;background:#143734;display:block;cursor:pointer}
-#dots b.on{background:var(--teal)}
-#dots b.past{background:var(--teal2)}
+#dots b{width:34px;height:6px;border-radius:0;background:#cfcabc;display:block;cursor:pointer}
+#dots b.on{background:var(--accent)}
+#dots b.past{background:var(--ink)}
 .hbtns{display:flex;gap:8px}
-#notes{position:fixed;left:0;right:0;bottom:62px;z-index:25;max-height:42vh;overflow:auto;padding:18px 28px;background:#02100fee;border-top:2px solid var(--teal);display:none;font-size:18px;line-height:1.5}
+#notes{position:fixed;left:0;right:0;bottom:62px;z-index:25;max-height:42vh;overflow:auto;padding:18px 28px;background:var(--paper);border-top:2px solid var(--ink);display:none;font-size:18px;line-height:1.5}
 #notes.show{display:block}
-#notes h4{margin:0 0 6px;font-family:"IBM Plex Mono",monospace;letter-spacing:.14em;color:var(--teal);font-size:13px}
-#backup{position:fixed;inset:0;z-index:40;background:#000;display:none;flex-direction:column;align-items:center;justify-content:center;gap:16px;padding:20px;text-align:center}
+#notes h4{margin:0 0 6px;font-family:"IBM Plex Mono",monospace;letter-spacing:.14em;color:var(--accent);font-size:13px}
+#backup{position:fixed;inset:0;z-index:40;background:var(--paper);display:none;flex-direction:column;align-items:center;justify-content:center;gap:16px;padding:20px;text-align:center}
 #backup.show{display:flex}
-#backup video{max-width:92vw;max-height:70vh;border:1px solid #1d4a47;border-radius:12px;background:#020708}
-#backup .ph{width:min(92vw,900px);aspect-ratio:16/9;border:2px dashed #1d4a47;border-radius:16px;display:grid;place-items:center;color:var(--mute);font-family:"IBM Plex Mono",monospace;padding:20px}
-.tag-b{font-family:"IBM Plex Mono",monospace;color:var(--amber);letter-spacing:.2em;font-size:13px}
+#backup video{max-width:92vw;max-height:70vh;border:2px solid var(--ink);border-radius:0;background:#03100f}
+#backup .ph{width:min(92vw,900px);aspect-ratio:16/9;border:2px dashed var(--ink);border-radius:0;display:grid;place-items:center;color:var(--mute);font-family:"IBM Plex Mono",monospace;padding:20px}
+.tag-b{font-family:"IBM Plex Mono",monospace;color:var(--accent);letter-spacing:.2em;font-size:13px}
 /* mobile: flowing slides */
 @media (max-width:760px){
   html,body{overflow:auto;height:auto}
   #viewport{position:static;display:block}
   #stage{width:100%!important;height:auto!important;min-height:100vh;transform:none!important}
-  .slide{position:absolute;inset:auto;left:0;right:0;top:0;padding:28px 18px 120px;min-height:100vh;justify-content:flex-start}
+  .slide{position:absolute;inset:auto;left:0;right:0;top:0;padding:64px 18px 120px;min-height:100vh;justify-content:flex-start}
   .slide:not(.active){display:none}
   .slide.active{position:relative}
-  h1{font-size:38px}h2{font-size:30px}.lede{font-size:16px}.eyebrow{font-size:11px;letter-spacing:.2em}
-  .grid3,.grid4,#demoGrid{grid-template-columns:1fr;gap:12px}
-  .card{padding:16px}.card p{font-size:14px}.card h3{font-size:18px}.stat{font-size:40px}
-  .beat .n{font-size:44px}
-  #bigState{font-size:34px}
-  .foot{position:static;margin-top:20px}
-  #hud{background:#000e}#dots,#pace{display:none}#hud button{padding:0 10px}
+  .run{left:18px;right:18px;top:20px}
+  h1{font-size:50px}h2{font-size:40px}.lede{font-size:16px}.eyebrow{font-size:11px;letter-spacing:.2em}
+  .grid3,.grid4,#demoGrid{grid-template-columns:1fr;gap:16px}
+  .card{padding:12px 0 0}.card p{font-size:14px}.card h3{font-size:24px}.stat{font-size:52px}
+  .beat .n{font-size:48px}
+  #bigState{font-size:48px;min-height:50px}
+  .foot{position:static;margin-top:20px;flex-direction:column;gap:8px}
+  #hud{background:var(--paper)}#dots,#pace{display:none}#hud button{padding:0 10px}
   #notes{bottom:64px;font-size:15px}
 }
 @media (prefers-reduced-motion:reduce){*{animation:none!important;transition:none!important}}
@@ -125,6 +128,7 @@ h1 em,h2 em{font-style:normal;color:var(--teal);text-shadow:0 0 40px #14e0c966}
 
 <!-- 1 HOOK -->
 <section class="slide" data-t="25" data-name="Hook">
+  <div class="run"><span><b>Scrub</b> / Surgical handoff pitch</span><span>Hook</span><span>01 / 07</span></div>
   <div class="eyebrow">Patient safety / healthcare access</div>
   <h1>Every operating room<br>runs on <em>a count.</em></h1>
   <p class="lede">Sponges, needles, instruments. Someone counts them by hand, and someone is always stretched thin.</p>
@@ -133,35 +137,38 @@ h1 em,h2 em{font-style:normal;color:var(--teal);text-shadow:0 0 40px #14e0c966}
     <div class="card verify"><span class="badge">VERIFY</span><div class="stat">[X]%<small> vacancy</small></div><div class="cap">Surgical technologist / scrub nurse shortage. Source: [add citation]</div></div>
     <div class="card verify"><span class="badge">VERIFY</span><div class="stat">[$]<small> per event</small></div><div class="cap">Cost of one retained item case. Source: [add citation]</div></div>
   </div>
-  <div class="foot">Placeholders on purpose: fill from SURGEON_RESEARCH.md before presenting. Research and training prototype. Props only. Not for clinical use.</div>
+  <div class="foot"><span>Placeholders on purpose: fill from SURGEON_RESEARCH.md before presenting. Research and training prototype. Props only. Not for clinical use.</span><span class="lg"><a href="#terms">Terms</a><a href="#privacy">Privacy</a>01</span></div>
 </section>
 
 <!-- 2 STORY -->
 <section class="slide" data-t="25" data-name="Story">
+  <div class="run"><span><b>Scrub</b> / Surgical handoff pitch</span><span>Story</span><span>02 / 07</span></div>
   <div class="eyebrow">The story</div>
   <h2>The surgeon holds out a hand.<br><em>Nobody is there.</em></h2>
   <div class="grid3">
-    <div class="beat"><div class="n">1</div><div><h3 style="margin:0 0 6px;font-family:Sora">The wait</h3><p style="margin:0;color:#a9cbc7;font-size:19px;line-height:1.45">One scrub tech covers the tray, the count and the handoffs. Every second of wait is attention taken from the patient.</p></div></div>
-    <div class="beat"><div class="n">2</div><div><h3 style="margin:0 0 6px;font-family:Sora">The count</h3><p style="margin:0;color:#a9cbc7;font-size:19px;line-height:1.45">What leaves the tray should come back. A camera that sees every handoff can keep that ledger.</p></div></div>
-    <div class="beat"><div class="n">3</div><div><h3 style="margin:0 0 6px;font-family:Sora">The arm</h3><p style="margin:0;color:#a9cbc7;font-size:19px;line-height:1.45">An SO-101 hears the request, finds the tool, and presents it handle-first into an open palm. One move, done reliably.</p></div></div>
+    <div class="beat"><div class="n">1</div><div><h3 style="margin:0 0 6px;font-family:'Instrument Serif',serif;font-weight:400;font-size:30px">The wait</h3><p style="margin:0;color:#2b2a26;font-size:18px;line-height:1.45">One scrub tech covers the tray, the count and the handoffs. Every second of wait is attention taken from the patient.</p></div></div>
+    <div class="beat"><div class="n">2</div><div><h3 style="margin:0 0 6px;font-family:'Instrument Serif',serif;font-weight:400;font-size:30px">The count</h3><p style="margin:0;color:#2b2a26;font-size:18px;line-height:1.45">What leaves the tray should come back. A camera that sees every handoff can keep that ledger.</p></div></div>
+    <div class="beat"><div class="n">3</div><div><h3 style="margin:0 0 6px;font-family:'Instrument Serif',serif;font-weight:400;font-size:30px">The arm</h3><p style="margin:0;color:#2b2a26;font-size:18px;line-height:1.45">An SO-101 hears the request, finds the tool, and presents it handle-first into an open palm. One move, done reliably.</p></div></div>
   </div>
   <p class="lede" style="font-size:22px">We start with training: the same arm, plastic props, and a scoreboard.</p>
-  <div class="foot">Research and training prototype. Props only. Not for clinical use.</div>
+  <div class="foot"><span>Research and training prototype. Props only. Not for clinical use.</span><span class="lg"><a href="#terms">Terms</a><a href="#privacy">Privacy</a>02</span></div>
 </section>
 
 <!-- 3 DEMO -->
 <section class="slide" data-t="55" data-name="Live demo">
+  <div class="run"><span><b>Scrub</b> / Surgical handoff pitch</span><span>Live demo</span><span>03 / 07</span></div>
   <div class="eyebrow">Live demo slot</div>
   <div id="demoGrid">
     <div><canvas id="cam" width="800" height="500" aria-label="Mock camera feed"></canvas>
       <div class="democtl"><button id="stop">STOP</button><button id="demoAuto">Pause cycle</button><a href="34-handoff-challenge.html" target="_blank" rel="noopener">Open the judge challenge (34)</a></div></div>
     <div><div id="bigState">LISTENING</div><div id="stateSub"></div><div id="ladder"></div></div>
   </div>
-  <div class="foot">Mock feed. Swap the canvas for the real camera or an iframe of the live UI. Press B for the backup video.</div>
+  <div class="foot"><span>Mock feed. Swap the canvas for the real camera or an iframe of the live UI. Press B for the backup video.</span><span class="lg"><a href="#terms">Terms</a><a href="#privacy">Privacy</a>03</span></div>
 </section>
 
 <!-- 4 RESULTS -->
 <section class="slide" data-t="20" data-name="Results">
+  <div class="run"><span><b>Scrub</b> / Surgical handoff pitch</span><span>Results</span><span>04 / 07</span></div>
   <div class="eyebrow">Results</div>
   <h2>We measure it, <em>including the misses.</em></h2>
   <div class="grid4">
@@ -171,19 +178,21 @@ h1 em,h2 em{font-style:normal;color:var(--teal);text-shadow:0 0 40px #14e0c966}
     <div class="card"><div class="stat" data-count="63">0</div><div class="cap">Teleop demos collected for fine-tuning</div></div>
   </div>
   <p class="lede" style="font-size:21px">Failures we show on the scoreboard: wrong orientation and palm timeouts. Human scrub tech baseline row is shown next to ours.</p>
-  <div class="foot">MOCK numbers shown. Replace with the live scoreboard values before presenting. Research and training prototype.</div>
+  <div class="foot"><span>MOCK numbers shown. Replace with the live scoreboard values before presenting. Research and training prototype.</span><span class="lg"><a href="#terms">Terms</a><a href="#privacy">Privacy</a>04</span></div>
 </section>
 
 <!-- 5 ARCH -->
 <section class="slide" data-t="20" data-name="Architecture">
+  <div class="run"><span><b>Scrub</b> / Surgical handoff pitch</span><span>Architecture</span><span>05 / 07</span></div>
   <div class="eyebrow">How it works</div>
   <h2 style="font-size:50px">Language proposes. <em>A safety gate decides.</em></h2>
   <div id="archwrap"><svg id="arch" viewBox="0 0 1240 420" role="img" aria-label="Architecture diagram: microphone and cameras to Gemini intent and Perceptron detect and track, to a fixed task menu, safety gate, LeRobot policy and SO-101, with Photon, Tiger Data and Backboard as side services"></svg></div>
-  <div class="foot">The model never emits free-form motor commands. It can only choose from a fixed menu. Research and training prototype.</div>
+  <div class="foot"><span>The model never emits free-form motor commands. It can only choose from a fixed menu. Research and training prototype.</span><span class="lg"><a href="#terms">Terms</a><a href="#privacy">Privacy</a>05</span></div>
 </section>
 
 <!-- 6 NEXT -->
 <section class="slide" data-t="15" data-name="What's next">
+  <div class="run"><span><b>Scrub</b> / Surgical handoff pitch</span><span>What's next</span><span>06 / 07</span></div>
   <div class="eyebrow">What's next</div>
   <h2>Honest about <em>the road.</em></h2>
   <div class="grid3">
@@ -191,11 +200,12 @@ h1 em,h2 em{font-style:normal;color:var(--teal);text-shadow:0 0 40px #14e0c966}
     <div class="card"><h3>Sterility</h3><p>Today: props, no sterile field. Next: drape-compatible grippers and a sterile transfer design. We have not solved this.</p></div>
     <div class="card"><h3>FDA path</h3><p>This is a research and training prototype. Any clinical use needs device classification and a regulatory pathway: [verify with regulatory counsel]. We have not started a submission.</p></div>
   </div>
-  <div class="foot">No clinical claims. Research and training prototype.</div>
+  <div class="foot"><span>No clinical claims. Research and training prototype.</span><span class="lg"><a href="#terms">Terms</a><a href="#privacy">Privacy</a>06</span></div>
 </section>
 
 <!-- 7 ASK -->
 <section class="slide" data-t="20" data-name="The ask">
+  <div class="run"><span><b>Scrub</b> / Surgical handoff pitch</span><span>The ask</span><span>07 / 07</span></div>
   <div class="eyebrow">The ask</div>
   <h1 style="font-size:84px">Help us put a <em>hand</em><br>in the room.</h1>
   <div class="grid3">
@@ -203,7 +213,7 @@ h1 em,h2 em{font-style:normal;color:var(--teal);text-shadow:0 0 40px #14e0c966}
     <div class="card"><h3>Hardware time</h3><p>More arm hours and a second camera angle to harden the one handoff primitive.</p></div>
     <div class="card"><h3>Your vote</h3><p>Healthcare access, patient safety, and more surgeons trained. Come try the challenge at our table.</p></div>
   </div>
-  <div class="foot">Thank you. Research and training prototype. Props only. Not for clinical use.</div>
+  <div class="foot"><span>Thank you. Research and training prototype. Props only. Not for clinical use.</span><span class="lg"><a href="#terms">Terms</a><a href="#privacy">Privacy</a>07</span></div>
 </section>
 
 </div></div>
@@ -304,18 +314,18 @@ function countUp(){
 /* architecture svg */
 (function arch(){
   const NS='http://www.w3.org/2000/svg'; let h='';
-  const defs='<defs><marker id="ah" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="7" markerHeight="7" orient="auto"><path d="M0 0L10 5L0 10z" fill="#14e0c9"/></marker><marker id="ah2" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="6" markerHeight="6" orient="auto"><path d="M0 0L10 5L0 10z" fill="#7a9b98"/></marker><filter id="gl"><feGaussianBlur stdDeviation="4"/></filter></defs>';
-  const box=(x,y,w,hh,t,sub,o={})=>`<g><rect x="${x}" y="${y}" width="${w}" height="${hh}" rx="14" fill="${o.fill||'#071c1d'}" stroke="${o.stroke||'#14e0c9'}" stroke-width="${o.sw||1.6}" ${o.dash?'stroke-dasharray="6 5"':''}/><text x="${x+w/2}" y="${y+hh/2-(sub?5:-6)}" text-anchor="middle" fill="${o.tc||'#e9fbf8'}" font-family="Sora" font-weight="700" font-size="${o.fs||17}">${t}</text>${sub?`<text x="${x+w/2}" y="${y+hh/2+16}" text-anchor="middle" fill="#86a8a6" font-family="IBM Plex Mono" font-size="11.5">${sub}</text>`:''}</g>`;
-  const line=(d,o={})=>`<path d="${d}" fill="none" stroke="${o.c||'#14e0c9'}" stroke-width="${o.w||2}" ${o.dash?'class="flow"':''} marker-end="url(#${o.m||'ah'})" opacity="${o.op||1}"/>`;
+  const defs='<defs><marker id="ah" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="7" markerHeight="7" orient="auto"><path d="M0 0L10 5L0 10z" fill="#e63312"/></marker><marker id="ah2" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="6" markerHeight="6" orient="auto"><path d="M0 0L10 5L0 10z" fill="#5c5a53"/></marker></defs>';
+  const box=(x,y,w,hh,t,sub,o={})=>`<g><rect x="${x}" y="${y}" width="${w}" height="${hh}" rx="0" fill="${o.fill||'#fff'}" stroke="${o.stroke||'#e63312'}" stroke-width="${o.sw||1.6}" ${o.dash?'stroke-dasharray="6 5"':''}/><text x="${x+w/2}" y="${y+hh/2-(sub?5:-6)}" text-anchor="middle" fill="${o.tc||'#111'}" font-family="Instrument Serif" font-size-adjust="0.5" font-weight="400" font-size="${o.fs||17}">${t}</text>${sub?`<text x="${x+w/2}" y="${y+hh/2+16}" text-anchor="middle" fill="#5c5a53" font-family="IBM Plex Mono" font-size="11.5">${sub}</text>`:''}</g>`;
+  const line=(d,o={})=>`<path d="${d}" fill="none" stroke="${o.c||'#e63312'}" stroke-width="${o.w||2}" ${o.dash?'class="flow"':''} marker-end="url(#${o.m||'ah'})" opacity="${o.op||1}"/>`;
   const X=[20,226,432,638,844,1050], W=170;
   h+=defs;
   h+=box(X[0],150,W,100,'Mic + cameras','tray cam, wrist cam');
   h+=box(X[1],70,W,90,'Gemini intent','voice to task',{});
   h+=box(X[1],200,W,100,'Perceptron','detect + track + palm');
-  h+=box(X[2],150,W,100,'Fixed task menu','6 instruments only',{stroke:'#ffb84d',tc:'#ffe2b0'});
-  h+=box(X[3],150,W,100,'Safety gate','limits, STOP, approval',{stroke:'#ff5b5b',tc:'#ffd0d0'});
+  h+=box(X[2],150,W,100,'Fixed task menu','6 instruments only',{stroke:'#111',tc:'#111'});
+  h+=box(X[3],150,W,100,'Safety gate','limits, STOP, approval',{stroke:'#e63312',tc:'#e63312'});
   h+=box(X[4],150,W,100,'LeRobot policy','pick + present primitive');
-  h+=box(X[5],150,W,100,'SO-101','handle-first handoff',{fill:'#0a2f2c',sw:2.4});
+  h+=box(X[5],150,W,100,'SO-101','handle-first handoff',{fill:'#e9e5da',sw:2.4});
   // main flow
   h+=line(`M${X[0]+W} 185 C ${X[0]+W+25} 185, ${X[1]-25} 115, ${X[1]} 115`,{dash:1});
   h+=line(`M${X[0]+W} 215 C ${X[0]+W+25} 215, ${X[1]-25} 250, ${X[1]} 250`,{dash:1});
@@ -323,16 +333,16 @@ function countUp(){
   h+=line(`M${X[1]+W} 250 C ${X[1]+W+25} 250, ${X[2]-25} 215, ${X[2]} 215`,{dash:1});
   for(let i=2;i<5;i++)h+=line(`M${X[i]+W} 200 L ${X[i+1]} 200`,{dash:1});
   // verification loop back
-  h+=`<path d="M${X[5]+W/2} 150 C ${X[5]+W/2} 30, ${X[2]+W/2} 30, ${X[2]+W/2} 150" fill="none" stroke="#7a9b98" stroke-width="1.5" stroke-dasharray="3 5" marker-end="url(#ah2)"/><text x="${(X[5]+X[2])/2+W/2}" y="26" text-anchor="middle" fill="#86a8a6" font-family="IBM Plex Mono" font-size="12">verify: camera confirms tool + orientation, else retry or safe return</text>`;
+  h+=`<path d="M${X[5]+W/2} 150 C ${X[5]+W/2} 30, ${X[2]+W/2} 30, ${X[2]+W/2} 150" fill="none" stroke="#5c5a53" stroke-width="1.5" stroke-dasharray="3 5" marker-end="url(#ah2)"/><text x="${(X[5]+X[2])/2+W/2}" y="26" text-anchor="middle" fill="#5c5a53" font-family="IBM Plex Mono" font-size="12">verify: camera confirms tool + orientation, else retry or safe return</text>`;
   // side services
   const sy=335, sh=64;
-  h+=box(X[2],sy,W,sh,'Backboard','preference cards',{dash:1,stroke:'#4b7f7b',fs:15});
-  h+=box(X[3],sy,W,sh,'Photon','text the nurse',{dash:1,stroke:'#4b7f7b',fs:15});
-  h+=box(X[5]-60,sy,W+60,sh,'Tiger Data','handoff time series',{dash:1,stroke:'#4b7f7b',fs:15});
-  h+=line(`M${X[2]+W/2} ${sy} L ${X[2]+W/2} 252`,{c:'#7a9b98',m:'ah2'});
-  h+=line(`M${X[3]+W/2} ${sy} L ${X[3]+W/2} 252`,{c:'#7a9b98',m:'ah2'});
-  h+=line(`M${X[5]+W/2} 252 L ${X[5]+W/2} ${sy}`,{c:'#7a9b98',m:'ah2'});
-  h+=`<text x="${X[0]}" y="372" fill="#5d7f7c" font-family="IBM Plex Mono" font-size="12">side services</text>`;
+  h+=box(X[2],sy,W,sh,'Backboard','preference cards',{dash:1,stroke:'#111',fs:15});
+  h+=box(X[3],sy,W,sh,'Photon','text the nurse',{dash:1,stroke:'#111',fs:15});
+  h+=box(X[5]-60,sy,W+60,sh,'Tiger Data','handoff time series',{dash:1,stroke:'#111',fs:15});
+  h+=line(`M${X[2]+W/2} ${sy} L ${X[2]+W/2} 252`,{c:'#5c5a53',m:'ah2'});
+  h+=line(`M${X[3]+W/2} ${sy} L ${X[3]+W/2} 252`,{c:'#5c5a53',m:'ah2'});
+  h+=line(`M${X[5]+W/2} 252 L ${X[5]+W/2} ${sy}`,{c:'#5c5a53',m:'ah2'});
+  h+=`<text x="${X[0]}" y="372" fill="#5c5a53" font-family="IBM Plex Mono" font-size="12">side services</text>`;
   $('arch').innerHTML=h;
 })();
 
@@ -353,7 +363,7 @@ function demoLoop(){ clearTimeout(dTimer); dTimer=setTimeout(()=>{ if(slides[cur
 $('ladder').onclick=e=>{const r=e.target.closest('.rung'); if(r&&!dStopped)setDemo(+r.dataset.i);};
 $('demoAuto').onclick=()=>{dAuto=!dAuto; $('demoAuto').textContent=dAuto?'Pause cycle':'Resume cycle';};
 $('stop').onclick=()=>{dStopped=!dStopped; $('stop').textContent=dStopped?'RESET':'STOP'; $('stop').classList.toggle('latched',dStopped);
-  if(dStopped){$('bigState').textContent='E-STOP'; $('bigState').style.color='#ff5b5b'; $('stateSub').textContent='arm frozen, latched. Press RESET to continue.';}
+  if(dStopped){$('bigState').textContent='E-STOP'; $('bigState').style.color='#e63312'; $('stateSub').textContent='arm frozen, latched. Press RESET to continue.';}
   else{$('bigState').style.color=''; setDemo(0);} };
 const cam=$('cam'), cx=cam.getContext('2d');
 function camFrame(now){
@@ -361,25 +371,25 @@ function camFrame(now){
   // grid
   cx.strokeStyle='#0f2f2d'; cx.lineWidth=1; for(let x=0;x<w;x+=40){cx.beginPath();cx.moveTo(x,0);cx.lineTo(x,h);cx.stroke();} for(let y=0;y<h;y+=40){cx.beginPath();cx.moveTo(0,y);cx.lineTo(w,y);cx.stroke();}
   // tray
-  cx.strokeStyle='#14e0c9aa'; cx.lineWidth=2; cx.strokeRect(30,50,380,330);
+  cx.strokeStyle='#ff4a24aa'; cx.lineWidth=2; cx.strokeRect(30,50,380,330);
   const tools=['scalpel','forceps','scissors','hemostat','driver','retractor','?','?'];
   tools.forEach((t,i)=>{const x=50+(i%3)*120, y=75+Math.floor(i/3)*100; cx.fillStyle=t==='?'?'#2b3a3a':'#45686a'; cx.fillRect(x,y+20,100,10);
-    const hot=ds>=1&&(t==='hemostat'); if(ds>=1&&ds<5){cx.strokeStyle=t==='?'?'#ffb84d':hot?'#14e0c9':'#3a6f6a'; cx.lineWidth=hot?3:1.2; cx.strokeRect(x-6,y+4,112,42); cx.fillStyle=cx.strokeStyle; cx.font='11px IBM Plex Mono'; cx.fillText(t==='?'?'unknown':t,x-4,y+1);}});
-  if(ds===1){const sx=30+((now/6)%380); cx.fillStyle='#14e0c944'; cx.fillRect(sx,50,6,330);}
+    const hot=ds>=1&&(t==='hemostat'); if(ds>=1&&ds<5){cx.strokeStyle=t==='?'?'#f2b84b':hot?'#ff4a24':'#3a6f6a'; cx.lineWidth=hot?3:1.2; cx.strokeRect(x-6,y+4,112,42); cx.fillStyle=cx.strokeStyle; cx.font='11px IBM Plex Mono'; cx.fillText(t==='?'?'unknown':t,x-4,y+1);}});
+  if(ds===1){const sx=30+((now/6)%380); cx.fillStyle='#ff4a2444'; cx.fillRect(sx,50,6,330);}
   // zone + palm
-  cx.setLineDash([8,6]); cx.strokeStyle='#14e0c9'; cx.strokeRect(470,70,290,300); cx.setLineDash([]);
+  cx.setLineDash([8,6]); cx.strokeStyle='#ff4a24'; cx.strokeRect(470,70,290,300); cx.setLineDash([]);
   cx.fillStyle='#86a8a6'; cx.font='12px IBM Plex Mono'; cx.fillText('HANDOFF ZONE',478,90);
   const px=640,py=250;
   if(ds>=3){cx.fillStyle='#3d8fd4'; cx.beginPath(); cx.roundRect(px-28,py-8,56,48,12); cx.fill(); [-21,-8,5,18].forEach(dx=>{cx.beginPath(); cx.roundRect(px+dx-5,py-42,10,40,5); cx.fill();});
-    cx.strokeStyle='#14e0c9'; cx.lineWidth=3; cx.strokeRect(px-46,py-56,92,106); cx.fillStyle='#14e0c9'; cx.fillText('palm 0.94',px-44,py-62);}
+    cx.strokeStyle='#ff4a24'; cx.lineWidth=3; cx.strokeRect(px-46,py-56,92,106); cx.fillStyle='#ff4a24'; cx.fillText('palm 0.94',px-44,py-62);}
   // arm
   const phase=ds; let ax=330,ay=330;
   if(phase===2){ax=50+3*120+20-300+ (now%1900)/1900*0; ax=110; ay=320-(Math.sin(now/300)*10)-110;}
   if(phase===3){ax=470;ay=240;} if(phase>=4){ax=600;ay=250;} if(phase===0||phase===1){ax=330;ay=360;}
-  cx.strokeStyle='#0b8f84'; cx.lineWidth=14; cx.lineCap='round'; cx.beginPath(); cx.moveTo(430,440); cx.lineTo(430,300); cx.lineTo(ax,ay); cx.stroke();
-  cx.fillStyle='#ffb84d'; cx.beginPath(); cx.arc(430,440,12,0,7); cx.fill(); cx.beginPath(); cx.arc(ax,ay,8,0,7); cx.fill();
+  cx.strokeStyle='#8a8a80'; cx.lineWidth=14; cx.lineCap='round'; cx.beginPath(); cx.moveTo(430,440); cx.lineTo(430,300); cx.lineTo(ax,ay); cx.stroke();
+  cx.fillStyle='#f2b84b'; cx.beginPath(); cx.arc(430,440,12,0,7); cx.fill(); cx.beginPath(); cx.arc(ax,ay,8,0,7); cx.fill();
   if(ds>=2&&ds<=4){cx.fillStyle='#9fb6b8'; cx.save(); cx.translate(ax,ay); cx.rotate(ds>=4?Math.PI:0); cx.fillRect(-10,-4,60,8); cx.restore();}
-  if(ds===5){cx.fillStyle='#9dffb0'; cx.font='700 28px Sora'; cx.fillText('VERIFIED',500,50);}
+  if(ds===5){cx.fillStyle='#5fe08a'; cx.font='700 28px Public Sans'; cx.fillText('VERIFIED',500,50);}
   cx.fillStyle='#ff5b5b'; cx.beginPath(); cx.arc(20,24,5,0,7); cx.fill(); cx.fillStyle='#c9e8e4'; cx.font='12px IBM Plex Mono'; cx.fillText('MOCK CAM  tray + wrist',34,28);
   requestAnimationFrame(camFrame);
 }

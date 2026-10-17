@@ -1,4 +1,5 @@
 <!doctype html>
+<!-- STYLE: Medical device HMI, endoscopy tower / camera control unit front panel (black bezel, hardware buttons, mono readouts, on-screen-display text). Flat, no gradients, no glow. -->
 <!--
 FEATURES:
 - Simulated laparoscopic view (canvas) with two moving instrument tips on pink tissue
@@ -28,59 +29,66 @@ BACKEND HOOKS (mock by default):
 <title>Scope Holder Tower</title>
 <meta name="description" content="Autonomous laparoscope camera holder that keeps instrument tips centered around a fixed trocar pivot, with voice control and a steadiness score.">
 <link rel="preconnect" href="https://fonts.googleapis.com">
-<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;700&display=swap" rel="stylesheet">
+<link href="https://fonts.googleapis.com/css2?family=Archivo+Narrow:wght@500;600;700&family=IBM+Plex+Mono:wght@400;500;600&display=swap" rel="stylesheet">
 <style>
-:root{--bg:#06090b;--panel:#0d1316;--panel2:#121b1f;--line:#1e2c31;--tx:#d5e4e6;--dim:#7d9296;--teal:#27e0c2;--teal2:#0f8f7e;--amber:#ffb23e;--red:#ff4a4a;--blue:#58a6ff;}
+:root{--bg:#050505;--panel:#0b0c0c;--panel2:#151716;--line:#2b2f2d;--tx:#dfe3df;--dim:#8d9591;--teal:#86d99a;--teal2:#4f8f5e;--amber:#f0b429;--red:#e5484d;--blue:#7aa7d9;}
 *{box-sizing:border-box}
-html,body{margin:0;background:var(--bg);color:var(--tx);font:14px/1.4 Inter,system-ui,sans-serif}
-body{min-height:100vh;background:radial-gradient(1200px 600px at 30% -10%,#0f1c20 0,transparent 60%),var(--bg)}
-.mono{font-family:'JetBrains Mono',ui-monospace,monospace}
-header{display:flex;align-items:center;gap:12px;padding:8px 14px;border-bottom:1px solid var(--line);background:#080d0f;flex-wrap:wrap}
-.logo{font-weight:700;letter-spacing:.14em;font-size:13px;color:var(--teal)}
-.chip{font:500 11px 'JetBrains Mono',monospace;color:var(--dim);border:1px solid var(--line);padding:3px 8px;border-radius:3px;white-space:nowrap}
-.chip b{color:var(--tx);font-weight:500}
-.banner{flex:1;min-width:220px;text-align:center;font:600 11px 'JetBrains Mono',monospace;color:var(--amber);letter-spacing:.06em}
-button{font:600 13px Inter,sans-serif;color:var(--tx);background:var(--panel2);border:1px solid var(--line);border-radius:6px;min-height:44px;padding:0 14px;cursor:pointer}
-button:hover{border-color:var(--teal2)}button:active{transform:translateY(1px)}
-button.on{background:#0c3a35;border-color:var(--teal);color:var(--teal)}
-#stop{background:var(--red);border-color:#ff8a8a;color:#fff;font-weight:800;letter-spacing:.12em;min-width:120px;box-shadow:0 0 18px #ff4a4a55}
-#stop.latched{background:#3a0b0b;color:#ff9a9a;animation:pulse 1s infinite}
-@keyframes pulse{50%{box-shadow:0 0 22px #ff4a4aaa}}
-main{display:grid;grid-template-columns:minmax(0,1.7fr) minmax(300px,1fr);gap:12px;padding:12px;max-width:1500px;margin:0 auto}
-.card{background:var(--panel);border:1px solid var(--line);border-radius:8px;padding:10px 12px;min-width:0}
-.card h3{margin:0 0 8px;font:600 11px 'JetBrains Mono',monospace;letter-spacing:.14em;color:var(--dim);text-transform:uppercase;display:flex;justify-content:space-between;gap:8px}
-.screen{position:relative;border:2px solid #1a2a2f;border-radius:10px;background:#000;overflow:hidden}
+html,body{margin:0;background:var(--bg);color:var(--tx);font:14px/1.4 'Archivo Narrow',system-ui,sans-serif}
+body{min-height:100vh;background:var(--bg)}
+.mono{font-family:'IBM Plex Mono',ui-monospace,monospace;font-variant-numeric:tabular-nums}
+header{display:flex;align-items:center;gap:10px;padding:8px 14px;border-bottom:3px solid #000;outline:1px solid var(--line);outline-offset:-4px;background:#101211;flex-wrap:wrap}
+.logo{font:700 14px 'Archivo Narrow',sans-serif;letter-spacing:.18em;color:var(--tx);border:1px solid var(--dim);padding:3px 8px;text-transform:uppercase}
+.chip{font:500 11px 'IBM Plex Mono',monospace;color:var(--dim);border:1px solid var(--line);background:#000;padding:3px 8px;border-radius:0;white-space:nowrap;text-transform:uppercase}
+.chip b{color:var(--teal);font-weight:500}
+.banner{flex:1;min-width:220px;text-align:center;font:600 11px 'IBM Plex Mono',monospace;color:var(--amber);letter-spacing:.04em}
+button{font:700 12px 'Archivo Narrow',sans-serif;letter-spacing:.1em;text-transform:uppercase;color:var(--tx);background:var(--panel2);border:1px solid #4a504d;border-bottom:3px solid #000;border-radius:2px;min-height:44px;padding:0 14px;cursor:pointer;position:relative}
+button:hover{border-color:var(--tx)}
+button:active{border-bottom-width:1px;border-top-width:3px}
+button.on{background:#0b0c0c;border-color:var(--teal);color:var(--teal)}
+button.on::before{content:"";display:inline-block;width:7px;height:7px;background:var(--teal);margin-right:8px;vertical-align:middle}
+#stop{background:var(--red);border-color:#ff9a9d;border-bottom-color:#5a0d10;color:#000;font-weight:700;letter-spacing:.16em;min-width:120px}
+#stop.latched{background:#000;color:var(--red);border:2px solid var(--red);animation:pulse 1s steps(1) infinite}
+@keyframes pulse{50%{background:#3a0b0b}}
+main{display:grid;grid-template-columns:minmax(0,1.7fr) minmax(300px,1fr);gap:10px;padding:10px;max-width:1500px;margin:0 auto}
+.card{background:var(--panel);border:1px solid var(--line);border-radius:0;padding:10px 12px;min-width:0}
+.card h3{margin:0 0 8px;padding-bottom:5px;border-bottom:1px solid var(--line);font:700 11px 'Archivo Narrow',sans-serif;letter-spacing:.16em;color:var(--dim);text-transform:uppercase;display:flex;justify-content:space-between;gap:8px}
+.card h3 .mono{color:var(--tx);letter-spacing:.04em}
+.screen{position:relative;border:10px solid #000;outline:1px solid var(--line);border-radius:0;background:#000;overflow:hidden}
 .screen canvas{display:block;width:100%;height:auto}
-#estopOv{position:absolute;inset:0;display:none;align-items:center;justify-content:center;flex-direction:column;background:#2a000088;color:#ff9a9a;font:800 22px 'JetBrains Mono',monospace;letter-spacing:.1em;text-align:center;pointer-events:none}
-#estopOv small{font:500 12px 'JetBrains Mono';color:#ffd0d0;margin-top:6px}
+#hudTime{font:600 20px 'IBM Plex Mono',monospace;color:var(--red);letter-spacing:.06em;line-height:1}
+#estopOv{position:absolute;inset:0;display:none;align-items:center;justify-content:center;flex-direction:column;background:#2a000099;color:#ffb3b5;font:700 22px 'IBM Plex Mono',monospace;letter-spacing:.1em;text-align:center;pointer-events:none}
+#estopOv small{font:500 12px 'IBM Plex Mono';color:#ffd0d0;margin-top:6px}
 .cmds{display:flex;flex-wrap:wrap;gap:8px;margin-top:10px;align-items:center}
-.cmds input{flex:1;min-width:150px;min-height:44px;background:#070c0e;border:1px solid var(--line);color:var(--tx);border-radius:6px;padding:0 10px;font:13px 'JetBrains Mono',monospace}
-#mic.rec{background:#3a1010;border-color:var(--red);color:#ff9a9a}
-#log{margin-top:8px;font:12px 'JetBrains Mono',monospace;color:var(--dim);height:84px;overflow:auto;border-top:1px dashed var(--line);padding-top:6px}
+.cmds input{flex:1;min-width:150px;min-height:44px;background:#000;border:1px solid var(--line);color:var(--teal);border-radius:0;padding:0 10px;font:13px 'IBM Plex Mono',monospace}
+#mic.rec{background:#2a0b0b;border-color:var(--red);color:#ffb3b5}
+#log{margin-top:8px;font:12px 'IBM Plex Mono',monospace;color:var(--dim);height:84px;overflow:auto;border-top:1px solid var(--line);padding-top:6px;background:#000;padding-left:6px}
 #log div b{color:var(--teal);font-weight:500}
-.col{display:flex;flex-direction:column;gap:12px}
-canvas.g{width:100%;height:auto;display:block;background:#080d0f;border-radius:4px}
+.col{display:flex;flex-direction:column;gap:10px}
+canvas.g{width:100%;height:auto;display:block;background:#000;border:1px solid var(--line)}
 .score{display:grid;grid-template-columns:1fr 1fr;gap:10px}
-.big{font:700 40px/1 'JetBrains Mono',monospace;color:var(--teal)}
+.big{font:600 44px/1 'IBM Plex Mono',monospace;color:var(--teal);background:#000;border:1px solid var(--line);padding:6px 8px;letter-spacing:.04em}
 .big.h{color:var(--amber)}
-.lbl{font:500 11px 'JetBrains Mono',monospace;color:var(--dim)}
-.bar{height:8px;background:#0a1114;border-radius:4px;overflow:hidden;margin-top:6px}
+.lbl{font:700 11px 'Archivo Narrow',sans-serif;letter-spacing:.1em;color:var(--dim);margin-top:4px;text-transform:uppercase}
+#verdict{text-transform:none;letter-spacing:.02em;font-weight:500;font-size:12px}
+.bar{height:8px;background:#000;border:1px solid var(--line);margin-top:6px}
 .bar i{display:block;height:100%;background:var(--teal);transition:width .3s}
 .bar.h i{background:var(--amber)}
-.row{display:flex;gap:10px;align-items:center;justify-content:space-between;font:12px 'JetBrains Mono',monospace;margin:4px 0;color:var(--dim)}
+.row{display:flex;gap:10px;align-items:center;justify-content:space-between;font:12px 'IBM Plex Mono',monospace;margin:4px 0;color:var(--dim)}
 .row b{color:var(--tx);font-weight:500}
 input[type=range]{width:130px;accent-color:var(--teal)}
-.tr{display:grid;grid-template-columns:auto 1fr auto;gap:2px 10px;font:12px 'JetBrains Mono',monospace}
+.tr{display:grid;grid-template-columns:auto 1fr auto;gap:2px 10px;font:12px 'IBM Plex Mono',monospace}
 .ok{color:var(--teal)}.warn{color:var(--amber)}
-.legend{display:flex;gap:12px;font:11px 'JetBrains Mono',monospace;color:var(--dim);margin-top:4px;flex-wrap:wrap}
+.legend{display:flex;gap:12px;font:11px 'IBM Plex Mono',monospace;color:var(--dim);margin-top:4px;flex-wrap:wrap}
 .legend span::before{content:"";display:inline-block;width:10px;height:3px;margin-right:5px;vertical-align:middle;background:currentColor}
+footer{border-top:1px solid var(--line);margin-top:6px;padding:10px 14px;display:flex;gap:16px;font:11px 'IBM Plex Mono',monospace;color:var(--dim)}
+footer a{color:var(--dim)}
 @media(max-width:900px){main{grid-template-columns:1fr;padding:8px}}
 @media(max-width:480px){.big{font-size:32px}header{padding:8px}}
 </style>
 </head>
 <body>
 <header>
-  <div class="logo">SCOPEHOLD // LAP TOWER</div>
+  <div class="logo">SCOPEHOLD LAP TOWER</div>
   <span class="chip">CAM <b>1080p 30</b></span>
   <span class="chip">ARM <b id="armState">FOLLOW</b></span>
   <span class="chip">MOCK ARM</span>
@@ -90,7 +98,7 @@ input[type=range]{width:130px;accent-color:var(--teal)}
 <main>
   <section class="col">
     <div class="card">
-      <h3><span>Laparoscope view (box trainer)</span><span class="mono" id="hudTime">REC 00:00</span></h3>
+      <h3><span>Laparoscope view (box trainer)</span><span class="mono" id="hudTime">REC 00:00:00:00</span></h3>
       <div class="screen">
         <canvas id="view" width="800" height="520"></canvas>
         <div id="estopOv">E-STOP LATCHED<small>Arm power removed. Press RESET to resume.</small></div>
@@ -139,6 +147,7 @@ input[type=range]{width:130px;accent-color:var(--teal)}
     </div>
   </section>
 </main>
+<footer><span>Scope Holder Tower, prototype</span><a href="#">Terms</a><a href="#">Privacy</a></footer>
 <script>
 (()=>{
 const $=s=>document.querySelector(s);
@@ -147,11 +156,10 @@ const V=$('#view'),vc=V.getContext('2d'),VW=800,VH=520,CX=400,CY=260,R=258;
 let seed=7;const rnd=()=>{seed=(seed*16807)%2147483647;return seed/2147483647};
 const WW=1800,WH=1200,world=document.createElement('canvas');world.width=WW;world.height=WH;
 (function(){const c=world.getContext('2d');
- let g=c.createRadialGradient(900,600,100,900,600,1100);g.addColorStop(0,'#d98a8c');g.addColorStop(.6,'#bd6469');g.addColorStop(1,'#7e3640');
- c.fillStyle=g;c.fillRect(0,0,WW,WH);
+ c.fillStyle='#bd6469';c.fillRect(0,0,WW,WH);
  for(let i=0;i<520;i++){const x=rnd()*WW,y=rnd()*WH,r=20+rnd()*90,k=rnd();
   const col=k<.35?'233,170,150':k<.6?'236,205,150':k<.85?'160,60,70':'250,200,200';
-  const gg=c.createRadialGradient(x,y,0,x,y,r);gg.addColorStop(0,`rgba(${col},.22)`);gg.addColorStop(1,`rgba(${col},0)`);c.fillStyle=gg;c.beginPath();c.arc(x,y,r,0,7);c.fill();}
+  c.fillStyle=`rgba(${col},.10)`;c.beginPath();c.arc(x,y,r,0,7);c.fill();c.fillStyle=`rgba(${col},.08)`;c.beginPath();c.arc(x,y,r*.55,0,7);c.fill();}
  c.lineCap='round';
  for(let i=0;i<22;i++){let x=rnd()*WW,y=rnd()*WH,a=rnd()*6.28,w=2+rnd()*7;c.strokeStyle='rgba(110,25,40,.5)';c.lineWidth=w;c.beginPath();c.moveTo(x,y);
   for(let j=0;j<14;j++){a+=(rnd()-.5)*.7;x+=Math.cos(a)*55;y+=Math.sin(a)*55;c.lineTo(x,y);}c.stroke();
@@ -262,46 +270,43 @@ function drawView(){
  S.tips.forEach((p,i)=>{
   const ox=i?p.tx+560:p.tx-560,oy=p.ty+720,ang=Math.atan2(p.ty-oy,p.tx-ox),len=Math.hypot(p.tx-ox,p.ty-oy);
   vc.save();vc.translate(ox,oy);vc.rotate(ang);
-  const g=vc.createLinearGradient(0,-12,0,12);g.addColorStop(0,'#e8eef0');g.addColorStop(.45,'#8f9ca1');g.addColorStop(1,'#3b464a');
-  vc.fillStyle='rgba(60,10,20,.35)';vc.fillRect(0,-2,len,22);
-  vc.fillStyle=g;vc.beginPath();vc.moveTo(0,-15);vc.lineTo(len-40,-6);vc.lineTo(len-40,6);vc.lineTo(0,15);vc.fill();
+    vc.fillStyle='rgba(60,10,20,.35)';vc.fillRect(0,-2,len,22);
+  vc.fillStyle='#8f9ca1';vc.beginPath();vc.moveTo(0,-15);vc.lineTo(len-40,-6);vc.lineTo(len-40,6);vc.lineTo(0,15);vc.fill();
   const open=10+p.g*10;vc.strokeStyle='#cfd8db';vc.lineWidth=5;vc.lineCap='round';
   vc.beginPath();vc.moveTo(len-40,-3);vc.lineTo(len+16,-open*.5);vc.moveTo(len-40,3);vc.lineTo(len+16,open*.5);vc.stroke();
   vc.restore();
  });
  vc.restore();
- const vg=vc.createRadialGradient(CX,CY,R*.55,CX,CY,R);vg.addColorStop(0,'rgba(0,0,0,0)');vg.addColorStop(1,'rgba(0,0,0,.75)');
- vc.fillStyle=vg;vc.beginPath();vc.arc(CX,CY,R,0,7);vc.fill();
- vc.strokeStyle='#000';vc.lineWidth=6;vc.beginPath();vc.arc(CX,CY,R,0,7);vc.stroke();
+  vc.strokeStyle='#000';vc.lineWidth=6;vc.beginPath();vc.arc(CX,CY,R,0,7);vc.stroke();
  // overlays
  const sx=x=>(x-S.cx)*S.z+CX,sy=y=>(y-S.cy)*S.z+CY;
  const dzx=S.dz*1.25,dzy=S.dz*.85;
- vc.setLineDash([7,5]);vc.strokeStyle=S.moving?'rgba(255,178,62,.95)':'rgba(39,224,194,.7)';vc.lineWidth=1.5;
+ vc.setLineDash([7,5]);vc.strokeStyle=S.moving?'rgba(240,180,41,.95)':'rgba(134,217,154,.7)';vc.lineWidth=1.5;
  vc.strokeRect(CX-dzx,CY-dzy,dzx*2,dzy*2);vc.setLineDash([]);
- vc.font='500 11px JetBrains Mono,monospace';vc.fillStyle=S.moving?'#ffb23e':'#27e0c2';vc.fillText('DEAD ZONE',CX-dzx+6,CY-dzy+14);
+ vc.font='500 11px IBM Plex Mono,monospace';vc.fillStyle=S.moving?'#f0b429':'#86d99a';vc.fillText('DEAD ZONE',CX-dzx+6,CY-dzy+14);
  vc.strokeStyle='rgba(255,255,255,.35)';vc.beginPath();vc.moveTo(CX-10,CY);vc.lineTo(CX+10,CY);vc.moveTo(CX,CY-10);vc.lineTo(CX,CY+10);vc.stroke();
  S.tips.forEach((p,i)=>{const x=sx(p.x),y=sy(p.y);
-  vc.strokeStyle='#27e0c2';vc.lineWidth=2;const b=26;
+  vc.strokeStyle='#86d99a';vc.lineWidth=2;const b=26;
   [[-1,-1],[1,-1],[1,1],[-1,1]].forEach(([a,c])=>{vc.beginPath();vc.moveTo(x+a*b,y+c*(b-10));vc.lineTo(x+a*b,y+c*b);vc.lineTo(x+a*(b-10),y+c*b);vc.stroke()});
-  vc.fillStyle='#27e0c2';vc.fillText(`T${i+1} ${p.c.toFixed(2)}`,x+b+4,y-b+10);});
+  vc.fillStyle='#86d99a';vc.fillText(`T${i+1} ${p.c.toFixed(2)}`,x+b+4,y-b+10);});
  const mx=sx(S.mid.x),my=sy(S.mid.y),tx=sx(S.sm.x),ty=sy(S.sm.y);
- vc.strokeStyle='rgba(39,224,194,.5)';vc.setLineDash([3,4]);vc.beginPath();vc.moveTo(sx(S.tips[0].x),sy(S.tips[0].y));vc.lineTo(sx(S.tips[1].x),sy(S.tips[1].y));vc.stroke();vc.setLineDash([]);
+ vc.strokeStyle='rgba(134,217,154,.5)';vc.setLineDash([3,4]);vc.beginPath();vc.moveTo(sx(S.tips[0].x),sy(S.tips[0].y));vc.lineTo(sx(S.tips[1].x),sy(S.tips[1].y));vc.stroke();vc.setLineDash([]);
  vc.fillStyle='#fff';vc.beginPath();vc.arc(mx,my,3,0,7);vc.fill();
- vc.strokeStyle='#ffb23e';vc.lineWidth=2;vc.beginPath();vc.arc(tx,ty,11,0,7);vc.moveTo(tx-17,ty);vc.lineTo(tx+17,ty);vc.moveTo(tx,ty-17);vc.lineTo(tx,ty+17);vc.stroke();
- vc.fillStyle='#ffb23e';vc.fillText('TARGET (smoothed)',tx+16,ty+24);
- if(S.moving||Math.hypot(S.vx,S.vy)>5){vc.strokeStyle='rgba(255,178,62,.8)';vc.beginPath();vc.moveTo(CX,CY);vc.lineTo(CX+S.vx*.35*S.z,CY+S.vy*.35*S.z);vc.stroke();}
+ vc.strokeStyle='#f0b429';vc.lineWidth=2;vc.beginPath();vc.arc(tx,ty,11,0,7);vc.moveTo(tx-17,ty);vc.lineTo(tx+17,ty);vc.moveTo(tx,ty-17);vc.lineTo(tx,ty+17);vc.stroke();
+ vc.fillStyle='#f0b429';vc.fillText('TARGET (smoothed)',tx+16,ty+24);
+ if(S.moving||Math.hypot(S.vx,S.vy)>5){vc.strokeStyle='rgba(240,180,41,.8)';vc.beginPath();vc.moveTo(CX,CY);vc.lineTo(CX+S.vx*.35*S.z,CY+S.vy*.35*S.z);vc.stroke();}
  vc.fillStyle='rgba(213,228,230,.85)';
  vc.fillText(`ZOOM ${S.z.toFixed(2)}x`,14,22);vc.fillText(`MODE ${S.estop?'E-STOP':S.mode.toUpperCase()}`,14,38);
  vc.fillText('RAW MIDPOINT',14,VH-30);vc.fillStyle='#fff';vc.fillRect(100,VH-38,6,6);
- vc.fillStyle=S.estop?'#ff4a4a':'#27e0c2';vc.fillText(S.estop?'ARM OFF':'ARM ON',VW-80,22);
+ vc.fillStyle=S.estop?'#e5484d':'#86d99a';vc.fillText(S.estop?'ARM OFF':'ARM ON',VW-80,22);
 }
 function plotJerk(){
  const c=$('#jerk'),g=c.getContext('2d'),W=c.width,H=c.height;g.clearRect(0,0,W,H);
  const mx=Math.max(2,...S.jR,...S.jH)*1.1;
- g.strokeStyle='#14222a';g.lineWidth=1;g.font='10px JetBrains Mono';g.fillStyle='#5d7479';
+ g.strokeStyle='#14222a';g.lineWidth=1;g.font='10px IBM Plex Mono';g.fillStyle='#5d7479';
  for(let i=0;i<=4;i++){const y=H-i*H/4;g.beginPath();g.moveTo(0,y);g.lineTo(W,y);g.stroke();g.fillText((mx*i/4).toFixed(1),3,y-3)}
  const line=(a,col)=>{g.strokeStyle=col;g.lineWidth=1.6;g.beginPath();a.forEach((v,i)=>{const x=i/300*W,y=H-v/mx*H;i?g.lineTo(x,y):g.moveTo(x,y)});g.stroke()};
- line(S.jH,'#ffb23e');line(S.jR,'#27e0c2');
+ line(S.jH,'#f0b429');line(S.jR,'#86d99a');
 }
 function plotRCM(){
  const c=$('#rcm'),g=c.getContext('2d'),W=c.width,H=c.height;g.clearRect(0,0,W,H);
@@ -310,25 +315,25 @@ function plotRCM(){
  // body
  g.fillStyle='#1a1214';g.fillRect(0,P.y,W,H-P.y);
  g.fillStyle='#3a2226';g.fillRect(0,P.y-16,W,32);g.strokeStyle='#8a525a';g.beginPath();g.moveTo(0,P.y-16);g.lineTo(W,P.y-16);g.moveTo(0,P.y+16);g.lineTo(W,P.y+16);g.stroke();
- g.fillStyle='#5d7479';g.font='10px JetBrains Mono';g.fillText('ABDOMINAL WALL (box trainer lid)',8,P.y+30);g.fillText('CAVITY',8,H-8);g.fillText('EXTERNAL / SO-101',8,14);
+ g.fillStyle='#5d7479';g.font='10px IBM Plex Mono';g.fillText('ABDOMINAL WALL (box trainer lid)',8,P.y+30);g.fillText('CAVITY',8,H-8);g.fillText('EXTERNAL / SO-101',8,14);
  // tissue target
  g.fillStyle='rgba(217,138,140,.25)';g.beginPath();g.ellipse(W/2-40,H-24,170,30,0,0,7);g.fill();
  const dx=Math.sin(th),dy=Math.cos(th),L=ins+60,tip={x:P.x+dx*L,y:P.y+dy*L},hd={x:P.x-dx*140,y:P.y-dy*140};
  // fov cone
- g.fillStyle='rgba(39,224,194,.12)';g.beginPath();g.moveTo(tip.x,tip.y);
+ g.fillStyle='rgba(134,217,154,.12)';g.beginPath();g.moveTo(tip.x,tip.y);
  const fa=.42;g.lineTo(tip.x+Math.sin(th+fa)*110,tip.y+Math.cos(th+fa)*110);g.lineTo(tip.x+Math.sin(th-fa)*110,tip.y+Math.cos(th-fa)*110);g.fill();
  // naive arm ghost
- const nx=tip.x;g.strokeStyle='rgba(255,74,74,.7)';g.setLineDash([4,4]);g.beginPath();g.moveTo(nx,10);g.lineTo(nx,tip.y);g.stroke();g.setLineDash([]);
- g.fillStyle='#ff4a4a';g.beginPath();g.arc(nx,P.y,4,0,7);g.fill();
+ const nx=tip.x;g.strokeStyle='rgba(229,72,77,.7)';g.setLineDash([4,4]);g.beginPath();g.moveTo(nx,10);g.lineTo(nx,tip.y);g.stroke();g.setLineDash([]);
+ g.fillStyle='#e5484d';g.beginPath();g.arc(nx,P.y,4,0,7);g.fill();
  if(Math.abs(nx-P.x)>14){g.fillText('naive arm drags port '+(Math.abs(nx-P.x)*.4).toFixed(0)+' mm',Math.min(nx+8,W-170),P.y+46)}
  // scope
  g.strokeStyle='#cfd8db';g.lineWidth=7;g.lineCap='round';g.beginPath();g.moveTo(hd.x,hd.y);g.lineTo(tip.x,tip.y);g.stroke();
- g.strokeStyle='#27e0c2';g.lineWidth=2;g.beginPath();g.moveTo(hd.x,hd.y);g.lineTo(tip.x,tip.y);g.stroke();
+ g.strokeStyle='#86d99a';g.lineWidth=2;g.beginPath();g.moveTo(hd.x,hd.y);g.lineTo(tip.x,tip.y);g.stroke();
  // arm links
  g.strokeStyle='#58a6ff';g.lineWidth=6;g.beginPath();g.moveTo(W-30,H*0.02+20);g.lineTo(W-120,40);g.lineTo(hd.x,hd.y);g.stroke();
  g.fillStyle='#58a6ff';[[W-30,22],[W-120,40],[hd.x,hd.y]].forEach(p=>{g.beginPath();g.arc(p[0],p[1],6,0,7);g.fill()});
  // trocar
- g.strokeStyle='#ffb23e';g.lineWidth=3;g.beginPath();g.arc(P.x,P.y,10,0,7);g.stroke();g.fillStyle='#ffb23e';g.fillText('TROCAR (fixed pivot)',P.x-150,P.y-22);
+ g.strokeStyle='#f0b429';g.lineWidth=3;g.beginPath();g.arc(P.x,P.y,10,0,7);g.stroke();g.fillStyle='#f0b429';g.fillText('TROCAR (fixed pivot)',P.x-150,P.y-22);
  // instrument dots in cavity
  S.tips.forEach(p=>{const u=(p.x-S.cx)/500;g.fillStyle='#fff';g.beginPath();g.arc(tip.x+Math.sin(th)*50+u*50+0,tip.y+Math.cos(th)*80+8,3,0,7);g.fill()});
  $('#pivInfo').textContent=`${(th*57.3).toFixed(1)} deg / ${ins.toFixed(0)} mm`;
@@ -354,7 +359,7 @@ function frame(now){
  while(acc>=DT){step();acc-=DT}
  drawView();uiT+=1;
  if(uiT%4===0){plotJerk();plotRCM();updateScores();
-  const s=Math.floor(S.t);$('#hudTime').textContent='REC '+String(Math.floor(s/60)).padStart(2,'0')+':'+String(s%60).padStart(2,'0');}
+  const s=Math.floor(S.t);$('#hudTime').textContent='REC 00:'+String(Math.floor(s/60)).padStart(2,'0')+':'+String(s%60).padStart(2,'0')+':'+String(Math.floor((S.t%1)*30)).padStart(2,'0');}
  requestAnimationFrame(frame);
 }
 window.__S=S;

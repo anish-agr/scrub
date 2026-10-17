@@ -1,3 +1,4 @@
+<!-- STYLE: Surgical instrument catalog + preference card (Aesculap / Sklar catalog pages): white catalog stock, line-drawn instruments, item codes, mm dimensions, dense spec tables, boxed form fields, barcode, peel-pouch label with lot number. Fonts: IBM Plex Sans / Plex Mono / Caveat. -->
 <!-- FEATURES:
 - Pick or upload a surgeon preference card; Perceptron OCR (mock) extracts procedure, surgeon, instruments with quantities, glove size, special requests
 - Backboard memory of each surgeon's layout preferences (e.g. needle driver on the right), applied to the plan, editable, saved from a finished layout
@@ -17,107 +18,125 @@
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link href="https://fonts.googleapis.com/css2?family=Caveat:wght@500&family=IBM+Plex+Mono:wght@400;500&family=IBM+Plex+Sans:wght@400;500;600&display=swap" rel="stylesheet">
 <style>
-:root{--bg:#f2f6f7;--panel:#fff;--ink:#0e2a33;--mut:#5d7580;--line:#d8e3e7;--teal:#0e7c86;--teal2:#e3f3f4;--ok:#1b9a5f;--okbg:#e4f6ec;--bad:#d23f3f;--badbg:#fdeaea;--warn:#c97b06;--warnbg:#fff3dc}
+:root{--bg:#fff;--panel:#fff;--ink:#111418;--mut:#555e66;--line:#c9cdd1;--teal:#12395c;--teal2:#eaeff4;--ok:#1b7a4b;--okbg:#e6f3ec;--bad:#c42b2b;--badbg:#fbeaea;--warn:#a86400;--warnbg:#fdf3df}
 *{box-sizing:border-box}
-body{margin:0;background:var(--bg);color:var(--ink);font:14px/1.45 "IBM Plex Sans",system-ui,sans-serif}
+body{margin:0;background:var(--bg);color:var(--ink);font:14px/1.45 "IBM Plex Sans",system-ui,sans-serif;font-variant-numeric:tabular-nums}
 button,select,input{font:inherit;color:inherit}
 button{min-height:44px;cursor:pointer}
 .mono{font-family:"IBM Plex Mono",monospace}
-header{background:#fff;border-bottom:1px solid var(--line);position:sticky;top:0;z-index:20}
+a{color:var(--ink)}
+header{background:#fff;border-bottom:2px solid var(--ink);position:sticky;top:0;z-index:20}
 .hrow{display:flex;gap:12px;align-items:center;padding:10px 16px;flex-wrap:wrap}
-.logo{display:flex;align-items:center;gap:10px;font-weight:600;font-size:16px}
-.logo i{width:30px;height:30px;border-radius:8px;background:var(--teal);display:grid;place-items:center;color:#fff;font-style:normal}
-.disc{font-size:12px;color:var(--warn);background:var(--warnbg);border:1px solid #f0d49a;padding:4px 10px;border-radius:99px}
+.logo{display:flex;align-items:center;gap:10px;font-weight:600;font-size:16px;letter-spacing:.02em}
+.logo i{border:1.5px solid var(--ink);padding:2px 6px;font:500 11px "IBM Plex Mono",monospace;font-style:normal;letter-spacing:.04em}
+.disc{font-size:12px;color:var(--warn);background:var(--warnbg);border:1px solid #d9b46a;padding:4px 10px}
 .sp{flex:1}
-#stop{background:var(--bad);color:#fff;border:0;border-radius:10px;padding:0 20px;font-weight:600;letter-spacing:.04em;min-width:110px}
-#stop.latched{background:#7a1111;outline:3px solid #f5b5b5}
+#stop{background:var(--bad);color:#fff;border:2px solid #7a1111;border-radius:2px;padding:0 20px;font-weight:600;letter-spacing:.08em;min-width:110px}
+#stop.latched{background:#7a1111;outline:3px solid #e9a3a3}
 #stopbar{display:none;background:var(--bad);color:#fff;padding:10px 16px;align-items:center;gap:12px}
 #stopbar.on{display:flex}
-#stopbar button{background:#fff;color:var(--bad);border:0;border-radius:8px;padding:0 14px;font-weight:600}
-.steps{display:flex;gap:8px;padding:0 16px 10px;overflow-x:auto}
-.st{display:flex;align-items:center;gap:8px;padding:6px 12px;border:1px solid var(--line);border-radius:99px;white-space:nowrap;color:var(--mut);background:#fff}
-.st b{width:20px;height:20px;border-radius:50%;background:var(--line);display:grid;place-items:center;font-size:11px;color:#fff}
-.st.cur{border-color:var(--teal);color:var(--teal);background:var(--teal2)}.st.cur b{background:var(--teal)}
+#stopbar button{background:#fff;color:var(--bad);border:0;border-radius:2px;padding:0 14px;font-weight:600}
+.steps{display:flex;gap:0;padding:0 16px 10px;overflow-x:auto}
+.st{display:flex;align-items:center;gap:8px;padding:6px 12px;border:1px solid var(--line);margin-right:-1px;white-space:nowrap;color:var(--mut);background:#fff}
+.st b{width:20px;height:20px;border-radius:2px;background:#9aa1a8;display:grid;place-items:center;font-size:11px;color:#fff}
+.st.cur{border-color:var(--ink);color:var(--ink);background:var(--teal2);position:relative}.st.cur b{background:var(--teal)}
 .st.done{color:var(--ok)}.st.done b{background:var(--ok)}
 main{display:grid;grid-template-columns:330px minmax(0,1fr) 340px;gap:14px;padding:14px 16px;max-width:1500px;margin:auto}
 @media(max-width:1180px){main{grid-template-columns:1fr 1fr}.center{grid-column:1/-1;order:-1}}
 @media(max-width:760px){main{grid-template-columns:1fr}}
-.card{background:var(--panel);border:1px solid var(--line);border-radius:12px;padding:14px;margin-bottom:14px}
-.card h2{margin:0 0 10px;font-size:12px;letter-spacing:.09em;text-transform:uppercase;color:var(--mut);display:flex;align-items:center;gap:8px}
-.card h2 .tag{margin-left:auto;text-transform:none;letter-spacing:0;font-weight:500;font-size:11px;background:var(--teal2);color:var(--teal);padding:2px 8px;border-radius:99px}
+.card{background:var(--panel);border:1px solid #7b838a;border-radius:0;padding:14px;margin-bottom:14px}
+.card h2{margin:-14px -14px 12px;padding:5px 14px;font-size:11px;letter-spacing:.1em;text-transform:uppercase;background:var(--ink);color:#fff;display:flex;align-items:center;gap:8px;font-weight:600}
+.card h2 .tag{margin-left:auto;text-transform:none;letter-spacing:0;font-weight:500;font-size:11px;border:1px solid #fff;color:#fff;padding:0 6px}
 .picks{display:flex;gap:8px;flex-wrap:wrap;margin-bottom:10px}
-.pick{flex:1;min-width:90px;border:1px solid var(--line);background:#fff;border-radius:10px;padding:6px 10px;text-align:left;font-size:12px}
-.pick.sel{border-color:var(--teal);background:var(--teal2)}
+.pick{flex:1;min-width:90px;border:1px solid #7b838a;background:#fff;border-radius:0;padding:6px 10px;text-align:left;font-size:12px}
+.pick.sel{border:2px solid var(--ink);background:var(--teal2)}
 .pick small{display:block;color:var(--mut)}
-.btn{border:1px solid var(--teal);background:var(--teal);color:#fff;border-radius:10px;padding:0 16px;font-weight:600}
+.btn{border:1px solid var(--teal);background:var(--teal);color:#fff;border-radius:2px;padding:0 16px;font-weight:600}
 .btn.ghost{background:#fff;color:var(--teal)}
 .btn:disabled{opacity:.45;cursor:not-allowed}
-.cardimg{position:relative;border:1px solid var(--line);border-radius:8px;overflow:hidden;background:#fbfaf4}
+.cardimg{position:relative;border:1px solid var(--ink);overflow:hidden;background:#fff}
 .cardimg svg{display:block;width:100%;height:auto}
-.scan{position:absolute;left:0;right:0;height:3px;background:linear-gradient(90deg,transparent,var(--teal),transparent);box-shadow:0 0 14px var(--teal);top:0;opacity:0}
+.scan{position:absolute;left:0;right:0;height:2px;background:var(--teal);top:0;opacity:0}
 .scan.go{animation:scan 1.8s linear 1;opacity:1}
 @keyframes scan{from{top:0}to{top:100%}}
-.obox{fill:rgba(14,124,134,.12);stroke:var(--teal);stroke-width:1.2;opacity:0;transition:opacity .3s}
+.obox{fill:rgba(18,57,92,.1);stroke:var(--teal);stroke-width:1.2;opacity:0;transition:opacity .3s}
 .obox.on{opacity:1}
-.fields{display:grid;gap:6px;margin-top:10px}
-.fld{display:flex;justify-content:space-between;gap:8px;border-bottom:1px dashed var(--line);padding:4px 0;font-size:13px;opacity:0;transform:translateY(4px);transition:.3s}
-.fld.on{opacity:1;transform:none}
+.fields{display:grid;gap:0;margin-top:10px;border-top:1px solid var(--ink)}
+.fld{display:flex;justify-content:space-between;gap:8px;border-bottom:1px solid var(--line);padding:4px 0;font-size:13px;opacity:0;transition:opacity .3s}
+.fld.on{opacity:1}
 .fld span:first-child{color:var(--mut);font-size:11px;text-transform:uppercase;letter-spacing:.06em;padding-top:2px;min-width:70px}
 .fld em{font-style:normal;font-family:"IBM Plex Mono";font-size:10px;color:var(--teal);margin-left:6px}
-.mem{display:flex;gap:8px;align-items:flex-start;padding:8px;border:1px solid var(--line);border-radius:8px;margin-bottom:6px;font-size:13px}
-.mem.app{border-color:var(--teal);background:var(--teal2)}
+.mem{display:flex;gap:8px;align-items:flex-start;padding:8px;border:1px solid var(--line);margin-bottom:6px;font-size:13px}
+.mem.app{border:1px solid var(--ink);background:var(--teal2)}
 .mem button{min-height:44px;min-width:44px;border:0;background:none;color:var(--mut);font-size:16px}
 .mem .ap{font-size:10px;color:var(--teal);font-weight:600;text-transform:uppercase}
 .memform{display:grid;grid-template-columns:1fr 1fr auto;gap:6px;margin-top:8px}
-.memform select{min-height:44px;border:1px solid var(--line);border-radius:8px;padding:0 6px;background:#fff;min-width:0}
+.memform select{min-height:44px;border:1px solid #7b838a;border-radius:0;padding:0 6px;background:#fff;min-width:0}
 .recall{font-size:11px;color:var(--mut);margin-bottom:8px}
 .bar{display:flex;gap:10px;align-items:center;flex-wrap:wrap;margin-bottom:10px}
 .bar label{font-size:12px;color:var(--mut);display:flex;align-items:center;gap:6px}
 .bar input[type=range]{width:90px}
-.stage{background:linear-gradient(#f9fcfc,#eef5f6);border:1px solid var(--line);border-radius:12px;padding:6px}
+.stage{background:#fff;border:1px solid var(--ink);padding:6px}
 .stage svg{display:block;width:100%;height:auto}
-.alert{display:none;border:1px solid #f0b3b3;background:var(--badbg);color:#7a1717;border-radius:10px;padding:10px 12px;margin-bottom:10px;gap:10px;align-items:center;flex-wrap:wrap}
+.alert{display:none;border:1px solid #d99;background:var(--badbg);color:#7a1717;padding:10px 12px;margin-bottom:10px;gap:10px;align-items:center;flex-wrap:wrap}
 .alert.on{display:flex}.alert b{flex:1;min-width:200px}
-.alert button{background:#fff;border:1px solid #e3a0a0;border-radius:8px;padding:0 12px;color:#7a1717}
+.alert button{background:#fff;border:1px solid #c88;border-radius:2px;padding:0 12px;color:#7a1717}
 .vrow{display:grid;grid-template-columns:34px 1fr 1fr 28px;gap:6px;align-items:center;padding:7px 0;border-bottom:1px solid var(--line);font-size:12px}
 .vrow:last-child{border:0}
 .vrow .sl{font-family:"IBM Plex Mono";font-weight:500;color:var(--teal)}
 .vrow small{display:block;color:var(--mut);font-size:10px;text-transform:uppercase}
-.chk{width:24px;height:24px;border-radius:50%;display:grid;place-items:center;color:#fff;font-size:13px;background:var(--line)}
+.cd{display:block;font:500 10px "IBM Plex Mono",monospace;color:var(--mut)}
+.chk{width:24px;height:24px;border-radius:2px;display:grid;place-items:center;color:#fff;font-size:13px;background:#9aa1a8}
 .chk.ok{background:var(--ok)}.chk.bad{background:var(--bad)}.chk.scan{background:var(--warn);animation:pulse .8s infinite alternate}
 @keyframes pulse{to{opacity:.4}}
-.phone{background:#eef2f4;border-radius:12px;padding:10px;min-height:120px;max-height:260px;overflow:auto;display:flex;flex-direction:column;gap:6px}
-.bub{max-width:88%;padding:7px 10px;border-radius:14px;font-size:12.5px}
-.bub.out{align-self:flex-end;background:#2f7cf6;color:#fff;border-bottom-right-radius:4px}
-.bub.in{align-self:flex-start;background:#fff;border-bottom-left-radius:4px}
+.tbl{width:100%;border-collapse:collapse;font-size:11.5px}
+.tbl th,.tbl td{border:1px solid var(--line);padding:3px 5px;text-align:left}
+.tbl th{font-size:9.5px;text-transform:uppercase;letter-spacing:.06em;color:var(--mut);background:#f3f5f6}
+.tbl td.n{font-family:"IBM Plex Mono",monospace;text-align:right}
+.tbl td.c{font-family:"IBM Plex Mono",monospace;font-weight:500}
+.phone{background:#f3f5f6;border:1px solid var(--line);padding:10px;min-height:120px;max-height:260px;overflow:auto;display:flex;flex-direction:column;gap:6px}
+.bub{max-width:88%;padding:7px 10px;border-radius:2px;font-size:12.5px}
+.bub.out{align-self:flex-end;background:var(--teal);color:#fff}
+.bub.in{align-self:flex-start;background:#fff;border:1px solid var(--line)}
 .bub small{display:block;opacity:.7;font-size:10px}
 .empty{color:var(--mut);font-size:12px;text-align:center;margin:auto}
-#log{font:11px/1.6 "IBM Plex Mono",monospace;max-height:190px;overflow:auto;color:#37525c}
-#log div{border-bottom:1px solid #edf2f4}
+#log{font:11px/1.6 "IBM Plex Mono",monospace;max-height:190px;overflow:auto;color:#37424a}
+#log div{border-bottom:1px solid #e6e9eb}
 #log .e{color:var(--bad)}#log .g{color:var(--ok)}#log .w{color:var(--warn)}
-.paperwrap{max-width:1500px;margin:0 auto;padding:0 16px 40px}
-.locked{border:2px dashed var(--line);border-radius:12px;padding:30px;text-align:center;color:var(--mut)}
-.paper{background:#fff;color:#111;max-width:820px;margin:0 auto;padding:36px 40px;box-shadow:0 8px 30px rgba(14,42,51,.18),0 0 0 1px #d9d9d9;font-family:"IBM Plex Sans";position:relative}
-.paper h3{margin:0;font-size:20px;letter-spacing:.02em}
+.paperwrap{max-width:1500px;margin:0 auto;padding:0 16px 20px}
+.locked{border:1px dashed #7b838a;padding:30px;text-align:center;color:var(--mut)}
+.paper{background:#fff;color:#111;max-width:820px;margin:0 auto;padding:36px 40px;border:1px solid #111;font-family:"IBM Plex Sans";position:relative}
+.paper h3{margin:0;font-size:20px;letter-spacing:.04em}
+.paper .frm{font:500 10px "IBM Plex Mono",monospace;color:#555;letter-spacing:.06em;text-transform:uppercase;margin-bottom:2px}
 .paper .ph{display:flex;justify-content:space-between;border-bottom:2px solid #111;padding-bottom:10px;margin-bottom:14px;gap:12px;flex-wrap:wrap}
-.paper .meta{display:grid;grid-template-columns:repeat(auto-fit,minmax(170px,1fr));gap:8px 18px;margin-bottom:14px;font-size:13px}
-.paper .meta span{display:block;font-size:10px;color:#666;text-transform:uppercase;letter-spacing:.08em}
+.paper .meta{display:grid;grid-template-columns:repeat(auto-fit,minmax(170px,1fr));gap:8px;margin-bottom:14px;font-size:13px}
+.paper .meta div{border:1px solid #111;padding:3px 7px;min-height:44px}
+.paper .meta span{display:block;font-size:9.5px;color:#555;text-transform:uppercase;letter-spacing:.08em}
 .paper table{width:100%;border-collapse:collapse;font-size:12.5px;margin-top:10px}
-.paper th,.paper td{border-bottom:1px solid #ccc;text-align:left;padding:5px 6px}
-.paper th{font-size:10px;text-transform:uppercase;letter-spacing:.08em;color:#555}
+.paper th,.paper td{border:1px solid #bbb;text-align:left;padding:4px 6px}
+.paper th{font-size:10px;text-transform:uppercase;letter-spacing:.08em;color:#555;background:#f3f5f6}
+.paper td.m{font-family:"IBM Plex Mono",monospace;font-size:11.5px}
 .paper .sig{display:flex;gap:30px;margin-top:30px;flex-wrap:wrap}
 .paper .sig div{flex:1;min-width:180px;border-top:1px solid #111;padding-top:4px;font-size:11px;color:#555}
 .paper .foot{margin-top:18px;font-size:10px;color:#777;text-align:center}
-.paper .stamp{position:absolute;right:36px;top:70px;border:3px solid var(--ok);color:var(--ok);padding:2px 10px;font-weight:600;transform:rotate(-8deg);border-radius:6px;font-size:13px;letter-spacing:.1em}
-.paper svg{width:100%;height:auto;border:1px solid #bbb;margin-top:6px}
-@media(max-width:600px){.paper{padding:18px 14px}.paper .stamp{position:static;display:inline-block;margin-bottom:8px}.paper table{font-size:11px}.paper th,.paper td{padding:4px 3px}.hrow{padding:8px 12px}}
+.paper .stamp{position:absolute;right:36px;top:70px;border:2px solid var(--ok);color:var(--ok);padding:2px 10px;font-weight:600;transform:rotate(-6deg);border-radius:2px;font-size:13px;letter-spacing:.1em;background:#fff}
+.paper svg.tray{width:100%;height:auto;border:1px solid #111;margin-top:6px}
+.pouch{display:flex;gap:0;border:1px solid #111;margin-top:16px;max-width:420px;font-size:11px}
+.pouch .pl{flex:1;padding:8px 10px;border-right:1px dashed #111}
+.pouch .pt{font:600 9px "IBM Plex Mono",monospace;letter-spacing:.1em;color:#555}
+.pouch .ind{width:112px;padding:8px;text-align:center;font-size:9px;display:flex;flex-direction:column;gap:5px;align-items:center;justify-content:center}
+.pouch .patch{width:44px;height:22px;background:#cdbf6a;border:1px solid #111}
+.pouch .bc svg{display:block;margin-top:5px;width:100%;max-width:210px;height:30px}
 .legend{font-size:11px;color:var(--mut);margin-top:6px}
+footer{max-width:1500px;margin:0 auto;padding:12px 16px 24px;border-top:1px solid var(--line);font-size:12px;color:var(--mut);display:flex;gap:16px;flex-wrap:wrap}
+footer a{color:var(--mut)}
+@media(max-width:600px){.paper{padding:18px 14px}.paper .stamp{position:static;display:inline-block;margin-bottom:8px}.paper table{font-size:11px}.paper th,.paper td{padding:3px 3px}.hrow{padding:8px 12px}}
 </style>
 </head>
 <body>
 <header>
   <div class="hrow">
-    <div class="logo"><i>&#10010;</i>Tray Setup Planner</div>
+    <div class="logo"><i>OR-114</i>Tray Setup Planner</div>
     <span class="disc">Training and research prototype. Props only, not for clinical use.</span>
     <span class="sp"></span>
     <span class="mono" style="font-size:12px;color:var(--mut)" id="clock"></span>
@@ -174,6 +193,10 @@ main{display:grid;grid-template-columns:330px minmax(0,1fr) 340px;gap:14px;paddi
       <div id="ver"><div class="empty">Load a card to see the plan.</div></div>
     </div>
     <div class="card">
+      <h2>Item specification <span class="tag">catalog</span></h2>
+      <div id="spec"><div class="empty">Load a card to see item codes.</div></div>
+    </div>
+    <div class="card">
       <h2>Supply line <span class="tag">Photon</span></h2>
       <div class="phone" id="phone"><div class="empty">No messages. A text goes to Supply if an item is missing.</div></div>
     </div>
@@ -190,15 +213,17 @@ main{display:grid;grid-template-columns:330px minmax(0,1fr) 340px;gap:14px;paddi
   </div>
 </div>
 
+<footer><span>Tray Setup Planner, form OR-114 rev. 4</span><a href="#">Terms</a><a href="#">Privacy</a></footer>
+
 <script>
 const CAT={
- driver:{n:'Needle driver',s:'Needle drvr',t:'driver'},mayo:{n:'Mayo scissors',s:'Mayo scis.',t:'scissors'},
- metz:{n:'Metzenbaum scissors',s:'Metzenbaum',t:'scissors'},hemo:{n:'Hemostat clamp',s:'Hemostat',t:'clamp'},
- kelly:{n:'Kelly clamp',s:'Kelly',t:'clamp'},allis:{n:'Allis clamp',s:'Allis',t:'clamp'},
- debakey:{n:'DeBakey forceps',s:'DeBakey',t:'forceps'},adson:{n:'Adson forceps',s:'Adson',t:'forceps'},
- sc3:{n:'Scalpel handle #3',s:'Scalpel #3',t:'scalpel'},sc10:{n:'Scalpel handle #10',s:'Scalpel #10',t:'scalpel'},
- sc15:{n:'Scalpel handle #15',s:'Scalpel #15',t:'scalpel'},army:{n:'Army-Navy retractor',s:'Army-Navy',t:'retractor'},
- senn:{n:'Senn retractor',s:'Senn',t:'retractor'},gauze:{n:'Gauze sponges',s:'Gauze',t:'sponge'}};
+ driver:{n:'Needle driver',s:'Needle drvr',t:'driver',c:'BH110R',mm:'150'},mayo:{n:'Mayo scissors',s:'Mayo scis.',t:'scissors',c:'BC600R',mm:'170'},
+ metz:{n:'Metzenbaum scissors',s:'Metzenbaum',t:'scissors',c:'BC606R',mm:'180'},hemo:{n:'Hemostat clamp',s:'Hemostat',t:'clamp',c:'BH017R',mm:'125'},
+ kelly:{n:'Kelly clamp',s:'Kelly',t:'clamp',c:'BH018R',mm:'140'},allis:{n:'Allis clamp',s:'Allis',t:'clamp',c:'BT106R',mm:'150'},
+ debakey:{n:'DeBakey forceps',s:'DeBakey',t:'forceps',c:'BD570R',mm:'200'},adson:{n:'Adson forceps',s:'Adson',t:'forceps',c:'BD010R',mm:'120'},
+ sc3:{n:'Scalpel handle #3',s:'Scalpel #3',t:'scalpel',c:'BB073R',mm:'125'},sc10:{n:'Scalpel handle #10',s:'Scalpel #10',t:'scalpel',c:'BB074R',mm:'125'},
+ sc15:{n:'Scalpel handle #15',s:'Scalpel #15',t:'scalpel',c:'BB075R',mm:'125'},army:{n:'Army-Navy retractor',s:'Army-Navy',t:'retractor',c:'OK150R',mm:'215'},
+ senn:{n:'Senn retractor',s:'Senn',t:'retractor',c:'OK125R',mm:'165'},gauze:{n:'Gauze sponges',s:'Gauze',t:'sponge',c:'GZ4410',mm:'100x100'}};
 const BIN=['driver','mayo','metz','hemo','kelly','allis','debakey','adson','sc3','sc10','sc15','army','senn','gauze'];
 const CARDS=[
  {id:'patel',surgeon:'Dr. Anita Patel',procedure:'Lap cholecystectomy',glove:'6.5 latex free',items:[['driver',1],['mayo',1],['hemo',2],['debakey',1],['sc3',1],['gauze',10],['army',2]],special:'Warm saline basin. Light handle covers.',trap:null},
@@ -221,7 +246,7 @@ const SX=i=>262+(i%4)*120, SY=i=>50+Math.floor(i/4)*170;
 const SC=i=>[SX(i)+54,SY(i)+72];
 const BX=k=>{const i=BIN.indexOf(k);return [24+(i%2)*92+43,44+Math.floor(i/2)*44+20]};
 
-function glyph(t,c){c=c||'#51636b';const R=`<circle cx="-9" cy="46" r="8" fill="none" stroke="${c}" stroke-width="3"/><circle cx="9" cy="46" r="8" fill="none" stroke="${c}" stroke-width="3"/>`;
+function glyph(t,c){c=c||'#2b3238';const R=`<circle cx="-9" cy="46" r="8" fill="none" stroke="${c}" stroke-width="3"/><circle cx="9" cy="46" r="8" fill="none" stroke="${c}" stroke-width="3"/>`;
  const sh=`<path d="M-9 39L0 10M9 39L0 10" stroke="${c}" stroke-width="3" fill="none"/>`;
  switch(t){
  case'scissors':return R+sh+`<path d="M0 10L-7 -52M0 10L7 -52" stroke="${c}" stroke-width="3.5"/><circle cy="10" r="2.5" fill="${c}"/>`;
@@ -237,18 +262,25 @@ const clk=()=>{$('clock').textContent=new Date().toLocaleTimeString([], {hour:'2
 function log(m,c){const d=document.createElement('div');if(c)d.className=c;d.textContent=new Date().toLocaleTimeString([], {hour12:false})+'  '+m;$('log').prepend(d)}
 function setStep(n){stepNo=n;$('steps').innerHTML=['Preference card','Memory recall','Tray layout','Final sheet'].map((t,i)=>`<div class="st ${i+1<n?'done':i+1===n?'cur':''}"><b>${i+1<n?'&#10003;':i+1}</b>${t}</div>`).join('')}
 
+function barBars(seed,h){let x=0,b='';for(const ch of '*'+seed+'*'){const v=ch.charCodeAt(0);for(let k=0;k<7;k++){const w=1+((v>>k)&1)+(k%3===0?1:0);if(k%2===0)b+=`<rect x="${x}" y="0" width="${w}" height="${h}" fill="#111"/>`;x+=w}x+=1}return{x,b}}
+function barcode(seed,h){const r=barBars(seed,h);return`<svg viewBox="0 0 ${r.x} ${h}" preserveAspectRatio="none" role="img" aria-label="Barcode ${seed}">${r.b}</svg>`}
 /* ---------- card + OCR ---------- */
 function cardSVG(c){
  const rows=[];let y=84;
  const ink='#1f3a8a';
  const t=(txt,x,y,sz)=>`<text x="${x}" y="${y}" font-family="Caveat" font-size="${sz||17}" fill="${ink}">${txt}</text>`;
- let s=`<svg viewBox="0 0 300 400"><rect width="300" height="400" fill="#fbfaf4"/><rect x="10" y="10" width="280" height="380" fill="none" stroke="#c9c4ae"/>
- <text x="22" y="34" font-family="IBM Plex Sans" font-size="11" font-weight="600" fill="#444" letter-spacing="1.5">PHYSICIAN PREFERENCE CARD</text><text x="22" y="48" font-size="8" font-family="IBM Plex Sans" fill="#888">Cascade General  OR Services  Rev 4</text><path d="M22 54h256" stroke="#aaa"/>
- <g font-size="8" font-family="IBM Plex Sans" fill="#999"><text x="22" y="76">PROCEDURE</text><text x="22" y="106">SURGEON</text><text x="22" y="136">GLOVE SIZE</text><text x="22" y="164">INSTRUMENTS (QTY)</text><text x="22" y="354">SPECIAL REQUESTS</text></g>`;
+ const bc=barBars('PC-'+c.id.toUpperCase(),20),sx=120/bc.x;
+ let s=`<svg viewBox="0 0 300 430"><rect width="300" height="430" fill="#fff"/><rect x="10" y="10" width="280" height="410" fill="none" stroke="#111"/>
+ <text x="22" y="30" font-family="IBM Plex Sans" font-size="11" font-weight="600" fill="#111" letter-spacing="1.5">PHYSICIAN PREFERENCE CARD</text><text x="278" y="46" text-anchor="end" font-size="7" font-family="IBM Plex Mono" fill="#555">FORM OR-114 REV. 4</text><text x="22" y="46" font-size="8" font-family="IBM Plex Sans" fill="#555">Cascade General  OR Services</text><path d="M22 54h256" stroke="#111" stroke-width="1.5"/>
+ <g fill="none" stroke="#777"><rect x="20" y="80" width="258" height="20"/><rect x="20" y="110" width="258" height="20"/><rect x="20" y="139" width="150" height="20"/></g>
+ <g stroke="#ccc">${Array.from({length:8},(_,i)=>`<path d="M22 ${190+i*21}h256"/>`).join('')}</g>
+ <rect x="20" y="344" width="258" height="38" fill="none" stroke="#777"/>
+ <g transform="translate(22,390) scale(${sx.toFixed(3)},1)">${bc.b}</g><text x="22" y="416" font-size="7" font-family="IBM Plex Mono" fill="#555">*PC-${c.id.toUpperCase()}*  ITEM CARD  LOT 26-OR114</text>
+ <g font-size="8" font-family="IBM Plex Sans" fill="#999"><text x="22" y="76">PROCEDURE</text><text x="22" y="106">SURGEON</text><text x="22" y="136">GLOVE SIZE</text><text x="22" y="164">INSTRUMENTS (QTY)</text><text x="24" y="353">SPECIAL REQUESTS</text></g>`;
  const boxes=[];
  s+=t(c.procedure,22,92)+t(c.surgeon,22,122)+t(c.glove,22,150);boxes.push([18,78,230,18],[18,108,200,18],[18,137,160,18]);
  c.items.forEach((it,i)=>{const yy=186+i*21;s+=t(`${i+1}. ${CAT[it[0]].n}`,26,yy,16)+t('x'+it[1],236,yy,17);boxes.push([20,yy-14,262,19])});
- s+=t(c.special,22,376,14);boxes.push([18,362,264,18]);
+ s+=t(c.special,24,372,14);boxes.push([20,358,258,20]);
  s+=boxes.map((b,i)=>`<rect class="obox" data-i="${i}" x="${b[0]}" y="${b[1]}" width="${b[2]}" height="${b[3]}" rx="2"/>`).join('');
  return s+'</svg><div class="scan" id="scanl"></div>'}
 async function loadCard(c){
@@ -295,25 +327,24 @@ $('madd').onclick=()=>{if(!cur||running)return;const item=$('mi').value,slot=+$(
  mems.push({id:nid++,surg:cur.id,item,slot,note:`${CAT[item].n} at slot ${SLOTN[slot]}`});saveMem();buildPlan();log('Backboard: stored '+CAT[item].s+' at '+SLOTN[slot],'g')};
 
 /* ---------- tray render ---------- */
-function bin(){let s=`<rect x="10" y="20" width="198" height="366" rx="10" fill="#e9f0f2" stroke="#b9cbd1"/><text x="22" y="37" font-size="11" fill="#5d7580" font-weight="600" letter-spacing="1.2">SUPPLY BIN</text>`;
+function bin(){let s=`<rect x="10" y="20" width="198" height="366" rx="2" fill="#f4f5f6" stroke="#8a9096"/><text x="22" y="37" font-size="11" fill="#555e66" font-weight="600" letter-spacing="1.2">SUPPLY BIN</text>`;
  BIN.forEach((k,i)=>{const x=24+(i%2)*92,y=44+Math.floor(i/2)*44,n=stock[k]||0;
-  s+=`<rect x="${x}" y="${y}" width="86" height="40" rx="6" fill="${n?'#fff':'#fdeaea'}" stroke="${n?'#cbd8dc':'#e3a0a0'}" ${n?'':'stroke-dasharray="4 3"'}/><text x="${x+6}" y="${y+16}" font-size="10.5" fill="#0e2a33">${CAT[k].s}</text><text x="${x+6}" y="${y+32}" font-size="10" class="mono" fill="${n?'#5d7580':'#d23f3f'}">${n?'in stock '+n:'EMPTY'}</text>`});
+  s+=`<rect x="${x}" y="${y}" width="86" height="40" rx="2" fill="${n?'#fff':'#fdeaea'}" stroke="${n?'#9aa1a8':'#e3a0a0'}" ${n?'':'stroke-dasharray="4 3"'}/><text x="${x+6}" y="${y+16}" font-size="10.5" fill="#111418">${CAT[k].s}</text><text x="${x+6}" y="${y+32}" font-size="9.5" class="mono" fill="${n?'#555e66':'#c42b2b'}">${CAT[k].c} ${n?'x'+n:'EMPTY'}</text>`});
  return s}
 function renderAll(){
  const p=[];
- p.push(`<defs><filter id="sh"><feDropShadow dx="0" dy="2" stdDeviation="2" flood-opacity=".25"/></filter></defs>`);
- p.push(bin());
- p.push(`<rect x="250" y="20" width="490" height="370" rx="14" fill="#fff" stroke="#9bb5bc" stroke-width="1.5"/><text x="264" y="38" font-size="11" fill="#5d7580" font-weight="600" letter-spacing="1.2">MAYO TRAY</text><text x="726" y="38" text-anchor="end" font-size="10" fill="#0e7c86">surgeon's right &rarr;</text>`);
+  p.push(bin());
+ p.push(`<rect x="250" y="20" width="490" height="370" rx="2" fill="#fff" stroke="#111418" stroke-width="1.5"/><text x="264" y="38" font-size="11" fill="#555e66" font-weight="600" letter-spacing="1.2">MAYO TRAY</text><text x="726" y="38" text-anchor="end" font-size="10" fill="#12395c">surgeon's right &rarr;</text>`);
  for(let i=0;i<8;i++){
   const pl=plan.find(x=>x.slot===i),sl=slots[i],x=SX(i),y=SY(i),[cx,cy]=SC(i);
-  const col=sl.state==='ok'?'#1b9a5f':sl.state==='bad'?'#d23f3f':sl.state==='scan'?'#c97b06':'#c3d3d8';
-  p.push(`<rect x="${x}" y="${y}" width="108" height="150" rx="8" fill="${sl.state==='ok'?'#f2fbf6':sl.state==='bad'?'#fff5f5':'#fafcfc'}" stroke="${col}" stroke-width="${sl.state?2.2:1.2}" ${sl.state?'':'stroke-dasharray="5 4"'}/><text x="${x+6}" y="${y+14}" class="mono" font-size="10" fill="#0e7c86">${SLOTN[i]}</text>`);
-  if(pl&&!sl.key)p.push(`<text x="${cx}" y="${cy+4}" text-anchor="middle" font-size="11" fill="#9db1b8">${CAT[pl.key].s}</text>${pl.pinned?`<text x="${cx}" y="${cy+20}" text-anchor="middle" font-size="9" fill="#0e7c86">remembered</text>`:''}`);
+  const col=sl.state==='ok'?'#1b7a4b':sl.state==='bad'?'#c42b2b':sl.state==='scan'?'#a86400':'#9aa1a8';
+  p.push(`<rect x="${x}" y="${y}" width="108" height="150" rx="2" fill="${sl.state==='ok'?'#f2fbf6':sl.state==='bad'?'#fff5f5':'#fff'}" stroke="${col}" stroke-width="${sl.state?2.2:1.2}" ${sl.state?'':'stroke-dasharray="5 4"'}/><text x="${x+6}" y="${y+14}" class="mono" font-size="10" fill="#12395c">${SLOTN[i]}</text>`);
+  if(pl&&!sl.key)p.push(`<text x="${cx}" y="${cy+4}" text-anchor="middle" font-size="11" fill="#8a9096">${CAT[pl.key].s}</text>${pl.pinned?`<text x="${cx}" y="${cy+20}" text-anchor="middle" font-size="9" fill="#12395c">remembered</text>`:''}`);
   if(sl.key){const t=CAT[sl.key].t;p.push(`<g transform="translate(${cx},${cy-4}) scale(${t==='sponge'?1:1.05})">${glyph(t)}</g>`);
-   if(sl.state==='scan')p.push(`<rect x="${x+4}" y="${y+20}" width="100" height="126" fill="none" stroke="#c97b06" stroke-dasharray="3 3"><animate attributeName="stroke-opacity" values="1;.2;1" dur=".6s" repeatCount="indefinite"/></rect>`);
+   if(sl.state==='scan')p.push(`<rect x="${x+4}" y="${y+20}" width="100" height="126" fill="none" stroke="#a86400" stroke-dasharray="3 3"><animate attributeName="stroke-opacity" values="1;.2;1" dur=".6s" repeatCount="indefinite"/></rect>`);
    if(sl.state==='ok'||sl.state==='bad'){p.push(`<rect x="${x+4}" y="${y+20}" width="100" height="126" fill="none" stroke="${col}" stroke-width="1.4"/><rect x="${x+4}" y="${y+130}" width="100" height="16" fill="${col}"/><text x="${x+8}" y="${y+142}" font-size="9" fill="#fff" class="mono">${CAT[sl.det].s.toLowerCase().replace(/ /g,'_')} ${sl.conf.toFixed(2)}</text>`);
     p.push(`<circle cx="${x+92}" cy="${y+14}" r="9" fill="${col}"/><text x="${x+92}" y="${y+18}" text-anchor="middle" fill="#fff" font-size="12" font-weight="700">${sl.state==='ok'?'&#10003;':'!'}</text>`)}
-   if(pl&&pl.qty>1&&sl.state==='ok')p.push(`<text x="${x+100}" y="${y+118}" text-anchor="end" font-size="13" font-weight="600" fill="#0e2a33" class="mono">x${pl.qty}</text>`)}
+   if(pl&&pl.qty>1&&sl.state==='ok')p.push(`<text x="${x+100}" y="${y+118}" text-anchor="end" font-size="13" font-weight="600" fill="#111418" class="mono">x${pl.qty}</text>`)}
  }
  p.push(`<g id="arm"></g>`);
  $('svg').innerHTML=p.join('');drawArm();renderVer();
@@ -323,8 +354,9 @@ function renderVer(){
  const rows=plan.slice().sort((a,b)=>a.slot-b.slot).map(pl=>{const sl=slots[pl.slot];
   const skipped=stats.skipped.includes(pl.key);
   const c=skipped?'bad':sl.state==='ok'?'ok':sl.state==='bad'?'bad':sl.state==='scan'?'scan':'';
-  return`<div class="vrow"><span class="sl">${SLOTN[pl.slot]}</span><div><small>Expected</small>${CAT[pl.key].s} x${pl.qty}</div><div><small>Detected</small>${skipped?'<span style="color:var(--bad)">missing</span>':sl.det?CAT[sl.det].s+` <span class="mono" style="color:var(--mut)">${sl.conf.toFixed(2)}</span>`:'<span style="color:var(--mut)">waiting</span>'}</div><span class="chk ${c}">${c==='ok'?'&#10003;':c==='bad'?'&#10005;':c==='scan'?'&hellip;':''}</span></div>`}).join('');
+  return`<div class="vrow"><span class="sl">${SLOTN[pl.slot]}</span><div><small>Expected</small>${CAT[pl.key].s} x${pl.qty}<span class="cd">${CAT[pl.key].c}</span></div><div><small>Detected</small>${skipped?'<span style="color:var(--bad)">missing</span>':sl.det?CAT[sl.det].s+` <span class="mono" style="color:var(--mut)">${sl.conf.toFixed(2)}</span>`:'<span style="color:var(--mut)">waiting</span>'}</div><span class="chk ${c}">${c==='ok'?'&#10003;':c==='bad'?'&#10005;':c==='scan'?'&hellip;':''}</span></div>`}).join('');
  $('ver').innerHTML=rows;
+ $('spec').innerHTML='<table class="tbl"><tr><th>Code</th><th>Item</th><th>mm</th><th>Qty</th><th>Slot</th></tr>'+plan.slice().sort((a,b)=>a.slot-b.slot).map(pl=>`<tr><td class="c">${CAT[pl.key].c}</td><td>${CAT[pl.key].n}</td><td class="n">${CAT[pl.key].mm}</td><td class="n">${pl.qty}</td><td class="c">${SLOTN[pl.slot]}</td></tr>`).join('')+'</table>';
  const n=slots.filter(s=>s.state==='ok').length;$('prog').textContent=n+' / '+plan.length+' verified';
 }
 
@@ -334,7 +366,7 @@ function ik(x,y){let dx=x-BASE[0],dy=y-BASE[1],d=Math.min(Math.hypot(dx,dy),2*L-
  const c=[b-a,b+a].map(s1=>({s1,ey:BASE[1]+Math.sin(s1)*L}));c.sort((p,q)=>p.ey-q.ey);const s1=c[0].s1;
  const ex=BASE[0]+Math.cos(s1)*L,ey=BASE[1]+Math.sin(s1)*L;return[s1,Math.atan2(y-ey,x-ex)]}
 function drawArm(){const g=$('arm');if(!g)return;const e1=[BASE[0]+Math.cos(A[0])*L,BASE[1]+Math.sin(A[0])*L],e2=[e1[0]+Math.cos(A[1])*L,e1[1]+Math.sin(A[1])*L];
- g.innerHTML=`<g filter="url(#sh)"><circle cx="${BASE[0]}" cy="${BASE[1]}" r="20" fill="#254a54"/><line x1="${BASE[0]}" y1="${BASE[1]}" x2="${e1[0]}" y2="${e1[1]}" stroke="#2d6370" stroke-width="16" stroke-linecap="round"/><line x1="${e1[0]}" y1="${e1[1]}" x2="${e2[0]}" y2="${e2[1]}" stroke="#0e7c86" stroke-width="12" stroke-linecap="round"/><circle cx="${e1[0]}" cy="${e1[1]}" r="9" fill="#e3f3f4" stroke="#254a54" stroke-width="3"/><circle cx="${e2[0]}" cy="${e2[1]}" r="9" fill="#254a54"/></g>${carry?`<g transform="translate(${e2[0]},${e2[1]}) scale(.62)" opacity=".95">${glyph(CAT[carry].t)}</g>`:''}`}
+ g.innerHTML=`<g><circle cx="${BASE[0]}" cy="${BASE[1]}" r="20" fill="#2b3238"/><line x1="${BASE[0]}" y1="${BASE[1]}" x2="${e1[0]}" y2="${e1[1]}" stroke="#4a535b" stroke-width="16" stroke-linecap="round"/><line x1="${e1[0]}" y1="${e1[1]}" x2="${e2[0]}" y2="${e2[1]}" stroke="#12395c" stroke-width="12" stroke-linecap="round"/><circle cx="${e1[0]}" cy="${e1[1]}" r="9" fill="#eaeff4" stroke="#2b3238" stroke-width="3"/><circle cx="${e2[0]}" cy="${e2[1]}" r="9" fill="#2b3238"/></g>${carry?`<g transform="translate(${e2[0]},${e2[1]}) scale(.62)" opacity=".95">${glyph(CAT[carry].t)}</g>`:''}`}
 let target=null;
 async function moveTo(x,y,ms){const g=gen,from=A.slice(),to=ik(x,y);
  for(let i=0;i<2;i++){let d=to[i]-from[i];while(d>Math.PI)d-=2*Math.PI;while(d<-Math.PI)d+=2*Math.PI;to[i]=from[i]+d}
@@ -348,7 +380,7 @@ function bub(cls,txt){const p=$('phone');if(p.querySelector('.empty'))p.innerHTM
 
 /* ---------- run ---------- */
 function setArm(t){$('armtag').textContent=t}
-function resetTray(soft){gen++;running=false;carry=null;A=[-2.2,-0.9];if(cur&&!soft){buildPlan()}else{slots=Array.from({length:8},()=>({key:null,state:'',det:null,conf:0}));plan=[];$('ver').innerHTML='<div class="empty">Load a card to see the plan.</div>'; if(!cur)renderAll()}
+function resetTray(soft){gen++;running=false;carry=null;A=[-2.2,-0.9];if(cur&&!soft){buildPlan()}else{slots=Array.from({length:8},()=>({key:null,state:'',det:null,conf:0}));plan=[];$('ver').innerHTML='<div class="empty">Load a card to see the plan.</div>';$('spec').innerHTML='<div class="empty">Load a card to see item codes.</div>'; if(!cur)renderAll()}
  $('alert').classList.remove('on');setArm('arm idle');$('run').disabled=!cur;$('run').textContent='Start layout'}
 $('reset').onclick=()=>{resetTray(false);log('Tray reset');$('final').innerHTML='<div class="locked">Complete the layout to generate the verified tray sheet.</div>';if(cur)setStep(2)};
 async function detect(i,expected,got){const sl=slots[i];sl.state='scan';renderAll();setArm('verifying '+SLOTN[i]);await wait(750);
@@ -390,17 +422,20 @@ $('run').onclick=async()=>{
 function finish(){
  setStep(5);
  const el=Math.round((Date.now()-stats.t0)/1000),ver=slots.filter(s=>s.state==='ok').length,complete=stats.skipped.length===0;
- const rows=plan.slice().sort((a,b)=>a.slot-b.slot).map(pl=>{const sk=stats.skipped.includes(pl.key);return`<tr><td>${SLOTN[pl.slot]}</td><td>${CAT[pl.key].n}</td><td>${pl.qty}</td><td>${sk?'<b style="color:#b00">NOT SUPPLIED</b>':'Verified'}</td><td>${pl.pinned?'Surgeon pref.':'Default'}</td></tr>`}).join('');
- let tray='<svg viewBox="250 14 500 382"><rect x="250" y="14" width="490" height="376" fill="#fff"/>';
+ const rows=plan.slice().sort((a,b)=>a.slot-b.slot).map(pl=>{const sk=stats.skipped.includes(pl.key);return`<tr><td>${SLOTN[pl.slot]}</td><td class="m">${CAT[pl.key].c}</td><td>${CAT[pl.key].n}</td><td class="m">${CAT[pl.key].mm}</td><td>${pl.qty}</td><td>${sk?'<b style="color:#b00">NOT SUPPLIED</b>':'Verified'}</td><td>${pl.pinned?'Surgeon pref.':'Default'}</td></tr>`}).join('');
+ let tray='<svg class="tray" viewBox="250 14 500 382"><rect x="250" y="14" width="490" height="376" fill="#fff"/>';
  for(let i=0;i<8;i++){const pl=plan.find(x=>x.slot===i),[cx,cy]=SC(i);tray+=`<rect x="${SX(i)}" y="${SY(i)}" width="108" height="150" fill="none" stroke="#999" stroke-dasharray="4 3"/><text x="${SX(i)+5}" y="${SY(i)+13}" font-size="10" font-family="IBM Plex Mono" fill="#555">${SLOTN[i]}</text>`;
   if(pl&&!stats.skipped.includes(pl.key))tray+=`<g transform="translate(${cx},${cy-6})">${glyph(CAT[pl.key].t,'#222')}</g><text x="${cx}" y="${SY(i)+144}" text-anchor="middle" font-size="10" font-family="IBM Plex Sans" fill="#111">${CAT[pl.key].s}${pl.qty>1?' x'+pl.qty:''}</text>`}
  tray+='<text x="736" y="388" text-anchor="end" font-size="9" fill="#555" font-family="IBM Plex Sans">surgeon\'s right</text></svg>';
- $('final').innerHTML=`<div class="paper">${complete?'<div class="stamp">VERIFIED</div>':'<div class="stamp" style="border-color:#c97b06;color:#c97b06">OPEN ITEM</div>'}
-  <div class="ph"><div><h3>MAYO TRAY LAYOUT</h3><div style="font-size:12px;color:#555">Cascade General OR 4 · Training prototype sheet</div></div><div class="mono" style="font-size:12px;text-align:right">${new Date().toLocaleDateString()}<br>Set-up ${el} s (accelerated)</div></div>
+ const dt=new Date(),yy=String(dt.getFullYear()).slice(2),mo=String(dt.getMonth()+1).padStart(2,'0'),dd=String(dt.getDate()).padStart(2,'0'),lot=yy+mo+dd+'-'+cur.id.slice(0,2).toUpperCase()+plan.length;
+ const pouch=`<div class="pouch"><div class="pl"><div class="pt">PEEL POUCH LABEL</div><div><b>MAYO TRAY SET, ${plan.length} LINES</b></div><div class="mono">LOT ${lot} &nbsp; EXP ${dt.getFullYear()+5}-${mo}</div><div class="mono">GLOVE ${cur.glove.toUpperCase()}</div><div class="bc">${barcode('LOT'+lot,30)}</div></div><div class="ind"><div>STERILE<br>INDICATOR</div><div class="patch"></div><div>Darkens when processed</div></div></div>`;
+ $('final').innerHTML=`<div class="paper">${complete?'<div class="stamp">VERIFIED</div>':'<div class="stamp" style="border-color:#a86400;color:#a86400">OPEN ITEM</div>'}
+  <div class="ph"><div><div class="frm">Form OR-114 rev. 4 &middot; Preference card, completed layout</div><h3>MAYO TRAY LAYOUT</h3><div style="font-size:12px;color:#555">Cascade General OR 4 · Training prototype sheet</div></div><div class="mono" style="font-size:12px;text-align:right">${new Date().toLocaleDateString()}<br>Set-up ${el} s (accelerated)</div></div>
   <div class="meta"><div><span>Procedure</span>${cur.procedure}</div><div><span>Surgeon</span>${cur.surgeon}</div><div><span>Glove size</span>${cur.glove}</div><div><span>Special requests</span>${cur.special}</div></div>
   ${tray}
-  <table><tr><th>Slot</th><th>Instrument</th><th>Qty</th><th>Status</th><th>Source</th></tr>${rows}</table>
+  <table><tr><th>Slot</th><th>Item code</th><th>Instrument</th><th>mm</th><th>Qty</th><th>Status</th><th>Source</th></tr>${rows}</table>
   <div style="font-size:12px;margin-top:10px">Slots verified ${ver} of ${plan.length} · mismatches corrected ${stats.mis} · supply alerts ${stats.alerts}</div>
+  ${pouch}
   <div class="sig"><div>Scrub tech</div><div>Circulating nurse</div><div>Surgeon initials</div></div>
   <div class="foot">Prop instruments only. Training and research prototype, not for clinical use.</div></div>
   <div class="bar" style="justify-content:center;margin-top:14px"><button class="btn ghost" id="remember">Remember this layout for ${cur.surgeon.replace('Dr. ','Dr ')}</button></div>`;

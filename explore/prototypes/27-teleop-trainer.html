@@ -1,4 +1,5 @@
 <!doctype html>
+<!-- STYLE: Swiss Design / engineering drawing (white drafting stock with fine grid, title block, flush-left Archivo grotesk with Plex Mono numerals, red and black only plus semantic color, dimension lines and callouts). -->
 <!--
 FEATURES:
 - Operator pad (mouse/touch drag, relative like a trackpad) with injectable 8-12 Hz synthetic physiological tremor
@@ -29,36 +30,37 @@ BACKEND HOOKS (mock by default, everything runs locally):
 <title>Teleop Precision Trainer</title>
 <meta name="description" content="Teleoperated surgical trainer with motion scaling, tremor filtering, virtual fixtures, and live signal and spectrum plots.">
 <link rel="preconnect" href="https://fonts.googleapis.com">
-<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600&family=IBM+Plex+Sans:wght@400;500;600&display=swap" rel="stylesheet">
+<link href="https://fonts.googleapis.com/css2?family=Archivo:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500;600&display=swap" rel="stylesheet">
 <style>
-:root{--paper:#f5f3ea;--ink:#12263a;--dim:#5c6e80;--grid:#cfd8dd;--grid2:#e3e8e6;--raw:#e4572e;--filt:#1f5fbf;--ok:#1a8a5a;--bad:#d62839;--card:#fbfaf4}
+:root{--paper:#fff;--ink:#111;--dim:#555;--grid:#cfcfcf;--grid2:#e6e6e6;--raw:#d62839;--filt:#111;--ok:#1a8a5a;--bad:#d62839;--card:#fff}
 *{box-sizing:border-box}
-html,body{margin:0;color:var(--ink);font:14px/1.4 'IBM Plex Sans',system-ui,sans-serif}
-body{min-height:100vh;background-color:var(--paper);background-image:linear-gradient(var(--grid2) 1px,transparent 1px),linear-gradient(90deg,var(--grid2) 1px,transparent 1px),linear-gradient(var(--grid) 1px,transparent 1px),linear-gradient(90deg,var(--grid) 1px,transparent 1px);background-size:12px 12px,12px 12px,60px 60px,60px 60px}
+html,body{margin:0;color:var(--ink);font:14px/1.4 'Archivo',system-ui,sans-serif}
+body{min-height:100vh;background-color:var(--paper);background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='60' height='60'%3E%3Cpath d='M12 0V60M24 0V60M36 0V60M48 0V60M0 12H60M0 24H60M0 36H60M0 48H60' stroke='%23e6e6e6' stroke-width='1' fill='none'/%3E%3Cpath d='M0 0V60M0 0H60' stroke='%23cfcfcf' stroke-width='1' fill='none'/%3E%3C/svg%3E");background-size:60px 60px}
 .mono{font-family:'IBM Plex Mono',ui-monospace,monospace;font-variant-numeric:tabular-nums}
-header{display:flex;align-items:center;gap:14px;padding:10px 16px;border-bottom:2px solid var(--ink);background:var(--card);flex-wrap:wrap}
-h1{margin:0;font:600 16px 'IBM Plex Mono',monospace;letter-spacing:.04em}
-h1 small{font-weight:400;color:var(--dim);margin-left:8px}
-.notice{flex:1;min-width:200px;font:500 11px 'IBM Plex Mono',monospace;color:var(--bad);text-align:center}
-button{font:500 13px 'IBM Plex Mono',monospace;color:var(--ink);background:var(--card);border:1.5px solid var(--ink);border-radius:2px;min-height:44px;padding:0 12px;cursor:pointer;touch-action:manipulation}
-button:hover{background:#eaf0f6}button:active{transform:translate(1px,1px)}
+header{display:flex;align-items:center;gap:14px;padding:10px 16px;border-bottom:3px solid var(--ink);background:var(--card);flex-wrap:wrap}
+h1{margin:0;font:700 20px 'Archivo',sans-serif;letter-spacing:-.01em;text-align:left}
+h1 small{font:400 12px 'IBM Plex Mono',monospace;color:var(--dim);margin-left:10px;letter-spacing:0}
+.notice{flex:1;min-width:200px;font:500 11px 'IBM Plex Mono',monospace;color:var(--bad);text-align:left}
+button{font:500 12px 'IBM Plex Mono',monospace;color:var(--ink);background:var(--card);border:1.5px solid var(--ink);border-radius:0;min-height:44px;padding:0 12px;cursor:pointer;touch-action:manipulation}
+button:hover{background:#eee}
 button.on{background:var(--ink);color:#fff}
-#stop{background:var(--bad);border-color:#7a1019;color:#fff;font-weight:600;letter-spacing:.14em;min-width:110px}
-#stop.latched{background:#fff;color:var(--bad);border-width:3px}
-#clutch{width:100%}#clutch.on{background:var(--raw);border-color:var(--raw)}
+#stop{background:var(--bad);border-color:var(--ink);color:#fff;font-weight:600;letter-spacing:.14em;min-width:110px}
+#stop.latched{background:#fff;color:var(--bad);border:3px solid var(--bad)}
+#clutch{width:100%}#clutch.on{background:var(--raw);border-color:var(--ink)}
 main{display:grid;grid-template-columns:minmax(320px,430px) minmax(0,1fr);gap:14px;padding:14px;max-width:1400px;margin:0 auto}
 .card{position:relative;background:var(--card);border:1.5px solid var(--ink);padding:10px 12px;min-width:0;margin-bottom:14px}
 .card::before,.card::after{content:"";position:absolute;width:8px;height:8px;border:2px solid var(--ink)}
 .card::before{top:-5px;left:-5px;border-right:0;border-bottom:0}.card::after{bottom:-5px;right:-5px;border-left:0;border-top:0}
-.card h2{margin:0 0 8px;font:600 11px 'IBM Plex Mono',monospace;letter-spacing:.12em;text-transform:uppercase;display:flex;justify-content:space-between;gap:8px;color:var(--dim)}
+.card h2{margin:0 0 8px;padding-bottom:4px;border-bottom:1px solid var(--ink);font:700 11px 'Archivo',sans-serif;letter-spacing:.1em;text-transform:uppercase;display:flex;justify-content:space-between;gap:8px;color:var(--ink)}
+.card h2 .mono{font-weight:500;letter-spacing:0;color:var(--dim);text-transform:none}
 canvas{display:block;width:100%;height:auto;background:#fff;border:1px solid var(--ink)}
 #pad{touch-action:none;cursor:crosshair;max-width:340px;margin:0 auto}
 .seg{display:flex;gap:0}.seg button{flex:1;border-right-width:0}.seg button:last-child{border-right-width:1.5px}
 .ctl{display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-top:10px}
-.lab{font:500 11px 'IBM Plex Mono',monospace;color:var(--dim);margin:10px 0 4px;letter-spacing:.06em}
+.lab{font:600 11px 'Archivo',sans-serif;color:var(--dim);margin:10px 0 4px;letter-spacing:.08em}
 .metrics{display:grid;grid-template-columns:repeat(4,1fr);gap:8px;margin-top:10px}
 .m{border:1.5px solid var(--ink);padding:6px 8px;background:#fff}
-.m .v{font:600 22px 'IBM Plex Mono',monospace}.m .k{font:11px 'IBM Plex Mono',monospace;color:var(--dim)}
+.m .v{font:600 22px 'IBM Plex Mono',monospace}.m .k{font:600 10px 'Archivo',sans-serif;letter-spacing:.08em;color:var(--dim)}
 .force{display:flex;align-items:center;gap:10px;margin-top:10px;font:12px 'IBM Plex Mono',monospace}
 .fbar{flex:1;height:16px;border:1.5px solid var(--ink);background:#fff;position:relative}
 .fbar i{position:absolute;left:0;top:0;bottom:0;width:0;background:var(--ok)}
@@ -68,13 +70,19 @@ canvas{display:block;width:100%;height:auto;background:#fff;border:1px solid var
 .leg b{display:inline-block;width:14px;height:3px;vertical-align:middle;margin-right:5px}
 .row2{display:grid;grid-template-columns:1fr 1fr;gap:14px}
 .sw{display:flex;align-items:center;gap:10px;font:12px 'IBM Plex Mono',monospace}
+footer{display:flex;justify-content:space-between;align-items:flex-end;gap:16px;flex-wrap:wrap;padding:10px 14px 14px;max-width:1400px;margin:0 auto;font:11px 'IBM Plex Mono',monospace;color:var(--dim)}
+footer a{color:var(--dim);margin-right:14px}
+.tb{display:grid;grid-template-columns:repeat(4,auto);border:2px solid var(--ink);background:#fff;color:var(--ink)}
+.tb div{padding:3px 10px;border-right:1px solid var(--ink)}.tb div:last-child{border-right:0}
+.tb span{display:block;font:600 9px 'Archivo',sans-serif;letter-spacing:.1em;color:var(--dim)}
+.tb b{font:600 13px 'IBM Plex Mono',monospace}
 @media(max-width:900px){main{grid-template-columns:1fr;padding:10px}.row2{grid-template-columns:1fr}}
-@media(max-width:480px){.metrics{grid-template-columns:1fr 1fr}header{padding:8px 10px}}
+@media(max-width:480px){.metrics{grid-template-columns:1fr 1fr}header{padding:8px 10px}.tb{grid-template-columns:1fr 1fr}.tb div{border-bottom:1px solid var(--ink)}}
 </style>
 </head>
 <body>
 <header>
-  <h1>TELEOP//TRAINER <small>peg transfer, SO-101 mock</small></h1>
+  <h1>TELEOP TRAINER <small>peg transfer, SO-101 mock</small></h1>
   <div class="notice">TRAINING / RESEARCH PROTOTYPE. NOT FOR CLINICAL USE. PROPS ONLY.</div>
   <button id="stop" aria-label="Emergency stop">STOP</button>
 </header>
@@ -128,6 +136,7 @@ canvas{display:block;width:100%;height:auto;background:#fff;border:1px solid var
   </div>
 </section>
 </main>
+<footer><span><a href="#">Terms</a><a href="#">Privacy</a></span><div class="tb"><div><span>DWG NO.</span><b>TT-027</b></div><div><span>SCALE</span><b>2:1</b></div><div><span>UNITS</span><b>mm</b></div><div><span>REV</span><b>C</b></div></div></footer>
 <script>
 (()=>{
 const $=s=>document.querySelector(s);
@@ -257,41 +266,52 @@ function spectrum(buf){const n=N,re=new Array(n).fill(0),im=new Array(n).fill(0)
 const db=a=>20*Math.log10(Math.max(a,1e-4));
 // ---------- drawing ----------
 function gridBase(c,w,h,step){c.fillStyle='#fff';c.fillRect(0,0,w,h);c.lineWidth=1;
- for(let x=0;x<=w;x+=step){c.strokeStyle=x%(step*5)===0?'#b9c6cd':'#e1e7ea';c.beginPath();c.moveTo(x+.5,0);c.lineTo(x+.5,h);c.stroke()}
- for(let y=0;y<=h;y+=step){c.strokeStyle=y%(step*5)===0?'#b9c6cd':'#e1e7ea';c.beginPath();c.moveTo(0,y+.5);c.lineTo(w,y+.5);c.stroke()}}
+ for(let x=0;x<=w;x+=step){c.strokeStyle=x%(step*5)===0?'#bbb':'#e6e6e6';c.beginPath();c.moveTo(x+.5,0);c.lineTo(x+.5,h);c.stroke()}
+ for(let y=0;y<=h;y+=step){c.strokeStyle=y%(step*5)===0?'#bbb':'#e6e6e6';c.beginPath();c.moveTo(0,y+.5);c.lineTo(w,y+.5);c.stroke()}}
 function drawPad(){
  gridBase(pc,300,300,20);
- pc.strokeStyle='#12263a';pc.lineWidth=1;pc.setLineDash([4,4]);pc.beginPath();pc.moveTo(150,0);pc.lineTo(150,300);pc.moveTo(0,150);pc.lineTo(300,150);pc.stroke();pc.setLineDash([]);
- pc.fillStyle='#5c6e80';pc.font='10px IBM Plex Mono';pc.fillText('OPERATOR PAD (relative, 1 px = 1 unit)',6,12);
- pc.fillStyle='#e4572e';pc.beginPath();pc.arc(T.raw.x,T.raw.y,4,0,7);pc.fill();
- pc.strokeStyle='#1f5fbf';pc.lineWidth=2;pc.beginPath();pc.arc(T.fl.x,T.fl.y,9,0,7);pc.stroke();
- if(T.clutch){pc.fillStyle='rgba(228,87,46,.12)';pc.fillRect(0,0,300,300);pc.fillStyle='#e4572e';pc.font='600 14px IBM Plex Mono';pc.fillText('CLUTCH: re-index hand',70,285)}
+ pc.strokeStyle='#111';pc.lineWidth=1;pc.setLineDash([4,4]);pc.beginPath();pc.moveTo(150,0);pc.lineTo(150,300);pc.moveTo(0,150);pc.lineTo(300,150);pc.stroke();pc.setLineDash([]);
+ pc.fillStyle='#555';pc.font='10px IBM Plex Mono';pc.fillText('OPERATOR PAD (relative, 1 px = 1 unit)',6,12);
+ pc.fillStyle='#d62839';pc.beginPath();pc.arc(T.raw.x,T.raw.y,4,0,7);pc.fill();
+ pc.strokeStyle='#111';pc.lineWidth=2;pc.beginPath();pc.arc(T.fl.x,T.fl.y,9,0,7);pc.stroke();
+ if(T.clutch){pc.fillStyle='rgba(214,40,57,.12)';pc.fillRect(0,0,300,300);pc.fillStyle='#d62839';pc.font='600 14px IBM Plex Mono';pc.fillText('CLUTCH: re-index hand',70,285)}
  $('#padRead').textContent='x '+(T.raw.x-150).toFixed(1)+' y '+(T.raw.y-150).toFixed(1);
 }
 function drawBoard(){
  gridBase(bc,BW,BH,20);
- bc.fillStyle='#5c6e80';bc.font='10px IBM Plex Mono';
+ bc.fillStyle='#555';bc.font='10px IBM Plex Mono';
  for(let x=0;x<=BW;x+=100)bc.fillText(x*MMPX+'',x+2,BH-3);for(let y=100;y<=BH;y+=100)bc.fillText(y*MMPX+'',2,y-3);
  // pegs
- ys.forEach(y=>{[70,530].forEach(x=>{bc.strokeStyle='#12263a';bc.lineWidth=2;bc.beginPath();bc.arc(x,y,6,0,7);bc.stroke();bc.setLineDash([2,3]);bc.beginPath();bc.arc(x,y,24,0,7);bc.stroke();bc.setLineDash([])})});
+ ys.forEach(y=>{[70,530].forEach(x=>{bc.strokeStyle='#111';bc.lineWidth=2;bc.beginPath();bc.arc(x,y,6,0,7);bc.stroke();bc.setLineDash([2,3]);bc.beginPath();bc.arc(x,y,24,0,7);bc.stroke();bc.setLineDash([])})});
  // zones
  zones.forEach(z=>{bc.save();bc.beginPath();bc.rect(z.x0,z.y0,z.x1-z.x0,z.y1-z.y0);bc.clip();
   bc.strokeStyle=T.fixOn?'rgba(214,40,57,.55)':'rgba(214,40,57,.2)';bc.lineWidth=2;for(let i=-200;i<500;i+=10){bc.beginPath();bc.moveTo(z.x0+i,z.y1+10);bc.lineTo(z.x0+i+130,z.y0-10);bc.stroke()}
   bc.restore();bc.strokeStyle=T.fixOn?'#d62839':'#c9a0a5';bc.lineWidth=2;bc.strokeRect(z.x0,z.y0,z.x1-z.x0,z.y1-z.y0);
   bc.fillStyle=T.fixOn?'#d62839':'#b08a8e';bc.font='600 10px IBM Plex Mono';bc.fillText(z.l,z.x0+4,z.y0+13)});
+
+ // dimension lines and callouts (drawing annotation)
+ {const d=(x0,y0,x1,y1,t,tx,ty)=>{bc.strokeStyle='#111';bc.fillStyle='#111';bc.lineWidth=1;bc.beginPath();bc.moveTo(x0,y0);bc.lineTo(x1,y1);bc.stroke();
+   [[x0,y0,1],[x1,y1,-1]].forEach(([x,y,s2])=>{const ux=Math.sign(x1-x0),uy=Math.sign(y1-y0);bc.beginPath();bc.moveTo(x,y);bc.lineTo(x+s2*ux*7-s2*uy*3,y+s2*uy*7+s2*ux*3);bc.lineTo(x+s2*ux*7+s2*uy*3,y+s2*uy*7-s2*ux*3);bc.closePath();bc.fill()});
+   bc.font='600 10px IBM Plex Mono';bc.fillText(t,tx,ty)};
+  d(8,14,592,14,'300',290,11);d(592,24,592,392,'',0,0);
+  d(300,150,300,250,'50 GAP',304,204);
+  bc.save();bc.translate(584,210);bc.rotate(-Math.PI/2);bc.fillStyle='#111';bc.font='600 10px IBM Plex Mono';bc.fillText('200',0,0);bc.restore();
+  d(46,60,46,140,'40',28,104);
+  bc.font='600 10px IBM Plex Mono';bc.fillStyle='#111';bc.fillText('A: START PEGS',104,36);bc.fillText('B: TARGET PEGS',400,36);
+  bc.strokeStyle='#111';bc.beginPath();bc.moveTo(490,40);bc.lineTo(512,50);bc.stroke();}
  // rings
- rings.forEach(r=>{if(r.st==='held')return;bc.strokeStyle=r.st==='placed'?'#1a8a5a':'#1f5fbf';bc.lineWidth=5;bc.beginPath();bc.arc(r.x,r.y,13,0,7);bc.stroke()});
+ rings.forEach(r=>{if(r.st==='held')return;bc.strokeStyle=r.st==='placed'?'#1a8a5a':'#111';bc.lineWidth=5;bc.beginPath();bc.arc(r.x,r.y,13,0,7);bc.stroke()});
  // path trail
  trail.forEach((p,i)=>{bc.fillStyle=`rgba(18,38,58,${i/trail.length*.5})`;bc.fillRect(p.x-1,p.y-1,2,2)});
  // commanded (ghost) vs actual
  if(T.fixOn&&T.force>.3){bc.strokeStyle='#d62839';bc.setLineDash([3,3]);bc.beginPath();bc.moveTo(T.a.x,T.a.y);bc.lineTo(T.c.x,T.c.y);bc.stroke();bc.setLineDash([]);bc.beginPath();bc.arc(T.c.x,T.c.y,5,0,7);bc.stroke()}
  // tool
  const a=T.a;
- if(T.held){bc.strokeStyle='#e4572e';bc.lineWidth=5;bc.beginPath();bc.arc(a.x,a.y,13,0,7);bc.stroke()}
- bc.strokeStyle='#12263a';bc.lineWidth=3;bc.beginPath();bc.moveTo(a.x+90,a.y-90);bc.lineTo(a.x+6,a.y-6);bc.stroke();
+ if(T.held){bc.strokeStyle='#d62839';bc.lineWidth=5;bc.beginPath();bc.arc(a.x,a.y,13,0,7);bc.stroke()}
+ bc.strokeStyle='#111';bc.lineWidth=3;bc.beginPath();bc.moveTo(a.x+90,a.y-90);bc.lineTo(a.x+6,a.y-6);bc.stroke();
  const o=T.grip?2:7;bc.lineWidth=2.5;bc.beginPath();bc.moveTo(a.x+6,a.y-6);bc.lineTo(a.x-o*.3,a.y+o*.7);bc.moveTo(a.x+6,a.y-6);bc.lineTo(a.x+o*.8,a.y+o*.2);bc.stroke();
- bc.fillStyle='#e4572e';bc.beginPath();bc.arc(a.x,a.y,3.2,0,7);bc.fill();
- bc.strokeStyle='#e4572e';bc.lineWidth=1;bc.beginPath();bc.arc(a.x,a.y,9,0,7);bc.stroke();
+ bc.fillStyle='#d62839';bc.beginPath();bc.arc(a.x,a.y,3.2,0,7);bc.fill();
+ bc.strokeStyle='#d62839';bc.lineWidth=1;bc.beginPath();bc.arc(a.x,a.y,9,0,7);bc.stroke();
  if(T.estop){bc.fillStyle='rgba(214,40,57,.15)';bc.fillRect(0,0,BW,BH);bc.fillStyle='#d62839';bc.font='700 24px IBM Plex Mono';bc.fillText('E-STOP LATCHED',200,206)}
  if(metrics.done){bc.fillStyle='rgba(26,138,90,.12)';bc.fillRect(0,0,BW,BH);bc.fillStyle='#1a8a5a';bc.font='700 22px IBM Plex Mono';bc.fillText('TRIAL COMPLETE',210,40)}
  $('#tipRead').textContent='tip '+(T.a.x*MMPX).toFixed(1)+', '+(T.a.y*MMPX).toFixed(1)+' mm';
@@ -303,22 +323,22 @@ function drawSig(){
  const m=R.reduce((s,v)=>s+v,0)/R.length;let mx=6;R.forEach(v=>mx=Math.max(mx,Math.abs(v-m)));
  const lane1=h*.36,amp1=h*.3/mx;
  const tr=(a,col,wd)=>{sc.strokeStyle=col;sc.lineWidth=wd;sc.beginPath();a.forEach((v,i)=>{const x=i/N*w,y=lane1-(v-m)*amp1;i?sc.lineTo(x,y):sc.moveTo(x,y)});sc.stroke()};
- tr(R,'#e4572e',1.2);tr(F,'#1f5fbf',2);
- const lane2=h*.85;sc.strokeStyle='#12263a';sc.lineWidth=1;sc.beginPath();sc.moveTo(0,h*.7);sc.lineTo(w,h*.7);sc.stroke();
+ tr(R,'#d62839',1.2);tr(F,'#111',2);
+ const lane2=h*.85;sc.strokeStyle='#111';sc.lineWidth=1;sc.beginPath();sc.moveTo(0,h*.7);sc.lineTo(w,h*.7);sc.stroke();
  sc.strokeStyle='#777';sc.lineWidth=1.2;sc.beginPath();R.forEach((v,i)=>{const x=i/N*w,y=lane2-(v-F[i])*h*.12/3;i?sc.lineTo(x,y):sc.moveTo(x,y)});sc.stroke();
- sc.fillStyle='#5c6e80';sc.font='10px IBM Plex Mono';sc.fillText('x(t), '+(N/FS).toFixed(2)+' s window',4,12);sc.fillText('residual = raw - filtered (+/-3 px)',4,h*.7+12);
+ sc.fillStyle='#555';sc.font='10px IBM Plex Mono';sc.fillText('x(t), '+(N/FS).toFixed(2)+' s window',4,12);sc.fillText('residual = raw - filtered (+/-3 px)',4,h*.7+12);
 }
 let bandRaw=0,bandFil=0;
 function drawSpec(){
  const w=spc.width,h=spc.height;gridBase(spx,w,h,20);
  if(T.bufRaw.length<N)return;
  const A=spectrum(T.bufRaw),B=spectrum(T.bufFil),k=i=>i/64*w,yv=v=>h-(clamp(db(v),-30,40)+30)/70*h;
- spx.fillStyle='rgba(228,87,46,.13)';spx.fillRect(k(8/25*64),0,k(4/25*64),h);
- spx.fillStyle='#e4572e';spx.font='10px IBM Plex Mono';spx.fillText('8-12 Hz',k(8/25*64)+4,12);
- for(let f=0;f<=25;f+=5){const x=f/25*w;spx.fillStyle='#5c6e80';spx.fillText(f+' Hz',Math.min(x+3,w-34),h-4)}
+ spx.fillStyle='rgba(214,40,57,.13)';spx.fillRect(k(8/25*64),0,k(4/25*64),h);
+ spx.fillStyle='#d62839';spx.font='10px IBM Plex Mono';spx.fillText('8-12 Hz',k(8/25*64)+4,12);
+ for(let f=0;f<=25;f+=5){const x=f/25*w;spx.fillStyle='#555';spx.fillText(f+' Hz',Math.min(x+3,w-34),h-4)}
  const ln=(a,col,wd)=>{spx.strokeStyle=col;spx.lineWidth=wd;spx.beginPath();a.forEach((v,i)=>{const x=i/64*w,y=yv(v);i?spx.lineTo(x,y):spx.moveTo(x,y)});spx.stroke()};
  // bins are 0.39 Hz apart; show 0..25 Hz = bins 0..64
- ln(A,'#e4572e',1.6);ln(B,'#1f5fbf',2);
+ ln(A,'#d62839',1.6);ln(B,'#111',2);
  const band=a=>{let s=0;for(let i=20;i<=31;i++)s+=a[i]*a[i];return Math.sqrt(s)};
  bandRaw=band(A);bandFil=band(B);
  $('#atten').textContent=T.tremorOn?'8-12 Hz: '+(db(bandRaw)-db(bandFil)).toFixed(0)+' dB atten'+(T.filterOn?'':' (bypassed)'):'8-12 Hz: no tremor injected';

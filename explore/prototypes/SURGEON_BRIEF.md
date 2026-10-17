@@ -1,4 +1,13 @@
-# Surgeon idea addendum (read after BRIEF.md)
+# Scrub addendum (read after BRIEF.md)
+
+SCOPE (corrected): Scrub is a voice-controlled arm that PICKS UP ITEMS AND HANDS THEM OVER. It does not do surgery,
+hold scopes, suture, teleoperate, or mentor. Requests come by voice (phone on speaker via Photon + ElevenLabs, Gemini
+turns words into a command). The arm picks the item from its tray slot, brings it handle first to the open hand, lets
+go on a pull or "got it". Scalpels go to a fixed safe spot, not hand to hand. Items set in the return spot go back to
+their slots. Scrub keeps a running count and reads back what is out. Three settings with one model: operating room
+(scalpel handle, hemostat, Mayo scissors), dental office (mouth mirror, explorer, cotton pliers), robotics bench
+(needle-nose pliers, wire cutters, hex key). Source of truth: dubhacks-2026/README.md and docs/CONTRACTS.md.
+
 
 Concept: the SO-101 as a **surgical assistant** for training and the operating room support role. It is a hackathon
 demo, so it uses props only: plastic or 3D-printed instruments (scalpel handle with no blade, forceps, scissors,

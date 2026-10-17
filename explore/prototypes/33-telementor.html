@@ -1,3 +1,4 @@
+<!-- STYLE: Minimalism modeled on a broadcast / hospital video-conferencing system (Polycom / OR integration touch panel): flat dark and light neutral panels, lower-third caption bar with name, role and timecode, signal bars drawn as plain bars, annotation tools as plain labeled buttons, no glow or gradients. Fonts: Public Sans / IBM Plex Mono. -->
 <!-- FEATURES:
 - Split view: OR monitor (live box trainer camera with robot arm and tracked objects) and a mentor's phone
 - Mentor draws arrows and circles on a live or frozen frame; they appear on the OR monitor anchored to tracked objects (suture pad, needle, tray tools) and follow them
@@ -16,87 +17,97 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Telementor Link</title>
 <meta name="description" content="Remote surgical telementoring with anchored annotations, a gated hand-that-next command, session recording and a Photon bandwidth fallback.">
-<link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+<link href="https://fonts.googleapis.com/css2?family=Public+Sans:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500&display=swap" rel="stylesheet">
 <style>
-:root{--bg:#07090d;--p1:#0d1219;--p2:#141b25;--line:#243041;--ink:#e6edf6;--mut:#8497ad;--cy:#3de0d0;--am:#ffb400;--red:#ff4d5e;--grn:#35d07f;--vi:#a78bfa}
+:root{--bg:#101214;--p1:#181b1f;--p2:#1f2327;--line:#363c44;--ink:#e8eaed;--mut:#9aa3ad;--cy:#8fb4d9;--am:#ffb400;--red:#ff4d5e;--grn:#35d07f;--vi:#c9d1da;--btn:#262b31;--noc:#ff9aa5;--sheet:#222a33;--dk:#0b0c0e}
 *{box-sizing:border-box}
-body{margin:0;background:radial-gradient(1200px 600px at 70% -10%,#10202c 0,transparent 60%),var(--bg);color:var(--ink);font:14px/1.45 "Space Grotesk",system-ui,sans-serif;min-height:100vh}
+body{margin:0;background:var(--bg);color:var(--ink);font:14px/1.45 "Public Sans",system-ui,sans-serif;min-height:100vh;font-variant-numeric:tabular-nums}
 button{font:inherit;color:inherit;min-height:44px;cursor:pointer}
-.mono{font-family:"JetBrains Mono",monospace}
-header{display:flex;gap:12px;align-items:center;flex-wrap:wrap;padding:10px 18px;border-bottom:1px solid var(--line);background:rgba(7,9,13,.85);backdrop-filter:blur(8px);position:sticky;top:0;z-index:30}
+.mono{font-family:"IBM Plex Mono",monospace}
+a{color:var(--mut)}
+header{display:flex;gap:12px;align-items:center;flex-wrap:wrap;padding:10px 18px;border-bottom:1px solid var(--line);background:var(--dk);position:sticky;top:0;z-index:30}
 .brand{font-weight:700;font-size:17px;letter-spacing:.02em;display:flex;gap:8px;align-items:center}
-.brand i{width:12px;height:12px;border-radius:50%;background:var(--cy);box-shadow:0 0 12px var(--cy)}
-.disc{font-size:11.5px;color:var(--am);border:1px solid #6b4d00;background:#241a00;padding:3px 10px;border-radius:99px}
+.brand i{width:12px;height:12px;background:var(--ink)}
+.disc{font-size:11.5px;color:var(--am);border:1px solid #6b4d00;background:#1d1600;padding:3px 10px}
 .sp{flex:1}
-.pill{display:flex;align-items:center;gap:8px;border:1px solid var(--line);background:var(--p1);border-radius:99px;padding:5px 12px;font-size:12px}
-.dot{width:9px;height:9px;border-radius:50%;background:var(--grn);box-shadow:0 0 8px currentColor;color:var(--grn)}
-.dot.red{background:var(--red);color:var(--red);animation:bl 1s infinite}.dot.am{background:var(--am);color:var(--am)}
+.pill{display:flex;align-items:center;gap:8px;border:1px solid var(--line);background:var(--p1);padding:5px 12px;font-size:12px}
+.dot{width:9px;height:9px;background:var(--grn)}
+.dot.red{background:var(--red);animation:bl 1s infinite}.dot.am{background:var(--am)}
 @keyframes bl{50%{opacity:.3}}
-#stop{background:var(--red);border:0;color:#fff;font-weight:700;letter-spacing:.06em;border-radius:10px;padding:0 22px;min-width:110px}
-#stop.latched{background:#7a1020;box-shadow:0 0 0 3px #ff4d5e66}
+.sig{display:inline-flex;gap:2px;align-items:flex-end;height:14px}
+.sig i{width:4px;background:#4a525b;display:block}
+.sig i:nth-child(1){height:4px}.sig i:nth-child(2){height:7px}.sig i:nth-child(3){height:10px}.sig i:nth-child(4){height:14px}
+.sig i.on{background:var(--ink)}.sig.lo i.on{background:var(--red)}
+#stop{background:var(--red);border:0;color:#fff;font-weight:700;letter-spacing:.06em;border-radius:2px;padding:0 22px;min-width:110px}
+#stop.latched{background:#7a1020;outline:3px solid #ff4d5e99}
 main{display:grid;grid-template-columns:minmax(0,1.7fr) minmax(300px,.8fr);gap:16px;padding:16px 18px;max-width:1500px;margin:auto}
 @media(max-width:1000px){main{grid-template-columns:1fr}}
-.panel{background:linear-gradient(180deg,var(--p2),var(--p1));border:1px solid var(--line);border-radius:16px;padding:14px;margin-bottom:16px}
+.panel{background:var(--p1);border:1px solid var(--line);border-radius:0;padding:14px;margin-bottom:16px}
 .panel h2{margin:0 0 10px;font-size:11px;letter-spacing:.14em;text-transform:uppercase;color:var(--mut);display:flex;gap:8px;align-items:center}
-.panel h2 .tag{margin-left:auto;letter-spacing:0;text-transform:none;font-size:11px;color:var(--cy)}
-.monitor{position:relative;border-radius:12px;overflow:hidden;border:2px solid #000;box-shadow:0 0 0 1px var(--line),0 18px 40px rgba(0,0,0,.5)}
+.panel h2 .tag{margin-left:auto;letter-spacing:0;text-transform:none;font-size:11px;color:var(--ink)}
+.monitor{position:relative;overflow:hidden;border:1px solid #000;outline:1px solid var(--line)}
 canvas{display:block;width:100%;height:auto;background:#000}
-.hud{position:absolute;left:10px;top:8px;right:10px;display:flex;justify-content:space-between;font:11px "JetBrains Mono";color:#b8fff6;text-shadow:0 0 4px #000;pointer-events:none}
-.badges{position:absolute;left:10px;bottom:8px;display:flex;gap:6px;flex-wrap:wrap;pointer-events:none}
-.badge{font:10.5px "JetBrains Mono";background:rgba(0,0,0,.6);border:1px solid #ffb40088;color:var(--am);padding:2px 7px;border-radius:6px}
-.stopov{position:absolute;inset:0;background:rgba(120,10,25,.55);display:none;place-items:center;font-weight:700;font-size:22px;letter-spacing:.1em}
+.hud{position:absolute;left:10px;top:8px;right:10px;display:flex;justify-content:space-between;font:11px "IBM Plex Mono";color:#e8eaed;pointer-events:none;background:rgba(0,0,0,.55);padding:2px 6px}
+.l3{position:absolute;left:12px;bottom:12px;right:12px;display:flex;align-items:stretch;pointer-events:none;max-width:560px}
+.l3 .who{flex:1;min-width:0}
+.l3 .who b{display:block;background:#f1f2f4;color:#111;padding:4px 12px;font-size:15px;font-weight:700;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.l3 .who span{display:block;background:#1d2126;color:#e8eaed;padding:2px 12px;font-size:11px;letter-spacing:.04em;text-transform:uppercase}
+.l3 .tcb{background:var(--dk);color:#e8eaed;padding:4px 10px;display:flex;flex-direction:column;justify-content:center;gap:4px;align-items:flex-end;font:500 12px "IBM Plex Mono"}
+.stopov{position:absolute;inset:0;background:rgba(120,10,25,.7);display:none;place-items:center;font-weight:700;font-size:22px;letter-spacing:.1em}
 .stopov.on{display:grid}
-.gate{border:1px solid var(--line);border-radius:12px;padding:12px;background:#0a0f16;margin-top:12px}
+.gate{border:1px solid var(--line);padding:12px;background:var(--dk);margin-top:12px}
 .gate .idle{color:var(--mut);font-size:13px}
 .chk{display:flex;gap:10px;align-items:center;padding:5px 0;font-size:13px;color:var(--mut)}
-.chk b{width:20px;height:20px;border-radius:50%;display:grid;place-items:center;font-size:11px;background:#1c2634;color:#fff;flex:none}
+.chk b{width:20px;height:20px;border-radius:2px;display:grid;place-items:center;font-size:11px;background:#2c333b;color:#fff;flex:none}
 .chk.ok{color:var(--ink)}.chk.ok b{background:var(--grn)}.chk.no{color:var(--red)}.chk.no b{background:var(--red)}
 .btnrow{display:flex;gap:10px;margin-top:10px;flex-wrap:wrap}
-.btn{border:1px solid var(--line);background:#182231;border-radius:10px;padding:0 16px;font-weight:500}
+.btn{border:1px solid var(--line);background:var(--btn);border-radius:2px;padding:0 16px;font-weight:500}
 .btn.go{background:var(--grn);color:#04210f;border:0;font-weight:700;min-width:170px}
-.btn.no{background:transparent;border-color:#6b2430;color:#ff9aa5}
+.btn.no{background:transparent;border-color:#8a2f3b;color:var(--noc)}
 .btn:disabled{opacity:.4;cursor:not-allowed}
 .grid2{display:grid;grid-template-columns:1fr 1fr;gap:12px}
 @media(max-width:600px){.grid2{grid-template-columns:1fr}}
 .phonewrap{display:flex;justify-content:center}
-.phone{width:100%;max-width:340px;background:#05070a;border:8px solid #1b2330;border-radius:36px;padding:10px 8px 12px;box-shadow:0 0 0 1px #34425a,0 24px 50px rgba(0,0,0,.6);position:relative}
-.notch{width:90px;height:18px;background:#1b2330;border-radius:0 0 12px 12px;margin:-10px auto 6px}
-.pbar{display:flex;justify-content:space-between;font:10.5px "JetBrains Mono";color:var(--mut);padding:0 8px 6px}
-.pview{position:relative;border-radius:10px;overflow:hidden;touch-action:none}
+.phone{--ink:#14171a;--mut:#4b5460;--line:#b4bac2;--btn:#fff;--noc:#a31b2c;--sheet:#fff;width:100%;max-width:340px;background:#e4e6e9;color:var(--ink);border:1px solid #000;padding:10px 8px 12px;position:relative}
+.notch{display:none}
+.grp{font:600 10px "Public Sans";letter-spacing:.12em;text-transform:uppercase;color:var(--mut);margin:10px 0 4px}
+.pbar{display:flex;justify-content:space-between;font:10.5px "IBM Plex Mono";color:var(--mut);padding:0 2px 6px}
+.pview{position:relative;overflow:hidden;touch-action:none;border:1px solid #000}
 .pview canvas{cursor:crosshair}
-.frz{position:absolute;left:8px;top:8px;font:700 10px "JetBrains Mono";background:#1b4fff;color:#fff;padding:2px 6px;border-radius:5px;display:none}
+.frz{position:absolute;left:8px;top:8px;font:700 10px "IBM Plex Mono";background:#14171a;color:#fff;padding:2px 6px;display:none}
 .frz.on{display:block}
-.tools{display:grid;grid-template-columns:repeat(4,1fr);gap:6px;margin-top:8px}
-.tools button{background:#141b25;border:1px solid var(--line);border-radius:10px;font-size:12px;padding:0 2px}
-.tools button.sel{border-color:var(--am);color:var(--am);background:#221a05}
-.chips{display:flex;gap:6px;flex-wrap:wrap;margin-top:8px}
-.chips button{flex:1;min-width:58px;background:#101822;border:1px solid var(--line);border-radius:10px;font-size:11px;padding:0 4px}
-.chips button.sel{border-color:var(--cy);color:var(--cy)}
-.sheet{margin-top:8px;border:1px solid var(--cy);background:#0b2a2a;border-radius:12px;padding:10px;display:none;font-size:13px}
+.tools{display:grid;grid-template-columns:repeat(4,1fr);gap:6px;margin-top:4px}
+.tools button{background:var(--btn);border:1px solid var(--line);border-radius:2px;font-size:12px;padding:0 2px}
+.tools button.sel{border-color:#000;color:#fff;background:#14171a}
+.chips{display:flex;gap:6px;flex-wrap:wrap;margin-top:4px}
+.chips button{flex:1;min-width:58px;background:var(--btn);border:1px solid var(--line);border-radius:2px;font-size:11px;padding:0 4px}
+.chips button.sel{border-color:#000;background:#14171a;color:#fff}
+.sheet{margin-top:8px;border:1px solid #000;background:var(--sheet);padding:10px;display:none;font-size:13px}
 .sheet.on{display:block}
 .rstat{margin-top:8px;font-size:12px;color:var(--mut);min-height:34px}
-.spark{width:100%;height:44px;background:#0a0f16;border-radius:8px;border:1px solid var(--line)}
+.spark{width:100%;height:44px;background:var(--dk);border:1px solid var(--line)}
 .stats{display:grid;grid-template-columns:repeat(3,1fr);gap:8px;margin-top:8px}
-.stats div{background:#0a0f16;border:1px solid var(--line);border-radius:10px;padding:6px 8px;font-size:11px;color:var(--mut)}
-.stats b{display:block;font:500 15px "JetBrains Mono";color:var(--ink)}
-.track{position:relative;height:56px;background:#0a0f16;border:1px solid var(--line);border-radius:10px;cursor:pointer;overflow:hidden}
+.stats div{background:var(--dk);border:1px solid var(--line);padding:6px 8px;font-size:11px;color:var(--mut)}
+.stats b{display:block;font:500 15px "IBM Plex Mono";color:var(--ink)}
+.track{position:relative;height:56px;background:var(--dk);border:1px solid var(--line);cursor:pointer;overflow:hidden}
 .track .bad{position:absolute;top:0;bottom:0;background:rgba(255,77,94,.18);border-left:1px solid var(--red);border-right:1px solid var(--red)}
-.track .ph{position:absolute;top:0;bottom:0;width:2px;background:var(--cy);box-shadow:0 0 8px var(--cy)}
-.ev{position:absolute;top:50%;width:22px;height:22px;margin:-11px 0 0 -11px;border-radius:50%;display:grid;place-items:center;font-size:11px;color:#04100f;font-weight:700;border:2px solid #0a0f16;cursor:pointer;padding:0;min-height:0}
-.ticks{display:flex;justify-content:space-between;font:10px "JetBrains Mono";color:var(--mut);margin-top:4px}
+.track .ph{position:absolute;top:0;bottom:0;width:2px;background:var(--ink)}
+.ev{position:absolute;top:50%;width:22px;height:22px;margin:-11px 0 0 -11px;border-radius:2px;display:grid;place-items:center;font-size:11px;color:#04100f;font-weight:700;border:2px solid var(--dk);cursor:pointer;padding:0;min-height:0}
+.ticks{display:flex;justify-content:space-between;font:10px "IBM Plex Mono";color:var(--mut);margin-top:4px}
 .evd{display:flex;gap:12px;margin-top:10px;align-items:center;font-size:13px;min-height:84px}
-.evd img{width:134px;height:84px;border-radius:8px;border:1px solid var(--line);background:#000;object-fit:cover}
+.evd img{width:134px;height:84px;border:1px solid var(--line);background:#000;object-fit:cover}
 .legend{display:flex;gap:12px;flex-wrap:wrap;font-size:11px;color:var(--mut);margin-top:8px}
-.legend span:before{content:"";display:inline-block;width:9px;height:9px;border-radius:50%;background:var(--c);margin-right:5px}
-.sms{background:#05070a;border:1px solid var(--line);border-radius:16px;padding:10px;max-height:340px;overflow:auto;display:flex;flex-direction:column;gap:6px}
-.m{max-width:88%;padding:7px 10px;border-radius:14px;font-size:12.5px}
-.m.in{align-self:flex-start;background:#1c2634;border-bottom-left-radius:4px}
-.m.out{align-self:flex-end;background:#2f7cf6;border-bottom-right-radius:4px}
-.m img{display:block;width:100%;border-radius:8px;margin-bottom:6px}
+.legend span:before{content:"";display:inline-block;width:9px;height:9px;background:var(--c);margin-right:5px}
+.sms{background:var(--dk);border:1px solid var(--line);padding:10px;max-height:340px;overflow:auto;display:flex;flex-direction:column;gap:6px}
+.m{max-width:88%;padding:7px 10px;border-radius:2px;font-size:12.5px}
+.m.in{align-self:flex-start;background:#2a3038}
+.m.out{align-self:flex-end;background:#e8eaed;color:#111}
+.m img{display:block;width:100%;margin-bottom:6px}
 .m small{display:block;opacity:.6;font-size:10px;margin-top:2px}
 .empty{color:var(--mut);font-size:12px;margin:auto;text-align:center}
-.banner{display:none;margin-bottom:10px;border:1px solid #6b4d00;background:#241a00;color:var(--am);padding:9px 12px;border-radius:10px;font-size:13px}
+.banner{display:none;margin-bottom:10px;border:1px solid #6b4d00;background:#1d1600;color:var(--am);padding:9px 12px;font-size:13px}
 .banner.on{display:block}
+footer{max-width:1500px;margin:0 auto;padding:12px 18px 24px;border-top:1px solid var(--line);font-size:12px;color:var(--mut);display:flex;gap:16px;flex-wrap:wrap}
 </style>
 </head>
 <body>
@@ -105,7 +116,7 @@ canvas{display:block;width:100%;height:auto;background:#000}
   <span class="disc">Training and research prototype. Props only, not for clinical use.</span>
   <span class="sp"></span>
   <span class="pill"><span class="dot red"></span><span class="mono" id="rec">REC 00:00</span></span>
-  <span class="pill"><span class="dot" id="ldot"></span><span class="mono" id="lat">-- ms</span></span>
+  <span class="pill"><span class="dot" id="ldot"></span><span class="mono" id="lat">-- ms</span><span class="sig"><i></i><i></i><i></i><i></i></span></span>
   <button id="stop" aria-label="Stop arm">STOP</button>
 </header>
 
@@ -117,7 +128,7 @@ canvas{display:block;width:100%;height:auto;background:#000}
       <div class="monitor">
         <canvas id="or" width="960" height="600"></canvas>
         <div class="hud"><span>OR 4 &middot; BOX TRAINER &middot; CAM 1</span><span id="hudl">LIVE</span></div>
-        <div class="badges" id="badges"></div>
+        <div class="l3"><div class="who"><b>Dr. R. Okonkwo</b><span>Attending, remote</span></div><div class="tcb"><span id="tc">00:00:00:00</span><span class="sig"><i></i><i></i><i></i><i></i></span></div></div>
         <div class="stopov" id="sov">STOPPED</div>
       </div>
       <div class="gate" id="gate"><div class="idle">Safety gate idle. The remote mentor can propose a handoff. Only the surgeon at the table can approve it.</div></div>
@@ -138,10 +149,13 @@ canvas{display:block;width:100%;height:auto;background:#000}
         <div class="notch"></div>
         <div class="pbar"><span id="pclock">9:41</span><span id="pnet">5G &#9679;&#9679;&#9679;&#9679;</span></div>
         <div class="pview" id="pview"><canvas id="ph" width="640" height="400"></canvas><span class="frz" id="frz">FROZEN</span></div>
+        <div class="grp">Annotation tools</div>
         <div class="tools" id="tools">
           <button data-m="arrow" class="sel">Arrow</button><button data-m="circle">Circle</button><button data-m="pick">Tap tool</button><button data-m="freeze" id="bfrz">Freeze</button>
         </div>
+        <div class="grp">Edit</div>
         <div class="tools" style="grid-template-columns:1fr 1fr"><button id="undo">Undo mark</button><button id="clear">Clear all</button></div>
+        <div class="grp">Request handoff</div>
         <div class="chips" id="chips"></div>
         <div class="sheet" id="sheet"></div>
         <div class="rstat mono" id="rstat">Draw on the frame. Marks follow the tracked object on the OR monitor.</div>
@@ -160,6 +174,8 @@ canvas{display:block;width:100%;height:auto;background:#000}
     </div>
   </aside>
 </main>
+
+<footer><span>Telementor Link, OR integration panel</span><a href="#">Terms</a><a href="#">Privacy</a></footer>
 
 <script>
 const $=id=>document.getElementById(id);
@@ -201,33 +217,33 @@ function inst(c,id,x,y,s,col){c.save();c.translate(x,y);c.scale(s,s);c.strokeSty
  else{c.lineWidth=7;c.beginPath();c.moveTo(-20,0);c.lineTo(20,0);c.stroke();c.lineWidth=2;c.beginPath();c.moveTo(20,0);c.lineTo(36,0);c.stroke()}
  c.restore()}
 function scene(c,W,st){c.save();c.setTransform(W/640,0,0,W/640,0,0);const t=st.t;
- let g=c.createRadialGradient(320,200,40,320,200,420);g.addColorStop(0,'#16363a');g.addColorStop(1,'#050e11');c.fillStyle=g;c.fillRect(0,0,640,400);
- c.strokeStyle='rgba(61,224,208,.06)';c.lineWidth=1;for(let i=0;i<9;i++){c.beginPath();c.moveTo(0,i*50);c.lineTo(640,i*50);c.stroke()}
+ c.fillStyle='#0d1a1d';c.fillRect(0,0,640,400);
+ c.strokeStyle='rgba(143,180,217,.06)';c.lineWidth=1;for(let i=0;i<9;i++){c.beginPath();c.moveTo(0,i*50);c.lineTo(640,i*50);c.stroke()}
  c.fillStyle='#0a1a1d';c.beginPath();c.moveTo(0,330);c.lineTo(640,330);c.lineTo(640,400);c.lineTo(0,400);c.fill();
  c.fillStyle='#02080a';[[110,14],[420,14]].forEach(p=>{c.beginPath();c.arc(p[0],p[1],20,0,7);c.fill();c.strokeStyle='#245';c.lineWidth=3;c.stroke()});
  /* tray */
- c.fillStyle='rgba(20,40,48,.9)';c.strokeStyle='#2c5560';c.lineWidth=2;c.beginPath();c.roundRect(500,40,130,310,10);c.fill();c.stroke();
- c.font='10px JetBrains Mono';c.fillStyle='#6ba';c.fillText('TRAY',510,56);
+ c.fillStyle='rgba(20,40,48,.9)';c.strokeStyle='#2c5560';c.lineWidth=2;c.beginPath();c.roundRect(500,40,130,310,2);c.fill();c.stroke();
+ c.font='10px IBM Plex Mono';c.fillStyle='#6ba';c.fillText('TRAY',510,56);
  SLOTS.forEach((s,i)=>{const [x,y]=sc(i);c.strokeStyle='#2a4a53';c.setLineDash([4,3]);c.strokeRect(508,y-26,114,52);c.setLineDash([]);
-  if(!st.taken.has(i)&&st.handed!==i)inst(c,s.id,x,y,1,s.c);c.fillStyle='#6a98a2';c.font='9px JetBrains Mono';c.fillText(s.n,512,y+22)});
+  if(!st.taken.has(i)&&st.handed!==i)inst(c,s.id,x,y,1,s.c);c.fillStyle='#6a98a2';c.font='9px IBM Plex Mono';c.fillText(s.n,512,y+22)});
  /* pad */
- const pp=objPos('pad',st);c.save();c.translate(pp[0],pp[1]);c.fillStyle='#c98b8b';c.strokeStyle='#e6b3b3';c.lineWidth=2;c.beginPath();c.roundRect(-80,-45,160,90,12);c.fill();c.stroke();
+ const pp=objPos('pad',st);c.save();c.translate(pp[0],pp[1]);c.fillStyle='#c98b8b';c.strokeStyle='#e6b3b3';c.lineWidth=2;c.beginPath();c.roundRect(-80,-45,160,90,3);c.fill();c.stroke();
  c.strokeStyle='#5a2d3a';c.lineWidth=3;c.beginPath();c.moveTo(-50,0);c.lineTo(50,0);c.stroke();c.lineWidth=2;c.strokeStyle='#f4f0e0';for(let i=-4;i<=2;i++){c.beginPath();c.moveTo(-40+i*12+36,-10);c.lineTo(-40+i*12+36,10);c.stroke()}c.restore();
  /* instrument shafts */
  const nd=objPos('needle',st);c.strokeStyle='#9fb6bd';c.lineWidth=7;c.beginPath();c.moveTo(110,14);c.lineTo(nd[0]-8,nd[1]-4);c.stroke();c.beginPath();c.moveTo(420,14);c.lineTo(nd[0]+14,nd[1]-2);c.stroke();
  c.strokeStyle='#ddeef2';c.lineWidth=2.5;c.beginPath();c.arc(nd[0],nd[1]+8,13,3.4,5.9);c.stroke();
  /* hand */
  if(st.hand){c.fillStyle='rgba(230,240,255,.16)';c.strokeStyle='rgba(180,220,255,.5)';c.lineWidth=2;c.beginPath();c.ellipse(PALM[0]+10,PALM[1]+60,44,52,0,0,7);c.fill();c.stroke();for(let i=0;i<4;i++){c.beginPath();c.ellipse(PALM[0]-30+i*20,PALM[1]-12-(i%3==1?8:0),8,24,0,0,7);c.fill();c.stroke()}}
- c.strokeStyle='rgba(61,224,208,.5)';c.setLineDash([5,4]);c.lineWidth=1.5;c.beginPath();c.arc(PALM[0],PALM[1],34,0,7);c.stroke();c.setLineDash([]);c.fillStyle='rgba(61,224,208,.7)';c.font='9px JetBrains Mono';c.fillText('PALM ZONE',PALM[0]-30,PALM[1]+50);
+ c.strokeStyle='rgba(143,180,217,.5)';c.setLineDash([5,4]);c.lineWidth=1.5;c.beginPath();c.arc(PALM[0],PALM[1],34,0,7);c.stroke();c.setLineDash([]);c.fillStyle='rgba(143,180,217,.7)';c.font='9px IBM Plex Mono';c.fillText('PALM ZONE',PALM[0]-30,PALM[1]+50);
  if(st.handed!=null){inst(c,SLOTS[st.handed].id,PALM[0],PALM[1]+4,1.1,SLOTS[st.handed].c)}
  /* arm */
- const [tx,ty,e]=tip(st.A);c.lineCap='round';c.strokeStyle='#1d5b62';c.lineWidth=20;c.beginPath();c.moveTo(BASE[0],BASE[1]);c.lineTo(e[0],e[1]);c.stroke();c.strokeStyle='#3de0d0';c.lineWidth=14;c.beginPath();c.moveTo(e[0],e[1]);c.lineTo(tx,ty);c.stroke();
+ const [tx,ty,e]=tip(st.A);c.lineCap='round';c.strokeStyle='#1d5b62';c.lineWidth=20;c.beginPath();c.moveTo(BASE[0],BASE[1]);c.lineTo(e[0],e[1]);c.stroke();c.strokeStyle='#8fb4d9';c.lineWidth=14;c.beginPath();c.moveTo(e[0],e[1]);c.lineTo(tx,ty);c.stroke();
  c.fillStyle='#07181b';c.beginPath();c.arc(e[0],e[1],8,0,7);c.fill();c.beginPath();c.arc(tx,ty,8,0,7);c.fill();
  if(st.carry!=null)inst(c,SLOTS[st.carry].id,tx,ty,.8,SLOTS[st.carry].c);
  /* camera feel */
  c.fillStyle='rgba(255,255,255,.025)';for(let i=0;i<30;i++){c.fillRect((i*97+t*40)%640,(i*53)%400,2,1)}
  c.restore()}
-function drawBox(c,W,st,id,label){const p=objPos(id,st),r=id==='pad'?[88,52]:id==='needle'?[26,24]:id==='arm'?[22,22]:[60,24];c.save();c.setTransform(W/640,0,0,W/640,0,0);c.strokeStyle='rgba(255,180,0,.75)';c.lineWidth=1;c.strokeRect(p[0]-r[0],p[1]-r[1],r[0]*2,r[1]*2);c.fillStyle='#ffb400';c.font='9px JetBrains Mono';c.fillText(label,p[0]-r[0],p[1]-r[1]-3);c.restore()}
+function drawBox(c,W,st,id,label){const p=objPos(id,st),r=id==='pad'?[88,52]:id==='needle'?[26,24]:id==='arm'?[22,22]:[60,24];c.save();c.setTransform(W/640,0,0,W/640,0,0);c.strokeStyle='rgba(255,180,0,.75)';c.lineWidth=1;c.strokeRect(p[0]-r[0],p[1]-r[1],r[0]*2,r[1]*2);c.fillStyle='#ffb400';c.font='9px IBM Plex Mono';c.fillText(label,p[0]-r[0],p[1]-r[1]-3);c.restore()}
 function annDraw(c,W,st,list,isOR){c.save();c.setTransform(W/640,0,0,W/640,0,0);const tn=performance.now();
  list.forEach(a=>{if(isOR&&!a.arrived)return;const prog=isOR?Math.min(1,(tn-a.arrived)/450):1;const b=a.anchor?objPos(a.anchor,st):[0,0];
   const p0=[b[0]+a.r0[0],b[1]+a.r0[1]],p1=[b[0]+a.r1[0],b[1]+a.r1[1]];c.lineCap='round';
@@ -235,7 +251,7 @@ function annDraw(c,W,st,list,isOR){c.save();c.setTransform(W/640,0,0,W/640,0,0);
    if(a.type==='arrow'){const q=[p0[0]+(p1[0]-p0[0])*prog,p0[1]+(p1[1]-p0[1])*prog],an=Math.atan2(p1[1]-p0[1],p1[0]-p0[0]);c.beginPath();c.moveTo(p0[0],p0[1]);c.lineTo(q[0],q[1]);c.stroke();
     if(prog>.9){c.beginPath();c.moveTo(p1[0],p1[1]);c.lineTo(p1[0]-16*Math.cos(an-.45),p1[1]-16*Math.sin(an-.45));c.moveTo(p1[0],p1[1]);c.lineTo(p1[0]-16*Math.cos(an+.45),p1[1]-16*Math.sin(an+.45));c.stroke()}}
    else{const r=Math.hypot(p1[0]-p0[0],p1[1]-p0[1]);c.beginPath();c.arc(p0[0],p0[1],r,0,Math.PI*2*prog);c.stroke()}}
-  if(isOR&&a.anchor&&prog>=1){c.fillStyle='rgba(0,0,0,.65)';c.fillRect(p0[0]+6,p0[1]+(a.type==='circle'?-Math.hypot(p1[0]-p0[0],p1[1]-p0[1])-22:8),118,16);c.fillStyle='#ffb400';c.font='9.5px JetBrains Mono';c.fillText('\u{1F512} locked: '+OBJN[a.anchor],p0[0]+10,p0[1]+(a.type==='circle'?-Math.hypot(p1[0]-p0[0],p1[1]-p0[1])-10:20))}
+  if(isOR&&a.anchor&&prog>=1){c.fillStyle='rgba(0,0,0,.65)';c.fillRect(p0[0]+6,p0[1]+(a.type==='circle'?-Math.hypot(p1[0]-p0[0],p1[1]-p0[1])-22:8),118,16);c.fillStyle='#ffb400';c.font='9.5px IBM Plex Mono';c.fillText('LOCK '+OBJN[a.anchor],p0[0]+10,p0[1]+(a.type==='circle'?-Math.hypot(p1[0]-p0[0],p1[1]-p0[1])-10:20))}
  });c.restore()}
 
 /* ---------- main loop ---------- */
@@ -247,17 +263,19 @@ function loop(){const st=snap();scene(orX,960,st);
  else if(net.deg||snapMode){const tn=performance.now();if(tn-lastLow>500){lastLow=tn;scene(lx,96,st);phX.imageSmoothingEnabled=false;phX.setTransform(1,0,0,1,0,0);phX.drawImage(low,0,0,640,400)}annDraw(phX,640,st,ann,false)}
  else{scene(phX,640,st);annDraw(phX,640,st,ann,false)}
  if(S.stopped)$('sov').classList.add('on');else $('sov').classList.remove('on');
- $('rec').textContent='REC '+fmt(sessT());$('pclock').textContent=new Date().toLocaleTimeString([], {hour:'numeric',minute:'2-digit'}).replace(/ ?[AP]M/,'');
+ $('rec').textContent='REC '+fmt(sessT());$('tc').textContent=tcode(sessT());$('pclock').textContent=new Date().toLocaleTimeString([], {hour:'numeric',minute:'2-digit'}).replace(/ ?[AP]M/,'');
  requestAnimationFrame(loop)}
 
 /* ---------- link ---------- */
 const lh=[];
 setInterval(()=>{const v=net.deg?650+Math.random()*450:82+Math.random()*38+(Math.random()<.05?60:0);net.lat=Math.round(v);lh.push(net.lat);if(lh.length>60)lh.shift();
- $('lat').textContent=net.lat+' ms';$('s1').textContent=net.lat+' ms';const d=$('ldot');d.className='dot'+(net.lat>400?' red':net.lat>200?' am':'');drawSpark()},500);
+ $('lat').textContent=net.lat+' ms';sigUpdate(net.lat);$('s1').textContent=net.lat+' ms';const d=$('ldot');d.className='dot'+(net.lat>400?' red':net.lat>200?' am':'');drawSpark()},500);
+function sigUpdate(l){const n=l<150?4:l<250?3:l<400?2:1;document.querySelectorAll('.sig').forEach(e=>{e.classList.toggle('lo',n<=2);[...e.children].forEach((b,i)=>b.classList.toggle('on',i<n))})}
+function tcode(t){t=Math.max(0,t);const h=Math.floor(t/3600),m=Math.floor(t/60)%60,sec=Math.floor(t)%60,f=Math.floor((t%1)*30);return[h,m,sec,f].map(v=>String(v).padStart(2,'0')).join(':')}
 function drawSpark(){const c=$('spark').getContext('2d');c.clearRect(0,0,600,88);c.strokeStyle='rgba(255,77,94,.5)';c.setLineDash([4,4]);c.beginPath();c.moveTo(0,88-400/1200*88);c.lineTo(600,88-400/1200*88);c.stroke();c.setLineDash([]);
- c.strokeStyle=net.deg?'#ff4d5e':'#3de0d0';c.lineWidth=2;c.beginPath();lh.forEach((v,i)=>{const x=i*10,y=86-Math.min(v,1200)/1200*84;i?c.lineTo(x,y):c.moveTo(x,y)});c.stroke()}
+ c.strokeStyle=net.deg?'#ff4d5e':'#8fb4d9';c.lineWidth=2;c.beginPath();lh.forEach((v,i)=>{const x=i*10,y=86-Math.min(v,1200)/1200*84;i?c.lineTo(x,y):c.moveTo(x,y)});c.stroke()}
 function addEv(type,label,detail){const o=document.createElement('canvas');o.width=160;o.height=100;o.getContext('2d').drawImage(orC,0,0,160,100);events.push({t:sessT(),type,label,detail,img:o.toDataURL('image/jpeg',.6)});renderTL()}
-const EC={ann:'var(--am)',req:'var(--cy)',net:'var(--red)',sms:'var(--vi)'},EI={ann:'↗',req:'⚙',net:'!',sms:'✉'};
+const EC={ann:'var(--am)',req:'var(--cy)',net:'var(--red)',sms:'var(--vi)'},EI={ann:'A',req:'H',net:'!',sms:'T'};
 function renderTL(){const dur=Math.max(180,sessT()+10),tr=$('track');
  const bad=[...(net.log||[])].map(b=>`<div class="bad" style="left:${b[0]/dur*100}%;width:${((b[1]??sessT())-b[0])/dur*100}%"></div>`).join('');
  tr.innerHTML=bad+events.map((e,i)=>`<button class="ev" data-i="${i}" title="${e.label}" style="left:${e.t/dur*100}%;background:${EC[e.type]}">${EI[e.type]}</button>`).join('')+`<div class="ph" style="left:${sessT()/dur*100}%"></div>`;

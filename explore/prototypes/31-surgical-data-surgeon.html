@@ -1,5 +1,6 @@
 <!DOCTYPE html>
 <!--
+STYLE: Swiss / Minimal professional tool (desktop annotation app, Final Cut / DaVinci / CVAT panels). Neutral grey panels, 1px dividers, dense 12-13px IBM Plex Sans, mono timecodes, small square toggles, color only for gesture labels and flags.
 FEATURES:
 - Episode grid of 48 teleop demos (instrument handoff and interrupted suture) with canvas thumbnails drawn from the real mock trajectories, gesture strips, flags, success and review status, filters, batch actions
 - Label editor: simulated overhead video with tray slots, palm zone, no-fly zone and sterile boundary; Perceptron-suggested gesture lane vs final lane; drag boundaries to correct; change segment label; per-segment video Q&A with clip frames and confidence
@@ -18,110 +19,113 @@ FEATURES:
 <title>Data Surgeon</title>
 <meta name="description" content="A labeling studio that cleans and annotates surgical-robot teleop demonstrations, then exports them in LeRobot format.">
 <link rel="preconnect" href="https://fonts.googleapis.com">
-<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500&display=swap" rel="stylesheet">
 <style>
-:root{--bg:#0d1117;--p:#151b23;--p2:#1c242f;--line:#2a3441;--line2:#38465a;--ink:#e6edf3;--mute:#8b98a9;--faint:#5c6b7e;--acc:#4c8dff;--acc2:#2f6fe0;
---ok:#3fb68b;--bad:#f0605d;--warn:#f0a23b;--vio:#a78bfa}
+:root{--bg:#1e1e1e;--p:#282828;--p2:#323232;--line:#3d3d3d;--line2:#555;--ink:#e2e2e2;--mute:#a0a0a0;--faint:#797979;--acc:#e2e2e2;--acc2:#4a4a4a;
+--ok:#5fb98a;--bad:#e5645f;--warn:#e6a23c;--vio:#b4b4b4}
 *{box-sizing:border-box}html,body{margin:0}
-body{background:var(--bg);color:var(--ink);font:13.5px/1.45 Inter,system-ui,sans-serif;-webkit-font-smoothing:antialiased;min-height:100vh}
+body{background:var(--bg);color:var(--ink);font:12.5px/1.4 "IBM Plex Sans",system-ui,sans-serif;min-height:100vh;display:flex;flex-direction:column}
+main{flex:1}
 button,select,input{font:inherit;color:inherit}button{cursor:pointer}
-.mono{font-family:"JetBrains Mono",monospace;font-size:12px}
-header{position:sticky;top:0;z-index:30;background:#0a0e14;border-bottom:1px solid var(--line)}
-.hr{display:flex;align-items:center;gap:12px;padding:8px 16px;flex-wrap:wrap}
-.logo{display:flex;align-items:center;gap:8px;font-weight:700;font-size:15px}
-.logo i{width:26px;height:26px;border-radius:7px;background:linear-gradient(135deg,var(--acc),var(--vio));display:grid;place-items:center;font-style:normal;font-size:13px}
-.ds{color:var(--mute)}.ds b{color:var(--ink);font-weight:600}
+.mono{font-family:"IBM Plex Mono",monospace;font-size:12px;font-variant-numeric:tabular-nums}
+header{position:sticky;top:0;z-index:30;background:#161616;border-bottom:1px solid var(--line)}
+.hr{display:flex;align-items:center;gap:12px;padding:5px 12px;flex-wrap:wrap}
+.logo{display:flex;align-items:center;gap:8px;font-weight:600;font-size:13px}
+.logo i{width:22px;height:22px;border:1px solid var(--line2);background:var(--p2);display:grid;place-items:center;font-style:normal;font-size:10px;font-family:"IBM Plex Mono",monospace}
+.ds{color:var(--mute)}.ds b{color:var(--ink);font-weight:500}
 .sp{flex:1}
-.stat{display:flex;gap:6px;flex-wrap:wrap}
-.kp{padding:3px 9px;border:1px solid var(--line);border-radius:6px;background:var(--p);font-size:12px;color:var(--mute)}.kp b{color:var(--ink);margin-left:4px}
-.tabs{display:flex;gap:0;padding:0 12px;overflow-x:auto}
+.stat{display:flex;gap:0;flex-wrap:wrap}
+.kp{padding:2px 9px;border:1px solid var(--line);margin-left:-1px;background:var(--p);font-size:12px;color:var(--mute)}.kp b{color:var(--ink);margin-left:5px;font-family:"IBM Plex Mono",monospace;font-weight:500}
+.tabs{display:flex;gap:0;padding:0 8px;overflow-x:auto}
 .tab{background:none;border:0;border-bottom:2px solid transparent;min-height:44px;padding:0 14px;color:var(--mute);font-weight:500;white-space:nowrap}
-.tab.on{color:var(--ink);border-color:var(--acc)}
-.warnb{background:#2a2112;color:#f5c26b;font-size:12px;padding:5px 16px;border-bottom:1px solid #3d3017}
-main{padding:16px}
+.tab.on{color:var(--ink);border-color:var(--ink)}
+.warnb{background:#2b2b2b;color:var(--mute);font-size:11.5px;padding:3px 12px;border-bottom:1px solid var(--line)}
+main{padding:10px 12px}
 .view{display:none}.view.on{display:block}
-.btn{min-height:44px;padding:0 14px;border:1px solid var(--line2);background:var(--p2);border-radius:6px;font-weight:500;display:inline-flex;align-items:center;gap:6px}
-.btn:hover{background:#243040}
-.btn.pri{background:var(--acc2);border-color:var(--acc);color:#fff}.btn.pri:hover{background:var(--acc)}
-.btn.ok{background:#1b3a30;border-color:#2c6b55;color:#7fe0b8}
-.btn.bad{background:#3a1d1f;border-color:#74312f;color:#ff9d9a}
-.btn.sm{padding:0 10px;font-size:12.5px}
-.btn:disabled{opacity:.45;cursor:default}
-.chip{min-height:44px;padding:0 12px;border:1px solid var(--line2);background:var(--p);border-radius:999px;color:var(--mute);font-size:12.5px}
-.chip.on{background:var(--acc2);border-color:var(--acc);color:#fff}
-select,input[type=text],input[type=number]{min-height:44px;background:var(--p);border:1px solid var(--line2);border-radius:6px;padding:0 10px}
-.bar{display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin-bottom:12px}
-.grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(220px,1fr));gap:10px}
-.card{background:var(--p);border:1px solid var(--line);border-radius:8px;overflow:hidden;position:relative}
+.btn{min-height:44px;padding:0 12px;border:1px solid var(--line2);background:var(--p2);border-radius:2px;font-weight:500;display:inline-flex;align-items:center;gap:6px}
+.btn:hover{background:#3d3d3d}
+.btn.pri{background:var(--ink);border-color:var(--ink);color:#161616}.btn.pri:hover{background:#fff}
+.btn.ok{color:var(--ok)}
+.btn.bad{color:var(--bad)}
+.btn.sm{min-height:26px;padding:0 9px;font-size:12px}
+.btn:disabled{opacity:.4;cursor:default}
+.chip{min-height:26px;padding:0 10px;border:1px solid var(--line2);background:var(--p);border-radius:2px;color:var(--mute);font-size:12px}
+.chip.on{background:var(--ink);border-color:var(--ink);color:#161616}
+select,input[type=text],input[type=number]{min-height:26px;background:var(--bg);border:1px solid var(--line2);border-radius:2px;padding:0 8px}
+.bar{display:flex;gap:6px;flex-wrap:wrap;align-items:center;margin-bottom:10px}
+.grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(220px,1fr));gap:8px}
+.card{background:var(--p);border:1px solid var(--line);border-radius:2px;overflow:hidden;position:relative}
 .ep{cursor:pointer}.ep:hover{border-color:var(--line2)}
-.ep.sel{border-color:var(--acc);box-shadow:0 0 0 1px var(--acc)}
+.ep.sel{border-color:var(--ink);outline:1px solid var(--ink)}
 .ep canvas{display:block;width:100%;height:auto}
-.eb{padding:8px 10px}
+.eb{padding:6px 8px}
 .er{display:flex;align-items:center;gap:6px;flex-wrap:wrap}
-.gstrip{display:flex;height:6px;border-radius:3px;overflow:hidden;margin:6px 0}
+.gstrip{display:flex;height:6px;overflow:hidden;margin:6px 0}
 .gstrip i{display:block;height:100%}
-.pill{font-size:11px;font-weight:600;padding:1px 7px;border-radius:999px;border:1px solid transparent}
-.pill.ok{background:#14322a;color:#5fd3a5;border-color:#1f5a47}.pill.bad{background:#3a1d1f;color:#ff8a87;border-color:#6a2c2a}.pill.warn{background:#3a2b12;color:#f5b556;border-color:#664a1a}.pill.gray{background:var(--p2);color:var(--mute);border-color:var(--line)}.pill.vio{background:#2a2250;color:#bba8ff;border-color:#45398a}
-.chk{position:absolute;top:6px;left:6px;width:44px;height:44px;display:grid;place-items:center;z-index:2}
-.chk span{width:18px;height:18px;border-radius:4px;border:1.5px solid #cfd8e3;background:rgba(10,14,20,.6);display:grid;place-items:center;font-size:12px}
-.chk span.on{background:var(--acc);border-color:var(--acc)}
-.fl{display:flex;gap:4px}.fl b{width:18px;height:18px;border-radius:4px;display:grid;place-items:center;font-size:10px;color:#111}
-.panel{min-width:0;overflow-x:auto;background:var(--p);border:1px solid var(--line);border-radius:8px;padding:14px}
-.panel h3{margin:0 0 2px;font-size:14px}.panel .sub{color:var(--mute);font-size:12px;margin-bottom:10px}
-.lay{display:grid;grid-template-columns:minmax(0,1fr) 340px;gap:12px;align-items:start}
-.col{display:flex;flex-direction:column;gap:12px;min-width:0}
-.vwrap{position:relative;background:#05080c;border-radius:6px;overflow:hidden}
+.pill{font-size:11px;font-weight:500;padding:0 6px;border-radius:2px;border:1px solid transparent;font-family:"IBM Plex Mono",monospace}
+.pill.ok{background:#1f2d26;color:#6fcaa0;border-color:#2e4a3d}.pill.bad{background:#34201f;color:#ee7b76;border-color:#5a3130}.pill.warn{background:#33291a;color:#ecb25d;border-color:#58451f}.pill.gray{background:var(--p2);color:var(--mute);border-color:var(--line)}.pill.vio{background:#3a3a3a;color:#d0d0d0;border-color:#555}
+.chk{position:absolute;top:0;left:0;width:36px;height:36px;display:grid;place-items:center;z-index:2}
+.chk span{width:16px;height:16px;border-radius:2px;border:1px solid #cfcfcf;background:rgba(20,20,20,.7);display:grid;place-items:center}
+.chk span.on{background:var(--ink);border-color:var(--ink);box-shadow:inset 0 0 0 3px #161616}
+.fl{display:flex;gap:3px}.fl b{width:16px;height:16px;border-radius:2px;display:grid;place-items:center;font-size:10px;color:#111;font-family:"IBM Plex Mono",monospace}
+.panel{min-width:0;overflow-x:auto;background:var(--p);border:1px solid var(--line);border-radius:2px;padding:10px}
+.panel h3{margin:0 0 2px;font-size:11px;font-weight:600;text-transform:uppercase;letter-spacing:.06em;color:var(--mute)}.panel .sub{color:var(--faint);font-size:12px;margin-bottom:8px}
+.lay{display:grid;grid-template-columns:minmax(0,1fr) 340px;gap:8px;align-items:start}
+.col{display:flex;flex-direction:column;gap:8px;min-width:0}
+.vwrap{position:relative;background:#000;overflow:hidden}
 canvas{max-width:100%}
 .vwrap canvas{display:block;width:100%;height:auto}
-.hud{position:absolute;left:8px;top:8px;display:flex;gap:6px;flex-wrap:wrap}
-.hud span{background:rgba(5,8,12,.78);border:1px solid var(--line2);border-radius:4px;padding:2px 7px;font-size:11px}
-.tlx{position:relative;margin-top:10px;user-select:none;touch-action:none}
-.lane{display:flex;align-items:center;gap:8px;margin-bottom:4px}
+.hud{position:absolute;left:6px;top:6px;display:flex;gap:4px;flex-wrap:wrap}
+.hud span{background:rgba(0,0,0,.8);border:1px solid var(--line2);border-radius:2px;padding:1px 6px;font-size:11px;font-family:"IBM Plex Mono",monospace}
+.tlx{position:relative;margin-top:8px;user-select:none;touch-action:none}
+.lane{display:flex;align-items:center;gap:8px;margin-bottom:2px}
 .lane label{width:66px;flex:none;font-size:11px;color:var(--mute);line-height:1.15}
-.trk{position:relative;flex:1;height:34px;background:#0d131a;border:1px solid var(--line);border-radius:4px}
-.trk.h{height:44px}
-.sg{position:absolute;top:2px;bottom:2px;border-radius:3px;display:flex;align-items:center;padding:0 5px;font-size:11px;font-weight:600;color:#0a0e14;overflow:hidden;white-space:nowrap;cursor:pointer;border:1px solid rgba(0,0,0,.35)}
+.trk{position:relative;flex:1;height:30px;background:#171717;border:1px solid var(--line)}
+.trk.h{height:40px}
+.sg{position:absolute;top:2px;bottom:2px;border-radius:1px;display:flex;align-items:center;padding:0 5px;font-size:11px;font-weight:600;font-family:"IBM Plex Mono",monospace;color:#101010;overflow:hidden;white-space:nowrap;cursor:pointer;border:1px solid rgba(0,0,0,.4)}
 .sg.sel{outline:2px solid #fff;z-index:2}
-.sg.low{background-image:repeating-linear-gradient(135deg,rgba(0,0,0,.28) 0 4px,transparent 4px 8px)}
+.sg.low{border:1px dashed #000;opacity:.6}
 .bh{position:absolute;top:-2px;bottom:-2px;width:20px;margin-left:-10px;cursor:ew-resize;z-index:4;display:grid;place-items:center;touch-action:none}
-.bh i{width:3px;height:100%;background:#fff;border-radius:2px;box-shadow:0 0 0 1px rgba(0,0,0,.5)}
-.bh:hover i{background:var(--acc)}
-.fmk{position:absolute;top:2px;width:18px;height:18px;margin-left:-9px;border-radius:50%;border:2px solid #0d131a;cursor:pointer;display:grid;place-items:center;font-size:10px;font-weight:700;color:#111}
+.bh i{width:3px;height:100%;background:#fff;outline:1px solid rgba(0,0,0,.6)}
+.bh:hover i{background:var(--warn)}
+.fmk{position:absolute;top:2px;width:16px;height:16px;margin-left:-8px;border-radius:2px;border:1px solid #111;cursor:pointer;display:grid;place-items:center;font-size:10px;font-weight:700;color:#111;font-family:"IBM Plex Mono",monospace}
 .fmk.res{opacity:.35}
-.phx{position:absolute;top:0;bottom:0;width:2px;background:#ff5d5d;pointer-events:none;z-index:5}
+.phx{position:absolute;top:0;bottom:0;width:1px;background:#ff5d5d;pointer-events:none;z-index:5}
 .phl{position:absolute;left:74px;right:0;top:0;bottom:0;pointer-events:none}
-.ctr{display:flex;align-items:center;gap:8px;margin-top:8px;flex-wrap:wrap}
-.kbd{font-family:"JetBrains Mono";font-size:11px;border:1px solid var(--line2);border-bottom-width:2px;border-radius:4px;padding:0 5px;color:var(--mute)}
-.qa{background:var(--p2);border:1px solid var(--line);border-radius:6px;padding:10px;margin-top:8px}
+.ctr{display:flex;align-items:center;gap:6px;margin-top:8px;flex-wrap:wrap}
+.kbd{font-family:"IBM Plex Mono",monospace;font-size:11px;border:1px solid var(--line2);border-radius:2px;padding:0 5px;color:var(--mute)}
+.qa{background:var(--bg);border:1px solid var(--line);padding:8px;margin-top:8px}
 .qa .q{color:var(--mute);font-size:12px}.qa .a{margin-top:4px}
-.conf{height:5px;border-radius:3px;background:#0d131a;margin-top:6px;overflow:hidden}.conf i{display:block;height:100%}
-.frames{display:flex;gap:4px;margin-top:6px}.frames canvas{width:33%;border-radius:4px;border:1px solid var(--line)}
-.fli{display:flex;gap:8px;align-items:center;padding:6px 0;border-bottom:1px solid var(--line)}
+.conf{height:4px;background:#171717;margin-top:6px;overflow:hidden}.conf i{display:block;height:100%}
+.frames{display:flex;gap:4px;margin-top:6px}.frames canvas{width:33%;border:1px solid var(--line)}
+.fli{display:flex;gap:8px;align-items:center;padding:5px 0;border-bottom:1px solid var(--line)}
 .fli:last-child{border:0}
-.dot{width:10px;height:10px;border-radius:50%;flex:none}
-.hm{display:grid;gap:3px}
-.hmc{min-height:44px;border-radius:4px;display:grid;place-items:center;font-weight:600;font-size:12.5px;border:1px solid transparent;cursor:pointer;color:#fff}
+.dot{width:8px;height:8px;border-radius:1px;flex:none}
+.hm{display:grid;gap:2px}
+.hmc{min-height:32px;border-radius:2px;display:grid;place-items:center;font-weight:500;font-size:12px;font-family:"IBM Plex Mono",monospace;border:1px solid transparent;cursor:pointer;color:#fff}
 .hmc:hover{border-color:#fff}
 .hmh{font-size:11px;color:var(--mute);display:flex;align-items:center;justify-content:center;text-align:center}
 table{width:100%;border-collapse:collapse}
-th,td{text-align:left;padding:6px 8px;border-bottom:1px solid var(--line);font-size:12.5px}
+th,td{text-align:left;padding:4px 8px;border-bottom:1px solid var(--line);font-size:12px}
 th{color:var(--mute);font-weight:500}
-.mx td.v{text-align:center;font-weight:600;font-family:"JetBrains Mono";color:#06101e}
-.bars .r{display:flex;align-items:center;gap:8px;margin:4px 0;font-size:12px}
-.bars .r span{width:160px;flex:none;color:var(--mute)}
-.bars .r div{flex:1;height:10px;background:#0d131a;border-radius:3px;overflow:hidden}.bars .r div i{display:block;height:100%}
-.two{display:grid;grid-template-columns:1fr 1fr;gap:12px}
-.tree{max-width:100%;font-family:"JetBrains Mono";font-size:12px;white-space:pre;overflow:auto;background:#0a0e14;border:1px solid var(--line);border-radius:6px;padding:10px;color:#b7c4d6;max-height:300px}
-.tree .d{color:#7fb0ff}.tree .n{color:#5c6b7e}
-.prog{height:8px;background:#0d131a;border-radius:4px;overflow:hidden;margin:6px 0}.prog i{display:block;height:100%;background:var(--acc);transition:width .2s}
-.stg{display:flex;gap:8px;align-items:center;font-size:12.5px;color:var(--mute);padding:3px 0}
+.mx td.v{text-align:center;font-weight:500;font-family:"IBM Plex Mono",monospace;color:#fff}
+.bars .r{display:flex;align-items:center;gap:8px;margin:3px 0;font-size:12px;font-family:"IBM Plex Mono",monospace}
+.bars .r span{width:160px;flex:none;color:var(--mute);font-family:"IBM Plex Sans",sans-serif}
+.bars .r div{flex:1;height:8px;background:#171717;overflow:hidden}.bars .r div i{display:block;height:100%}
+.two{display:grid;grid-template-columns:1fr 1fr;gap:8px}
+.tree{max-width:100%;font-family:"IBM Plex Mono",monospace;font-size:12px;white-space:pre;overflow:auto;background:#161616;border:1px solid var(--line);border-radius:2px;padding:8px;color:#b8b8b8;max-height:300px}
+.tree .d{color:#e2e2e2}.tree .n{color:#797979}
+.prog{height:6px;background:#171717;overflow:hidden;margin:6px 0}.prog i{display:block;height:100%;background:var(--ink)}
+.stg{display:flex;gap:8px;align-items:center;font-size:12px;color:var(--mute);padding:2px 0;font-family:"IBM Plex Mono",monospace}
 .stg.done{color:var(--ok)}.stg.run{color:var(--ink)}
-label.cb{display:flex;align-items:center;gap:8px;min-height:44px}
-label.cb input{width:18px;height:18px}
-.toast{position:fixed;bottom:16px;left:50%;transform:translateX(-50%);background:#1c2a3d;border:1px solid var(--acc);padding:8px 14px;border-radius:6px;z-index:50;opacity:0;pointer-events:none;transition:opacity .2s}
+label.cb{display:flex;align-items:center;gap:8px;min-height:30px}
+label.cb input{width:14px;height:14px}
+.toast{position:fixed;bottom:16px;left:50%;transform:translateX(-50%);background:var(--p2);border:1px solid var(--line2);padding:6px 12px;z-index:50;opacity:0;pointer-events:none}
 .toast.on{opacity:1}
+.foot{padding:6px 12px;border-top:1px solid var(--line);background:#161616;color:var(--faint);font-size:11.5px;display:flex;gap:14px;flex-wrap:wrap}
+.foot a{color:var(--mute)}
 @media(max-width:1000px){.two>*,.lay>*{min-width:0}.lay,.two{grid-template-columns:1fr}}
-@media(max-width:480px){main{padding:10px}.lane label{width:48px}.phl{left:56px}.bars .r span{width:100px}}
+@media(max-width:480px){main{padding:8px}.lane label{width:48px}.phl{left:56px}.bars .r span{width:100px}}
 </style>
 </head>
 <body>
@@ -145,6 +149,7 @@ label.cb input{width:18px;height:18px}
 <section class="view" id="v-exp"></section>
 </main>
 <div class="toast" id="toast"></div>
+<footer class="foot"><span>Data Surgeon prototype. Props only, no patient data.</span><a href="#">Terms</a><a href="#">Privacy</a></footer>
 
 <script>
 (function(){
@@ -156,7 +161,7 @@ const VOC={handoff:{H1:"Reach tray slot",H2:"Grasp instrument",H3:"Lift clear of
  suture:{G1:"Reaching for needle",G2:"Positioning needle",G3:"Pushing needle through tissue",G4:"Transferring needle",G5:"Moving to center",G6:"Pulling suture",G8:"Orienting needle",G9:"Tightening suture",G11:"Dropping suture, moving to end points"}};
 const SEQ={handoff:["H1","H2","H3","H4","H5","H6","H7"],suture:["G1","G2","G3","G6","G4","G8","G2","G3","G6","G9","G11"]};
 const INSTR=["Needle driver","Forceps","Scissors","Hemostat clamp","Scalpel handle","Gauze sponge"];
-const ICOL=["#4c8dff","#3fb68b","#f0a23b","#a78bfa","#f0605d","#d6dde6"];
+const ICOL=["#e6e6e6","#c4c4c4","#a2a2a2","#8a8a8a","#d4d4d4","#f4f4f4"];
 const FLT={tremor:{n:"Tremor spike",c:"#f0605d",s:"T"},idle:{n:"Idle",c:"#f0a23b",s:"I"},nofly:{n:"No-fly zone",c:"#ff4fa3",s:"N"},sterile:{n:"Sterile breach",c:"#4fd1ff",s:"S"}};
 function rnd(seed){let s=seed*9301+49297;return()=>{s=(s*9301+49297)%233280;return s/233280}}
 function ease(u){return u*u*(3-2*u)}
@@ -230,27 +235,27 @@ function tremorSig(e){
 }
 function drawScene(c,W,H,e,t,full){
   c.clearRect(0,0,W,H);
-  c.fillStyle="#0c1218";c.fillRect(0,0,W,H);
+  c.fillStyle="#101010";c.fillRect(0,0,W,H);
   const X=p=>p[0]*W,Y=p=>p[1]*H;
   // sterile field
   c.strokeStyle="rgba(79,209,255,.45)";c.setLineDash([8,6]);c.lineWidth=full?1.5:1;c.strokeRect(W*.02,H*.04,W*.94,H*.9);c.setLineDash([]);
-  if(full){c.fillStyle="rgba(79,209,255,.7)";c.font="600 10px Inter";c.fillText("STERILE FIELD",W*.03,H*.09)}
+  if(full){c.fillStyle="rgba(79,209,255,.7)";c.font="600 10px IBM Plex Sans";c.fillText("STERILE FIELD",W*.03,H*.09)}
   const tl=e.task==="handoff";
   if(tl){
     // tray
-    c.fillStyle="#18222d";c.strokeStyle="#334152";c.lineWidth=1.5;c.beginPath();c.roundRect(W*.04,H*.14,W*.3,H*.7,6);c.fill();c.stroke();
-    for(let i=0;i<8;i++){const p=slotXY(i);c.strokeStyle=i===e.slot?"#4c8dff":"#2d3a4a";c.lineWidth=i===e.slot?2:1;c.beginPath();c.roundRect(p[0]*W-W*.04,p[1]*H-H*.055,W*.08,H*.11,4);c.stroke();
-      if(full){c.fillStyle="#5c6b7e";c.font="10px JetBrains Mono";c.fillText("S"+(i+1),p[0]*W-W*.035,p[1]*H+H*.085)}}
+    c.fillStyle="#1c1c1c";c.strokeStyle="#444";c.lineWidth=1.5;c.beginPath();c.roundRect(W*.04,H*.14,W*.3,H*.7,6);c.fill();c.stroke();
+    for(let i=0;i<8;i++){const p=slotXY(i);c.strokeStyle=i===e.slot?"#e2e2e2":"#3a3a3a";c.lineWidth=i===e.slot?2:1;c.beginPath();c.roundRect(p[0]*W-W*.04,p[1]*H-H*.055,W*.08,H*.11,4);c.stroke();
+      if(full){c.fillStyle="#5c6b7e";c.font="10px IBM Plex Mono";c.fillText("S"+(i+1),p[0]*W-W*.035,p[1]*H+H*.085)}}
     // palm
     c.fillStyle="rgba(240,190,160,.2)";c.strokeStyle="#e7b898";c.lineWidth=1.5;c.beginPath();c.ellipse(PALM[0]*W,PALM[1]*H,W*.08,H*.15,0,0,7);c.fill();c.stroke();
-    if(full){c.fillStyle="#e7b898";c.font="600 10px Inter";c.fillText("PALM ZONE",PALM[0]*W-W*.05,PALM[1]*H+H*.2)}
+    if(full){c.fillStyle="#e7b898";c.font="600 10px IBM Plex Sans";c.fillText("PALM ZONE",PALM[0]*W-W*.05,PALM[1]*H+H*.2)}
   }else{
-    c.fillStyle="#d89a96";c.strokeStyle="#a86b67";c.lineWidth=2;c.beginPath();c.roundRect(W*.25,H*.2,W*.5,H*.6,18);c.fill();c.stroke();
+    c.fillStyle="#8c8c8c";c.strokeStyle="#5e5e5e";c.lineWidth=2;c.beginPath();c.roundRect(W*.25,H*.2,W*.5,H*.6,3);c.fill();c.stroke();
     c.setLineDash([6,5]);c.strokeStyle="#5a2a2a";c.beginPath();c.moveTo(W*.5,H*.28);c.lineTo(W*.5,H*.72);c.stroke();c.setLineDash([]);
   }
   // no-fly zone
   c.fillStyle="rgba(255,79,163,.1)";c.strokeStyle="#ff4fa3";c.setLineDash([5,4]);c.lineWidth=1.5;c.beginPath();c.arc(W*.5,H*.42,H*.13,0,7);c.fill();c.stroke();c.setLineDash([]);
-  if(full){c.fillStyle="#ff4fa3";c.font="600 10px Inter";c.fillText("NO-FLY",W*.5-W*.03,H*.42+H*.19)}
+  if(full){c.fillStyle="#ff4fa3";c.font="600 10px IBM Plex Sans";c.fillText("NO-FLY",W*.5-W*.03,H*.42+H*.19)}
   // instrument
   const p=pos(e,t),i=segIdx(e.gold,t),ic=ICOL[e.instr];
   const tp=tl?(i>=1&&i<=4?p:i>=5?[PALM[0]-.02,PALM[1]]:slotXY(e.slot)):null;
@@ -259,7 +264,7 @@ function drawScene(c,W,H,e,t,full){
   c.strokeStyle="#7a8aa0";c.lineWidth=full?8:5;c.lineCap="round";c.beginPath();c.moveTo(W*.5,H);c.lineTo(X(p),Y(p));c.stroke();
   c.strokeStyle="#e6edf3";c.lineWidth=full?3:2;c.beginPath();c.moveTo(X(p),Y(p));c.lineTo(X(p)-W*.015,Y(p)-H*.04);c.moveTo(X(p),Y(p));c.lineTo(X(p)+W*.015,Y(p)-H*.04);c.stroke();
   // flag blink
-  e.flags.forEach(f=>{if((f.type==="nofly"||f.type==="sterile")&&Math.abs(t-f.t)<.5&&full){c.fillStyle=FLT[f.type].c;c.font="700 13px Inter";c.fillText("! "+FLT[f.type].n.toUpperCase(),W*.5-60,H*.1)}});
+  e.flags.forEach(f=>{if((f.type==="nofly"||f.type==="sterile")&&Math.abs(t-f.t)<.5&&full){c.fillStyle=FLT[f.type].c;c.font="700 13px IBM Plex Sans";c.fillText("! "+FLT[f.type].n.toUpperCase(),W*.5-60,H*.1)}});
 }
 function thumb(cv,e){
   const c=cv.getContext("2d"),W=cv.width,H=cv.height;
@@ -311,7 +316,7 @@ function rGrid(){
    <button class="btn sm bad" id="bDrop" ${sel?"":"disabled"}>Exclude from export</button></div><div class="grid">`;
   L.forEach(e=>{
     const q=quality(e),of=openFlags(e),tot=e.dur;
-    h+=`<div class="card ep ${e.sel?"sel":""}" data-id="${e.id}"><div class="chk" data-c="${e.id}"><span class="${e.sel?"on":""}">${e.sel?"✓":""}</span></div>
+    h+=`<div class="card ep ${e.sel?"sel":""}" data-id="${e.id}"><div class="chk" data-c="${e.id}"><span class="${e.sel?"on":""}"></span></div>
      <canvas width="320" height="180" data-th="${e.id}"></canvas><div class="eb"><div class="er"><b class="mono">${e.name}</b><span class="pill ${e.task==="handoff"?"vio":"gray"}">${e.task}</span><span style="margin-left:auto" class="mono" title="Quality score">Q${q}</span></div>
      <div class="gstrip">${e.final.map(s=>`<i style="width:${(s.e-s.s)/tot*100}%;background:${COL[s.g]}"></i>`).join("")}</div>
      <div class="er"><span class="pill ${e.success==="success"?"ok":e.success==="failed"?"bad":"warn"}">${e.success}</span><span class="pill ${e.status==="done"?"ok":e.status==="review"?"warn":"gray"}">${e.status}</span><span class="fl" style="margin-left:auto">${of.map(f=>`<b style="background:${FLT[f.type].c}" title="${FLT[f.type].n}">${FLT[f.type].s}</b>`).join("")}</span></div>
@@ -356,7 +361,7 @@ function rLabel(){
    <div class="panel"><h3>Selected segment</h3><div class="sub">${seg.g} &middot; ${fmt(seg.s)} to ${fmt(seg.e)} (${(seg.e-seg.s).toFixed(1)}s)</div>
     <div class="ctr" style="margin:0"><select id="gsel" aria-label="Gesture label">${Object.keys(voc).map(g=>`<option value="${g}" ${g===seg.g?"selected":""}>${g} ${voc[g]}</option>`).join("")}</select>
      <button class="btn sm" id="split">Split at playhead</button><button class="btn sm bad" id="merge">Merge with next</button></div>
-    <div class="qa"><div class="q"><b style="color:var(--acc)">Perceptron video Q&amp;A</b> &middot; ${qa.q}</div>
+    <div class="qa"><div class="q"><b style="color:var(--ink)">Perceptron video Q&amp;A</b> &middot; ${qa.q}</div>
      <div class="a" id="qaA"><b>${qa.a}</b> <span class="mono" style="color:var(--mute)">conf ${qa.conf.toFixed(2)}</span></div>
      <div class="conf"><i style="width:${qa.conf*100}%;background:${qa.conf<.6?"var(--warn)":"var(--ok)"}"></i></div>
      <div class="frames"><canvas width="160" height="90" data-fr="0"></canvas><canvas width="160" height="90" data-fr="1"></canvas><canvas width="160" height="90" data-fr="2"></canvas></div>
@@ -382,8 +387,8 @@ function drawTL(){
     e.final.slice(0,-1).map((s,i)=>`<div class="bh" data-b="${i}" style="left:${pct(s.e)}"><i></i></div>`).join("");
   $("tFl").innerHTML=e.flags.map(f=>`<div class="fmk ${f.res?"res":""}" data-j="${f.id}" style="left:${pct(f.t)};background:${FLT[f.type].c}" title="${FLT[f.type].n} ${fmt(f.t)}">${FLT[f.type].s}</div>`).join("");
   const c=$("tc").getContext("2d"),tr=tremorSig(e),W=800,H=34;c.clearRect(0,0,W,H);
-  c.strokeStyle="rgba(240,96,93,.5)";c.setLineDash([4,4]);c.beginPath();c.moveTo(0,H*.38);c.lineTo(W,H*.38);c.stroke();c.setLineDash([]);
-  c.strokeStyle="#6ea8ff";c.lineWidth=1.5;c.beginPath();tr.forEach((v,i)=>{const x=i/(tr.length-1)*W,y=H-2-v/1.0*(H-4);i?c.lineTo(x,y):c.moveTo(x,y)});c.stroke();
+  c.strokeStyle="rgba(229,100,95,.6)";c.setLineDash([4,4]);c.beginPath();c.moveTo(0,H*.38);c.lineTo(W,H*.38);c.stroke();c.setLineDash([]);
+  c.strokeStyle="#cfcfcf";c.lineWidth=1.5;c.beginPath();tr.forEach((v,i)=>{const x=i/(tr.length-1)*W,y=H-2-v/1.0*(H-4);i?c.lineTo(x,y):c.moveTo(x,y)});c.stroke();
 }
 function paintFrames(){
   const e=EPS[st.cur],s=e.final[st.seg]||e.final[0];
@@ -454,11 +459,11 @@ function rCov(){
   const mx=Math.max(...cnt.flat()),gaps=[];
   cnt.forEach((r,i)=>r.forEach((v,j)=>{if(v<2)gaps.push([i,j,v])}));
   const rec=gaps.sort((a,b)=>a[2]-b[2]).slice(0,5).filter(g=>g[0]<5||true);
-  const colr=v=>v===0?"#3a1d1f":`rgba(76,141,255,${.2+.8*v/mx})`;
+  const colr=v=>v===0?"#34201f":`rgba(226,226,226,${.12+.7*v/mx})`;
   let h=`<div class="lay"><div class="panel"><h3>Coverage: instrument type x tray slot</h3><div class="sub">Episodes per cell (non-excluded). Target is at least 2 per cell. Click a cell to filter the episode grid.</div>
    <div class="hm" style="grid-template-columns:110px repeat(8,minmax(0,1fr))"><div></div>${[...Array(8)].map((_,j)=>`<div class="hmh">S${j+1}</div>`).join("")}`;
   cnt.forEach((r,i)=>{h+=`<div class="hmh" style="justify-content:flex-start">${INSTR[i]}</div>`+r.map((v,j)=>`<div class="hmc" data-c="${i},${j}" style="background:${colr(v)};${v<2?"border:1px dashed #ff8a87":""}">${v}</div>`).join("")});
-  h+=`</div><div style="margin-top:10px;color:var(--mute);display:flex;gap:12px;flex-wrap:wrap"><span><i class="dot" style="display:inline-block;background:#3a1d1f;border:1px dashed #ff8a87"></i> gap (0 or 1)</span><span><i class="dot" style="display:inline-block;background:rgba(76,141,255,.9)"></i> well covered</span></div></div>
+  h+=`</div><div style="margin-top:10px;color:var(--mute);display:flex;gap:12px;flex-wrap:wrap"><span><i class="dot" style="display:inline-block;background:#34201f;border:1px dashed #ff8a87"></i> gap (0 or 1)</span><span><i class="dot" style="display:inline-block;background:rgba(226,226,226,.8)"></i> well covered</span></div></div>
    <div class="col"><div class="panel"><h3>Next recordings to collect</h3><div class="sub">${gaps.length} of 48 cells under target</div>${rec.map(g=>`<div class="fli"><span class="dot" style="background:${ICOL[g[0]]}"></span><div style="flex:1"><b>${INSTR[g[0]]}</b> from slot S${g[1]+1}<div style="color:var(--mute)">${g[2]} demos, need ${2-g[2]} more</div></div></div>`).join("")}</div>
    <div class="panel"><h3>Outcome balance</h3><div class="sub">Across ${EPS.length} episodes</div><div class="bars">${["success","failed","recovered"].map(o=>{const n=EPS.filter(e=>e.success===o).length;return `<div class="r"><span>${o}</span><div><i style="width:${n/EPS.length*100}%;background:${o==="success"?"var(--ok)":o==="failed"?"var(--bad)":"var(--warn)"}"></i></div>${n}</div>`}).join("")}</div></div></div></div>`;
   $("v-cov").innerHTML=h;
@@ -492,12 +497,12 @@ function agreement(){
   const m={mx:km,per:per.sort((a,b)=>a.k-b.k),gestAg,gestN,be:be/bn};
   kappaCache.v=ver;kappaCache.m=m;return m;
 }
-function kcol(k){const a=cl((k-.4)/.55,0,1);return `hsl(${10+a*125},70%,${52+a*6}%)`}
+function kcol(k){const a=cl((k-.4)/.55,0,1);return `hsl(0,0%,${22+a*34}%)`}
 function rAgr(){
   const m=agreement();
   const lbl=k=>k>.8?"Almost perfect":k>.6?"Substantial":k>.4?"Moderate":"Fair";
   let h=`<div class="two"><div class="panel"><h3>Pairwise Cohen's kappa (frame level, 4 fps)</h3><div class="sub">Computed from every episode. Edit a boundary in the Label tab and Final updates live.</div>
-   <table class="mx"><tr><th></th>${RATERS.map(r=>`<th>${r[1]}</th>`).join("")}</tr>${RATERS.map((r,a)=>`<tr><th>${r[1]}</th>${RATERS.map((_,b)=>`<td class="v" style="background:${a===b?"#202b38":kcol(m.mx[a][b])};color:${a===b?"#5c6b7e":"#06101e"}">${a===b?"-":m.mx[a][b].toFixed(2)}</td>`).join("")}</tr>`).join("")}</table>
+   <table class="mx"><tr><th></th>${RATERS.map(r=>`<th>${r[1]}</th>`).join("")}</tr>${RATERS.map((r,a)=>`<tr><th>${r[1]}</th>${RATERS.map((_,b)=>`<td class="v" style="background:${a===b?"#222":kcol(m.mx[a][b])};color:${a===b?"#797979":"#fff"}">${a===b?"-":m.mx[a][b].toFixed(2)}</td>`).join("")}</tr>`).join("")}</table>
    <div style="margin-top:10px;color:var(--mute)">A vs B: <b style="color:var(--ink)">${m.mx[0][1].toFixed(2)}</b> (${lbl(m.mx[0][1])}). Mean boundary error between humans <b style="color:var(--ink)">${m.be.toFixed(2)} s</b>. Perceptron vs Final: <b style="color:var(--ink)">${m.mx[2][3].toFixed(2)}</b>.</div></div>
    <div class="panel"><h3>Where annotators agree, per gesture</h3><div class="sub">Frames where A and B both match the final label</div><div class="bars">${Object.keys(m.gestN).sort().map(g=>{const v=(m.gestAg[g]||0)/m.gestN[g]*100;return `<div class="r"><span><i class="dot" style="display:inline-block;background:${COL[g]};margin-right:6px"></i>${g} ${(VOC.handoff[g]||VOC.suture[g]).slice(0,18)}</span><div><i style="width:${v}%;background:${v<70?"var(--warn)":"var(--ok)"}"></i></div>${v.toFixed(0)}%</div>`}).join("")}</div></div></div>
    <div class="panel" style="margin-top:12px"><h3>Disagreement queue</h3><div class="sub">Lowest A vs B kappa first. Open to adjudicate.</div><table><tr><th>Episode</th><th>Task</th><th>kappa</th><th>Status</th><th></th></tr>
@@ -543,10 +548,10 @@ ${S.slice(0,2).map((e,i)=>"    episode_"+String(i).padStart(6,"0")+".mp4").join(
    <div class="col"><div class="panel"><h3>Ready to export</h3><div class="sub">${S.length} of ${EPS.length} episodes</div>
     <div class="bars"><div class="r"><span>Handoff</span><div><i style="width:${nT/Math.max(1,S.length)*100}%;background:var(--vio)"></i></div>${nT}</div><div class="r"><span>Suture</span><div><i style="width:${nS/Math.max(1,S.length)*100}%;background:var(--acc)"></i></div>${nS}</div></div>
     <div style="color:var(--mute);margin:8px 0" class="mono">${frames.toLocaleString()} frames @ 30 fps &middot; ~${(frames*.0021).toFixed(0)} MB</div>
-    ${unrev?`<div class="warnb" style="border-radius:6px;border:1px solid #3d3017">${unrev} included episodes are not marked reviewed.</div>`:`<div style="color:var(--ok)">All included episodes reviewed.</div>`}
+    ${unrev?`<div class="warnb" style="border:1px solid var(--line)">${unrev} included episodes are not marked reviewed.</div>`:`<div style="color:var(--ok)">All included episodes reviewed.</div>`}
     <div class="ctr"><button class="btn pri" id="go" ${S.length?"":"disabled"}>Export dataset</button></div>
     <div class="prog" ${x.prog<0?'style="visibility:hidden"':""}><i style="width:${Math.max(0,x.prog)}%"></i></div>
-    ${stages.map((s,i)=>`<div class="stg ${x.prog>=100||i<x.stage?"done":i===x.stage&&x.prog>=0?"run":""}">${x.prog>=100||i<x.stage?"✓":i===x.stage&&x.prog>=0?"●":"○"} ${s}</div>`).join("")}
+    ${stages.map((s,i)=>`<div class="stg ${x.prog>=100||i<x.stage?"done":i===x.stage&&x.prog>=0?"run":""}">${x.prog>=100||i<x.stage?"[x]":i===x.stage&&x.prog>=0?"[>]":"[ ]"} ${s}</div>`).join("")}
     ${x.prog>=100?`<div class="tree" style="margin-top:8px">from lerobot.datasets.lerobot_dataset import LeRobotDataset\nds = LeRobotDataset("${x.repo}")</div>`:""}</div></div></div>`;
   document.querySelectorAll("[data-x]").forEach(c=>c.onchange=()=>{x[c.dataset.x]=c.checked;x.prog=-1;rExp()});
   $("mq").onchange=ev=>{x.minQ=+ev.target.value;x.prog=-1;rExp()};$("rp").onchange=ev=>{x.repo=ev.target.value||"user/dataset";rExp()};

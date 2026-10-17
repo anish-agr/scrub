@@ -11,7 +11,10 @@ and research for the NEXT business case.
 | Path | What |
 | --- | --- |
 | `prototypes/index.html` | Gallery of 35 clickable single-file prototypes. Open it in a browser; every page runs on mock data with no server |
-| `prototypes/24-35` | Surgeon set: scrub nurse console, sponge and instrument count, scope holder, teleop trainer, skill coach, OR timeline, sterile field guard, surgical data labeling, preference-card tray setup, telementoring, handoff challenge for judges, surgeon pitch |
+| `prototypes/36-38` | **Scrub core:** dashboard (mock events match `docs/CONTRACTS.md`), voice call path (Photon, Gemini command, stop skips Gemini), three-setting trays with put-back and count |
+| `prototypes/24,25,29-32,34,35` | Scrub-adjacent: handoff console, count sheet, case board, safety zones, demo-data labeling, tray setup, judge challenge, pitch |
+| `prototypes/26,27,28,33` | Off concept (surgery tasks Scrub does not do). Kept for reference only |
+| `prototypes/DESIGN-DE-AI.md` | The rules used to restyle these pages so they don't look AI-made |
 | `prototypes/01-23` | Earlier general SO-101 concepts (assistive fetch, kitchen, data tooling, pitch mode) |
 | `research/SURGEON_RESEARCH.md` | Retained surgical items, scrub tech shortage, prior robotic scrub nurses, skill assessment. **Check each stat against its source before it goes on a slide** |
 | `research/01-04` | Startup tracks (NEXT, Commit, SideShift), medical go-to-market and FDA path, competitors and market math, 34 build-out ideas |
