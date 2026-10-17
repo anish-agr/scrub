@@ -6,6 +6,7 @@ Agents: the first unchecked box in your person's section is the next task. Tick 
 
 - [ ] A1 workshop notes in `docs/ARM.md`
 - [ ] A2 `arm/perceptron.py`, `arm/train.py`, `arm/upload_dataset.py`
+  - Client/CLI/uploader implemented; `python -m unittest arm.test_perceptron -v` passes 5 offline tests. Live `python -m arm.train capabilities` blocked by missing `PERCEPTRON_TEAM_API_KEY` (no root `.env`). Not complete; A7/A6 wait in requested order.
 - [ ] A3 arm connected, both cameras, poses in `arm/rig.json`
 - [ ] A4 operating room demos recorded (75)
 - [ ] A5 fine-tuning run 1 started
