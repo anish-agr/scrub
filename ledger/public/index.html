@@ -1,0 +1,44 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Scrub</title>
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <header class="top">
+    <span class="mark">Scrub</span>
+    <span class="pill">count</span>
+  </header>
+  <p id="status" class="banner" hidden></p>
+  <main>
+    <section>
+      <p class="kicker">Out</p>
+      <ul id="out" class="out"></ul>
+    </section>
+    <section>
+      <p class="kicker">Results</p>
+      <p id="median" class="median">Median handoff —</p>
+      <div class="table-wrap">
+        <table id="by-item">
+          <caption>By item</caption>
+          <thead>
+            <tr><th>Item</th><th>Trials</th><th>Success</th><th>Median</th></tr>
+          </thead>
+          <tbody></tbody>
+        </table>
+        <table id="by-lighting">
+          <caption>By lighting</caption>
+          <thead>
+            <tr><th>Lighting</th><th>Trials</th><th>Success</th><th>Median</th></tr>
+          </thead>
+          <tbody></tbody>
+        </table>
+      </div>
+      <p id="tables-empty" class="empty-note">No measured trials yet.</p>
+    </section>
+  </main>
+  <script src="app.js"></script>
+</body>
+</html>
