@@ -371,11 +371,11 @@ class Controller:
                     ok = True  # approach point outside the handoff region: go straight in, slowly
                 ok = ok and self._call(gen, self.arm.move_to, x, y, z, speed=SPEED_NEAR)
             finally:
-                lost = watch() if watch else False
+                lost = watch() if watch else None
             if ok and not lost:
                 return True
             if lost:
-                self.emit("missed", say=lines.HAND_LOST)
+                self.emit("missed", say=lines.PATH_BLOCKED if lost == "blocked" else lines.HAND_LOST)
                 continue  # wait for the hand again, one more try
             self.emit("missed", say=lines.OUT_OF_REACH)
             break
@@ -385,26 +385,28 @@ class Controller:
 
     def _watch_hand(self):
         """Freeze the arm if the hand disappears or the path blocks while moving.
-        Returns a function that stops watching and says whether it froze."""
+        Returns a function that stops watching and gives why it froze: "lost", "blocked" or None."""
         done, froze = threading.Event(), threading.Event()
+        why = [None]
 
         def run():
             while not done.wait(0.05):
                 h = self.hand
                 fresh = h and h.get("seen") and time.time() - self.hand_at <= HAND_STALE_S
                 if not fresh or h.get("path_clear") is False:
+                    why[0] = "lost" if not fresh else "blocked"
                     froze.set()
                     self.arm.freeze()
                     return
         th = threading.Thread(target=run, daemon=True)
         th.start()
 
-        def stop(peek: bool = False) -> bool:
+        def stop(peek: bool = False):
             if peek:
-                return froze.is_set()
+                return why[0]
             done.set()
             th.join()  # no late freeze landing on the next move
-            return froze.is_set()
+            return why[0]
         return stop
 
     def _wait(self, gen: int, check, timeout: float, say: str | None):
