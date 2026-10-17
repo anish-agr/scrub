@@ -14,6 +14,6 @@ Run with the controller:
 python -m controller --fake-arm
 ```
 
-Then open http://localhost:8000/. A handover command (a button on the page, or `POST /command`) moves the step, the event log, what's out, and the handoff time.
+Then open http://localhost:8000/. A handover command (a button on the page, or `POST /command`) moves the step, the event log, what's out, and the handoff time. The results tables load from `GET /stats`, which should return `ledger.stats()` unchanged.
 
 Done when: a fake-arm handover shows live, and a judge can follow a whole request on it.

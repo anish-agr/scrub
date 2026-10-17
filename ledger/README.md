@@ -32,3 +32,11 @@ python -m ledger
 ```
 
 That prints the current tables. Never raises.
+
+The public read-only page (the count and the tables, no arm controls):
+
+```
+python -m ledger serve
+```
+
+Open http://127.0.0.1:8080/. `PORT` changes the port. On Vultr, run that command and point the GoDaddy domain at the server. The page reads Mongo through this process, so the URI never goes to the browser.
