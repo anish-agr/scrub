@@ -211,7 +211,7 @@ def path_blocked_freezes():
     hand_feed(ctl, stop, clear=lambda: len(arm.moves) == 0)  # blocks once the arm starts moving
     _, evs = run(ctl, HANDOVER)
     stop.set()
-    assert lines.HAND_LOST in says(evs) and says(evs)[-1] == lines.no_hand("hemostat"), says(evs)
+    assert lines.PATH_BLOCKED in says(evs) and says(evs)[-1] == lines.no_hand("hemostat"), says(evs)
 
 
 @test
