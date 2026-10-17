@@ -38,6 +38,7 @@ python3.10 -m venv .venv && .venv/bin/pip install -r sim/requirements.txt   # on
 | `GET /reach?x=&y=&z=` | `{"reachable":bool,"error_m":float,"q":[6]}` |
 | `POST /reach/batch` `{"points":[[x,y,z],...]}` | `{"results":[{"reachable","error_m","q"},...]}` |
 | `GET /layout`, `PUT /layout` | read or write `layout.json` (PUT rebuilds the scene and reloads the arm) |
+| `POST /scene/reset` | put every item back in its slot and the arm at home (between smoke runs) |
 | `/web/*`, `/models/*` | static files from `sim/web/` and `sim/models/` |
 
 ## Using it from the controller (C1 hook)
