@@ -1,0 +1,473 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Demo Recording Coach</title>
+<meta name="description" content="A tally sheet and next-demo card for recording the 225 Isaac 0.5 fine-tuning demos on the SO-101: exact instruction strings, position and lighting buckets, rig checklist, training budget and the lerobot-record command.">
+<!--
+FEATURES:
+- Plan grid: 3 settings x 3 items x 2 instructions ("pick the X", "return the X") with the exact strings the controller sends
+  (controller/settings.py: pick_instruction / return_instruction).
+- Each instruction is a 3 lighting x 5 position/angle bucket sheet. Tally counts per bucket, editable, saved in localStorage.
+- Targets from docs/ARM.md (15 pick + 10 return per item, 75 per setting) next to the workshop floor (50+ episodes, about 10 per
+  object location). Arm-time estimate for either, so the gap is visible.
+- "Next demo" card: item, slot (layout.json), position bucket, lighting, hand position, start and end pose, plus a top view in mm
+  of the tray, return spot, safe spot and hand zone with the item drawn where it goes.
+- Rig checklist before each session (workshop notes), training budget (2 jobs, about 1 h each, status and ETA), and the exact
+  lerobot-record command, rebuilt from the form and copyable.
+SPONSORS: Perceptron Robotics (Isaac 0.5 fine-tuning data and dataset contract), Hugging Face dataset route.
+BACKEND HOOKS: GET {controller}/setting (live instruction strings; mock defaults otherwise), POST {controller}/stop for the STOP
+  button. Controller default http://localhost:8000, override with ?api=http://host:8000. Recording itself is lerobot-record in a
+  terminal, not this page. Helps Anish A4, A9, A10 (docs/TASKS.md).
+STYLE: Lab notebook / tally sheet. Ruled cream paper, red margin rule, blue-black ink, handwriting for operator notes,
+  tally marks in fives. Square corners, 1px rules, no shadows.
+-->
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Newsreader:ital,opsz,wght@0,6..72,400;0,6..72,600;1,6..72,400&family=IBM+Plex+Mono:wght@400;500;600&family=Caveat:wght@500;700&display=swap" rel="stylesheet">
+<style>
+:root{
+  --paper:#f2ead6; --paper2:#ebe1c8; --rule:#b8c4d2; --ink:#1d2742; --pencil:#6b6a63; --red:#b0392e; --amber:#9a6a00; --ok:#2d6a4f; --cyan:#17657a;
+  --mono:"IBM Plex Mono",ui-monospace,Menlo,monospace; --serif:"Newsreader",Georgia,serif; --hand:"Caveat","Bradley Hand",cursive;
+}
+*{box-sizing:border-box}
+html{background:#d9cfb5}
+body{margin:0;color:var(--ink);font:17px/1.45 var(--serif);background:#d9cfb5}
+.sheet{max-width:1180px;margin:0 auto;background:var(--paper);min-height:100vh;position:relative;padding:20px 28px 40px 72px;
+  background-image:linear-gradient(var(--rule) 1px,transparent 1px);background-size:100% 30px;background-position:0 19px;
+  border-left:1px solid #a89f84;border-right:1px solid #a89f84}
+.sheet:before{content:"";position:absolute;left:52px;top:0;bottom:0;width:2px;background:var(--red);opacity:.7}
+.sheet:after{content:"";position:absolute;left:14px;top:80px;width:16px;height:16px;border-radius:50%;background:#d9cfb5;border:1px solid #a89f84;box-shadow:0 340px 0 #d9cfb5,0 680px 0 #d9cfb5}
+h1,h2,h3{font-weight:600;margin:0}
+h1{font-size:30px;letter-spacing:-.01em}
+h2{font-size:21px;margin:30px 0 4px;padding-top:6px;border-top:2px solid var(--ink)}
+h2 small{font:500 13px var(--mono);color:var(--pencil);margin-left:8px;letter-spacing:0}
+h3{font-size:16px}
+.hand{font-family:var(--hand);font-weight:700;color:var(--cyan);font-size:21px;line-height:1.1}
+.mono,.n{font-family:var(--mono);font-variant-numeric:tabular-nums}
+.sm{font-size:14px;color:var(--pencil)}
+.sheet p{margin:6px 0}
+.top{display:flex;gap:16px;align-items:flex-start;justify-content:space-between;flex-wrap:wrap}
+.formno{font:500 12px var(--mono);color:var(--pencil);text-align:right}
+.stopbtn{min-height:48px;min-width:132px;background:var(--red);color:#fff;border:2px solid #6e1d15;font:600 16px var(--mono);letter-spacing:.06em;cursor:pointer;border-radius:2px}
+.stopbtn:focus-visible,button:focus-visible,input:focus-visible,select:focus-visible{outline:3px solid var(--cyan);outline-offset:1px}
+.badge{display:inline-block;font:600 12px var(--mono);padding:2px 7px;border:1px solid currentColor;border-radius:2px;letter-spacing:.04em;background:var(--paper)}
+.badge.live{color:var(--ok)} .badge.mock{color:var(--amber)} .badge.off{color:var(--pencil)}
+button,select,input{font:inherit}
+.btn{min-height:44px;padding:6px 14px;border:1.5px solid var(--ink);background:var(--paper);color:var(--ink);font:600 14px var(--mono);cursor:pointer;border-radius:2px}
+.btn:hover{background:var(--paper2)} .btn.pri{background:var(--ink);color:var(--paper)} .btn.pri:hover{background:#2c3a60}
+.btn.sm{min-height:44px;padding:4px 10px;font-size:13px}
+.row{display:flex;gap:10px;flex-wrap:wrap;align-items:center}
+/* next demo */
+.next{display:grid;grid-template-columns:minmax(0,1.15fr) minmax(0,1fr);gap:22px;border:2px solid var(--ink);background:var(--paper);padding:16px 18px;margin-top:10px;position:relative}
+.next:before{content:"NEXT DEMO";position:absolute;top:-11px;left:14px;background:var(--paper);padding:0 8px;font:600 12px var(--mono);letter-spacing:.12em}
+.instr{font:600 26px/1.15 var(--mono);margin:2px 0 8px;word-break:break-word}
+.instr .q{color:var(--red)}
+.setup{width:100%;border-collapse:collapse;margin-top:6px}
+.setup th{font:600 12px var(--mono);text-align:left;color:var(--pencil);text-transform:uppercase;letter-spacing:.06em;padding:5px 8px 5px 0;width:96px;vertical-align:top;border-top:1px solid var(--rule)}
+.setup td{padding:5px 0;border-top:1px solid var(--rule);vertical-align:top}
+.setup td b{font-weight:600}
+.topview{width:100%;height:auto;background:var(--paper2);border:1px solid var(--ink)}
+.topview text{font:500 10px var(--mono);fill:var(--ink)}
+.cap{font:500 12px var(--mono);color:var(--pencil)}
+/* sheet table */
+.scroll{overflow-x:auto}
+table.plan{border-collapse:collapse;width:100%;min-width:760px;background:rgba(242,234,214,.85)}
+.plan th,.plan td{border:1px solid var(--ink);padding:5px 8px;text-align:left;vertical-align:middle}
+.plan thead th{background:var(--paper2);font:600 12px var(--mono);text-transform:uppercase;letter-spacing:.05em}
+.plan td.set{font-weight:600;background:var(--paper2);width:112px}
+.plan tr.sel td{background:#e3d8b8}
+.plan td.str{font:500 14px var(--mono);cursor:pointer}
+.plan td.str:hover{text-decoration:underline}
+.plan input.num{width:62px;min-height:44px;font:600 15px var(--mono);border:1px solid var(--ink);background:var(--paper);text-align:right;padding:2px 6px;color:var(--ink)}
+.tally svg{display:block}
+.prog{height:8px;border:1px solid var(--ink);background:var(--paper);min-width:70px}
+.prog i{display:block;height:100%;background:var(--ink)}
+.prog.done i{background:var(--ok)}
+.chips{display:flex;gap:8px;flex-wrap:wrap;margin:8px 0}
+.chip{min-height:44px;padding:4px 12px;border:1.5px solid var(--ink);background:var(--paper);font:600 13px var(--mono);cursor:pointer;border-radius:2px}
+.chip[aria-pressed=true]{background:var(--ink);color:var(--paper)}
+/* bucket grid */
+table.bk{border-collapse:collapse;min-width:640px;width:100%}
+.bk th,.bk td{border:1px solid var(--ink);padding:4px 6px;text-align:center}
+.bk th{background:var(--paper2);font:600 12px var(--mono)}
+.bk th.l{text-align:left;width:120px}
+.bk th small{display:block;font:500 11px var(--mono);color:var(--pencil)}
+.cell{display:flex;align-items:center;justify-content:center;gap:2px}
+.cell button{width:44px;height:44px;border:1px solid var(--ink);background:var(--paper);font:600 18px var(--mono);cursor:pointer;color:var(--ink);border-radius:2px}
+.cell .v{min-width:46px;font:600 15px var(--mono)}
+.cell .q{font:500 11px var(--mono);color:var(--pencil)}
+td.cur{outline:3px solid var(--red);outline-offset:-3px}
+td.full .v{color:var(--ok)}
+/* two col panels */
+.cols{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr);gap:26px}
+ul.chk{list-style:none;margin:6px 0;padding:0}
+ul.chk li{border-bottom:1px solid var(--rule);min-height:44px;display:flex;gap:10px;align-items:flex-start;padding:8px 0}
+ul.chk input{width:22px;height:22px;margin:3px 0 0;accent-color:var(--ink);flex:none}
+ul.chk label{cursor:pointer;flex:1}
+ul.chk code,.sheet code{font:500 13px var(--mono);background:var(--paper2);padding:0 4px}
+.run{border:1.5px solid var(--ink);padding:10px 12px;margin:10px 0;background:rgba(242,234,214,.9)}
+.run h3{display:flex;justify-content:space-between;gap:8px;flex-wrap:wrap}
+.run label{font:600 12px var(--mono);color:var(--pencil);display:block;margin-top:8px;text-transform:uppercase;letter-spacing:.05em}
+.run select,.run input,.form select,.form input{min-height:44px;border:1px solid var(--ink);background:var(--paper);padding:4px 8px;font:500 14px var(--mono);color:var(--ink);border-radius:2px;max-width:100%}
+.quota{display:flex;gap:8px;align-items:center;margin:6px 0}
+.quota i{width:34px;height:34px;border:2px solid var(--ink);display:inline-block}
+.quota i.on{background:var(--ink)}
+.form{display:grid;grid-template-columns:repeat(auto-fit,minmax(190px,1fr));gap:8px 14px;margin:8px 0}
+.form label{font:600 12px var(--mono);color:var(--pencil);text-transform:uppercase;letter-spacing:.05em;display:flex;flex-direction:column;gap:2px}
+pre.cmd{background:#1b2236;color:#e9e4d2;padding:14px;overflow-x:auto;font:500 13px/1.6 var(--mono);margin:8px 0;border:1px solid var(--ink);white-space:pre}
+.note{border:1px dashed var(--red);padding:8px 12px;margin:10px 0;background:rgba(176,57,46,.06)}
+footer{margin-top:36px;padding-top:8px;border-top:1px solid var(--ink);font:500 12px var(--mono);color:var(--pencil)}
+footer a{color:inherit}
+@media (max-width:860px){
+  .sheet{padding:16px 14px 30px 34px}
+  .sheet:before{left:20px} .sheet:after{display:none}
+  .next{grid-template-columns:minmax(0,1fr)}
+  .cols{grid-template-columns:minmax(0,1fr)}
+  h1{font-size:25px} .instr{font-size:21px}
+}
+</style>
+</head>
+<body>
+<div class="sheet" id="top">
+
+<div class="top">
+  <div style="flex:1 1 480px;min-width:0">
+    <div class="hand">Anish and Evan, arm slot log</div>
+    <h1>Demo recording coach</h1>
+    <p class="sm" style="max-width:640px">SO-101 follower and leader, cameras <span class="mono">side</span> and <span class="mono">wrist</span> at 640x480, 30 fps. One person moves the leader arm, the other resets the tray and taps the tally here. Helps A4, A9, A10.</p>
+    <p><span id="src" class="badge mock">checking controller</span> <span class="sm" id="srcnote"></span></p>
+  </div>
+  <div style="text-align:right;flex:0 0 auto">
+    <div class="formno">Form ARM-041 rev. 1<br>Dataset <span id="dsname" class="mono">scrub</span></div>
+    <button class="stopbtn" id="stop" title="POST /stop on the controller. Recording is stopped with Esc in the terminal.">STOP</button>
+    <div class="cap" id="stopmsg" style="max-width:210px;margin-left:auto">Power switch is the real stop. Esc ends lerobot-record.</div>
+  </div>
+</div>
+
+<h2>1. Next demo <small>do exactly this, then tap Logged</small></h2>
+<div class="row" style="margin-top:6px">
+  <span class="sm">Focus:</span>
+  <div class="chips" id="focus" style="margin:0"></div>
+  <button class="btn sm" id="unpin" hidden>Back to auto order</button>
+</div>
+<div class="next" id="next"></div>
+
+<h2>2. Tally sheet <small>3 settings x 3 items x 2 instructions</small></h2>
+<p class="sm">Strings are what the controller sends to the model as the session instruction and what <span class="mono">--dataset.single_task</span> must match, character for character (workshop: one phrasing). Click a string to open its bucket sheet. The total box is editable, for demos recorded before you used this page.</p>
+<div class="row" style="margin:8px 0">
+  <label class="sm">Pick target <input class="n" id="tPick" type="number" min="0" max="200" style="width:70px;min-height:44px"></label>
+  <label class="sm">Return target <input class="n" id="tRet" type="number" min="0" max="200" style="width:70px;min-height:44px"></label>
+  <label class="sm">Minutes per demo <input class="n" id="tMin" type="number" min="0.2" max="5" step="0.1" style="width:70px;min-height:44px"></label>
+  <button class="btn sm" id="presetDocs">ARM.md plan: 15 / 10</button>
+  <button class="btn sm" id="presetWs">Workshop floor: 50 / 50</button>
+</div>
+<div class="scroll"><table class="plan" id="plan"></table></div>
+<p id="budget" class="sm"></p>
+
+<h2>3. Bucket sheet <small id="bkTitle"></small></h2>
+<p class="sm">Vary one thing at a time: the order runs lighting block by block (normal, bright, dim); inside a block only the item position or angle changes. Red outline is where the next demo goes. Tap + after each kept demo, minus if you re-record (left arrow).</p>
+<div class="scroll"><table class="bk" id="bk"></table></div>
+
+<div class="cols">
+<div>
+<h2>4. Rig checklist <small>before each session</small></h2>
+<p class="sm">From the Isaac 0.5 workshop notes. Ticks are saved; Reset clears them for the next session.</p>
+<ul class="chk" id="chk"></ul>
+<div class="row"><button class="btn sm" id="chkReset">New session, clear ticks</button><span id="chkState" class="badge off"></span></div>
+</div>
+<div>
+<h2>5. Training budget <small>2 successful jobs per team</small></h2>
+<div class="quota" id="quota"></div>
+<p class="sm">Quota is 2 successful jobs and 2 queued, 6 h timeout each (workshop deck, confirm with GET /v1/capabilities). There is no third run for fix-ups, so extra demos go into the same dataset before run 2.</p>
+<div id="runs"></div>
+</div>
+</div>
+
+<h2>6. Record command <small>copy into the terminal</small></h2>
+<div class="form" id="form"></div>
+<pre class="cmd" id="cmd"></pre>
+<div class="row"><button class="btn pri" id="copy">Copy command</button><span id="copied" class="sm"></span></div>
+<div class="note" id="cmdnote"></div>
+
+<footer>
+Numbers: layout.json (slots x 240 mm, y -80 / 0 / +80 mm; return spot 170, 170 mm; safe spot 170, -180 mm; hand zone 280, -140, 140 mm), docs/ARM.md, explore/research/isaac-workshop-notes.md. Lighting definitions and the position offsets are team conventions (inferred), settle them at the first slot.
+<br><a href="#top">Terms</a> (placeholder) &middot; <a href="#top">Privacy</a> (placeholder) &middot; Counts stay in this browser only.
+</footer>
+</div>
+
+<script>
+"use strict";
+const API=(new URLSearchParams(location.search).get("api")||"http://localhost:8000").replace(/\/$/,"");
+const LS="scrub-demo-coach-v1";
+const LIGHTS=[{id:"normal",label:"Normal",how:"room lights on, lamp off"},{id:"bright",label:"Bright",how:"room lights on, desk lamp on over the tray"},{id:"dim",label:"Dim",how:"room lights off or low, lamp off"}];
+const POS=[
+ {id:"c",label:"Centre",short:"centre",dx:0,yaw:0,how:"item on the taped slot centre, handle straight toward the arm base"},
+ {id:"f",label:"+10 mm fwd",short:"fwd",dx:10,yaw:0,how:"slide the item 10 mm away from the arm (+x)"},
+ {id:"b",label:"-10 mm back",short:"back",dx:-10,yaw:0,how:"slide the item 10 mm toward the arm (-x)"},
+ {id:"l",label:"+15 deg",short:"+15",dx:0,yaw:15,how:"rotate the item 15 degrees counterclockwise seen from above (tip toward the left)"},
+ {id:"r",label:"-15 deg",short:"-15",dx:0,yaw:-15,how:"rotate the item 15 degrees clockwise seen from above (tip toward the right)"}];
+const NC=15;
+const SLOTS=[{y:-80,word:"right"},{y:0,word:"centre"},{y:80,word:"left"}];
+const SETS=[
+ {id:"surgical",label:"Operating room",order:1,items:[["hemostat","hemostat",0],["scalpel","scalpel",1],["mayo_scissors","Mayo scissors",0]]},
+ {id:"dental",label:"Dental office",order:2,items:[["mouth_mirror","mouth mirror",0],["explorer","explorer",0],["cotton_pliers","cotton pliers",0]]},
+ {id:"bench",label:"Robotics bench",order:3,items:[["needle_nose_pliers","needle-nose pliers",0],["wire_cutters","wire cutters",0],["hex_key","hex key",0]]}];
+SETS.forEach(s=>{s.items=s.items.map((a,i)=>({id:a[0],name:a[1],sharp:!!a[2],slot:i,pick:"pick the "+a[1].toLowerCase(),ret:"return the "+a[1].toLowerCase()}))});
+const MOCK_SRC="built-in defaults copied from controller/settings.py";
+const srcOf={surgical:MOCK_SRC,dental:MOCK_SRC,bench:MOCK_SRC};
+const CHECKS=[
+ ["hf","Logged in: <code>hf auth login</code> with a write token. <code>push_to_hub=true</code> makes a PUBLIC repo, check nothing private is in frame."],
+ ["cams","Ran <code>lerobot-find-cameras opencv</code> this session. Ids change after a reboot or re-plug; copy them into the form below."],
+ ["res","Both cameras 640x480 at 30 fps, named exactly <code>side</code> and <code>wrist</code>. The overhead webcam is a separate device and is not recorded."],
+ ["mount","Side camera and wrist camera mounts taped and unmoved since the first slot. Same camera mounts across all slots."],
+ ["cal","Same calibration ids as before (<code>scrub_follower</code>, <code>scrub_leader</code>). Do NOT recalibrate mid-dataset, it shifts what every number means."],
+ ["deg","Command has <code>--robot.use_degrees=true</code> (joints in degrees, gripper 0 to 100)."],
+ ["hub","One Hub dataset for everything: same <code>repo_id</code>, <code>--dataset.root</code> set, and <code>--resume=true</code> on every session after the first."],
+ ["tape","Tray slots, return spot (170, 170 mm) and safe spot (170, -180 mm) taped; towel strip ready for thin handles."],
+ ["task","<code>--dataset.single_task</code> equals the string on the Next demo card, exactly."],
+ ["light","Lighting set to the block shown on the card; same lamp position all session."],
+ ["home","Arm at home pose, item visible to the side camera, episodes end at the carry pose (the model has no stop output)."],
+ ["cad","After each episode read the cadence line (about 30 Hz, few ticks over 33.3 ms). A laptop stuck at 25 Hz still claims 30 fps and the data plays back too fast."],
+ ["rep","Before spending a job: <code>lerobot-replay --dataset.episode=0</code> on the follower."]];
+
+let S=load();
+function def(){return{counts:{},extra:{},tPick:15,tRet:10,tMin:1,pin:null,focus:"all",checks:{},runs:[
+ {name:"Run 1",data:"surgical",status:"planned",mode:"expert_only",start:""},
+ {name:"Run 2",data:"all",status:"planned",mode:"expert_only",start:""}],
+ f:{user:"<hf-user>",follower:"/dev/tty.usbmodem_FOLLOWER",leader:"/dev/tty.usbmodem_LEADER",side:"0",wrist:"1",batch:5,ep:25,reset:12}}}
+function load(){try{const j=JSON.parse(localStorage.getItem(LS));if(j&&j.counts)return Object.assign(def(),j,{f:Object.assign(def().f,j.f||{})})}catch(e){}return def()}
+function save(){try{localStorage.setItem(LS,JSON.stringify(S))}catch(e){}}
+
+const key=(s,i,k)=>s+"|"+i+"|"+k;
+function rec(s,i,k){const kk=key(s,i,k);if(!S.counts[kk])S.counts[kk]=Array(NC).fill(0);return S.counts[kk]}
+const sumCells=(s,i,k)=>rec(s,i,k).reduce((a,b)=>a+b,0);
+const total=(s,i,k)=>sumCells(s,i,k)+(S.extra[key(s,i,k)]||0);
+const target=k=>k==="pick"?S.tPick:S.tRet;
+function quotas(T){const base=Math.floor(T/NC),ext=T%NC;const q=Array(NC).fill(base);let n=0;
+  for(let p=0;p<5&&n<ext;p++)for(let l=0;l<3&&n<ext;l++){q[l*5+p]++;n++}return q}
+function allInstr(){const a=[];SETS.forEach(s=>s.items.forEach(it=>["pick","ret"].forEach(k=>a.push({s,it,k}))));return a}
+function nextDemo(){
+  const list=S.pin?allInstr().filter(x=>x.s.id===S.pin.s&&x.it.id===S.pin.i&&x.k===S.pin.k):allInstr().filter(x=>S.focus==="all"||x.s.id===S.focus);
+  for(const x of list){const T=target(x.k);if(!S.pin&&total(x.s.id,x.it.id,x.k)>=T)continue;
+    const q=quotas(T),c=rec(x.s.id,x.it.id,x.k);
+    let idx=c.findIndex((v,i)=>v<q[i]);
+    if(idx<0){idx=c.indexOf(Math.min(...c))}
+    return{...x,idx,n:total(x.s.id,x.it.id,x.k)+1,T}}
+  return null}
+const strOf=x=>x.k==="pick"?x.it.pick:x.it.ret;
+
+/* ---------- top view of the table, mm, arm base at origin, x right, y up ---------- */
+function topView(d){
+  const W=440,H=300,sx=1,ox=14,oy=H/2,X=x=>ox+x*0.95,Y=y=>oy-y*0.5;
+  let s=`<svg class="topview" viewBox="0 0 ${W} ${H}" role="img" aria-label="Top view of the tray in millimetres, arm base at left">`;
+  s+=`<rect x="${X(190)}" y="${Y(130)}" width="${(290-190)*.95}" height="${260*.5}" fill="none" stroke="#1d2742" stroke-width="1.5"/>`;
+  s+=`<text x="${X(192)}" y="${Y(130)-4}">tray 100 x 260 mm</text>`;
+  SLOTS.forEach((sl,i)=>{const cx=X(240),cy=Y(sl.y);const act=d&&d.k==="pick"&&d.it.slot===i||d&&d.k==="ret"&&d.it.slot===i;
+    s+=`<rect x="${cx-34}" y="${cy-8}" width="68" height="16" fill="none" stroke="#6b6a63" stroke-dasharray="3 2"/>`;
+    s+=`<text x="${cx-30}" y="${cy+3}" fill="#6b6a63">slot ${i+1} y${sl.y}</text>`});
+  /* other tray items as plain bars */
+  if(d){d.s.items.forEach((it,i)=>{if(it===d.it)return;const cy=Y(SLOTS[i].y);s+=`<rect x="${X(240)-26}" y="${cy-3}" width="52" height="6" fill="#b8b09a" stroke="#6b6a63"/>`})}
+  /* zones */
+  s+=`<circle cx="${X(170)}" cy="${Y(170)}" r="13" fill="none" stroke="#17657a" stroke-width="1.5"/><text x="${X(170)-22}" y="${Y(170)-17}" style="fill:#17657a">return 170,170</text>`;
+  s+=`<circle cx="${X(170)}" cy="${Y(-180)}" r="13" fill="none" stroke="#b0392e" stroke-width="1.5"/><text x="${X(170)-22}" y="${Y(-180)+25}" style="fill:#b0392e">safe 170,-180</text>`;
+  s+=`<circle cx="${X(280)}" cy="${Y(-140)}" r="14" fill="none" stroke="#9a6a00" stroke-width="1.5" stroke-dasharray="4 3"/><text x="${X(280)-20}" y="${Y(-140)+27}" style="fill:#9a6a00">hand zone 280,-140</text>`;
+  /* arm base and reach */
+  s+=`<path d="M ${X(400)} ${Y(0)-0} A ${400*.95} ${400*.5} 0 0 0 ${X(0)+0} ${Y(0)}" fill="none"/>`;
+  s+=`<ellipse cx="${X(0)}" cy="${Y(0)}" rx="${400*.95}" ry="${400*.5}" fill="none" stroke="#6b6a63" stroke-dasharray="2 4" clip-path="url(#cl)"/>`;
+  s+=`<defs><clipPath id="cl"><rect x="${X(0)}" y="0" width="${W}" height="${H}"/></clipPath></defs>`;
+  s+=`<rect x="${X(0)-14}" y="${Y(0)-14}" width="28" height="28" fill="#1d2742"/><text x="${X(0)-12}" y="${Y(0)+26}">base 0,0</text>`;
+  s+=`<text x="${W-88}" y="${H-6}" style="fill:#6b6a63">reach ~400 mm</text>`;
+  /* the item */
+  if(d){let cx,cy,yaw=POS[d.idx%5].yaw,dx=POS[d.idx%5].dx;
+    if(d.k==="pick"){cx=240+dx;cy=SLOTS[d.it.slot].y}else{cx=170+dx;cy=170}
+    const len=d.it.sharp?44:52, a=-yaw; /* svg y flipped, so negate for ccw */
+    s+=`<g transform="translate(${X(cx)} ${Y(cy)}) rotate(${a})"><rect x="${-len/2}" y="-4" width="${len}" height="8" fill="${d.it.sharp?'#b0392e':'#1d2742'}" opacity=".9"/><rect x="${-len/2}" y="-4" width="${len*.45}" height="8" fill="#f2ead6" stroke="#1d2742"/></g>`;
+    s+=`<text x="${X(cx)-18}" y="${Y(cy)-14}" style="font-weight:600">${d.it.name}</text>`;
+    s+=`<text x="${X(190)}" y="${H-6}" style="fill:#6b6a63">white end = handle, toward base</text>`}
+  return s+"</svg>"}
+
+function renderNext(){
+  const d=nextDemo(),el=document.getElementById("next");
+  if(!d){el.innerHTML=`<div><div class="instr">All targets met.</div><p>Every instruction in this focus has reached its target. Replay episode 0, check the cadence, then start the training job.</p></div>`;return}
+  const L=LIGHTS[Math.floor(d.idx/5)],P=POS[d.idx%5],str=strOf(d),sl=SLOTS[d.it.slot];
+  const here=d.k==="pick"?`slot ${d.it.slot+1} of 3 (${sl.word}, x 240 mm, y ${sl.y} mm)`:`return spot (x 170 mm, y 170 mm)`;
+  const hand=d.k==="pick"?"Out of frame. The hand-out is not recorded and the move to the hand comes from move_to. Hold the leader so the item ends at the carry pose.":"No hand. Item lies in the return spot, the demo puts it back in its own slot.";
+  const end=d.k==="pick"?(d.it.sharp?"Set the scalpel down at the safe spot (170, -180 mm), then home.":"Lift to the carry pose, hold still, end the episode with the right arrow."):"Place it in slot "+(d.it.slot+1)+" ("+sl.word+"), return to home.";
+  const left=quotas(d.T);
+  el.innerHTML=`<div>
+   <div class="cap">${d.s.label} / ${d.it.name} / ${d.k==="pick"?"hand-out":"put-back"} / demo ${d.n} of ${d.T} / bucket ${L.label} + ${P.short}</div>
+   <div class="instr"><span class="q">"</span>${str}<span class="q">"</span></div>
+   <div class="row"><button class="btn sm" data-copy="${str}">Copy string</button><span class="cap">source: ${srcOf[d.s.id]}</span></div>
+   <table class="setup">
+    <tr><th>Item</th><td><b>${d.it.name}</b>${d.it.sharp?' <span class="badge" style="color:var(--red)">SHARP, safe spot</span>':''} at ${here}. Handle toward the arm base, tip away.</td></tr>
+    <tr><th>Position</th><td><b>${P.label}</b>: ${P.how}. Offsets are from the taped mark.</td></tr>
+    <tr><th>Others</th><td>The other two ${d.s.label.toLowerCase()} items in their own slots, same as every demo (vary clutter only after run 1 works).</td></tr>
+    <tr><th>Lighting</th><td><b>${L.label}</b>: ${L.how}. Block ${Math.floor(d.idx/5)+1} of 3.</td></tr>
+    <tr><th>Hand</th><td>${hand} Reference hand zone is x 280, y -140, z 140 mm.</td></tr>
+    <tr><th>Start / end</th><td>Start at home pose. ${end}</td></tr>
+   </table>
+   <div class="row" style="margin-top:12px"><button class="btn pri" id="logit">Logged, +1</button><button class="btn" id="undo">Re-recorded, -1 last</button><span class="hand" id="tick"></span></div>
+  </div>
+  <div>${topView(d)}<div class="cap">Top view, mm. Base at left, x forward, y left. Dashed ellipse is the ~400 mm reach.</div></div>`;
+  document.getElementById("logit").onclick=()=>{rec(d.s.id,d.it.id,d.k)[d.idx]++;S.last={s:d.s.id,i:d.it.id,k:d.k,idx:d.idx};save();renderAll();flash("logged "+str)};
+  document.getElementById("undo").onclick=()=>{const l=S.last;if(l&&rec(l.s,l.i,l.k)[l.idx]>0){rec(l.s,l.i,l.k)[l.idx]--;S.last=null;save();renderAll();flash("undone")}else flash("nothing to undo")};
+  el.querySelectorAll("[data-copy]").forEach(b=>b.onclick=()=>copyText(b.dataset.copy,()=>flash("copied")));
+}
+function flash(t){const e=document.getElementById("tick");if(e){e.textContent=t}}
+
+/* ---------- tally marks ---------- */
+function tally(n){
+  const g=Math.floor(n/5),r=n%5,show=Math.min(g,8);let x=2,s="";
+  for(let i=0;i<show;i++){for(let j=0;j<4;j++)s+=`<line x1="${x+j*5}" y1="3" x2="${x+j*5}" y2="23"/>`;s+=`<line x1="${x-3}" y1="21" x2="${x+19}" y2="5"/>`;x+=28}
+  for(let j=0;j<r;j++){s+=`<line x1="${x+j*5}" y1="3" x2="${x+j*5}" y2="23"/>`}
+  const w=x+r*5+4;
+  return `<svg width="${Math.max(w,30)}" height="26" viewBox="0 0 ${Math.max(w,30)} 26" stroke="#1d2742" stroke-width="1.8" stroke-linecap="round" aria-label="${n} demos">${s}${g>8?`<text x="${x+r*5+6}" y="19" stroke="none" fill="#1d2742" style="font:600 12px var(--mono)">+${g-8}x5</text>`:''}</svg>`}
+
+function renderPlan(){
+  let h=`<thead><tr><th>Setting</th><th>Item</th><th>Instruction string</th><th>Tally</th><th>Total</th><th>Target</th><th>Progress</th></tr></thead><tbody>`;
+  SETS.forEach(s=>{let first=true;s.items.forEach(it=>["pick","ret"].forEach(k=>{
+    const n=total(s.id,it.id,k),T=target(k),sel=bkSel.s===s.id&&bkSel.i===it.id&&bkSel.k===k;
+    h+=`<tr class="${sel?'sel':''}">`;
+    if(first){h+=`<td class="set" rowspan="6">${s.label}<div class="cap">recording order ${s.order}</div><div class="cap">${s.items.reduce((a,i)=>a+total(s.id,i.id,"pick")+total(s.id,i.id,"ret"),0)} of ${s.items.length*(S.tPick+S.tRet)}</div></td>`;first=false}
+    h+=`<td>${it.name}${it.sharp?' <span class="badge" style="color:var(--red)">sharp</span>':''}<div class="cap">${k==="pick"?"hand-out":"put-back"}</div></td>
+     <td class="str" data-s="${s.id}" data-i="${it.id}" data-k="${k}" tabindex="0">${k==="pick"?it.pick:it.ret}</td>
+     <td class="tally">${tally(n)}</td>
+     <td><input class="num" type="number" min="0" max="999" value="${n}" data-ex="${key(s.id,it.id,k)}" aria-label="total demos ${strOf({it,k})}"></td>
+     <td class="n">${T}</td>
+     <td><div class="prog ${n>=T?'done':''}"><i style="width:${Math.min(100,n/Math.max(T,1)*100)}%"></i></div></td></tr>`}))});
+  document.getElementById("plan").innerHTML=h+"</tbody>";
+  document.querySelectorAll("#plan .str").forEach(c=>{const go=()=>{bkSel={s:c.dataset.s,i:c.dataset.i,k:c.dataset.k};S.pin={...bkSel};save();renderAll();document.getElementById("bk").scrollIntoView({behavior:"smooth",block:"nearest"})};c.onclick=go;c.onkeydown=e=>{if(e.key==="Enter")go()}});
+  document.querySelectorAll("#plan input.num").forEach(inp=>inp.onchange=()=>{const kk=inp.dataset.ex;const [s,i,k]=kk.split("|");const v=Math.max(0,parseInt(inp.value)||0);S.extra[kk]=v-sumCells(s,i,k);save();renderAll()});
+  let done=0,tot=0,rem=0;allInstr().forEach(x=>{const T=target(x.k);tot+=T;const n=total(x.s.id,x.it.id,x.k);done+=Math.min(n,T);rem+=Math.max(0,T-n)});
+  const mins=rem*S.tMin;
+  document.getElementById("budget").innerHTML=`<b class="n">${done}</b> of <b class="n">${tot}</b> demos at target. <b class="n">${rem}</b> to go, about <b class="n">${Math.floor(mins/60)} h ${Math.round(mins%60)} min</b> of arm time at ${S.tMin} min per demo (record plus reset, ARM.md: about 1 h 15 min per 75).`+
+   (rem>400?` <span style="color:var(--red)">That is more arm time than the competition has. The workshop's 50+ is per task start, not per instruction, so this preset is a ceiling, not a plan.</span>`:"");
+}
+
+/* ---------- bucket sheet ---------- */
+let bkSel={s:"surgical",i:"hemostat",k:"pick"};
+function renderBk(){
+  const s=SETS.find(x=>x.id===bkSel.s),it=s.items.find(x=>x.id===bkSel.i),k=bkSel.k,c=rec(s.id,it.id,k),q=quotas(target(k)),d=nextDemo();
+  document.getElementById("bkTitle").textContent=`"${strOf({it,k})}" , ${total(s.id,it.id,k)} of ${target(k)}`;
+  let h=`<thead><tr><th class="l">Lighting \\ position</th>${POS.map(p=>`<th>${p.label}<small>${p.dx?p.dx+" mm":""}${p.yaw?p.yaw+" deg":""}${!p.dx&&!p.yaw?"0 / 0":""}</small></th>`).join("")}<th>Block</th></tr></thead><tbody>`;
+  LIGHTS.forEach((L,li)=>{h+=`<tr><th class="l">${L.label}<small>${L.how}</small></th>`;let bs=0;
+    POS.forEach((p,pi)=>{const idx=li*5+pi;bs+=c[idx];const cur=d&&d.s.id===s.id&&d.it.id===it.id&&d.k===k&&d.idx===idx;
+      h+=`<td class="${cur?'cur':''} ${c[idx]>=q[idx]&&q[idx]>0?'full':''}"><div class="cell"><button data-a="-" data-ix="${idx}" aria-label="minus">-</button><span class="v">${c[idx]}</span><button data-a="+" data-ix="${idx}" aria-label="plus">+</button></div><div class="cap" style="text-align:center">want ${q[idx]}</div></td>`});
+    h+=`<td class="n">${bs}</td></tr>`});
+  document.getElementById("bk").innerHTML=h+"</tbody>";
+  document.querySelectorAll("#bk button").forEach(b=>b.onclick=()=>{const ix=+b.dataset.ix;c[ix]=Math.max(0,c[ix]+(b.dataset.a==="+"?1:-1));save();renderAll()});
+}
+
+/* ---------- focus chips ---------- */
+function renderFocus(){
+  const box=document.getElementById("focus");
+  const opts=[["all","All, in recording order"],...SETS.map(s=>[s.id,s.label])];
+  box.innerHTML=opts.map(o=>`<button class="chip" aria-pressed="${S.focus===o[0]}" data-f="${o[0]}">${o[1]}</button>`).join("");
+  box.querySelectorAll(".chip").forEach(b=>b.onclick=()=>{S.focus=b.dataset.f;S.pin=null;save();renderAll()});
+  const u=document.getElementById("unpin");u.hidden=!S.pin;u.onclick=()=>{S.pin=null;save();renderAll()};
+}
+
+/* ---------- checklist ---------- */
+function renderChk(){
+  const ul=document.getElementById("chk");
+  ul.innerHTML=CHECKS.map(c=>`<li><input type="checkbox" id="c_${c[0]}" ${S.checks[c[0]]?"checked":""}><label for="c_${c[0]}">${c[1]}</label></li>`).join("");
+  ul.querySelectorAll("input").forEach(i=>i.onchange=()=>{S.checks[i.id.slice(2)]=i.checked;save();chkState()});
+  chkState();
+}
+function chkState(){const n=CHECKS.filter(c=>S.checks[c[0]]).length,e=document.getElementById("chkState");
+  e.textContent=n===CHECKS.length?"RIG READY":`${n} of ${CHECKS.length} ticked`;e.className="badge "+(n===CHECKS.length?"live":"mock")}
+
+/* ---------- training budget ---------- */
+const STATUS=["planned","queued","running","done","failed"];
+function fmtT(d){return d.toLocaleString([], {weekday:"short",hour:"2-digit",minute:"2-digit"})}
+function renderRuns(){
+  const used=S.runs.filter(r=>r.status==="done").length;
+  document.getElementById("quota").innerHTML=`<span class="mono sm">jobs used</span>`+[0,1].map(i=>`<i class="${i<used?'on':''}"></i>`).join("")+`<span class="n">${used} of 2</span>`;
+  const epi=r=>r.data==="all"?SETS.reduce((a,s)=>a+s.items.reduce((b,i)=>b+total(s.id,i.id,"pick")+total(s.id,i.id,"ret"),0),0):SETS.filter(s=>s.id===r.data).reduce((a,s)=>a+s.items.reduce((b,i)=>b+total(s.id,i.id,"pick")+total(s.id,i.id,"ret"),0),0);
+  document.getElementById("runs").innerHTML=S.runs.map((r,ix)=>{
+    const mins=r.mode==="backbone_lora"?54:45,over=15;let eta="set a start time";
+    if(r.start){const t=new Date(r.start);if(!isNaN(t)){eta=fmtT(new Date(t.getTime()+(mins+over)*60000))}}
+    const when=ix===0?"A5, right after the operating room set (A4). A probe: do the grasps work?":"A10, by about 1 AM, on all three settings plus any 10-demo fix-ups. Last job in the quota.";
+    return `<div class="run"><h3><span>${r.name}: ${r.data==="all"?"all three settings":SETS.find(s=>s.id===r.data).label}</span><span class="badge ${r.status==='done'?'live':r.status==='failed'?'off':'mock'}">${r.status}</span></h3>
+    <div class="sm">${when}</div>
+    <div class="n">Data now in the dataset for this run: <b>${epi(r)}</b> episodes (plan ${r.data==="all"?225:75}).</div>
+    <label>Status<select data-r="${ix}" data-f="status">${STATUS.map(x=>`<option ${x===r.status?"selected":""}>${x}</option>`).join("")}</select></label>
+    <label>Mode<select data-r="${ix}" data-f="mode"><option ${r.mode==="expert_only"?"selected":""} value="expert_only">expert_only, about 45 min</option><option ${r.mode==="backbone_lora"?"selected":""} value="backbone_lora">backbone_lora, about 54 min</option></select></label>
+    <label>Started at<input type="datetime-local" data-r="${ix}" data-f="start" value="${r.start}"></label>
+    <div class="n" style="margin-top:8px">1000 steps standard backend. ETA <b>${eta}</b> <span class="cap">(projected ${mins} min on 8xH100 + about ${over} min export and queue, inferred, about 1 h)</span></div></div>`}).join("")+
+    `<p class="sm">Projected times come from extrapolated 100-update runs, no 1,000-update run was measured. Failed or cancelled jobs probably do not count against the 2 (inferred), cancel keeps quota held until the GPUs exit.</p>`;
+  document.querySelectorAll("#runs [data-r]").forEach(e=>e.onchange=()=>{S.runs[+e.dataset.r][e.dataset.f]=e.value;save();renderRuns()});
+}
+
+/* ---------- record command ---------- */
+function renderCmd(){
+  const d=nextDemo()||{s:SETS[0],it:SETS[0].items[0],k:"pick"};
+  const f=S.f,str=strOf(d);
+  const grand=allInstr().reduce((a,x)=>a+total(x.s.id,x.it.id,x.k),0);
+  const resume=grand>0;
+  const form=document.getElementById("form");
+  if(!form.dataset.built){
+    form.dataset.built=1;
+    form.innerHTML=[["user","HF user"],["follower","Follower port"],["leader","Leader port"],["side","Side camera index"],["wrist","Wrist camera index"],["batch","Episodes this run"],["ep","Episode seconds"],["reset","Reset seconds"]].map(a=>`<label>${a[1]}<input data-f="${a[0]}" value="${f[a[0]]}" ${["batch","ep","reset"].includes(a[0])?'type="number" min="1"':''}></label>`).join("");
+    form.querySelectorAll("input").forEach(i=>i.oninput=()=>{S.f[i.dataset.f]=i.type==="number"?(+i.value||1):i.value;save();renderCmd()});
+  }
+  const cmd=
+`SIDE='{type: opencv, index_or_path: ${f.side}, width: 640, height: 480, fps: 30}'
+WRIST='{type: opencv, index_or_path: ${f.wrist}, width: 640, height: 480, fps: 30}'
+lerobot-record \\
+  --robot.type=so101_follower --robot.port=${f.follower} \\
+  --robot.id=scrub_follower --robot.use_degrees=true \\
+  --robot.cameras="{side: $SIDE, wrist: $WRIST}" \\
+  --teleop.type=so101_leader --teleop.port=${f.leader} \\
+  --teleop.id=scrub_leader \\
+  --dataset.repo_id=${f.user}/scrub \\
+  --dataset.root=./lerobot-export \\
+  --dataset.fps=30 --dataset.num_episodes=${f.batch} \\
+  --dataset.episode_time_s=${f.ep} --dataset.reset_time_s=${f.reset} \\
+  --dataset.single_task="${str}" \\
+  --dataset.push_to_hub=true${resume?" \\\n  --resume=true":""} \\
+  --display_data=true`;
+  document.getElementById("cmd").textContent=cmd;
+  document.getElementById("cmdnote").innerHTML=`Built for the Next demo card: <span class="mono">"${str}"</span>, ${f.batch} episodes, then switch the string and run it again with the same repo. <b>--resume=true is ${resume?"ON because the tally already has "+grand+" demos":"OFF for the first session only"}</b>; after that it must always be on, and with it <span class="mono">--dataset.root</span> is required and <span class="mono">num_episodes</span> counts additional episodes. Keys: right arrow or <span class="mono">n</span> ends an episode early, left arrow or <span class="mono">r</span> discards it, Esc or <span class="mono">q</span> stops and encodes. Episode and reset seconds are shortened from the 60 / 60 defaults because a pick runs about 20 s (inferred from the 21 s example dataset), confirm it fits at the first slot.`;
+  document.getElementById("dsname").textContent=f.user+"/scrub";
+}
+function copyText(t,cb){try{navigator.clipboard.writeText(t).then(cb,()=>fallback())}catch(e){fallback()}function fallback(){const ta=document.createElement("textarea");ta.value=t;document.body.appendChild(ta);ta.select();try{document.execCommand("copy");cb&&cb()}catch(e){}ta.remove()}}
+document.getElementById("copy").onclick=()=>copyText(document.getElementById("cmd").textContent,()=>{document.getElementById("copied").textContent="copied";setTimeout(()=>document.getElementById("copied").textContent="",1800)});
+
+/* ---------- controls ---------- */
+function bindTargets(){
+  const set=(id,k)=>{const e=document.getElementById(id);e.value=S[k];e.onchange=()=>{S[k]=Math.max(0,+e.value||0);save();renderAll()}};
+  set("tPick","tPick");set("tRet","tRet");set("tMin","tMin");
+  document.getElementById("presetDocs").onclick=()=>{S.tPick=15;S.tRet=10;S.tMin=1;save();syncT();renderAll()};
+  document.getElementById("presetWs").onclick=()=>{S.tPick=50;S.tRet=50;S.tMin=1;save();syncT();renderAll()};
+}
+function syncT(){["tPick","tRet","tMin"].forEach(k=>document.getElementById(k).value=S[k])}
+document.getElementById("chkReset").onclick=()=>{S.checks={};save();renderChk()};
+document.getElementById("stop").onclick=async()=>{
+  const m=document.getElementById("stopmsg");
+  try{const r=await fetch(API+"/stop",{method:"POST",signal:AbortSignal.timeout(1500)});m.textContent="Controller answered "+r.status+". Also stop the record loop with Esc."}
+  catch(e){m.textContent="Controller :8000 not reachable. Use Esc in the record terminal or the power switch."}
+};
+
+function renderAll(){
+  if(!S.pin&&!bkSel.manual){const d=nextDemo();if(d)bkSel={s:d.s.id,i:d.it.id,k:d.k}}
+  else if(S.pin)bkSel={...S.pin};
+  renderFocus();renderNext();renderPlan();renderBk();renderRuns();renderCmd();
+}
+
+/* ---------- live instruction strings ---------- */
+async function probe(){
+  const b=document.getElementById("src"),n=document.getElementById("srcnote");
+  try{
+    const r=await fetch(API+"/setting",{signal:AbortSignal.timeout(1500)});if(!r.ok)throw 0;
+    const j=await r.json();const s=SETS.find(x=>x.id===j.id);
+    if(s&&Array.isArray(j.items)){j.items.forEach(ji=>{const it=s.items.find(x=>x.id===ji.id);if(it){if(ji.pick_instruction)it.pick=ji.pick_instruction;if(ji.return_instruction)it.ret=ji.return_instruction;if(typeof ji.sharp==="boolean")it.sharp=ji.sharp}});
+      srcOf[s.id]="LIVE, GET "+API+"/setting";b.textContent="LIVE";b.className="badge live";n.textContent="Instruction strings for "+s.label+" come from the running controller. The other two settings are mock defaults from controller/settings.py until you switch tray there.";renderAll();return}
+    throw 0;
+  }catch(e){b.textContent="MOCK";b.className="badge mock";n.textContent="Controller at "+API+" is not up. Strings are copied from controller/settings.py (pick_instruction, return_instruction). Counts are real, they are yours.";}
+}
+bindTargets();renderChk();renderAll();probe();
+</script>
+</body>
+</html>

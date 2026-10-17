@@ -11,6 +11,7 @@ and research for the NEXT business case.
 | Path | What |
 | --- | --- |
 | `prototypes/index.html` | Gallery of 35 clickable single-file prototypes. Open it in a browser; every page runs on mock data with no server |
+| `prototypes/39-46` | **Arm operations:** handoff path planner, failure drills against the real controller (11 C6 drills, all pass), demo recording coach, camera-to-arm calibration, Isaac inference loop monitor, servo health, 1:1 printable table template, per-item grasp cards |
 | `prototypes/36-38` | **Scrub core:** dashboard (mock events match `docs/CONTRACTS.md`), voice call path (Photon, Gemini command, stop skips Gemini), three-setting trays with put-back and count |
 | `prototypes/24,25,29-32,34,35` | Scrub-adjacent: handoff console, count sheet, case board, safety zones, demo-data labeling, tray setup, judge challenge, pitch |
 | `prototypes/26,27,28,33` | Off concept (surgery tasks Scrub does not do). Kept for reference only |

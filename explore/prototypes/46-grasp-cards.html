@@ -1,0 +1,291 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Grasp Cards</title>
+<meta name="description" content="Index-card spec sheets for the nine Scrub instruments: top, side and jaw-section drawings in mm, pick point, SO-101 gripper opening, approach, handle-first presentation angle, sharp handling and known failure modes.">
+<!--
+FEATURES:
+- One printed-spec index card per item (9 items, 3 settings): line drawings top view, side view (vertical scale x3) and the
+  cross-section at the pick point with the SO-101 jaws drawn at the commanded opening inside the full jaw range.
+- Per card: pick point (mm from the handle end), gripper opening in mm and as gripper.pos 0 to 100, approach direction,
+  handle-first presentation angle toward the hand, sharp flag (scalpel goes to the safe spot, 170, -180 mm, not to the hand),
+  known failure modes (rolls, thin handle, springy handles, reflective steel confusing the camera) and demo tips.
+- Filter by setting, show only sharp or only roll-prone items, print the box (print stylesheet gives one card per cell).
+SPONSORS: Perceptron Robotics (demo quality is the whole fine-tune), Perceptron Perception (reflective steel vs detection).
+BACKEND HOOKS: GET {controller}/setting for the live sharp flag and instruction strings (controller default
+  http://localhost:8000, override with ?api=). Falls back to values copied from controller/settings.py and says so.
+  Helps Anish A4 (recording), A6 (real_arm grasp check) and Brandon B4 (tray perception).
+STYLE: Printed instrument spec cards, like a catalog's dimension sheet (item code, mm, spec table with leaders) filed as
+  index cards in a box. Cream card stock, 1px rules, square corners, no shadows.
+-->
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Archivo+Narrow:wght@500;600;700&family=IBM+Plex+Mono:wght@400;500;600&family=Newsreader:ital,opsz,wght@0,6..72,400;0,6..72,600;1,6..72,400&display=swap" rel="stylesheet">
+<style>
+:root{--box:#c9b98f;--boxd:#a8976b;--card:#f6f0de;--rule:#b9b39e;--ink:#1f2433;--pencil:#6a6759;--red:#b0392e;--amber:#98680a;--ok:#2d6a4f;--cyan:#17657a;
+ --mono:"IBM Plex Mono",ui-monospace,Menlo,monospace;--lab:"Archivo Narrow","Arial Narrow",sans-serif;--serif:"Newsreader",Georgia,serif}
+*{box-sizing:border-box}
+body{margin:0;background:var(--box);color:var(--ink);font:16px/1.4 var(--serif)}
+.wrap{max-width:1280px;margin:0 auto;padding:18px 20px 40px}
+header{display:flex;justify-content:space-between;gap:16px;flex-wrap:wrap;align-items:flex-start;border-bottom:3px solid var(--ink);padding-bottom:10px}
+h1{font:700 30px/1 var(--lab);text-transform:uppercase;letter-spacing:.04em;margin:0}
+.sub{font:500 13px var(--mono);color:#4b4733;margin-top:6px;max-width:680px}
+.badge{display:inline-block;font:600 12px var(--mono);padding:2px 7px;border:1px solid currentColor;border-radius:2px;background:var(--card)}
+.badge.live{color:var(--ok)}.badge.mock{color:var(--amber)}
+.stopbtn{min-height:48px;min-width:120px;background:var(--red);color:#fff;border:2px solid #6e1d15;font:700 16px var(--mono);letter-spacing:.06em;cursor:pointer;border-radius:2px}
+button:focus-visible,a:focus-visible,input:focus-visible{outline:3px solid var(--cyan);outline-offset:1px}
+.bar{display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin:14px 0}
+.chip{min-height:44px;padding:4px 14px;border:1.5px solid var(--ink);background:var(--card);font:600 14px var(--lab);text-transform:uppercase;letter-spacing:.05em;cursor:pointer;border-radius:2px;color:var(--ink)}
+.chip[aria-pressed=true]{background:var(--ink);color:var(--card)}
+.sp{flex:1}
+.grid{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:26px 18px;margin-top:22px}
+.card{background:var(--card);border:1px solid var(--ink);padding:0 0 12px;position:relative;break-inside:avoid;
+ background-image:linear-gradient(transparent 27px,var(--rule) 28px);background-size:100% 28px}
+.tab{position:absolute;top:-19px;left:14px;background:var(--card);border:1px solid var(--ink);border-bottom:none;padding:2px 12px;font:700 13px var(--lab);letter-spacing:.08em;text-transform:uppercase;height:19px;line-height:15px}
+.card.sharp .tab{background:var(--red);color:#fff;border-color:#6e1d15}
+.ch{display:flex;justify-content:space-between;align-items:flex-start;gap:8px;padding:12px 14px 6px;border-bottom:2px solid var(--ink);background:var(--card)}
+.ch h2{margin:0;font:700 22px/1 var(--lab);text-transform:uppercase;letter-spacing:.03em}
+.ch .code{font:500 12px var(--mono);color:var(--pencil);text-align:right}
+.instr{font:500 13px var(--mono);padding:6px 14px;background:var(--card);border-bottom:1px solid var(--rule)}
+.draw{display:grid;grid-template-columns:minmax(0,1.6fr) minmax(0,1fr);gap:6px;padding:8px 10px 2px;background:var(--card)}
+.draw .full{grid-column:1/-1}
+.draw figure{margin:0}
+.draw figcaption{font:500 10.5px var(--mono);color:var(--pencil);margin-top:1px}
+svg.d{width:100%;height:auto;display:block}
+svg.d text{font:500 5px var(--mono);fill:var(--ink)}
+svg.d .it{fill:#e8e1c8;stroke:var(--ink);stroke-width:.9;stroke-linejoin:round}
+svg.d .ln{fill:none;stroke:var(--ink);stroke-width:.9;stroke-linecap:round;stroke-linejoin:round}
+svg.d .th{fill:none;stroke:var(--ink);stroke-width:.35}
+svg.d .pick{stroke:var(--red);fill:none;stroke-width:.8;stroke-dasharray:2 1.4}
+svg.d .pickf{fill:var(--red)}
+svg.d .jaw{fill:#8f8a76;stroke:var(--ink);stroke-width:.5}
+svg.d .zone{fill:none;stroke:var(--pencil);stroke-width:.4;stroke-dasharray:1.5 1.5}
+.spec{margin:6px 14px 0;background:var(--card)}
+.spec dl{margin:0}
+.spec .r{display:flex;gap:6px;align-items:baseline;padding:3px 0;min-height:28px;border-bottom:1px solid var(--rule);background:var(--card)}
+.spec dt{font:700 12px var(--lab);text-transform:uppercase;letter-spacing:.06em;color:var(--pencil);width:92px;flex:none}
+.spec dd{margin:0;font-size:15px;flex:1;min-width:0}
+.spec dd .n{font:600 14px var(--mono)}
+.spec .fm{margin:0;padding-left:16px}
+.spec .fm li{margin:1px 0}
+.rng{height:12px;border:1px solid var(--ink);position:relative;background:var(--card);margin:4px 0 0}
+.rng i{position:absolute;top:0;bottom:0;left:0;background:var(--ink)}
+.rng b{position:absolute;top:-1px;bottom:-1px;width:2px;background:var(--red)}
+.rl{display:flex;justify-content:space-between;font:500 10px var(--mono);color:var(--pencil)}
+.warn{color:var(--red);font-weight:600}
+.legend{font:500 12px var(--mono);color:#4b4733;margin-top:14px;border-top:1px solid var(--ink);padding-top:8px}
+footer{margin-top:28px;padding-top:8px;border-top:2px solid var(--ink);font:500 12px var(--mono);color:#4b4733}
+footer a{color:inherit}
+@media (max-width:1000px){.grid{grid-template-columns:repeat(2,minmax(0,1fr))}}
+@media (max-width:640px){.grid{grid-template-columns:minmax(0,1fr)}.wrap{padding:14px 14px 30px}h1{font-size:25px}.spec dt{width:80px}}
+@media print{body{background:#fff}.bar,.stopbtn,footer a{display:none}.grid{grid-template-columns:repeat(2,1fr);gap:22px 14px}.card{break-inside:avoid}}
+</style>
+</head>
+<body>
+<div class="wrap">
+<header>
+  <div>
+    <h1>Grasp and presentation cards</h1>
+    <div class="sub">SO-101 gripper, 9 items, 3 settings. For the demo operator (A4), the real_arm grasp check (A6) and tray perception (B4). All lengths in mm. Item sizes are typical catalog sizes (inferred), measure ours with calipers and fix the card.</div>
+    <div style="margin-top:8px"><span class="badge mock" id="src">checking controller</span> <span class="sub" id="srcnote"></span></div>
+  </div>
+  <div style="text-align:right">
+    <div class="sub">Form GC-046 rev. 1</div>
+    <button class="stopbtn" id="stop">STOP</button>
+    <div class="sub" id="stopmsg" style="max-width:200px;margin-left:auto">Cards do not move the arm. STOP calls the controller.</div>
+  </div>
+</header>
+
+<div class="bar" id="bar"></div>
+<div class="grid" id="grid"></div>
+
+<div class="legend">
+Jaw range: SO-101 gripper opens from 0 to about <span id="jr">70</span> mm (inferred from the printed jaws, measure at A3 with the gripper at gripper.pos 100). gripper.pos is 0 to 100 in the dataset; the mm to pos mapping on each card assumes it is linear (inferred).
+Table coordinates: arm base at 0,0 mm, x forward, y left. Slots at x 240 mm, y -80 / 0 / +80 mm. Return spot 170, 170 mm. Safe spot 170, -180 mm. Hand zone 280, -140, 140 mm. Reach about 400 mm.
+Red dashed line is the pick point. Gripper approaches from above with the jaws crosswise to the handle.
+</div>
+<footer>Sources: dubhacks-2026/docs/ARM.md (item placement, towel strip), controller/README.md (handover steps, sharp items), sim/layout.json, explore/research/isaac-workshop-notes.md (fixed cameras, one phrasing).
+<br><a href="#">Terms</a> (placeholder) &middot; <a href="#">Privacy</a> (placeholder)</footer>
+</div>
+
+<script>
+"use strict";
+const API=(new URLSearchParams(location.search).get("api")||"http://localhost:8000").replace(/\/$/,"");
+const JAW=70;
+/* geometry in mm. top: draw(handle at x=0). sec: cross-section type. */
+const ITEMS=[
+ {id:"hemostat",set:"surgical",setLabel:"Operating room",code:"HM-01",name:"Hemostat",sub:"Kelly, curved, 5.5 in",L:140,sharp:false,roll:false,reflect:true,thin:false,
+  pick:55,open:22,sec:{t:"rect",w:9,h:8},ang:25,
+  approach:"Straight down onto the closed shanks between the rings and the ratchet, jaws crosswise. Keep the ratchet teeth out of the jaw faces.",
+  present:"Rings toward the palm, curved jaws up and away, tilted 25 degrees above horizontal. Stops a few cm short of the palm.",
+  fails:["Ratchet teeth catch a jaw and the item twists in the grip","Polished steel throws glare, the side camera sees white blobs for rings and tips","Rings lie flat, so a pick too close to the lock tips the jaws up"],
+  tips:["Close the hemostat on the first ratchet tooth every time, same as the clinician sees it","Matte towel under the tray, lamp off axis from the side camera","Tilt the lamp so no ring glints into the wrist camera"],
+  top:()=>`<path class="it" d="M20 -9 L36 -5 L74 0 L74 0 L36 5 L20 9"/><circle class="it" cx="11" cy="-9" r="9"/><circle class="it" cx="11" cy="9" r="9"/><path class="it" d="M74 0 L104 -4 L138 -1 L138 1 L104 4 Z"/><circle class="it" cx="74" cy="0" r="3"/>`,
+  side:()=>[[0,8],[20,5],[38,6],[60,8],[80,12],[110,10],[140,7]]},
+ {id:"scalpel",set:"surgical",setLabel:"Operating room",code:"SC-02",name:"Scalpel",sub:"No. 3 handle, No. 10 blade",L:150,sharp:true,roll:false,reflect:true,thin:true,
+  pick:62,open:18,sec:{t:"rect",w:8,h:4},ang:0,
+  approach:"Straight down on the flat of the grooved grip, jaws crosswise, blade end pointing away from the arm base and away from the hand zone.",
+  present:"Never handed over. The arm sets it down at the safe spot (170, -180 mm), blade pointing away, handle toward the clinician. Controller says \"Scalpel down.\"",
+  fails:["Flat handle only 4 mm thick: jaws slide off unless it sits on the towel strip","Blade end lifts when the grip closes, swings toward the tray","Bright steel handle and blade: camera mixes it up with the hemostat shanks"],
+  tips:["Fold the towel strip under the handle (ARM.md), blade over the free edge","Demos end at the safe spot, not the carry pose","Use a capped or dull training blade for demos, never a live one"],
+  top:()=>`<path class="it" d="M0 -4 H92 L98 -3 L108 -2 L108 2 L98 3 L92 4 H0 Z"/><path class="it" d="M108 -2 L113 -6 L150 -1 L150 2 L108 2 Z"/>${Array.from({length:10},(_,i)=>`<line class="th" x1="${22+i*6}" y1="-4" x2="${22+i*6}" y2="4"/>`).join("")}`,
+  side:()=>[[0,4],[92,4],[100,3],[108,3],[113,5],[150,1.5]]},
+ {id:"mayo_scissors",set:"surgical",setLabel:"Operating room",code:"MS-03",name:"Mayo scissors",sub:"Straight, 6.75 in",L:170,sharp:false,roll:false,reflect:true,thin:false,
+  pick:62,open:24,sec:{t:"rect",w:10,h:8},ang:25,
+  approach:"Straight down on the closed shanks just behind the pivot, jaws crosswise. Blades must be closed in the slot.",
+  present:"Rings toward the palm, blades closed and pointing away, 25 degrees above horizontal.",
+  fails:["Blades spring open a few mm when gripped near the pivot","Long blades (about 100 mm) overhang the slot and tip when lifted","Reflective steel and two rings read as a second hemostat"],
+  tips:["Grip behind the pivot only, never on the blades","Rubber band around the rings is NOT allowed, the clinician needs them free; instead close fully by hand each reset","Different slot from the hemostat, rings of different size help the camera"],
+  top:()=>`<circle class="it" cx="11" cy="-11" r="10"/><circle class="it" cx="11" cy="11" r="10"/><path class="it" d="M20 -9 L44 -4 L62 0 L100 -6 L168 -1 L168 1 L100 6 L62 0 L44 4 L20 9"/><circle class="it" cx="62" cy="0" r="3"/>`,
+  side:()=>[[0,6],[22,5],[44,7],[62,10],[100,8],[168,4]]},
+ {id:"mouth_mirror",set:"dental",setLabel:"Dental office",code:"MM-04",name:"Mouth mirror",sub:"Handle plus 22 mm head",L:165,sharp:false,roll:true,reflect:true,thin:false,
+  pick:70,open:18,sec:{t:"circle",d:8.5},ang:20,
+  approach:"Straight down on the middle of the round handle, jaws crosswise. Close slowly so the handle seats in the jaw V before it rolls.",
+  present:"Handle toward the palm, mirror head up and away, 20 degrees above horizontal, mirror face to the side.",
+  fails:["Round handle ROLLS off the slot when the jaws touch it","The mirror disc and chrome handle reflect the lamp and fool the camera","Head is heavier than the handle end, it tips down in the grip"],
+  tips:["Fold the towel strip into a groove under the handle so it cannot roll","Record the grasp with the mirror face down so it does not flash the camera","Pick a point 70 mm from the handle end, slightly toward the head, so the head balances"],
+  top:()=>`<path class="it" d="M0 -4.2 H110 L125 -2 L138 -1.5 V1.5 L125 2 L110 4.2 H0 Z"/><circle class="it" cx="152" cy="0" r="11"/><circle class="th" cx="152" cy="0" r="8"/>`,
+  side:()=>[[0,8.5],[110,8.5],[125,4],[138,3],[141,3],[141,5],[143,18],[152,22],[163,18],[163,5]]},
+ {id:"explorer",set:"dental",setLabel:"Dental office",code:"EX-05",name:"Dental explorer",sub:"No. 23 shepherd hook",L:160,sharp:false,roll:true,reflect:true,thin:true,
+  pick:50,open:16,sec:{t:"hex",d:7},ang:20,
+  approach:"Straight down on the hex handle, jaws crosswise. Never on the wire shank, it bends.",
+  present:"Handle toward the palm, hook tip away and slightly up, 20 degrees above horizontal.",
+  fails:["Hex handle rolls a few degrees, then the wire shank swings about","Needle-fine tip is invisible in the side camera","Pointy end is not flagged sharp in the controller, treat it as sharp anyway"],
+  tips:["Grip the thickest part of the handle, about 50 mm from the rear end","Keep the tip pointing at the tray edge, away from the operators' hands, during resets","Tape a small pencil mark on the handle to check the pick point from video"],
+  top:()=>`<path class="it" d="M0 -3.5 L8 -3.5 H100 V3.5 H8 L0 3.5 Z"/><path class="it" d="M100 -1.8 L128 -1 L150 -0.6 L156 -0.6 Q164 -0.6 163 6 L161.4 6 Q161.8 1 156 0.6 L150 0.6 L128 1 L100 1.8 Z"/>`,
+  side:()=>[[0,7],[100,7],[102,2],[150,1],[162,1]]},
+ {id:"cotton_pliers",set:"dental",setLabel:"Dental office",code:"CP-06",name:"Cotton pliers",sub:"College pliers, 150 mm",L:150,sharp:false,roll:false,reflect:true,thin:true,
+  pick:55,open:20,sec:{t:"rect",w:10,h:6},ang:25,
+  approach:"Straight down across the middle of the closed arms, jaws crosswise. Squeeze lightly, the arms flex.",
+  present:"Closed end toward the palm, serrated tips up and away, 25 degrees above horizontal.",
+  fails:["Springy arms pop out of the jaws if the grip is too tight","Arms are 6 mm thin, the jaws close on the table","Serrated tips catch the towel strip"],
+  tips:["Rest the closed arms on a double fold of the towel","Use a grip just tight enough that the arms touch","Record a few demos at 4 mm lower jaw height, then pick one behavior and keep it"],
+  top:()=>`<path class="it" d="M0 -2 L60 -5 L120 -4 L148 -1 L148 1 L120 4 L60 5 L0 2 Z"/><line class="th" x1="6" y1="0" x2="148" y2="0"/>${Array.from({length:6},(_,i)=>`<line class="th" x1="${132+i*2.5}" y1="-1.6" x2="${132+i*2.5}" y2="1.6"/>`).join("")}`,
+  side:()=>[[0,6],[60,6],[120,5],[148,3]]},
+ {id:"needle_nose_pliers",set:"bench",setLabel:"Robotics bench",code:"NN-07",name:"Needle-nose pliers",sub:"6 in, rubber grips",L:150,sharp:false,roll:false,reflect:true,thin:false,
+  pick:25,open:38,sec:{t:"rect",w:26,h:14},ang:25,
+  approach:"Straight down across both rubber grips together, jaws crosswise, 25 mm from the grip end.",
+  present:"Grips toward the palm, jaws up and away, 25 degrees above horizontal.",
+  fails:["Handles spring apart when the jaws close, pliers rotates in the grip","Chrome jaws and nickel pivot give strong glare","Heavy end (head) drops during the lift"],
+  tips:["Rubber band round the grips to keep them closed during demos, take it off for the clinician","Match the 38 mm opening to the 26 mm closed grip: more than 5 mm slack looks sloppy on video","Orient the jaws the same direction every demo"],
+  top:()=>`<path class="it" d="M0 -14 L68 -7 L68 -1 L0 -3 Z"/><path class="it" d="M0 14 L68 7 L68 1 L0 3 Z"/><circle class="it" cx="80" cy="0" r="5"/><path class="it" d="M85 -6 L148 -1 L148 1 L85 6 Z"/>`,
+  side:()=>[[0,14],[68,10],[80,10],[100,6],[148,3]]},
+ {id:"wire_cutters",set:"bench",setLabel:"Robotics bench",code:"WC-08",name:"Wire cutters",sub:"Flush cutters, 5 in",L:125,sharp:false,roll:false,reflect:true,thin:false,
+  pick:22,open:36,sec:{t:"rect",w:24,h:12},ang:25,
+  approach:"Straight down across both grips, jaws crosswise, 22 mm from the grip end. Cutting head stays free.",
+  present:"Grips toward the palm, cutting head up and away, 25 degrees above horizontal.",
+  fails:["Spring-loaded grips open and the item twists","Cutting edges are sharp but not flagged: keep fingers off the head","Small shiny head confuses the camera next to the hex key"],
+  tips:["Lock the grips closed with the built-in tie or band during demos","Pick on the grips only, never the head","Leave 10 mm between this and the needle-nose slot"],
+  top:()=>`<path class="it" d="M0 -12 L52 -6 L52 -1 L0 -3 Z"/><path class="it" d="M0 12 L52 6 L52 1 L0 3 Z"/><circle class="it" cx="62" cy="0" r="8"/><path class="it" d="M68 -6 L108 -3 L124 -1 L124 1 L108 3 L68 6 Z"/>`,
+  side:()=>[[0,12],[52,9],[62,14],[108,8],[124,4]]},
+ {id:"hex_key",set:"bench",setLabel:"Robotics bench",code:"HK-09",name:"Hex key",sub:"5 mm L-wrench",L:100,sharp:false,roll:true,reflect:false,thin:true,
+  pick:35,open:12,sec:{t:"hex",d:5},ang:20,
+  approach:"Straight down on the long arm, jaws crosswise, 35 mm from the bend. Jaw edges must land on the flats.",
+  present:"Long arm toward the palm, short arm up and away, 20 degrees above horizontal.",
+  fails:["5 mm bar: rolls and rocks on the bend, the shortest grip window of all nine","Black oxide or plain steel can vanish against a dark tray","Gripper closes on the table if the arm is 3 mm low"],
+  tips:["Towel strip under the long arm, bend hanging over the edge","Keep the L facing the same way, bend to the right","If it keeps rolling, record the demo with a 15 mm taped chock beside it and tell Anish"],
+  top:()=>`<path class="ln" style="stroke-width:5" d="M0 0 H100 V30"/><path class="th" d="M0 0 H100 V30" style="stroke:#f6f0de"/>`,
+  side:()=>[[0,5],[100,5]]}
+];
+let live={};
+const state={set:"all",only:"all"};
+
+function topSvg(it){
+  const m=14,W=it.L+2*m, H=44, s=`<svg class="d" viewBox="${-m} -22 ${W} ${H}" role="img" aria-label="${it.name} top view">`;
+  let g=`<g>${it.top()}</g>`;
+  /* hex key extends down: shift */
+  const hk=it.id==="hex_key";
+  const vb=hk?`${-m} -8 ${W} ${46}`:`${-m} -22 ${W} ${H}`;
+  let out=`<svg class="d" viewBox="${vb}" role="img" aria-label="${it.name} top view">${g}`;
+  out+=`<line class="pick" x1="${it.pick}" y1="${hk?-8:-20}" x2="${it.pick}" y2="${hk?10:20}"/><circle class="pickf" cx="${it.pick}" cy="0" r="1.5"/>`;
+  out+=`<text x="${it.pick+2}" y="${hk?-4:-17}" style="fill:#b0392e">PICK ${it.pick}</text>`;
+  out+=`<text x="${-m+1}" y="${hk?42:19}">handle end</text><text x="${it.L-26}" y="${hk?42:19}">${it.L} mm</text>`;
+  return out+"</svg>"}
+function sideSvg(it){
+  const k=3,pts=it.side(),m=14,H=34;
+  const poly=pts.map(p=>`${p[0]},${-p[1]*k/3*1}`);
+  /* vertical x3 around a baseline of 0, drawn upward */
+  const top=pts.map(p=>`${p[0]},${-p[1]*1.0*k/ k *1}`);
+  const up=pts.map(p=>[p[0],-p[1]*k/3]); // same scale; thickness is mm, exaggerated x3 below
+  const d="M"+pts.map(p=>`${p[0]} ${-p[1]*1.5}`).join(" L")+" L"+pts.slice().reverse().map(p=>`${p[0]} 0`).join(" L")+" Z";
+  const hmax=Math.max(...pts.map(p=>p[1]))*1.5;
+  const H2=Math.max(hmax+14,30);
+  return `<svg class="d" viewBox="${-m} ${-H2} ${it.L+2*m} ${H2+8}" role="img" aria-label="${it.name} side view"><path class="it" d="${d}"/><line class="ln" style="stroke-width:.5" x1="${-m}" y1="0" x2="${it.L+m}" y2="0"/><line class="pick" x1="${it.pick}" y1="${-H2+2}" x2="${it.pick}" y2="3"/><text x="${-m+1}" y="7">table z=0</text><text x="${it.L-48}" y="7">x1.5 vertical</text></svg>`}
+function secSvg(it){
+  const s=it.sec,o=it.open,W=JAW+10,cx=W/2, hh=26;
+  let shape="";
+  if(s.t==="rect")shape=`<rect class="it" x="${cx-s.w/2}" y="${hh/2-s.h/2}" width="${s.w}" height="${s.h}"/>`;
+  else if(s.t==="circle")shape=`<circle class="it" cx="${cx}" cy="${hh/2}" r="${s.d/2}"/>`;
+  else {const r=s.d/2+0.5;shape=`<polygon class="it" points="${[0,1,2,3,4,5].map(i=>{const a=Math.PI/3*i;return (cx+r*Math.cos(a)).toFixed(2)+","+(hh/2+r*Math.sin(a)).toFixed(2)}).join(" ")}"/>`}
+  const j=(x)=>`<rect class="jaw" x="${x-2}" y="0" width="4" height="${hh}"/>`;
+  return `<svg class="d" viewBox="0 -2 ${W} ${hh+14}" role="img" aria-label="Cross-section with jaws open ${o} mm">
+   <rect class="zone" x="${cx-JAW/2}" y="0" width="${JAW}" height="${hh}"/>
+   ${shape}${j(cx-o/2)}${j(cx+o/2)}
+   <line class="th" x1="${cx-o/2}" y1="${hh+4}" x2="${cx+o/2}" y2="${hh+4}"/><text x="${cx-8}" y="${hh+9}">${o} mm</text>
+   <text x="${cx-JAW/2}" y="${hh+9}" style="fill:#6a6759">0</text><text x="${cx+JAW/2-12}" y="${hh+9}" style="fill:#6a6759">~${JAW}</text></svg>`}
+function presentSvg(it){
+  if(it.sharp){
+    return `<svg class="d" viewBox="0 0 150 56" role="img" aria-label="Safe spot, blade away from hand zone"><rect class="zone" x="4" y="6" width="70" height="44"/><text x="7" y="13">safe spot 170,-180</text>
+     <path class="it" d="M14 34 H52 L55 33 L60 32.4 L60 35.6 L55 35 L52 36 H14 Z" transform="rotate(-8 14 34)"/><path class="it" d="M60 32.4 L62 30 L74 33 L74 35 L60 35.6Z" transform="rotate(-8 14 34)"/>
+     <text x="8" y="46" style="fill:#b0392e">blade away</text>
+     <circle class="zone" cx="118" cy="30" r="14"/><text x="96" y="52">hand zone: not used</text><path class="ln" style="stroke-width:.6;stroke-dasharray:2 2" d="M76 30 H100"/><text x="82" y="26">no handover</text></svg>`}
+  const a=it.ang*Math.PI/180,len=62,hx=110,hy=44,tx=hx-len*Math.cos(a),ty=hy-len*Math.sin(a);
+  return `<svg class="d" viewBox="0 0 150 56" role="img" aria-label="Presented ${it.ang} degrees above horizontal, handle toward palm"><path class="ln" style="stroke-width:1.4" d="M104 50 Q125 54 146 48"/><text x="108" y="45">palm</text>
+   <line x1="${hx}" y1="${hy}" x2="${tx}" y2="${ty}" stroke="#1f2433" stroke-width="3.2" stroke-linecap="round"/><circle cx="${hx}" cy="${hy}" r="2.8" fill="#f6f0de" stroke="#1f2433" stroke-width=".8"/>
+   <line class="th" x1="${tx}" y1="${hy}" x2="${hx}" y2="${hy}"/><path class="pick" d="M${hx-30} ${hy} A30 30 0 0 0 ${hx-30*Math.cos(a)} ${hy-30*Math.sin(a)}"/><text x="${hx-46}" y="${hy-3}" style="fill:#b0392e">${it.ang} deg</text>
+   <text x="${tx-2}" y="${ty-3}">tip</text><text x="${hx-14}" y="${hy+9}">handle</text></svg>`}
+
+function card(it){
+  const pos=Math.round(it.open/JAW*100);
+  const sharp=live[it.id]!==undefined?live[it.id]:it.sharp;
+  const flags=[it.roll?"rolls":"",it.thin?"thin handle":"",it.reflect?"reflective steel":""].filter(Boolean);
+  return `<article class="card ${sharp?'sharp':''}" data-set="${it.set}" data-sharp="${sharp}" data-roll="${it.roll}" aria-label="${it.name}">
+   <div class="tab">${it.code} ${sharp?" SHARP":""}</div>
+   <div class="ch"><div><h2>${it.name}</h2><div class="sub" style="margin:2px 0 0">${it.sub}</div></div><div class="code">${it.setLabel}<br>L ${it.L} mm</div></div>
+   <div class="instr">"pick the ${it.name.toLowerCase()}"  /  "return the ${it.name.toLowerCase()}"</div>
+   <div class="draw">
+     <figure>${topSvg(it)}<figcaption>Top view, handle left, mm</figcaption></figure>
+     <figure>${secSvg(it)}<figcaption>Jaws at pick, within 0 to ~${JAW}</figcaption></figure>
+     <figure class="full">${sideSvg(it)}<figcaption>Side view, vertical exaggerated x1.5</figcaption></figure>
+   </div>
+   <div class="spec"><dl>
+     <div class="r"><dt>Pick point</dt><dd><span class="n">${it.pick} mm</span> from the handle end. ${it.thin?"Thin: ":""}${it.sec.t==="rect"?`section ${it.sec.w} x ${it.sec.h} mm`:`section ${it.sec.d} mm ${it.sec.t==="hex"?"hex":"round"}`}.</dd></div>
+     <div class="r"><dt>Opening</dt><dd><span class="n">${it.open} mm</span> (gripper.pos about ${pos} of 100)
+        <div class="rng" title="opening within jaw range"><i style="width:${it.open/JAW*100}%"></i><b style="left:calc(${it.open/JAW*100}% - 1px)"></b></div><div class="rl"><span>0</span><span>jaw range 0 to ~${JAW} mm</span></div></dd></div>
+     <div class="r"><dt>Approach</dt><dd>${it.approach}</dd></div>
+     <div class="r"><dt>Present</dt><dd>${it.present}${sharp?"":" Controller: carry pose, 8 cm short of the target at 0.3, then in at 0.1."}${presentSvg(it)}</dd></div>
+     <div class="r"><dt>Sharp</dt><dd>${sharp?'<span class="warn">YES. Goes to the safe spot (170, -180 mm), never to the hand.</span>':'No in controller settings.'}${it.id==="explorer"||it.id==="mayo_scissors"||it.id==="wire_cutters"?' <span class="warn">Has cutting or piercing parts anyway, handle with care.</span>':''}</dd></div>
+     <div class="r"><dt>Fails</dt><dd><ul class="fm">${it.fails.map(f=>`<li>${f}</li>`).join("")}</ul><div class="rl" style="margin-top:3px"><span>${flags.join(" / ")}</span></div></dd></div>
+     <div class="r"><dt>Demo tips</dt><dd><ul class="fm">${it.tips.map(f=>`<li>${f}</li>`).join("")}</ul></dd></div>
+   </dl></div>
+  </article>`}
+
+function render(){
+  const bar=document.getElementById("bar");
+  const sets=[["all","All 9"],["surgical","Operating room"],["dental","Dental"],["bench","Bench"]];
+  const onlys=[["all","Any"],["sharp","Sharp only"],["roll","Rolls"]];
+  bar.innerHTML=sets.map(s=>`<button class="chip" data-s="${s[0]}" aria-pressed="${state.set===s[0]}">${s[1]}</button>`).join("")+`<span class="sp"></span>`+onlys.map(s=>`<button class="chip" data-o="${s[0]}" aria-pressed="${state.only===s[0]}">${s[1]}</button>`).join("")+`<button class="chip" id="print">Print cards</button>`;
+  bar.querySelectorAll("[data-s]").forEach(b=>b.onclick=()=>{state.set=b.dataset.s;render()});
+  bar.querySelectorAll("[data-o]").forEach(b=>b.onclick=()=>{state.only=b.dataset.o;render()});
+  document.getElementById("print").onclick=()=>window.print();
+  const list=ITEMS.filter(i=>(state.set==="all"||i.set===state.set)&&(state.only==="all"||(state.only==="sharp"&&(live[i.id]!==undefined?live[i.id]:i.sharp))||(state.only==="roll"&&i.roll)));
+  document.getElementById("grid").innerHTML=list.length?list.map(card).join(""):`<p>No cards match this filter.</p>`;
+}
+document.getElementById("stop").onclick=async()=>{
+  const m=document.getElementById("stopmsg");
+  try{const r=await fetch(API+"/stop",{method:"POST",signal:AbortSignal.timeout(1500)});m.textContent="Controller answered "+r.status+"."}
+  catch(e){m.textContent="Controller :8000 not reachable. Power switch is the real stop."}
+};
+async function probe(){
+  const b=document.getElementById("src"),n=document.getElementById("srcnote");
+  try{
+    const r=await fetch(API+"/setting",{signal:AbortSignal.timeout(1500)});if(!r.ok)throw 0;const j=await r.json();
+    (j.items||[]).forEach(i=>{if(typeof i.sharp==="boolean")live[i.id]=i.sharp});
+    b.textContent="LIVE";b.className="badge live";n.textContent="Sharp flags for the current tray ("+(j.label||j.id)+") from "+API+"/setting. Dimensions are static spec values.";render();
+  }catch(e){b.textContent="MOCK";b.className="badge mock";n.textContent="Controller at "+API+" is not up. Sharp flags copied from controller/settings.py (only the scalpel). Dimensions are typical catalog sizes either way.";}
+}
+render();probe();
+</script>
+</body>
+</html>
