@@ -2,6 +2,33 @@
 
 Owner: Evan. Task E3 in `docs/TASKS.md`.
 
-`log(event)`, `log_test(...)` and `stats()` per `docs/CONTRACTS.md`, writing to MongoDB Atlas (`MONGODB_URI` in `.env`). Never raises. Buffers to `ledger/buffer.jsonl` when Mongo is down.
+`log(event)`, `log_test(...)` and `stats()` per `docs/CONTRACTS.md`. The controller should return `stats()` from `GET /stats` unchanged.
 
-Done when: events from a fake run show in Atlas and `stats()` returns the tables.
+`MONGODB_URI` in the repo-root `.env` points at MongoDB Atlas, database name `scrub`, collections `events` and `tests`. If the URI is missing or Atlas is down, calls still succeed and append to `ledger/buffer.jsonl` (git-ignored). A later successful connection flushes that file.
+
+`stats()` shape:
+
+```json
+{
+  "by_item": [
+    {"item": "hemostat", "attempts": 4, "successes": 3, "success_rate": 0.75, "median_request_to_hand_s": 6.4}
+  ],
+  "by_lighting": [
+    {"lighting": "normal", "attempts": 4, "successes": 3, "success_rate": 0.8, "median_request_to_hand_s": 6.1}
+  ],
+  "median_request_to_hand_s": 6.4,
+  "out": ["hemostat"],
+  "t": 1760731200.12
+}
+```
+
+Success rates come from `log_test`. The median comes from `handed` events' `request_to_hand_s`, and from `log_test` seconds only when no handed events are stored. `out` is the count: `handed` or `set_down` marks an item out, `returned` clears it.
+
+Run from the repo root:
+
+```
+pip install -r ledger/requirements.txt
+python -m ledger
+```
+
+That prints the current tables. Never raises.
