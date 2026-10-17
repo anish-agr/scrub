@@ -43,6 +43,7 @@ class Kinematics:
         self.axes = [np.fromstring(joints[n].find("axis").get("xyz"), sep=" ") for n in JOINTS]
         self.lower = np.array([float(joints[n].find("limit").get("lower")) for n in JOINTS])
         self.upper = np.array([float(joints[n].find("limit").get("upper")) for n in JOINTS])
+        self.velocity_deg_s = np.rad2deg([float(joints[n].find("limit").get("velocity")) for n in JOINTS])
         self.tip = origin(joints["gripper_frame_joint"].find("origin"))
         self.signs = np.asarray(self.rig["joint_signs"], dtype=float)
         self.offsets = np.asarray(self.rig["joint_offsets_deg"], dtype=float)
@@ -54,6 +55,10 @@ class Kinematics:
         r = self.base_to_urdf[:3, :3]
         if not np.allclose(r.T @ r, np.eye(3)) or not np.isclose(np.linalg.det(r), 1) or not np.allclose(self.base_to_urdf[3], [0, 0, 0, 1]):
             raise ValueError("base_to_urdf must be a rigid transform")
+        for key in ("max_joint_speed_deg_s", "max_gripper_speed_per_s", "max_cartesian_speed_m_s"):
+            if not math.isfinite(self.rig[key]) or self.rig[key] <= 0:
+                raise ValueError(f"Invalid rig limit: {key}")
+        self.joint_speed_deg_s = np.minimum(self.rig["max_joint_speed_deg_s"], self.velocity_deg_s)
 
     def to_urdf(self, degrees):
         return np.deg2rad(np.asarray(degrees, dtype=float) * self.signs + self.offsets)
@@ -120,7 +125,7 @@ class Kinematics:
             raise ValueError("Need six finite joint values")
         if not self.valid(start[:5]) or not self.valid(goal[:5]) or not (0 <= start[5] <= 100 and 0 <= goal[5] <= 100):
             raise ValueError("Trajectory exceeds joint limits")
-        limits = np.array([self.rig["max_joint_speed_deg_s"]] * 5 + [self.rig["max_gripper_speed_per_s"]]) * speed
+        limits = np.r_[self.joint_speed_deg_s, self.rig["max_gripper_speed_per_s"]] * speed
         if np.any(limits <= 0):
             raise ValueError("Invalid speed limits")
         duration = max(1 / hz, float(np.max(abs(goal - start) / limits)))
