@@ -1,0 +1,375 @@
+<!doctype html>
+<!-- Scrub layout designer and kit builder. Style: printed shop layout sheet (technical drafting, dimensions in mm).
+     Plain HTML + JS, no build step. Works from file:// (reach falls back to an estimate; export falls back to copy). -->
+<html lang="en"><head>
+<meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Scrub layout and kit</title>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;600&family=IBM+Plex+Sans:wght@400;600&display=swap">
+<link rel="icon" href="data:,">
+<link rel="stylesheet" href="style.css">
+<style>
+main{display:grid;grid-template-columns:minmax(0,1.15fr) minmax(0,1fr);gap:10px;padding:10px;align-items:start}
+.col{display:flex;flex-direction:column;gap:10px;min-width:0}
+#plan{display:block;width:100%;height:auto;background:var(--sheet);touch-action:none;user-select:none}
+#plan text{font-family:var(--mono);fill:var(--ink)}
+#plan .drag{cursor:grab}
+.legend{display:flex;flex-wrap:wrap;gap:4px 14px;font:11px var(--mono);padding:6px 10px;border-top:1px solid var(--rule);color:var(--ink2)}
+.legend i{display:inline-block;width:12px;height:12px;border:1.5px solid var(--ink);vertical-align:-2px;margin-right:4px}
+.badge{font:600 10px var(--mono);padding:2px 6px;border:1px solid currentColor;text-transform:uppercase;letter-spacing:.05em}
+table{border-collapse:collapse;width:100%;font:12px var(--mono)}
+th{font:600 10px var(--mono);text-transform:uppercase;letter-spacing:.06em;text-align:left;color:var(--ink2);border-bottom:1px solid var(--rule);padding:4px 3px}
+td{padding:3px;border-bottom:1px solid var(--faint);vertical-align:middle}
+td input[type=number]{width:62px;min-height:28px;padding:3px 4px}
+td select{max-width:130px;min-height:28px;padding:3px}
+.scroll{overflow-x:auto}
+.kit h3{font:600 11px var(--mono);text-transform:uppercase;letter-spacing:.06em;margin:10px 0 4px;color:var(--ink2)}
+.kit ul{list-style:none;margin:0;padding:0}
+.kit li{display:flex;flex-wrap:wrap;gap:6px;align-items:center;padding:4px 0;border-bottom:1px solid var(--faint);font-size:13px}
+.kit li .grow{flex:1 1 130px}
+.sug{border:1px solid var(--rule);margin:0 0 8px;padding:8px 10px;background:var(--paper)}
+.sug .why{font-size:12px;color:var(--ink2);margin:3px 0 6px}
+.sug .hd{display:flex;gap:8px;align-items:baseline;flex-wrap:wrap}
+pre{margin:0;font:11px/1.4 var(--mono);background:var(--paper);border:1px solid var(--rule);padding:8px;overflow:auto;max-height:240px;white-space:pre-wrap;word-break:break-all}
+.two{display:grid;grid-template-columns:1fr 1fr;gap:8px}
+#status{font:11px var(--mono)}
+@media (max-width:900px){main{grid-template-columns:minmax(0,1fr)}.two{grid-template-columns:1fr}}
+</style></head><body>
+<header class="top">
+  <div class="title"><h1>Layout designer and kit builder</h1><div class="sub">Workspace around the arm base. Drag any marked item. Units: mm, base frame (x forward, y left, z up).</div></div>
+  <nav><a href="viewer.html">Viewer</a><a class="on" href="layout.html">Layout and kit</a></nav>
+  <div class="block">SHEET SC-02 REV A<br>SCALE 1:1 (mm)<br><span id="srcline">layout: default</span></div>
+</header>
+<main>
+ <div class="col">
+  <section class="panel"><h2>Top view (arm base at bottom, x up the sheet, y to the left)</h2>
+   <svg id="plan" viewBox="-330 -520 660 640" role="img" aria-label="Top-down workspace plan"></svg>
+   <div class="legend">
+     <span><i style="background:#c9c3ae"></i>slot</span><span><i style="border-radius:50%;border-style:dashed;border-color:#46607a"></i>return</span>
+     <span><i style="border-radius:50%;border-color:#8c3b2e"></i>safe spot</span><span><i style="border-radius:50%;border-style:dashed;border-color:#c4501b"></i>hand zone</span>
+     <span><i style="border-style:dotted"></i>camera view</span><span class="ok">green reachable</span><span class="bad">red out of reach</span>
+   </div></section>
+  <section class="panel"><h2>Elements and reach <span id="reachSrc" class="badge" style="float:right;margin-top:-2px"></span></h2>
+   <div class="body scroll"><table id="elTable"></table><div id="status" style="margin-top:6px;color:var(--ink2)"></div></div></section>
+ </div>
+ <div class="col">
+  <section class="panel"><h2>Kit builder</h2><div class="body kit">
+    <div class="row"><label for="selSetting">Setting</label><select id="selSetting"></select>
+      <label for="selProc">Procedure</label><select id="selProc"></select></div>
+    <div id="kit"></div>
+  </div></section>
+  <section class="panel"><h2>Suggestions <span id="sugCount" class="badge" style="float:right;margin-top:-2px"></span></h2><div class="body">
+    <div class="mono" style="font-size:11px;color:var(--ink2);margin-bottom:8px">Rule-based for now. Usage source: <span id="usageSrc">...</span></div>
+    <div id="sugs"></div>
+    <div class="row"><button id="askBtn">Ask for suggestions (stub)</button></div>
+    <pre id="askOut" style="display:none;margin-top:8px"></pre>
+  </div></section>
+  <section class="panel"><h2>Export</h2><div class="body">
+    <div class="row"><button class="pri" id="putLayout">PUT /layout to sim</button><button id="copyLayout">Copy layout.json</button><button id="dlLayout">Download layout.json</button></div>
+    <div class="row" style="margin-top:6px"><button id="copySetting">Copy settings/&lt;id&gt;.json</button><button id="dlSetting">Download settings/&lt;id&gt;.json</button><button id="loadSrv">Load from sim</button><button id="resetBtn">Reset to default</button></div>
+    <div id="expMsg" class="mono" style="font-size:11px;margin:8px 0;color:var(--ink2)" aria-live="polite"></div>
+    <div class="two"><div><label>layout.json</label><pre id="layoutPre"></pre></div><div><label id="setLbl">settings json</label><pre id="settingPre"></pre></div></div>
+  </div></section>
+ </div>
+</main>
+<footer><span>Scrub layout designer, DubHacks 2026</span><a href="#">Terms</a><a href="#">Privacy</a></footer>
+<script src="common.js"></script>
+<script>
+(() => {
+const S = SCRUB, $ = id => document.getElementById(id), NS = 'http://www.w3.org/2000/svg';
+let L = S.defaultLayout(), reach = {}, reachSource = 'estimate', usage = { source: '...', counts: S.MOCK_USAGE }, checked = {};
+const mm = v => Math.round(v * 1000), cm = v => (v * 100).toFixed(1);
+const dist = (a, b) => Math.hypot(a.x - b.x, a.y - b.y);
+const snap = v => Math.round(v * 200) / 200;     // 5 mm
+
+/* ---------- reach ---------- */
+function reachPoints() {
+  // slots, return and safe spot are checked at the pick height and at the approach height above them (as the sim does)
+  const pts = [], keys = [], P = S.PICK_Z, A = S.ABOVE_Z;
+  L.slots.forEach((s, i) => { pts.push([s.x, s.y, P], [s.x, s.y, A]); keys.push('slot:' + i, 'slot:' + i); });
+  [['return', L.return_spot], ['safe', L.safe_spot]].forEach(([k, e]) => { pts.push([e.x, e.y, P], [e.x, e.y, A]); keys.push(k, k); });
+  pts.push([L.hand_zone.x, L.hand_zone.y, L.hand_zone.z]); keys.push('hand');
+  return { pts, keys };
+}
+function merge(keys, results) {
+  const m = {}; results.forEach((r, i) => { const k = keys[i], c = m[k]; const ok = (!c || c.reachable) && r.reachable; if (!c || (r.error_m || 0) > (c.error_m || 0)) m[k] = Object.assign({}, r); m[k].reachable = ok; });
+  return m;
+}
+let reachTimer = null, reachSeq = 0;
+function scheduleReach() {
+  // immediate local estimate so the drawing is never stale, then the sim answer replaces it
+  const { pts, keys } = reachPoints(); reach = merge(keys, pts.map(p => S.reachEstimate(...p))); reachSource = 'estimate';
+  paintReach();
+  clearTimeout(reachTimer);
+  reachTimer = setTimeout(async () => {
+    const seq = ++reachSeq, r = await S.reachBatch(pts);
+    if (seq !== reachSeq) return;
+    reach = merge(keys, r.results); reachSource = r.source; paintReach();
+  }, 150);
+}
+function paintReach() { drawPlan(); drawTable(); drawSuggestions(); drawKit(); drawExport(); }
+
+/* ---------- plan drawing ---------- */
+const svg = $('plan');
+const X = y => -y * 1000, Y = x => -x * 1000;     // world (m) -> svg (mm), x up, y left
+function el(name, attrs, parent, text) { const e = document.createElementNS(NS, name); for (const k in attrs) e.setAttribute(k, attrs[k]); if (text !== undefined) e.textContent = text; (parent || svg).append(e); return e; }
+const COL = { ink: '#1d2024', ok: '#2e6b3e', bad: '#a52a1d', ret: '#46607a', safe: '#8c3b2e', hand: '#c4501b' };
+function drawPlan() {
+  svg.innerHTML = '';
+  const defs = el('defs', {}), pat = el('pattern', { id: 'hatch', width: 8, height: 8, patternUnits: 'userSpaceOnUse', patternTransform: 'rotate(45)' }, defs);
+  el('line', { x1: 0, y1: 0, x2: 0, y2: 8, stroke: '#a59f88', 'stroke-width': 1.2 }, pat);
+  const k = S.kin, R = S.maxReach() * 1000, bx = X(0), by = Y(k.panX);
+  el('rect', { x: -330, y: -520, width: 660, height: 640, fill: '#f5f1e4' });
+  // out-of-reach hatch (rect minus disc)
+  el('path', { d: `M-330 -520H330V120H-330Z M${bx - R} ${by}a${R} ${R} 0 1 0 ${2 * R} 0a${R} ${R} 0 1 0 ${-2 * R} 0Z`, 'fill-rule': 'evenodd', fill: 'url(#hatch)', opacity: .55 });
+  // grid: 50 mm minor, 100 mm major
+  for (let x = -300; x <= 300; x += 50) { el('line', { x1: x, y1: -520, x2: x, y2: 120, stroke: x % 100 ? '#d6d0ba' : '#b3ad94', 'stroke-width': x % 100 ? .5 : .8 }); }
+  for (let y = -500; y <= 100; y += 50) { el('line', { x1: -330, y1: y, x2: 330, y2: y, stroke: y % 100 ? '#d6d0ba' : '#b3ad94', 'stroke-width': y % 100 ? .5 : .8 }); }
+  for (let x = -300; x <= 300; x += 100) if (x) el('text', { x: x + 2, y: 112, 'font-size': 9, fill: COL.ink }, null, 'y ' + (-x));
+  for (let y = -500; y <= 0; y += 100) el('text', { x: -326, y: y - 2, 'font-size': 9 }, null, 'x ' + (-y));
+  // reach ring + pan limit
+  el('circle', { cx: bx, cy: by, r: R, fill: 'none', stroke: COL.ink, 'stroke-width': 1.4, 'stroke-dasharray': '10 4' });
+  const pl = k.panLimit; [-1, 1].forEach(s => el('line', { x1: bx, y1: by, x2: bx + R * Math.sin(s * pl), y2: by - R * Math.cos(s * pl), stroke: COL.ink, 'stroke-width': .8, 'stroke-dasharray': '2 4' }));
+  el('text', { x: bx + 6, y: by - R + 12, 'font-size': 10, 'font-weight': 600 }, null, `reach R${Math.round(R)} (${reachSource === 'estimate' || !S.kin.fromUrdf ? 'estimate' : 'urdf'})`);
+  // camera view
+  const C = L.camera; el('rect', { x: X(C.y) - C.fov_w * 500, y: Y(C.x) - C.fov_h * 500, width: C.fov_w * 1000, height: C.fov_h * 1000, fill: 'none', stroke: COL.ink, 'stroke-width': 1.2, 'stroke-dasharray': '1 4' });
+  const cg = el('g', { class: 'drag', 'data-k': 'camera', transform: `translate(${X(C.y)} ${Y(C.x)})` });
+  el('circle', { r: 9, fill: '#f5f1e4', stroke: COL.ink, 'stroke-width': 1.5 }, cg); el('circle', { r: 3.5, fill: COL.ink }, cg); el('text', { x: 12, y: -8, 'font-size': 9 }, cg, 'CAM');
+  // tray
+  const T = L.tray, tg = el('g', { class: 'drag', 'data-k': 'tray', transform: `translate(${X(T.y)} ${Y(T.x)}) rotate(${-(T.yaw_deg || 0)})` });
+  el('rect', { x: -T.w * 500, y: -T.d * 500, width: T.w * 1000, height: T.d * 1000, fill: '#e3ddc8', stroke: COL.ink, 'stroke-width': 2 }, tg);
+  el('text', { x: -T.w * 500 + 3, y: -T.d * 500 - 4, 'font-size': 9, 'font-weight': 600 }, tg, `TRAY ${mm(T.w)}x${mm(T.d)}  yaw ${(T.yaw_deg || 0).toFixed(0)}`);
+  // spots
+  spot('return', L.return_spot, COL.ret, 'RETURN', '5 3');
+  spot('safe', L.safe_spot, COL.safe, 'SAFE', '');
+  spot('hand', L.hand_zone, COL.hand, 'HAND', '6 3');
+  // slots
+  L.slots.forEach((s, i) => {
+    const r = reach['slot:' + i], ok = !r || r.reachable, g = el('g', { class: 'drag', 'data-k': 'slot:' + i, transform: `translate(${X(s.y)} ${Y(s.x)})` });
+    el('circle', { r: 22, fill: '#c9c3ae', stroke: ok ? COL.ok : COL.bad, 'stroke-width': 2.5 }, g);
+    if (s.item) { const it = S.itemInfo(s.item); el('rect', { x: -5, y: -17, width: 10, height: 34, fill: it.color, transform: `rotate(${-(L.tray.yaw_deg || 0)})` }, g); }
+    el('text', { x: 0, y: -27, 'font-size': 10, 'font-weight': 600, 'text-anchor': 'middle' }, g, 'S' + (i + 1));
+    const dy = i % 2 ? 50 : 37; el('line', { x1: 0, y1: 22, x2: 0, y2: dy - 9, stroke: COL.ink, 'stroke-width': .6 }, g);
+    el('text', { x: 0, y: dy, 'font-size': 9, 'text-anchor': 'middle' }, g, s.item ? S.itemInfo(s.item).name : 'empty');
+    if (!ok) el('text', { x: 0, y: dy + 11, 'font-size': 9, 'text-anchor': 'middle', 'font-weight': 600 }, g, 'OUT ' + mm(r.error_m)).style.fill = COL.bad;
+  });
+  // base
+  el('circle', { cx: bx, cy: by, r: 28, fill: '#1d2024' }); el('circle', { cx: bx, cy: by, r: 10, fill: '#f5f1e4' });
+  el('text', { x: bx + 34, y: by + 4, 'font-size': 10, 'font-weight': 600 }, null, 'ARM BASE (pan axis x ' + mm(k.panX) + ')');
+}
+function rtxt(p, r) { const rr = Math.hypot(p.x - S.kin.panX, p.y); return 'r ' + mm(rr) + (r && !r.reachable ? '  OUT ' + mm(r.error_m) : ''); }
+function spot(key, e, color, name, dash) {
+  const r = reach[key], ok = !r || r.reachable, g = el('g', { class: 'drag', 'data-k': key, transform: `translate(${X(e.y)} ${Y(e.x)})` });
+  el('circle', { r: e.r * 1000, fill: '#f5f1e4', 'fill-opacity': .6, stroke: color, 'stroke-width': 2.2, 'stroke-dasharray': dash }, g);
+  if (key === 'safe') { el('line', { x1: -e.r * 700, y1: -e.r * 700, x2: e.r * 700, y2: e.r * 700, stroke: color, 'stroke-width': 1.5 }, g); el('line', { x1: -e.r * 700, y1: e.r * 700, x2: e.r * 700, y2: -e.r * 700, stroke: color, 'stroke-width': 1.5 }, g); }
+  el('text', { x: e.r * 1000 + 4, y: -2, 'font-size': 10, 'font-weight': 600 }, g).textContent = name + (key === 'hand' ? ' z' + mm(e.z) : '');
+  const t = el('text', { x: e.r * 1000 + 4, y: 10, 'font-size': 9 }, g, rtxt(e, r)); t.style.fill = ok ? COL.ok : COL.bad;
+}
+
+/* dragging */
+let drag = null;
+svg.addEventListener('pointerdown', ev => {
+  const g = ev.target.closest('[data-k]'); if (!g) return; drag = { k: g.dataset.k, last: pt(ev) }; svg.setPointerCapture(ev.pointerId); ev.preventDefault();
+});
+svg.addEventListener('pointermove', ev => {
+  if (!drag) return; const p = pt(ev), dx = p.x - drag.last.x, dy = p.y - drag.last.y;
+  moveElement(drag.k, dx, dy, p); drag.last = p; scheduleReach(); persist();
+});
+const end = () => { drag = null; }; svg.addEventListener('pointerup', end); svg.addEventListener('pointercancel', end);
+function pt(ev) { const m = svg.getScreenCTM().inverse(), p = new DOMPoint(ev.clientX, ev.clientY).matrixTransform(m); return { x: -p.y / 1000, y: -p.x / 1000 }; }
+function moveElement(k, dx, dy, p) {
+  const clampP = o => { o.x = Math.max(-0.1, Math.min(0.55, o.x)); o.y = Math.max(-0.32, Math.min(0.32, o.y)); };
+  if (k === 'tray') { L.tray.x += dx; L.tray.y += dy; L.slots.forEach(s => { s.x += dx; s.y += dy; }); clampP(L.tray); }
+  else if (k.startsWith('slot:')) { const s = L.slots[+k.slice(5)]; s.x += dx; s.y += dy; clampP(s); }
+  else { const e = k === 'return' ? L.return_spot : k === 'safe' ? L.safe_spot : k === 'hand' ? L.hand_zone : L.camera; e.x += dx; e.y += dy; clampP(e); }
+}
+
+/* ---------- elements table ---------- */
+function num(v, step, cb, w) { const i = document.createElement('input'); i.type = 'number'; i.value = v; i.step = step || 5; if (w) i.style.width = w; i.onchange = () => cb(+i.value); return i; }
+function drawTable() {
+  const t = $('elTable'); t.innerHTML = '<tr><th>Element</th><th>x</th><th>y</th><th>z</th><th>Reach</th></tr>';
+  const add = (name, o, opts = {}) => {
+    const tr = t.insertRow(), r = reach[opts.key];
+    tr.insertCell().textContent = name;
+    [['x', 1], ['y', 1], ['z', 1]].forEach(([a]) => { const c = tr.insertCell(); if (o[a] === undefined || (a === 'z' && opts.noZ)) { c.textContent = ''; return; }
+      c.append(num(mm(o[a]), 5, v => { const d = v / 1000 - o[a]; if (opts.onMove && a !== 'z') opts.onMove(a, d); else o[a] = v / 1000; scheduleReach(); persist(); })); });
+    const c = tr.insertCell(); if (opts.key) { const ok = !r || r.reachable; c.innerHTML = ok ? `<span class="ok">ok${r && r.margin_m !== undefined ? ' +' + mm(r.margin_m) : ''}</span>` : `<span class="bad">out ${mm(r.error_m)}</span>`; }
+    else c.textContent = '-';
+  };
+  add('Tray', L.tray, { noZ: true, onMove: (a, d) => { L.tray[a] += d; L.slots.forEach(s => s[a] += d); } });
+  L.slots.forEach((s, i) => add('Slot ' + (i + 1), s, { key: 'slot:' + i }));
+  add('Return', L.return_spot, { key: 'return' }); add('Safe spot', L.safe_spot, { key: 'safe' }); add('Hand zone', L.hand_zone, { key: 'hand' });
+  add('Camera', L.camera, { noZ: true });
+  const tr = t.insertRow(); const c = tr.insertCell(); c.colSpan = 5;
+  c.innerHTML = '<label>Tray yaw (deg) </label>'; c.append(num(L.tray.yaw_deg || 0, 1, v => { L.tray.yaw_deg = v; scheduleReach(); persist(); }, '60px'));
+  $('reachSrc').textContent = reachSource === 'estimate' ? 'estimate (2-link model)' : 'from sim /reach';
+  $('reachSrc').className = 'badge ' + (reachSource === 'estimate' ? 'warn' : 'ok');
+  const bad = Object.values(reach).filter(r => !r.reachable).length;
+  $('status').textContent = bad ? bad + ' element(s) out of reach.' : 'All elements within reach' + (reachSource === 'estimate' ? ' (estimate; the sim has not confirmed).' : '.');
+}
+
+/* ---------- kit builder ---------- */
+function proc() { return (S.PROCEDURES[L.setting] || []).find(p => p.id === L.procedure) || S.PROCEDURES[L.setting][0]; }
+function slotOf(id) { return L.slots.findIndex(s => s.item === id); }
+function nextSlotPos() {
+  const T = L.tray, n = L.slots.length, c = Math.cos(T.yaw_deg * Math.PI / 180), s = Math.sin(T.yaw_deg * Math.PI / 180);
+  const off = (n - 1) / 2 * 0.055, ly = -off + n * 0.055;   // appended to the end of the row
+  return { x: T.x + (-s * ly) * 1, y: T.y + c * ly };
+}
+function addToTray(id) {
+  if (slotOf(id) >= 0) return;
+  const e = L.slots.findIndex(s => !s.item); if (e >= 0) { L.slots[e].item = id; return; }
+  L.slots.push({ item: id, x: 0, y: 0, z: 0.02 }); distribute();
+}
+function distribute() {
+  const T = L.tray, n = L.slots.length, a = (T.yaw_deg || 0) * Math.PI / 180, c = Math.cos(a), s = Math.sin(a);
+  T.w = Math.max(0.18, n * 0.055 + 0.02);
+  L.slots.forEach((sl, i) => { const ly = (n - 1) / 2 * 0.055 - i * 0.055; sl.x = T.x - s * ly; sl.y = T.y + c * ly; });
+}
+function drawKit() {
+  const P = proc(), box = $('kit'); box.innerHTML = '';
+  const sec = (t) => { const h = document.createElement('h3'); h.textContent = t; box.append(h); const u = document.createElement('ul'); box.append(u); return u; };
+  const li = (u, html, btns) => { const l = document.createElement('li'); l.innerHTML = '<span class="grow">' + html + '</span>'; (btns || []).forEach(b => l.append(b)); u.append(l); return l; };
+  const btn = (txt, fn, cls) => { const b = document.createElement('button'); b.textContent = txt; b.onclick = fn; if (cls) b.className = cls; return b; };
+  const mk = (txt, cls) => `<span class="tag ${cls}">${txt}</span> `;
+  let u = sec('Tray items for ' + P.name);
+  P.tray.forEach(id => { const i = slotOf(id), it = S.itemInfo(id);
+    if (i >= 0) li(u, mk('in S' + (i + 1), 'ok') + it.name, [btn('Remove', () => { L.slots[i].item = null; update(); })]);
+    else li(u, mk('missing', 'bad') + it.name, [btn('Add to tray', () => { addToTray(id); update(); }, 'pri')]); });
+  const stray = L.slots.map((s, i) => [s, i]).filter(([s]) => s.item && !P.tray.includes(s.item));
+  if (stray.length) { u = sec('On tray, not in this kit'); stray.forEach(([s, i]) => li(u, mk('S' + (i + 1), 'warn') + S.itemInfo(s.item).name, [btn('Remove', () => { L.slots[i].item = null; update(); })])); }
+  if (P.extras.length) { u = sec('Also needed, not a tray item yet'); P.extras.forEach(x => li(u, mk('no arm skill', 'warn') + x)); }
+  if (P.spares.length || P.consumables.length) {
+    u = sec('Spares and consumables on hand');
+    P.spares.concat(P.consumables).forEach(x => { const l = li(u, ''); const cb = document.createElement('input'); cb.type = 'checkbox'; cb.id = 'c_' + x; cb.checked = !!checked[x]; cb.onchange = () => { checked[x] = cb.checked; drawKit(); };
+      const lab = document.createElement('label'); lab.htmlFor = cb.id; lab.style.fontSize = '13px'; lab.style.fontFamily = 'var(--sans)'; lab.style.color = 'var(--ink)'; lab.textContent = ' ' + x + (P.spares.includes(x) ? ' (spare)' : '');
+      l.firstChild.append(cb, lab); if (!checked[x]) l.append(Object.assign(document.createElement('span'), { className: 'tag warn', textContent: 'to gather' })); });
+  }
+  const cat = S.CATALOG[L.setting].items.filter(i => slotOf(i.id) < 0 && !P.tray.includes(i.id));
+  const ad = document.createElement('div'); ad.className = 'row'; ad.style.marginTop = '10px';
+  const sel = document.createElement('select'); sel.setAttribute('aria-label', 'Add catalog item'); sel.innerHTML = '<option value="">Add item to tray</option>' + cat.map(i => `<option value="${i.id}">${i.name}</option>`).join('');
+  sel.onchange = () => { if (sel.value) { addToTray(sel.value); update(); } };
+  const ci = document.createElement('input'); ci.type = 'text'; ci.placeholder = 'custom item id, e.g. forceps'; ci.setAttribute('aria-label', 'Custom item id'); ci.style.width = '170px';
+  ad.append(sel, ci, btn('Add custom', () => { const id = ci.value.trim().toLowerCase().replace(/[^a-z0-9]+/g, '_').replace(/^_|_$/g, ''); if (id) { addToTray(id); update(); } }));
+  box.append(ad);
+  const note = document.createElement('div'); note.className = 'mono'; note.style.cssText = 'font-size:11px;color:var(--ink2);margin-top:6px'; note.textContent = 'Custom items export fine but the arm has no pick skill for them until one is trained.'; box.append(note);
+  // slot item pickers in the same panel
+  const sl = sec("Slot order (S1 is on the arm's right, y negative)");
+  L.slots.forEach((s, i) => { const l = li(sl, 'S' + (i + 1)); const se = document.createElement('select'); se.setAttribute('aria-label', 'Slot ' + (i + 1) + ' item');
+    const ids = Array.from(new Set(S.CATALOG[L.setting].items.map(x => x.id).concat(P.tray, s.item ? [s.item] : [])));
+    se.innerHTML = '<option value="">(empty)</option>' + ids.map(id => `<option value="${id}" ${id === s.item ? 'selected' : ''}>${S.itemInfo(id).name}</option>`).join('');
+    se.onchange = () => { const v = se.value || null; const o = v ? slotOf(v) : -1; if (o >= 0 && o !== i) L.slots[o].item = s.item; s.item = v; update(); };
+    l.append(se, btn('Delete slot', () => { L.slots.splice(i, 1); update(); })); });
+  box.append(btn('+ Slot', () => { L.slots.push(Object.assign({ item: null, z: 0.02 }, nextSlotPos())); update(); }));
+  box.lastChild.style.marginTop = '6px';
+}
+
+/* ---------- suggestions ---------- */
+function suggestions() {
+  const out = [], T = L.tray, k = S.kin, P = proc();
+  const toward = (o, dm, away) => { const dx = k.panX - o.x, dy = -o.y, n = Math.hypot(dx, dy) || 1, s = away ? -dm : dm; return { x: snap(o.x + dx / n * s), y: snap(o.y + dy / n * s) }; };
+  const push = (id, sev, text, why, apply) => out.push({ id, sev, text, why, apply });
+  const checkReach = (key, name, o) => {
+    const r = reach[key]; if (!r) return;
+    if (!r.reachable) {
+      const e = r.error_m, rr = Math.hypot(o.x - k.panX, o.y), inner = rr < 0.12;
+      const mv = Math.ceil((e + 0.01) * 100) / 100;
+      push('reach_' + key, 'bad', `${name} is ${cm(e)} cm ${inner ? 'too close to' : 'outside'} reach: move it ${Math.round(mv * 100)} cm ${inner ? 'away from' : 'toward'} the base.`,
+        `${reachSource === 'estimate' ? 'Estimated' : 'Sim'} reach error ${mm(e)} mm at z ${mm(o.z ?? 0.02)} mm. The arm cannot get the gripper there, so a pick or handover would fail.`,
+        () => { Object.assign(o, toward(o, mv, inner)); });
+    } else if (r.margin_m !== undefined && r.margin_m < 0.02 && reachSource === 'estimate') {
+      push('tight_' + key, 'warn', `${name} is within ${cm(r.margin_m)} cm of the reach limit: move it 3 cm toward the base.`, 'Poses near full extension have little room to approach from above.', () => { Object.assign(o, toward(o, 0.03)); });
+    }
+  };
+  L.slots.forEach((s, i) => checkReach('slot:' + i, `Slot ${i + 1}` + (s.item ? ` (${S.itemInfo(s.item).name})` : ''), s));
+  checkReach('return', 'Return spot', L.return_spot); checkReach('safe', 'Safe spot', L.safe_spot); checkReach('hand', 'Hand zone', L.hand_zone);
+  // most requested item near the handoff path
+  const filled = L.slots.map((s, i) => [s, i]).filter(([s]) => s.item);
+  if (filled.length > 1) {
+    const cnt = id => usage.counts[id] || 0, top = filled.slice().sort((a, b) => cnt(b[0].item) - cnt(a[0].item))[0];
+    const near = filled.slice().sort((a, b) => dist(a[0], L.hand_zone) - dist(b[0], L.hand_zone))[0];
+    if (top[0] !== near[0] && cnt(top[0].item) > cnt(near[0].item)) push('hot_slot', 'info',
+      `Put the most requested item (${S.itemInfo(top[0].item).name}) in the slot closest to the handoff path: swap S${top[1] + 1} and S${near[1] + 1}.`,
+      `${S.itemInfo(top[0].item).name}: ${cnt(top[0].item)} requests (${usage.source}); S${near[1] + 1} is ${mm(dist(near[0], L.hand_zone))} mm from the hand zone versus ${mm(dist(top[0], L.hand_zone))} mm for S${top[1] + 1}. Shorter carry, faster handover.`,
+      () => { const a = top[0].item; top[0].item = near[0].item; near[0].item = a; });
+    const sharpNear = filled.filter(([s]) => S.itemInfo(s.item).sharp && s.item !== 'scalpel').length;
+  }
+  // scalpel safe spot vs hand zone
+  const dsh = dist(L.safe_spot, L.hand_zone);
+  if (dsh < 0.10) push('safe_hand', 'bad', `Scalpel safe spot is within ${cm(dsh)} cm of the hand zone: move it away.`,
+    'A set-down blade should sit at least 10 cm clear of the hand it just served, so a reaching hand never lands on it.',
+    () => { const dx = L.safe_spot.x - L.hand_zone.x, dy = L.safe_spot.y - L.hand_zone.y, n = Math.hypot(dx, dy) || 1; L.safe_spot.x = snap(L.hand_zone.x + dx / n * 0.14); L.safe_spot.y = snap(L.hand_zone.y + dy / n * 0.14); });
+  // return spot vs slots (camera view)
+  L.slots.forEach((s, i) => { const d = dist(s, L.return_spot);
+    if (d < L.return_spot.r + 0.045) push('ret_cam_' + i, 'warn', `Return spot overlaps the camera's view of slot ${i + 1}: move it ${Math.max(2, Math.ceil((L.return_spot.r + 0.07 - d) * 100))} cm clear.`,
+      `Return spot is ${mm(d)} mm from slot ${i + 1}. An instrument set there hides the slot from the overhead camera, and presence checks for that slot would misread.`,
+      () => { const dx = L.return_spot.x - s.x, dy = L.return_spot.y - s.y, n = Math.hypot(dx, dy) || 1; L.return_spot.x = snap(s.x + dx / n * (L.return_spot.r + 0.08)); L.return_spot.y = snap(s.y + dy / n * (L.return_spot.r + 0.08)); }); });
+  // tray tilt and slot line
+  const yaw = ((T.yaw_deg || 0) % 360 + 540) % 360 - 180;
+  const line = () => { if (L.slots.length < 3) return 0; const a = L.slots[0], b = L.slots[L.slots.length - 1], n = Math.hypot(b.x - a.x, b.y - a.y) || 1;
+    return Math.max(...L.slots.map(s => Math.abs((b.x - a.x) * (a.y - s.y) - (a.x - s.x) * (b.y - a.y)) / n)); };
+  if (Math.abs(yaw) > 3) push('tilt', 'warn', `Tray tilted ${yaw.toFixed(0)} degrees; slots not in a line the overhead camera can see.`, 'The camera boxes are axis-aligned rectangles; a tilted row needs wider boxes that overlap neighbours. Square the tray and re-space the slots.', () => { T.yaw_deg = 0; distribute(); });
+  else if (line() > 0.012) push('line', 'warn', `Slots are ${cm(line())} cm off a straight line.`, 'Slots in one row keep the slot boxes clean and the approach path the same for each item.', () => distribute());
+  for (let i = 1; i < L.slots.length; i++) if (dist(L.slots[i], L.slots[i - 1]) < 0.045) { push('gap', 'warn', `Slots ${i} and ${i + 1} are ${cm(dist(L.slots[i], L.slots[i - 1]))} cm apart.`, 'Under 4.5 cm the open gripper can touch the neighbour when it descends. Re-space evenly.', () => distribute()); break; }
+  // camera coverage
+  const C = L.camera, outside = L.slots.map((s, i) => [s, i]).filter(([s]) => Math.abs(s.x - C.x) > C.fov_h / 2 - 0.02 || Math.abs(s.y - C.y) > C.fov_w / 2 - 0.02);
+  if (outside.length) push('cam', 'warn', `Slot ${outside.map(o => o[1] + 1).join(', ')} falls outside the overhead camera frame: center the camera over the tray.`, `Camera frame is ${mm(C.fov_w)} by ${mm(C.fov_h)} mm; the vision model can only mark slots it sees entirely.`, () => { C.x = T.x; C.y = T.y; });
+  // kit
+  P.tray.filter(id => slotOf(id) < 0).forEach(id => push('kit_' + id, 'info', `Kit for ${P.name} needs ${S.itemInfo(id).name}, which is not on the tray: add it.`, 'The procedure list marks it as a tray item the arm can pick.', () => addToTray(id)));
+  const order = { bad: 0, warn: 1, info: 2 }; return out.sort((a, b) => order[a.sev] - order[b.sev]);
+}
+function drawSuggestions() {
+  const sg = suggestions(), box = $('sugs'); box.innerHTML = '';
+  $('sugCount').textContent = sg.length + ' open'; $('sugCount').className = 'badge ' + (sg.some(s => s.sev === 'bad') ? 'bad' : sg.length ? 'warn' : 'ok');
+  if (!sg.length) { box.innerHTML = '<div class="mono" style="font-size:12px;margin-bottom:8px">No suggestions. The layout passes every rule.</div>'; return; }
+  sg.forEach(s => { const d = document.createElement('div'); d.className = 'sug';
+    d.innerHTML = `<div class="hd"><span class="tag ${s.sev === 'info' ? '' : s.sev}">${s.sev === 'bad' ? 'fix' : s.sev === 'warn' ? 'check' : 'tip'}</span><b style="font-weight:600">${s.text}</b></div><div class="why"></div>`;
+    d.querySelector('.why').textContent = 'Why: ' + s.why;
+    const b = document.createElement('button'); b.textContent = 'Apply'; b.className = 'pri'; b.onclick = () => { s.apply(); update(); }; d.append(b); box.append(d); });
+}
+$('askBtn').onclick = () => {
+  const body = { setting: L.setting, procedure: L.procedure, layout: S.layoutJSON(L), usage: usage.counts, local_suggestions: suggestions().map(s => ({ id: s.id, text: s.text, why: s.why })) };
+  const o = $('askOut'); o.style.display = 'block';
+  o.textContent = 'STUB: not sent. Later this would be\nPOST ' + S.controller + '/layout/suggest   (controller forwards to Gemini)\n' + JSON.stringify(body, null, 1);
+};
+
+/* ---------- export ---------- */
+function drawExport() {
+  $('layoutPre').textContent = JSON.stringify(S.layoutJSON(L), null, 1);
+  $('settingPre').textContent = JSON.stringify(S.settingJSON(L), null, 1); $('setLbl').textContent = 'settings/' + L.setting + '.json';
+}
+function msg(t, cls) { const m = $('expMsg'); m.textContent = t; m.className = 'mono ' + (cls || ''); }
+async function copy(txt, what) { try { await navigator.clipboard.writeText(txt); msg('Copied ' + what + ' to the clipboard.', 'ok'); } catch (e) { const ta = document.createElement('textarea'); ta.value = txt; document.body.append(ta); ta.select(); try { document.execCommand('copy'); msg('Copied ' + what + '.', 'ok'); } catch (e2) { msg('Copy blocked: select the text in the box below.', 'warn'); } ta.remove(); } }
+function download(name, txt) { const a = document.createElement('a'); a.href = URL.createObjectURL(new Blob([txt], { type: 'application/json' })); a.download = name; a.click(); }
+$('copyLayout').onclick = () => copy(JSON.stringify(S.layoutJSON(L), null, 2), 'layout.json');
+$('copySetting').onclick = () => copy(JSON.stringify(S.settingJSON(L), null, 2), 'settings/' + L.setting + '.json');
+$('dlLayout').onclick = () => download('layout.json', JSON.stringify(S.layoutJSON(L), null, 2));
+$('dlSetting').onclick = () => download(L.setting + '.json', JSON.stringify(S.settingJSON(L), null, 2));
+$('putLayout').onclick = async () => {
+  try { const o = S.layoutJSON(L); await S.fetchJSON(S.api + '/layout', { method: 'PUT', headers: { 'content-type': 'application/json' }, body: JSON.stringify(o) }, 3000); msg('PUT ' + S.api + '/layout ok.' + (o.__dropped.length ? ' Not sent (no arm skill): ' + o.__dropped.join(', ') : ''), 'ok'); }
+  catch (e) { msg('Sim not reachable at ' + S.api + '/layout. Use Copy layout.json and save it as sim/layout.json.', 'warn'); }
+};
+$('loadSrv').onclick = async () => { const r = await S.getLayout(); L = r.layout; $('srcline').textContent = 'layout: ' + r.from; msg('Loaded layout from ' + r.from + '.'); init2(); };
+$('resetBtn').onclick = () => { L = S.defaultLayout(); init2(); msg('Reset to the default layout.'); };
+
+/* ---------- plumbing ---------- */
+function persist() { S.saveLocalLayout(L); }
+function update() { persist(); scheduleReach(); }
+function init2() {
+  $('selSetting').value = L.setting; fillProc(); scheduleReach();
+}
+function fillProc() { const ps = S.PROCEDURES[L.setting]; if (!ps.some(p => p.id === L.procedure)) L.procedure = ps[0].id; $('selProc').innerHTML = ps.map(p => `<option value="${p.id}">${p.name}</option>`).join(''); $('selProc').value = L.procedure; }
+$('selSetting').innerHTML = Object.keys(S.CATALOG).map(k => `<option value="${k}">${S.CATALOG[k].label}</option>`).join('');
+$('selSetting').onchange = e => {
+  L.setting = e.target.value; fillProc(); const ids = proc().tray;
+  L.slots.forEach((s, i) => s.item = ids[i] || null); update();
+};
+$('selProc').onchange = e => { L.procedure = e.target.value; update(); };
+(async () => {
+  await S.loadKinematics();
+  const r = await S.getLayout(); L = r.layout; $('srcline').textContent = 'layout: ' + r.from; init2();
+  usage = await S.getUsage(); $('usageSrc').textContent = usage.source; drawSuggestions();
+})();
+init2(); $('usageSrc').textContent = usage.source;
+window.__layout = () => L;
+})();
+</script></body></html>
