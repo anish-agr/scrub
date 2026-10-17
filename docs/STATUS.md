@@ -16,6 +16,7 @@ Agents: the first unchecked box in your person's section is the next task. Tick 
 - [ ] A10 fine-tuning run 2, all 9 items
 - [ ] A11 tests logged
 - [ ] A12 Perceptron arm video
+- [ ] P1 pitch script final
 - [ ] P6 Commit Fellowship form
 
 ## Caiden
@@ -29,8 +30,6 @@ Agents: the first unchecked box in your person's section is the next task. Tick 
 - [ ] C7 end-of-case summary text
 - [ ] C8 ten clean full runs
 - [ ] P4 demo mode and backup run
-- [ ] P1 pitch script and business case
-- [ ] P2 backup slide deck
 
 ## Brandon
 
@@ -42,6 +41,7 @@ Agents: the first unchecked box in your person's section is the next task. Tick 
 - [ ] B6 camera-to-arm calibration
 - [ ] B7 `path_clear` and saved hand height
 - [ ] B8 lighting tests
+- [ ] P2 backup slide deck
 
 ## Evan
 
