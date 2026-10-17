@@ -30,6 +30,7 @@ Agents: the first unchecked box in your person's section is the next task. Tick 
 - [ ] C7 end-of-case summary text
 - [ ] C8 ten clean full runs
 - [ ] P4 demo mode and backup run
+- [ ] P2 backup slide deck
 
 ## Brandon
 
@@ -41,7 +42,6 @@ Agents: the first unchecked box in your person's section is the next task. Tick 
 - [ ] B6 camera-to-arm calibration
 - [ ] B7 `path_clear` and saved hand height
 - [ ] B8 lighting tests
-- [ ] P2 backup slide deck
 
 ## Evan
 
