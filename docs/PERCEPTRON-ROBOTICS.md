@@ -2,7 +2,20 @@
 
 Owner: Anish. Source: https://robotics.perceptron.inc/docs (read Sat Oct 17, 12:55 PM). The full schema is saved in `docs/perceptron-openapi.json`, so agents can read it offline. If the live docs change, they win.
 
-Base URL: `https://robotics.perceptron.inc`. Control calls use `Authorization: Bearer $PERCEPTRON_TEAM_API_KEY`. Inference calls use the two session tokens instead, never the team key.
+Base URL: `https://robotics.perceptron.inc`.
+
+## Workshop facts that override this file
+
+Caiden's notes from the workshop deck are in `explore/research/isaac-workshop-notes.md` (sections 2 and 5). Where they differ from below, the notes win. The ones that change our plan:
+
+- **Only 2 successful training jobs per team.** Run 1 (operating room set, a probe) and run 2 (everything). No third run. Validate every dataset before training (`lerobot-replay --dataset.episode=0`, the cadence line, `GET /validation`).
+- **One dataset for everything:** one Hugging Face repo (`<user>/scrub`), one calibration, cameras never moved. Later slots append with `--resume=true --dataset.root=...`. Each job starts from the base model, so run 2 needs all episodes in that one dataset.
+- Record with `--robot.use_degrees=true`, `--dataset.fps=30`, `--dataset.episode_time_s=25`, `--dataset.reset_time_s=10`. Keys: `n` ends an episode, `r` re-records, `q` stops. Check the cadence report after each episode (it must be about 30 Hz).
+- Training: `standard`, `expert_only`, horizon 30, RTC on, 1000 steps, about 45 min plus export. Run `GET /v1/capabilities` first and write the result in `docs/ARM.md`.
+- Inference: two threads on one clock. A 30 Hz thread plays the chunk row by row and holds if nothing covers now. A predict every 15 rows with `rtc: {prior_chunk_id, prior_start_index, delay: 12}` (none on the first call), a 400 ms deadline, late replies dropped, one request in flight, PNG images, a descriptive User-Agent. p95 latency is about 283 ms. Check in the OpenAPI schema whether inference is under `/v1/inference/...` or a returned `endpoint_url`.
+- After `DELETE` a session, a new grant is needed. Use `reset` between runs of the same instruction.
+- No gripper load from the model (positions only). Read load from the Feetech bus directly, with "got it" as the fallback.
+- No vision API is in the deck. Brandon checks with staff. Control calls use `Authorization: Bearer $PERCEPTRON_TEAM_API_KEY`. Inference calls use the two session tokens instead, never the team key.
 
 ## What this means for our recording
 
