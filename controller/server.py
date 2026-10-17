@@ -95,12 +95,20 @@ def make_app(ctl: Controller) -> FastAPI:
     @app.post("/fake/force")
     async def fake_force(body: Force):
         """Force the next failures on the fake arm (testing only)."""
-        if not ctl.fake_arm:
+        if not hasattr(ctl.arm, "force"):
             raise HTTPException(400, "only with --fake-arm")
         for k, v in body.model_dump().items():
             if v:
                 ctl.arm.force[k] = ctl.arm.force.get(k, 0) + v
         return {"force": ctl.arm.force}
+
+    @app.post("/fake/pull")
+    async def fake_pull():
+        """Simulate the clinician tugging the item (sim arm), else the same as got_it."""
+        if ctl.fake_arm and hasattr(ctl.arm, "pull"):
+            ctl.arm.pull()
+            return {"ok": True}
+        return ctl.submit({"action": "got_it", "source": "dashboard"})
 
     @app.websocket("/events")
     async def events(ws: WebSocket):
