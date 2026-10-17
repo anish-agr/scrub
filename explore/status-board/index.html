@@ -1,0 +1,108 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Scrub Status Board</title>
+<meta name="description" content="Live status board for the Scrub instrument-passing arm: current step, what is out, event log, handoff times, success tables and a stop button.">
+<!--
+STYLE: Swiss Design on a hospital nurse-station status board. Warm paper ground, black grotesk (Archivo), one red for
+alarms and STOP, one green for done. Flush-left grid, 1px rules, square corners, no shadows. Readable from 2 m.
+Plain HTML + JS, no build step. Files: index.html, style.css, app.js. See README.md.
+URL options: ?api=http://localhost:8000  ?mock=1  ?cam=http://localhost:8001/stream
+-->
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Archivo:wdth,wght@75..125,400..900&family=IBM+Plex+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+<div class="banner" id="banner" role="alert" hidden></div>
+<header class="mast"><div class="wrap">
+  <div class="brand">Scrub<small>Instrument handoff board / demo props only</small></div>
+  <div class="pickers">
+    <div class="pk"><h2>Setting</h2><div class="seg" id="setSeg" role="group" aria-label="Setting"></div></div>
+    <div class="pk"><h2>Lighting</h2><div class="seg" id="litSeg" role="group" aria-label="Lighting"></div></div>
+  </div>
+  <div class="clockbox"><span class="conn" id="conn">CONNECTING</span><span id="armState">arm: unknown</span><span id="handState">hand: unknown</span></div>
+</div></header>
+
+<main><div class="wrap">
+  <section aria-label="Camera">
+    <h2>Camera <span id="camNote"></span></h2>
+    <div class="cam" id="camBox">
+      <img id="camImg" alt="Live tray camera">
+      <div class="offline" id="camOff" hidden></div>
+    </div>
+    <div class="camctl">
+      <button id="camVision" aria-pressed="true">Vision camera :8001</button>
+      <button id="camSim" aria-pressed="false">Sim stream :8002</button>
+    </div>
+  </section>
+
+  <section aria-label="Current step" aria-live="polite">
+    <h2>Now <span id="stepCode">step: idle</span></h2>
+    <div class="step-big" id="stepBig">Idle</div>
+    <div class="step-sub" id="stepSub">Waiting for a request.</div>
+    <dl class="req">
+      <dt>Heard</dt><dd id="rqHeard">none yet</dd>
+      <dt>Item</dt><dd id="rqItem">none</dd>
+      <dt>Queue</dt><dd id="rqQueue">empty</dd>
+      <dt>Request to hand</dt><dd class="mono" id="rqClock">--</dd>
+      <dt>Retries</dt><dd class="mono" id="rqRetry">0</dd>
+      <dt>Said</dt><dd id="rqSay">none</dd>
+    </dl>
+    <div class="rail" id="rail"></div>
+  </section>
+
+  <section aria-label="What is out">
+    <h2>What is out <span>GET /state</span></h2>
+    <div class="outrow">
+      <div class="count" id="outN">0</div>
+      <ul class="outlist" id="outList"></ul>
+    </div>
+  </section>
+
+  <section aria-label="Handoff times">
+    <h2>Handoff times <span>request to hand, seconds</span></h2>
+    <div class="timegrid">
+      <div><div class="big" id="tLast">--<small>s</small></div><div class="lab">Last</div></div>
+      <div><div class="big" id="tMed">--<small>s</small></div><div class="lab">Median</div></div>
+      <div><div class="big" id="tN">0</div><div class="lab">Handoffs</div></div>
+    </div>
+    <div class="bars" id="bars"><span class="none">No handoff yet.</span></div>
+  </section>
+
+  <section class="fullcol" aria-label="Event log">
+    <h2>Event log <span>newest first</span></h2>
+    <ol class="log" id="log"></ol>
+  </section>
+
+  <section class="fullcol" aria-label="Success tables">
+    <h2>Success tables <span id="statNote">GET /stats</span></h2>
+    <div class="cols2">
+      <table><caption class="lab">By item</caption>
+        <thead><tr><th>Item</th><th>Tries</th><th>Ok</th><th>Rate</th><th>Median s</th></tr></thead><tbody id="tbItem"></tbody></table>
+      <table><caption class="lab">By lighting</caption>
+        <thead><tr><th>Lighting</th><th>Tries</th><th>Ok</th><th>Rate</th><th>Median s</th></tr></thead><tbody id="tbLit"></tbody></table>
+    </div>
+  </section>
+</div></main>
+
+<div class="foot wrap">
+  <span>Training and research prototype. Props only. Not for clinical use.</span>
+  <a href="#" onclick="return false">Terms</a><a href="#" onclick="return false">Privacy</a>
+</div>
+
+<div class="dock"><div class="wrap">
+  <div>
+    <div class="dockmsg" id="dockMsg">Press SPACE or the red button to stop the arm.</div>
+    <div class="cmds" id="cmds"></div>
+  </div>
+  <button class="reset" id="resetBtn" hidden>Clear stop</button>
+  <button class="stop" id="stopBtn">STOP (SPACE)</button>
+</div></div>
+
+<script src="app.js"></script>
+</body>
+</html>

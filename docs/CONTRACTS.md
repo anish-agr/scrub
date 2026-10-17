@@ -27,13 +27,16 @@ Every part codes against these. Build against fake inputs that match them, and t
 | `POST /command` | a Command | `{"accepted": bool, "reason": str or null, "say": str or null}` |
 | `POST /stop` | nothing | `{"accepted": true}`. Always accepted, skips the queue, freezes the arm |
 | `GET /state` | | a State |
-| `POST /setting` | `{"setting": "surgical"}` | the loaded setting file |
+| `POST /setting` | `{"setting": "surgical"}` | the loaded setting file. 409 if the arm is busy (idle or stopped only; clears `out`), 404 for an unknown id |
 | `POST /lighting` | `{"lighting": "bright" or "normal" or "dim", "lux": number or null}` | `{"ok": true}`. Tags later events for the tables |
 | `POST /vision/tray` | a TrayState | `{"ok": true}` |
 | `POST /vision/hand` | a Hand | `{"ok": true}` |
 | `GET /stats` | | the success tables, from the ledger |
 | `WS /events` | | a stream of Events |
 | `GET /` | | the dashboard (static files from `dashboard/`) |
+| `GET /setting` | | the current setting file (optional, added Sat 2 PM) |
+| `POST /reset` | nothing | `{"ok": true}`: clears a stop or error, opens the gripper, homes, clears `out`. 409 if busy (optional) |
+| `GET /events/recent?n=50` | | the last n Events, oldest first (optional) |
 
 ## Command (voice, keyboard or dashboard to the controller)
 
@@ -122,6 +125,8 @@ Every part codes against these. Build against fake inputs that match them, and t
 - `type` is one of `command`, `step`, `picked`, `handed`, `set_down`, `released`, `returned`, `missed`, `count`, `stopped`, `error`.
 - `say` is the line the voice server speaks, or `null`. Only the controller writes these lines, so wording lives in one place.
 - Every field except `type` and `t` can be `null`.
+- The voice server speaks Event `say` lines only. The `say` in the `/command` reply repeats the same line, for keyboard and curl use.
+- Optional extra fields on `command` events: `action`, `heard`, `source`, `accepted`, `reason`. Every event carries `out` (the State's list at that moment), so pages don't need to re-read `/state`. On `error` events: `error`.
 
 ## Setting file (`settings/<id>.json`)
 

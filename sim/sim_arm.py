@@ -1,0 +1,300 @@
+"""SimArm: the CONTRACTS Arm interface on a MuJoCo SO-101. Scripted pick stands in for the Isaac policy."""
+import json
+import re
+import threading
+import time
+from pathlib import Path
+
+import mujoco
+import numpy as np
+
+from sim import ik, scene
+
+RIG = Path(__file__).parent.parent / "arm" / "rig.json"
+NAMES = ["shoulder_pan", "shoulder_lift", "elbow_flex", "wrist_flex", "wrist_roll", "gripper"]
+HOLD_ANGLE = 0.30  # jaw angle (rad) when squeezing an item
+ABOVE_Z, PICK_Z = 0.12, 0.02
+
+
+class _Call:
+    """One public call: aborted by freeze() (generation change) or by its deadline."""
+
+    def __init__(self, arm, max_s=None):
+        self.arm, self.gen = arm, arm._gen
+        self.deadline = time.time() + max_s if max_s else None
+
+    def alive(self):
+        return self.arm._gen == self.gen and (self.deadline is None or time.time() < self.deadline)
+
+    def sleep(self, s):
+        end = time.time() + s
+        while time.time() < end:
+            if not self.alive():
+                return False
+            time.sleep(min(0.01, s))
+        return self.alive()
+
+
+class SimArm:
+    def __init__(self, realtime=True):
+        self.realtime = realtime
+        self.lock = threading.RLock()
+        self._gen = 0
+        self._run = False
+        self._thread = None
+        self.holding = None
+        self._pull_until = 0.0
+        self._load()
+
+    # ---- model -----------------------------------------------------------
+    def _load(self):
+        self.layout = scene.load_layout()
+        self.rig = self._read_rig()
+        path = scene.build(self.layout)
+        with self.lock:
+            self.model = mujoco.MjModel.from_xml_path(str(path))
+            self.model.body_gravcomp[:] = 1.0  # position servos hold the pose; skip gravity sag
+            self.data = mujoco.MjData(self.model)
+            self.site = self.model.site("gripperframe").id
+            self.holding = None
+            self._mocap = {i: self.model.body_mocapid[self.model.body(f"item_{i}").id] for i in scene.ITEMS}
+            self.data.qpos[:6] = self.data.ctrl[:6] = self._pose("home")
+            self.data.qpos[5] = self.data.ctrl[5] = self.model.jnt_range[5][1]  # jaw open
+            self.data.mocap_pos[self.model.body_mocapid[self.model.body("hand_zone").id]] = self.layout["hand_zone"]
+            for i, mid in self._mocap.items():
+                self.data.mocap_pos[mid] = scene.item_start(self.layout, i)
+            mujoco.mj_forward(self.model, self.data)
+
+    def reload(self):
+        """Rebuild the scene from layout.json (after PUT /layout)."""
+        self.freeze()
+        self._load()
+
+    def _read_rig(self):
+        try:
+            return json.loads(RIG.read_text())
+        except (OSError, ValueError):
+            return {}
+
+    def _pose(self, name):
+        p = self.rig.get(name if name != "safe" else "safe_spot")
+        if not (isinstance(p, list) and len(p) == 6):
+            p = self.layout["poses"].get(name)
+        return np.array(p, float) if p else None
+
+    def _region(self):
+        r = self.rig.get("handoff_region") or self.layout["handoff_region"]
+        if "min" in r:
+            return np.array(r["min"], float), np.array(r["max"], float)
+        return (np.array([r[a][0] for a in "xyz"], float), np.array([r[a][1] for a in "xyz"], float))
+
+    # ---- physics thread --------------------------------------------------
+    def connect(self):
+        if self._run:
+            return
+        self._run = True
+        self._thread = threading.Thread(target=self._physics, daemon=True)
+        self._thread.start()
+
+    def disconnect(self):
+        self.freeze()
+        self._run = False
+        if self._thread:
+            self._thread.join(2)
+            self._thread = None
+
+    def _physics(self):
+        t0, s0 = time.time(), None
+        while self._run:
+            with self.lock:
+                if s0 is None:
+                    s0 = self.data.time
+                n = max(1, int((time.time() - t0 - (self.data.time - s0)) / self.model.opt.timestep)) if self.realtime else 10
+                for _ in range(min(n, 50)):
+                    mujoco.mj_step(self.model, self.data)
+                    if self.holding and self.data.qpos[5] < HOLD_ANGLE:  # item blocks the jaw
+                        self.data.qpos[5], self.data.qvel[5] = HOLD_ANGLE, 0.0
+                if self.holding:
+                    mid = self._mocap[self.holding]
+                    self.data.mocap_pos[mid] = self.data.site_xpos[self.site]
+                    mujoco.mju_mat2Quat(self.data.mocap_quat[mid], self.data.site_xmat[self.site])
+            time.sleep(0.002)
+
+    # ---- low level motion -----------------------------------------------
+    def _q(self):
+        with self.lock:
+            return self.data.qpos[:6].copy()
+
+    def _ctrl(self, q):
+        with self.lock:
+            self.data.ctrl[:5] = np.asarray(q, float)[:5]
+
+    def _joint_move(self, call, goal, rate=1.2):
+        """Straight line in joint space at `rate` rad/s (arm joints only)."""
+        q0 = self._q()
+        goal = np.array(goal, float)
+        T = max(float(np.abs(goal[:5] - q0[:5]).max()) / rate, 0.1)
+        t0 = time.time()
+        while (f := (time.time() - t0) / T) < 1:
+            if not call.alive():
+                return False
+            self._ctrl(q0 + f * (goal - q0))
+            time.sleep(0.02)
+        self._ctrl(goal)
+        return self._settle(call, goal)
+
+    def _settle(self, call, goal, tol=0.03, timeout=1.5):
+        t0 = time.time()
+        while time.time() - t0 < timeout:
+            if not call.alive():
+                return False
+            if np.abs(self._q()[:5] - goal[:5]).max() < tol:
+                return True
+            time.sleep(0.02)
+        return call.alive()
+
+    def _cart_move(self, call, target, speed):
+        """Straight Cartesian line, IK at 50 Hz, speed in m/s. False if unreachable or aborted."""
+        target = np.asarray(target, float)
+        q = self._q()
+        ok, err, qgoal = ik.reachable(target, q)
+        if not ok:
+            return False
+        p0 = ik.fk(q)[0]
+        T = max(float(np.linalg.norm(target - p0)) / max(speed, 0.02), 0.1)
+        t0 = time.time()
+        while (f := (time.time() - t0) / T) < 1:
+            if not call.alive():
+                return False
+            q, _ = ik.solve(p0 + f * (target - p0), q, iters=20)
+            q[:5] = np.clip(q[:5], self._q()[:5] - 0.15, self._q()[:5] + 0.15)  # joint speed cap
+            self._ctrl(q)
+            time.sleep(0.02)
+        self._ctrl(qgoal)
+        return self._settle(call, qgoal)
+
+    def _gripper(self, call, pos):
+        """Command gripper to 0 (open) .. 1 (closed) and wait."""
+        lo, hi = self.model.jnt_range[5]
+        with self.lock:
+            self.data.ctrl[5] = hi - pos * (hi - lo)
+        return call.sleep(0.6)
+
+    # ---- Arm interface ---------------------------------------------------
+    def run_skill(self, instruction, max_s=20.0):
+        call = _Call(self, max_s)
+        m = re.match(r"\s*(pick|return)\s+(?:up\s+)?(?:the\s+|a\s+)?(.+?)\s*$", instruction.lower())
+        if not m:
+            return False
+        verb, item = m.group(1), m.group(2).replace(" ", "_")
+        if verb == "return":
+            return self._return_held(call, item)
+        slot = scene.slot_position(self.layout, item)
+        if slot is None or self.holding or not self._at_slot(item, slot):
+            return False
+        x, y = slot
+        steps = [(x, y, ABOVE_Z), (x, y, PICK_Z)]
+        if not (self._gripper(call, 0.0) and self._cart_move(call, steps[0], 0.25)
+                and self._cart_move(call, steps[1], 0.12) and self._gripper(call, 1.0)):
+            return False
+        with self.lock:
+            self.holding = item
+        return self._cart_move(call, steps[0], 0.12)
+
+    def _at_slot(self, item, slot):
+        with self.lock:
+            p = self.data.mocap_pos[self._mocap[item]]
+        return abs(p[0] - slot[0]) < 0.02 and abs(p[1] - slot[1]) < 0.02 and p[2] > 0
+
+    def _place(self, call, xy):
+        """Lower the held item at xy, release it there, lift."""
+        x, y = xy
+        if not (self._cart_move(call, (x, y, ABOVE_Z), 0.25) and self._cart_move(call, (x, y, PICK_Z + 0.01), 0.12)):
+            return False
+        item = self.holding
+        with self.lock:
+            self.holding = None
+            if item:
+                self.data.mocap_pos[self._mocap[item]] = (x, y, 0.01)
+        return self._gripper(call, 0.0) and self._cart_move(call, (x, y, ABOVE_Z), 0.12)
+
+    def _return_held(self, call, item):
+        """Put `item` back in its tray slot: pick it from the return spot (or use the held one)."""
+        slot = scene.slot_position(self.layout, item)
+        if slot is None:
+            return False
+        if self.holding and self.holding != item:
+            return False
+        if not self.holding:
+            rx, ry = self.layout["return_spot"]
+            with self.lock:
+                p = self.data.mocap_pos[self._mocap[item]].copy()
+            if not (np.hypot(p[0] - rx, p[1] - ry) < 0.03 and p[2] > 0):
+                return False
+            above, down = (p[0], p[1], ABOVE_Z), (p[0], p[1], PICK_Z)
+            if not (self._gripper(call, 0.0) and self._cart_move(call, above, 0.25)
+                    and self._cart_move(call, down, 0.12) and self._gripper(call, 1.0)):
+                return False
+            with self.lock:
+                self.holding = item
+            if not self._cart_move(call, above, 0.12):
+                return False
+        return self._place(call, slot)
+
+    def go_home(self):
+        return self._pose_move("home")
+
+    def go_carry(self):
+        return self._pose_move("carry")
+
+    def _pose_move(self, name):
+        call = _Call(self)
+        q = self._pose(name)
+        return self._joint_move(call, np.where(np.arange(6) == 5, self._q(), q))
+
+    def move_to(self, x, y, z, speed=0.3):
+        lo, hi = self._region()
+        p = np.array([x, y, z], float)
+        if np.any(p < lo) or np.any(p > hi):
+            return False
+        return self._cart_move(_Call(self), p, speed)
+
+    def set_down_safe_spot(self):
+        call = _Call(self)
+        return self._place(call, self.layout["safe_spot"])
+
+    def open_gripper(self):
+        self._gripper(_Call(self), 0.0)
+        with self.lock:
+            if self.holding:  # released over the table: the item drops straight down
+                self.data.mocap_pos[self._mocap[self.holding]][2] = 0.01
+                self.holding = None
+
+    def gripper_position(self):
+        lo, hi = self.model.jnt_range[5]
+        with self.lock:
+            return float(np.clip((hi - self.data.qpos[5]) / (hi - lo), 0, 1))
+
+    def gripper_load(self):
+        with self.lock:
+            extra = 1.0 if time.time() < self._pull_until else 0.0
+            return float(abs(self.data.actuator_force[5])) + extra
+
+    def pull(self):
+        """Test hook: simulate the clinician tugging the item for half a second."""
+        self._pull_until = time.time() + 0.5
+
+    def freeze(self):
+        self._gen += 1
+        with self.lock:
+            self.data.ctrl[:5] = self.data.qpos[:5]
+
+    # ---- for the server --------------------------------------------------
+    def state(self):
+        with self.lock:
+            q = [float(v) for v in self.data.qpos[:6]]
+        return {"q": q, "names": NAMES, "gripper": self.gripper_position(), "holding": self.holding}
+
+    def tip(self):
+        with self.lock:
+            return self.data.site_xpos[self.site].copy()

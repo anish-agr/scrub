@@ -22,14 +22,19 @@ Agents: the first unchecked box in your person's section is the next task. Tick 
 
 ## Caiden
 
-- [ ] C1 controller on the fake arm, every endpoint
-- [ ] C2 pushed and announced
+- [x] C1 controller on the fake arm, every endpoint
+  - `.venv/bin/python -m controller` (fake arm, port 8000). A curl handover runs finding → picking → checking → moving_to_hand → waiting_for_pull → releasing → homing, all on `WS /events`. Details in `controller/README.md`.
+- [x] C2 pushed and announced
+  - Pushed `ed084b6`. Point vision at `POST :8000/vision/hand` and `/vision/tray`; the dashboard at `WS :8000/events`, `GET /state`, `GET /setting`.
 - [ ] C3 Photon call reaches `voice/`
 - [ ] C4 Gemini commands, stop path, spoken replies
 - [ ] C5 Checkpoint 1 shown
-- [ ] C6 real controller flows and failure cases
+  - Ready on the agent side: voice → controller tested locally (`/heard` "grab me the kelly" → `handover hemostat`, lines spoken from events). Needs the team at 6 PM: phone call, Brandon's Hand posts, Evan's dashboard. Dry run: `.venv/bin/python -m controller.smoke --return`.
+- [x] C6 real controller flows and failure cases
+  - `.venv/bin/python -m controller.test_flows` forces each failure on the fake arm: 17/17 pass. Covers grasp check + one retry, wait for pull/`got_it` (30 s), freeze on hand lost or path blocked, slow near the hand, the request-to-hand timer. Force live failures with `POST /fake/force`.
 - [ ] C7 end-of-case summary text
 - [ ] C8 ten clean full runs
+  - Tool ready: `.venv/bin/python -m controller --real-arm` then `.venv/bin/python -m controller.smoke --runs 10 --human --return` counts the clean streak. Needs `arm/real_arm.py` (A6) and the arm.
 - [ ] P4 demo mode and backup run
 - [ ] P2 backup slide deck
 
