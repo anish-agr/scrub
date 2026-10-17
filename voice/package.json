@@ -1,0 +1,33 @@
+{
+  "name": "scrub-voice",
+  "version": "1.0.0",
+  "description": "Owner: Caiden. Tasks C3, C4, C7 in `docs/TASKS.md`.",
+  "main": "index.js",
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1",
+    "dev": "tsx src/server.ts",
+    "say": "tsx scripts/say.ts",
+    "tunnel": ".bin/cloudflared tunnel --url http://localhost:3000",
+    "typecheck": "tsc"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "type": "module",
+  "private": "true",
+  "dependencies": {
+    "@google/genai": "^2.30.0",
+    "dotenv": "^18.0.8",
+    "spectrum-ts": "^12.11.0",
+    "ws": "^8.22.0"
+  },
+  "devDependencies": {
+    "@types/node": "^26.6.5",
+    "@types/ws": "^8.18.2",
+    "tsx": "^4.23.15",
+    "typescript": "^6.0.3"
+  },
+  "engines": {
+    "node": ">=20"
+  }
+}
