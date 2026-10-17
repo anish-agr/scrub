@@ -10,6 +10,7 @@ FastAPI on port 8000. Owns the arm and every safety rule. Endpoints and messages
 python3.10 -m venv .venv && .venv/bin/pip install -r controller/requirements.txt   # once, from the repo root
 .venv/bin/python -m controller                # fake arm (default), port 8000, surgical tray
 .venv/bin/python -m controller --real-arm     # imports arm/real_arm.py (class Arm or RealArm)
+.venv/bin/python -m controller --sim-arm      # MuJoCo SO-101 from sim/ (sim/requirements.txt); POST /fake/pull to tug
 ```
 
 Options: `--port`, `--setting surgical|dental|bench`, `--motion-s 0.2` (fake arm seconds per motion), `--pull-s 2` (fake arm: simulated pull this long after reaching the hand; `0` = wait for `got_it`).
@@ -49,8 +50,15 @@ websocat ws://localhost:8000/events      # or open http://localhost:8000/
 
 - `GET /setting`: the current setting file (the voice server can read item ids and aliases here).
 - `GET /events/recent?n=50`: the last events, for a page that loads mid-run.
+- `POST /fake/pull`: simulate the clinician tugging the item (sim arm), otherwise the same as `got_it`.
 - `POST /fake/force` with `{"miss_grasp": 1, "out_of_region": 1, "skill_fail": 1, "no_pull": 1}`: the next fake-arm calls fail that way (testing C6).
 
 ## Tests
 
 `.venv/bin/python -m controller.test_flows` forces every failure case on the fake arm (grasp miss and retry, empty slot, no pull, `got_it`, no hand, hand lost mid-move, path blocked, out of region, stop mid-pick, sharp set-down, return and count, rejects). About 20 s, prints `17/17 passed`.
+
+## Full runs (Checkpoint 1, C8)
+
+`.venv/bin/python -m controller.smoke` runs a full pass against a live controller: every item handed over (simulated pull on fake/sim arms), then the count. `--return` adds put-backs, `--runs 10 --human` is the C8 ten-in-a-row check on the real arm (a person takes each item and resets the tray), `--url` points elsewhere. It prints each line Scrub said, request-to-hand times, and the clean streak.
+
+Known: on `--sim-arm`, "return" fails, because the sim's scripted return needs the item still in the gripper, and items handed out stay off the sim tray. Handover and the scalpel set-down work in the sim.

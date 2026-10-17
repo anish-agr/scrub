@@ -217,9 +217,17 @@ def path_blocked_freezes():
 @test
 def outside_handoff_region():
     ctl, arm = make()
-    arm.force["out_of_region"] = 1
+    arm.force["out_of_region"] = 2  # approach point and the target both refused
     _, evs = run(ctl, HANDOVER)
     assert lines.OUT_OF_REACH in says(evs) and "set_down" in types(evs), says(evs)
+
+
+@test
+def approach_outside_region_goes_straight_in():
+    ctl, arm = make()
+    arm.force["out_of_region"] = 1
+    _, evs = run(ctl, HANDOVER)
+    assert "released" in types(evs) and arm.moves[-1][3] == core.SPEED_NEAR, (types(evs), arm.moves)
 
 
 @test

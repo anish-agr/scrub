@@ -1,5 +1,6 @@
 """State, events and the step machine. Arm calls run on one worker thread; stop never waits on it."""
 import json
+import math
 import os
 import statistics
 import threading
@@ -311,7 +312,8 @@ class Controller:
         self.set_step("releasing")
         self._call(gen, self.arm.open_gripper)
         with self.lock:
-            self.out.append(it["id"])
+            if it["id"] not in self.out:
+                self.out.append(it["id"])
         self.emit("released")
         self._home(gen)
 
@@ -320,7 +322,8 @@ class Controller:
         self.set_step("setting_down")
         self._call(gen, self.arm.set_down_safe_spot)
         with self.lock:
-            self.out.append(it["id"])
+            if it["id"] not in self.out:
+                self.out.append(it["id"])
         self.emit("set_down", say=say, request_to_hand_s=elapsed() if elapsed else None, retries=retries)
 
     def _reach_hand(self, gen: int, it: dict) -> bool:
@@ -337,11 +340,15 @@ class Controller:
             else:
                 target = _saved_spot()
             x, y, z = target
-            back = (x - APPROACH_BACK_M, y, z) if x > APPROACH_BACK_M else (x, y, z)
+            r = math.hypot(x, y)
+            k = max(0.0, 1 - APPROACH_BACK_M / r) if r else 1.0
+            back = (x * k, y * k, z)  # short of the hand, toward the arm base
             watch = self._watch_hand() if self._tracking() else None
             try:
-                ok = self._call(gen, self.arm.move_to, *back, speed=SPEED_NORMAL) and \
-                    self._call(gen, self.arm.move_to, x, y, z, speed=SPEED_NEAR)
+                ok = self._call(gen, self.arm.move_to, *back, speed=SPEED_NORMAL)
+                if not ok and not (watch and watch(peek=True)):
+                    ok = True  # approach point outside the handoff region: go straight in, slowly
+                ok = ok and self._call(gen, self.arm.move_to, x, y, z, speed=SPEED_NEAR)
             finally:
                 lost = watch() if watch else False
             if ok and not lost:
@@ -371,7 +378,9 @@ class Controller:
         th = threading.Thread(target=run, daemon=True)
         th.start()
 
-        def stop() -> bool:
+        def stop(peek: bool = False) -> bool:
+            if peek:
+                return froze.is_set()
             done.set()
             th.join()  # no late freeze landing on the next move
             return froze.is_set()
@@ -393,11 +402,12 @@ class Controller:
     def _wait_for_pull(self, gen: int) -> bool:
         self.got_it.clear()
         base = self._call(gen, self.arm.gripper_load)
+        delta = getattr(self.arm, "pull_delta", PULL_DELTA)  # load units differ per arm
         end = time.time() + PULL_WAIT_S
         while time.time() < end:
             if self.gen != gen:
                 raise Stopped
-            if self.got_it.is_set() or self.arm.gripper_load() - base > PULL_DELTA:
+            if self.got_it.is_set() or self.arm.gripper_load() - base > delta:
                 return True
             time.sleep(0.05)
         return False
