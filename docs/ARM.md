@@ -36,7 +36,33 @@ The client/CLI/uploader are implemented; five offline tests pass with
 `python -m unittest arm.test_perceptron -v` (control routes checked against the
 saved OpenAPI, auth isolation, multipart inference, upload hashing/batches,
 303 polling, sanitized errors). No dataset was uploaded or training started.
-A7 and A6 have not started: the requested task order waits for A2's live check.
+Anish subsequently authorized continuing A7/A6 without the key; A2's live check
+remains pending.
+
+### A7 offline kinematics
+
+`arm/so101_chain.urdf` is a kinematic-only extract of the SO-101 **new**
+calibration URDF (upstream blob recorded in the file). `arm/kinematics.py`
+computes FK and bounded numerical position IK at `gripper_frame_link`;
+`arm/motion.py` exposes `move_to` through an injected trajectory executor.
+Wrist roll is preserved, but pitch/handle orientation is not constrained by
+position-only IK. No collision checking is claimed.
+
+`speed` is a fraction (0, 1] of rig limits. Preflight checks every interpolated
+point against the handoff box, so the carry pose must already be inside it.
+Paths obey both joint and Cartesian speed limits at 30 Hz. Coordinates are
+meters in the configured base frame. `base_to_urdf` maps these coordinates to
+URDF coordinates; `q_urdf_deg = q_lerobot_deg * joint_signs + joint_offsets_deg`.
+Verify this mapping at the real arm before enabling hardware.
+
+`arm/rig.json` is an **unmeasured template**, not a saved calibration. Hardware
+is disabled (`hardware_verified: false`); poses are null. The gripper mapping
+is deliberately separate from URDF: upstream documents LeRobot 0 closed,
+100 open, whereas our public interface is 0 open, 1 closed. Measure actual
+endpoints on this arm and preserve the raw 0..100 convention for inference.
+
+Run `python -m unittest arm.test_kinematics -v` without an arm. Physical A7
+acceptance (five test points within ~2 cm) is still pending.
 
 The dataset format, training and inference calls are in `docs/PERCEPTRON-ROBOTICS.md`. Short version: 30 FPS, cameras named `side` and `wrist` at 640x480, six joint values with the gripper at 0 to 100, and a public Hugging Face repo or a direct upload.
 

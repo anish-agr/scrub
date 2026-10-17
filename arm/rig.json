@@ -1,0 +1,21 @@
+{
+  "hardware_verified": false,
+  "notes": "UNMEASURED template. Do not enable hardware until axes, signs, offsets, gripper endpoints, poses and region are measured. URDF mid-range zero; no collision checking.",
+  "urdf": "so101_chain.urdf",
+  "joint_signs": [1, 1, 1, 1, 1],
+  "joint_offsets_deg": [0, 0, 0, 0, 0],
+  "base_to_urdf": [[1, 0, 0, 0], [0, 1, 0, 0], [0, 0, 1, 0], [0, 0, 0, 1]],
+  "handoff_region": {"min": [0.05, -0.25, 0.08], "max": [0.35, 0.25, 0.35]},
+  "home": null,
+  "carry": null,
+  "safe_spot": null,
+  "max_joint_speed_deg_s": 20.0,
+  "max_gripper_speed_per_s": 60.0,
+  "max_cartesian_speed_m_s": 0.08,
+  "gripper_open": 100.0,
+  "gripper_closed": 0.0,
+  "grasp_closed_fraction": 0.3,
+  "still_joint_delta_deg": 0.5,
+  "still_gripper_delta": 1.0,
+  "still_seconds": 1.0
+}
