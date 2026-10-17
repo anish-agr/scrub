@@ -57,7 +57,7 @@ websocat ws://localhost:8000/events      # or open http://localhost:8000/
 
 ## Tests
 
-`.venv/bin/python -m controller.test_flows` forces every failure case on the fake arm (grasp miss and retry, empty slot, no pull, `got_it`, no hand, hand lost mid-move, path blocked, out of region, stop mid-pick, sharp set-down, return and count, rejects). About 20 s, prints `17/17 passed`.
+`.venv/bin/python -m controller.test_flows` forces every failure case on the fake arm (grasp miss and retry, empty slot, no pull, `got_it`, no hand, hand lost mid-move, path blocked, out of region, stop mid-pick, sharp set-down, return and count, rejects). About 20 s, prints `19/19 passed`.
 
 ## Full runs (Checkpoint 1, C8)
 
