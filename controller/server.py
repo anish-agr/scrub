@@ -53,6 +53,15 @@ def make_app(ctl: Controller, extra=None) -> FastAPI:
         ctl.stop()
         return {"accepted": True}
 
+    @app.post("/reset")
+    async def reset():
+        """Clear a stop: home, open the gripper, clear the count."""
+        try:
+            ctl.reset()
+        except RuntimeError:
+            raise HTTPException(409, "busy: stop first")
+        return {"ok": True}
+
     @app.get("/state")
     async def state():
         return ctl.state()
