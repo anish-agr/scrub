@@ -1,6 +1,6 @@
 # Pitch, demo and video
 
-Owner: Anish. Fill the [measured] numbers from the success tables on Sunday morning.
+Owner: Caiden. Anish speaks it. Fill the [measured] numbers from the success tables on Sunday morning.
 
 ## The pitch
 
