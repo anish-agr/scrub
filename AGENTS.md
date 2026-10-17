@@ -9,10 +9,10 @@ The person will tell you their name (Anish, Caiden, Brandon or Evan). Then:
 1. Read `README.md` (the system), `docs/CONTRACTS.md` (the messages every part uses) and your person's section of `docs/TASKS.md`.
 2. Run `git pull --rebase`. Open `docs/STATUS.md`. Your person's next task is the first unchecked box in their section.
 3. Read the README in the folder that task lives in, and the files already there.
-4. Tell the person in a few lines: which task, your plan, and anything you need from them (a key, a device, a decision). Then build it.
-5. Test it against the task's "done when" with fake inputs (the controller's `--fake-arm`, fake events, saved images). Tell the person exactly what to run or look at for anything only a human can check (the arm, the camera, a phone call).
+4. Build it. You have full permission inside your person's files: install packages, create files, run commands and servers, commit and push. Don't ask for approval or plans. Only stop for something only a human can do (a key, plugging in a device, testing on the arm, the camera or a phone).
+5. Finish it. Test against the task's "done when" with fake inputs (the controller's `--fake-arm`, fake events, saved images) and fix it until it passes. For anything only a human can check, tell the person exactly what to run and what they should see.
 6. When it passes, commit only your person's files, `git pull --rebase`, `git push`. Tick the box in `docs/STATUS.md` (your person's section only) and add one line on what works and how to run it. Push that too.
-7. Go to the next unchecked task, unless the person says otherwise.
+7. Go straight to the next unchecked task. Keep going until your person's tasks are done or they stop you.
 
 If you're stuck for more than about 20 minutes on one problem, stop and tell the person what you tried. They may hand it to Caiden, who has the largest agent budget.
 

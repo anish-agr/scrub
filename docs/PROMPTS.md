@@ -11,12 +11,15 @@ git clone https://github.com/anish-agr/dubhacks-2026.git
 Replace NAME. Use it at the start of every new chat.
 
 ```
-I'm NAME on team Scrub at DubHacks '26. This repo is
-github.com/anish-agr/dubhacks-2026 and it's cloned here. Read AGENTS.md
-and follow its "Start here" steps for NAME. Before writing code, tell me
-in under 6 lines: my next task from docs/STATUS.md, your plan, and what
-you need from me. Then build it, test it against the task's "done when",
-commit and push only my files, and tick the box in docs/STATUS.md.
+I'm NAME on team Scrub at DubHacks '26. The repo
+github.com/anish-agr/dubhacks-2026 is cloned here. Read AGENTS.md and follow
+its "Start here" steps for NAME. You have full permission in my files:
+install packages, create and edit files, run commands and servers, commit
+and push. Don't ask me for approval. Only stop if you need something only I
+can do (a key, plugging in a device, testing on the arm, camera or phone).
+Finish each task completely: build it, test it against its "done when", fix
+it until it passes, push, tick the box in docs/STATUS.md, then go straight
+to my next unchecked task. Keep going until my tasks are done.
 ```
 
 ## Which model for what
