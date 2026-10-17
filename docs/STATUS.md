@@ -6,12 +6,13 @@ Agents: the first unchecked box in your person's section is the next task. Tick 
 
 - [ ] A1 workshop notes in `docs/ARM.md`
 - [ ] A2 `arm/perceptron.py`, `arm/train.py`, `arm/upload_dataset.py`
-  - Client/CLI/uploader implemented; `python -m unittest arm.test_perceptron -v` passes 5 offline tests. Live `python -m arm.train capabilities` blocked by missing `PERCEPTRON_TEAM_API_KEY` (no root `.env`). Not complete; A7/A6 wait in requested order.
+  - Client/CLI/uploader implemented; `python -m unittest arm.test_perceptron -v` passes 5 offline tests. Live `python -m arm.train capabilities` blocked by missing `PERCEPTRON_TEAM_API_KEY` (no root `.env`). Anish authorized A7/A6 work while this check waits.
 - [ ] A3 arm connected, both cameras, poses in `arm/rig.json`
 - [ ] A4 operating room demos recorded (75)
 - [ ] A5 fine-tuning run 1 started
 - [ ] A6 `arm/real_arm.py` with `run_skill`
 - [ ] A7 `move_to` with IK
+  - Offline FK/IK, handoff-box preflight and speed-limited trajectories implemented. Run `python -m unittest arm.test_kinematics -v`. Real calibration and five-point ~2 cm hardware acceptance still pending; rig is an unmeasured, hardware-disabled template.
 - [ ] A8 first real handoff by voice
 - [ ] A9 dental and bench demos recorded
 - [ ] A10 fine-tuning run 2, all 9 items
