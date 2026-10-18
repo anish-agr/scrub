@@ -9,6 +9,15 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))  # explore/ (arm_ui)
 import autopick as AP  # noqa: E402
+import pytest  # noqa: E402
+
+
+@pytest.fixture(autouse=True)
+def _no_training_data(tmp_path, monkeypatch):
+    """Tests never write into ~/scrub-logs (that folder is real training data)."""
+    monkeypatch.setattr(AP, "FRAMES_DIR", tmp_path / "frames")
+    monkeypatch.setattr(AP, "ATTEMPTS_DIR", tmp_path / "attempts")
+    monkeypatch.setattr(AP, "SPEND_FILE", tmp_path / "spend.jsonl")
 
 
 class Det:
@@ -136,9 +145,14 @@ def test_handle_in_jaw_holds_gentle_squeeze():
     assert end == {"done": "off"} and d.grip_hold == 9.0
 
 
-def test_empty_close_is_a_miss():
+def test_empty_close_is_a_miss_in_hold_mode():
     d, end = _run_with_jaw(3.0)
     assert end == {"done": "home"} and d.missed and d.status()["phase"] == "missed"
+
+
+def test_handoff_offers_even_when_the_jaw_reads_empty():
+    d, end = _run_with_jaw(3.0, mode="handoff")
+    assert not d.missed and d.hand is not None  # went on to the offer (magnets can hold a thin handle)
 
 
 def _handoff(take_at=None, pull_at=None, timeout=60.0):
@@ -208,3 +222,81 @@ def test_spend_cap(tmp_path, monkeypatch):
     called = []
     monkeypatch.setattr("requests.post", lambda *a, **k: called.append(1))
     assert AP.gemini_box(np.zeros((480, 640, 3), np.uint8)) is None and not called  # over the cap: no request
+
+
+def test_calibrate_recovers_the_table_map(tmp_path, monkeypatch):
+    """Synthetic camera: tape pixel = known map of the tip (shifted up with height); the fit must recover it."""
+    import cv2
+    real = AP.HERE / "autopick_calib.json"
+    orig = real.read_text()
+    monkeypatch.setattr(AP, "FRAMES_DIR", tmp_path)
+    st = St()
+    d = AP.AutoPick({"mode": "calibrate"})
+    d.start(st)
+    h_true = np.linalg.inv(np.array(AP.load_calib()["table_H"]))
+    walker = [0]
+
+    def frame(s):
+        tip = d.kin.forward(np.array([s.joints[m] for m in AP.JOINTS]))
+        p = h_true @ np.array([tip[0], tip[1], 1.0])
+        img = np.full((480, 640, 3), 230, np.uint8)
+        u, v = int(p[0] / p[2]), int(p[1] / p[2] - (tip[2] + 0.022) * 300)
+        off = int(s.gripper / 3)  # the moving finger swings sideways as the jaw opens
+        cv2.line(img, (u + off, v - 30), (u + off, v - 6), (150, 150, 150), 6)  # white-ish finger
+        cv2.line(img, (u + off, v - 6), (u + off, v), (20, 20, 20), 6)  # black tape on the fingertip
+        walker[0] = (walker[0] + 37) % 600  # a person walking past in the background, bigger than the jaw
+        cv2.rectangle(img, (walker[0], 20), (walker[0] + 40, 140), (60, 60, 60), -1)
+        return img
+    d._frame = frame
+    t = [0.0]
+    monkeypatch.setattr(AP.time, "perf_counter", lambda: t[0])
+    try:
+        for _ in range(20000):
+            a = d.tick(st, {})
+            t[0] += 1 / 30
+            if a and "done" in a:
+                break
+            if a:
+                st.joints = {m: a[f"{m}.pos"] for m in AP.JOINTS}
+                st.gripper = a["gripper.pos"]
+        assert d.status()["phase"] == "calibrated", d.status()
+        hn = np.array(AP.load_calib()["table_H"])
+        p, q = hn @ np.array([530, 305, 1.0]), np.linalg.inv(h_true) @ np.array([530, 305, 1.0])
+        assert np.linalg.norm(p[:2] / p[2] - q[:2] / q[2]) < 0.005
+    finally:
+        real.write_text(orig)
+
+
+def test_wrist_align_corrects_a_sideways_miss(monkeypatch):
+    """Side camera says y, the handle is really 2 cm off: the wrist camera sees the line off the jaw gap,
+    the test nudge measures px/m, and the grip lands on the real handle."""
+    import cv2
+    d = AP.AutoPick({"mode": "hold"}, detector=Det())
+    st = St()
+    true_dy = 0.02
+    k = -2500.0  # wrist px per metre (unknown to the driver, learned by the nudge)
+
+    def jpeg(cam):
+        if cam != "wrist":
+            return St.jpeg(st, cam)
+        tip = d.kin.forward(np.array([st.joints[m] for m in AP.JOINTS]))
+        x = AP.WRIST_GAP_X + k * ((d.found["xy_m"][1] + true_dy) - tip[1])
+        img = np.full((480, 640, 3), 225, np.uint8)
+        cv2.line(img, (int(x), 40), (int(x), 290), (40, 40, 40), 5)
+        return cv2.imencode(".jpg", img)[1].tobytes()
+    st.jpeg = jpeg
+    d.start(st)
+    d._detect_thread.join(10)
+    t = [0.0]
+    monkeypatch.setattr(AP.time, "perf_counter", lambda: t[0])
+    for _ in range(5000):
+        a = d.tick(st, {})
+        t[0] += 1 / 30
+        if a is None or "done" in a:
+            break
+        if a:
+            st.joints = {m: a.get(f"{m}.pos", st.joints[m]) for m in AP.JOINTS}
+            if "gripper.pos" in a:
+                st.gripper = max(10.5, a["gripper.pos"])
+    assert abs(d.xy_target[1] - (d.found["xy_m"][1] + true_dy)) < 0.004, (d.xy_target, d.found["xy_m"])
+    assert any(p["name"] == "descend" for p in d.plan)

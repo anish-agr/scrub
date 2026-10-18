@@ -39,7 +39,9 @@ assert.deepEqual(localParse("let's go", blank), { action: "unknown", item: null 
 for (const g of ["thanks got it", "thanks, got it", "okay got it", "ok, I've got it", "thank you", "got it.", "release"]) assert.ok(isGotIt(g), g);
 for (const g of ["got it hemostat", "thanks for the scalpel", "give me the thing"]) assert.ok(!isGotIt(g), g);
 const scissors: Setting = { id: "surgical", label: "Operating room", items: [{ id: "mayo_scissors", name: "mayo scissors", aliases: [], sharp: false }] };
-assert.deepEqual(localParse("take back the mayo scissors", scissors), { action: "return", item: null });
+assert.deepEqual(localParse("take back the mayo scissors", scissors), { action: "return", item: "mayo_scissors" });
+assert.deepEqual(localParse("put the mayo scissors back", scissors), { action: "return", item: "mayo_scissors" });
+assert.deepEqual(localParse("return the hemostat", scissors), { action: "return", item: null });  // not on this tray
 assert.deepEqual(localParse("take it back", scissors), { action: "return", item: null });
 assert.deepEqual(localParse("take the mayo scissors", scissors), { action: "handover", item: "mayo_scissors" });
 
