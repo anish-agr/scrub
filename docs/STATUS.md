@@ -37,6 +37,13 @@ Agents: the first unchecked box in your person's section is the next task. Tick 
 
 ## Caiden
 
+- [x] TH1 overheating telemetry audit and analyzer correction (Oct 17; handed off Oct 18)
+  - Read [thermal findings and operator handoff](../explore/research/overheating/HANDOFF.md#results) and the [per-session report](../explore/research/overheating/telemetry-review-20261017.md). Existing 230 s torque-on hold: gripper fastest at 1.13 C/min, peak 55 C; other motors 0.84-1.07 C/min. Some heat with reported zero current; this does not prove the dominant heat source.
+  - Fixed the analyzer joining different sessions into heating windows; added phase/outage boundaries, minimum coverage, missing-value handling and heat/current correlation. Recorder runs were only 2-48 s: **no valid phase, holding-vs-moving or load/current-correlation conclusion yet**. Offline: `python -m unittest discover -s explore -p test_thermal_analyze.py -v` (12 tests pass). No arm/camera ports opened or servo settings changed.
+- [ ] TH2 Caiden at the arm: baseline experiment #1, then fan-only experiment #2
+  - Follow the [exact baseline procedure](../explore/research/overheating/HANDOFF.md#caiden-next-action-is-experiment-1-not-new-motor-settings): verify servo voltage ratings, start with every follower motor <=47 C, repeat the fixed routine for up to 10 min, watch heat/strain/sag/guard events, and never bypass 60 C cooldown. Never open ports/cameras while a recorder is running; use its `/status` or MongoDB `thermal_log.py watch` instead.
+  - Return the session id and observations; analyze with `.venv/bin/python explore/thermal_analyze.py --session <id>` and append per-motor C/min/verdict to HANDOFF Results. This audit implemented no motor-setting experiments. **Upstream update Oct 18:** `319161a` separately added situational gripper torque (150/350/500) and gripper dead zone 3; the older telemetry does not validate those changes. Label the new baseline with its code/settings and keep them unchanged for the fan comparison. Reset torque-off and body-joint register experiments remain pending; long-session operation below 60 C is not yet demonstrated.
+
 - [x] C1 controller on the fake arm, every endpoint
   - `.venv/bin/python -m controller` (fake arm, port 8000). A curl handover runs finding → picking → checking → moving_to_hand → waiting_for_pull → releasing → homing, all on `WS /events`. Details in `controller/README.md`.
 - [x] C2 pushed and announced
