@@ -2,3 +2,4 @@ fastapi
 uvicorn[standard]
 python-dotenv
 httpx
+numpy  # armview.py tip_px (optional: no pixel without it)

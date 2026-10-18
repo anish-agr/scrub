@@ -30,9 +30,11 @@ def fetch() -> dict | None:
     return data if isinstance(data, dict) else None
 
 
-def from_tray(tray: dict | None, at: float, max_age: float = 3.0) -> dict | None:
-    """The same answer from a TrayState the controller holds (sim_vision posts one in-process), if it is fresh.
-    It can't see a wrong slot or an extra item, only what is missing."""
+def from_tray(tray: dict | None, at: float, max_age: float | None = None) -> dict | None:
+    """The same answer from a TrayState the controller holds (sim_vision posts one in-process), if it is fresh
+    (under max_age, default core.TRAY_STALE_S). It can't see a wrong slot or an extra item, only what is missing."""
+    if max_age is None:
+        from .core import TRAY_STALE_S as max_age
     if not tray or tray.get("stale") or time.time() - at > max_age:
         return None
     slots = [s for s in tray.get("slots") or [] if isinstance(s, dict) and s.get("item")]

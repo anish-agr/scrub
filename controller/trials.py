@@ -123,9 +123,12 @@ def run_one(client, trial, *, practice, timeout=90, interval=.1, clock=time.mono
             return result
         pulled = False
         while clock() - started < timeout:
+            # Events before state: between the worker taking the job and its first step, /state still reads idle
+            # with an empty queue. Read the other way round, a step event fetched after that idle state ended
+            # the trial at once (practice --tries 2 scored 1/2 on the fake arm).
+            recent = request(client, "GET", "/events/recent?n=500")
             state = request(client, "GET", "/state")
             check_mode(state, practice)
-            recent = request(client, "GET", "/events/recent?n=500")
             for event in recent:
                 if not isinstance(event, dict):
                     raise TrialAbort("Malformed controller event")
@@ -409,6 +412,25 @@ def self_test():
             self.assertIn(("POST", "/stop"), harness.calls)
             self.logger.assert_called_once()
 
+        def test_idle_before_the_first_step_is_not_completion(self):
+            class Race(Harness):
+                """/state reads idle once after the job is taken, before its first step event."""
+                polls = 0
+
+                def request(self, req):
+                    if self.cid and req.url.path == "/state":
+                        self.polls += 1
+                        return httpx.Response(200, json={"step": "finding" if self.polls == 2 else "idle",
+                                                         "queue": [], "setting": self.setting, "fake_arm": False})
+                    if self.cid and req.url.path == "/events/recent":
+                        kinds = [[], ["step"]][self.polls] if self.polls < 2 else ["step", "handed", "released"]
+                        return httpx.Response(200, json=[{"command_id": self.cid, "type": k, "t": n,
+                                                          "request_to_hand_s": 2.5 if k == "handed" else None,
+                                                          "retries": 0} for n, k in enumerate(kinds)])
+                    return super().request(req)
+
+            self.assertTrue(self.execute_one(Race())[0]["success"])
+
         def test_timeout_stops_and_logs_failure(self):
             harness = Harness(scenario="timeout")
             result = self.execute_one(harness, ("",))
@@ -483,10 +505,10 @@ def self_test():
                 ctl = Controller(arm, fake_arm=True)
                 try:
                     with TestClient(make_app(ctl)) as client:
-                        result = execute(client, [self.trial(item="hemostat")], practice=True,
-                                         automatic=True, write=lambda value: None,
+                        result = execute(client, [self.trial(item="hemostat"), self.trial(item="hemostat", attempt=2)],
+                                         practice=True, automatic=True, write=lambda value: None,
                                          journal=rows.append, log_test=logger, timeout=5, interval=.01)
-                    self.assertTrue(result[0]["success"])
+                    self.assertEqual([r["success"] for r in result], [True, True])
                     self.assertEqual(ctl.state()["step"], "idle")
                     self.assertTrue(rows[0]["practice"])
                     logger.assert_not_called()

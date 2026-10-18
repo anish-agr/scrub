@@ -1,4 +1,4 @@
-"""python -m controller [--fake-arm | --real-arm] [--port 8000] [--setting surgical|bench] [--judge] [--skills model|taught|auto]"""
+"""python -m controller [--fake-arm | --real-arm | --sim-arm] [--port 8000] [--setting surgical|bench] [--judge] [--skills model|taught|auto]"""
 import argparse
 import os
 import signal

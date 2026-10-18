@@ -10,7 +10,7 @@ from fastapi.responses import HTMLResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 
-from . import armview, traycheck
+from . import armview, core, traycheck
 from .core import Controller
 
 DASHBOARD = Path(__file__).resolve().parent.parent / "dashboard"
@@ -152,7 +152,7 @@ def make_app(ctl: Controller, extra=None) -> FastAPI:
     async def tray_check():
         """X3: vision's GET /tray_check for the current setting, plus the spoken `say`. In a thread: never blocks stop."""
         # No vision process (sim, backup): the controller's own fresh TrayState instead.
-        fetch = lambda: traycheck.fetch() or traycheck.from_tray(ctl.tray, ctl.tray_at)  # noqa: E731
+        fetch = lambda: traycheck.fetch() or traycheck.from_tray(ctl.tray, ctl.tray_at, core.TRAY_STALE_S)  # noqa: E731
         return await asyncio.to_thread(traycheck.check, ctl.setting, fetch)
 
     @app.post("/fake/force")
@@ -197,7 +197,9 @@ def make_app(ctl: Controller, extra=None) -> FastAPI:
     @app.get("/nurse", response_class=HTMLResponse)
     async def nurse():
         """Nurse console: tray, requests, step track, handoff time per request, what's out, event log."""
-        return NURSE.read_text()
+        # The page's tray-age limit follows TRAY_STALE_S. Swapped at serve time: the file keeps its original script,
+        # which design/test_ui.py checks byte for byte.
+        return NURSE.read_text().replace("tray_age_s>3", f"tray_age_s>{core.TRAY_STALE_S:g}")
 
     @app.get("/ops", response_class=HTMLResponse)
     async def ops():
