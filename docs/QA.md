@@ -12,26 +12,27 @@ Stack under test:
 
 ## Summary of Findings
 
-| ID | Issue | Component | Owner | Severity |
-| --- | --- | --- | --- | --- |
-| QA-01 | Missing Reset / Clear-Stop button locks UI after Stop | `dashboard/` | Evan | Critical |
-| QA-02 | Camera stream never displays; stuck on fallback text | `dashboard/` | Evan | High |
-| QA-03 | Camera stream URL hardcoded to `localhost:8001` breaks remote and HTTPS use | `dashboard/` | Evan | Medium |
-| QA-04 | `vision --fake` synthetic hand has `target: null`, causing handover timeouts | `vision/` | Brandon (Fixed) | High |
-| QA-05 | `vision --fake` detector only detects hemostat, breaking other 8 items | `vision/` | Brandon (Fixed) | High |
-| QA-06 | `vision --fake` never marks slot empty after pick, causing false grasp failures | `vision/` | Brandon (Fixed) | Medium |
-| QA-07 | Ledger `_out()` never clears on Reset or Setting change, polluting public page | `ledger/` | Evan | High |
-| QA-08 | Dashboard setting state overwritten by polling; server settings never loaded | `dashboard/` | Evan | Medium |
-| QA-09 | Empty Results tables render blank table headers alongside empty note | `dashboard/`, `ledger/` | Evan | Low |
-| QA-10 | Dashboard sample mode does not reconnect if opened before controller starts | `dashboard/` | Evan | Low |
-| QA-11 | Pressing Spacebar while focused on command buttons triggers emergency stop | `dashboard/` | Evan | Low |
-| QA-12 | Scalpel command response announces "Scalpel coming" instead of safe spot | `controller/` | Caiden | Medium |
+| ID | Issue | Component | Owner | Severity | Status |
+| --- | --- | --- | --- | --- | --- |
+| QA-01 | Missing Reset / Clear-Stop button locks UI after Stop | `dashboard/` | Evan | Critical | Fixed |
+| QA-02 | Camera stream never displays; stuck on fallback text | `dashboard/` | Evan | High | Fixed |
+| QA-03 | Camera stream URL hardcoded to `localhost:8001` breaks remote and HTTPS use | `dashboard/` | Evan | Medium | Fixed |
+| QA-04 | `vision --fake` synthetic hand has `target: null`, causing handover timeouts | `vision/` | Brandon | High | Fixed |
+| QA-05 | `vision --fake` detector only detects hemostat, breaking other 8 items | `vision/` | Brandon | High | Fixed |
+| QA-06 | `vision --fake` never marks slot empty after pick, causing false grasp failures | `vision/` | Brandon | Medium | Fixed |
+| QA-07 | Ledger `_out()` never clears on Reset or Setting change, polluting public page | `ledger/` | Evan | High | Fixed |
+| QA-08 | Dashboard setting state overwritten by polling; server settings never loaded | `dashboard/` | Evan | Medium | Fixed |
+| QA-09 | Empty Results tables render blank table headers alongside empty note | `dashboard/`, `ledger/` | Evan | Low | Fixed |
+| QA-10 | Dashboard sample mode does not reconnect if opened before controller starts | `dashboard/` | Evan | Low | Fixed |
+| QA-11 | Pressing Spacebar while focused on command buttons triggers emergency stop | `dashboard/` | Evan | Low | Fixed |
+| QA-12 | Scalpel command response announces "Scalpel coming" instead of safe spot | `controller/` | Caiden | Medium | Open |
 
 ---
 
 ## Detailed Bug Reports
 
 ### QA-01: Missing Reset / Clear-Stop button permanently locks dashboard after Stop
+- **Status:** Fixed. Browser check Oct 17: Stop shows Reset, Reset calls `POST /reset`, the step returns to Idle, and Reset hides again.
 - **Component**: `dashboard/`
 - **Owner**: Evan
 - **Severity**: Critical
@@ -50,6 +51,7 @@ Stack under test:
 ---
 
 ### QA-02: Camera stream never displays; placeholder text shown permanently
+- **Status:** Fixed. Browser check Oct 17 with `python -m vision --fake`: the camera card shows the live frame (slot boxes and the palm dot). A snapshot probe turns the stream on, because the MJPEG response never fires `load`.
 - **Component**: `dashboard/`
 - **Owner**: Evan
 - **Severity**: High
@@ -68,6 +70,7 @@ Stack under test:
 ---
 
 ### QA-03: Hardcoded `localhost:8001` in camera image src breaks external access and HTTPS
+- **Status:** Fixed. The image has no hardcoded host. Opened at `http://127.0.0.1:8000/`, the stream src was `http://127.0.0.1:8001/stream`.
 - **Component**: `dashboard/`
 - **Owner**: Evan
 - **Severity**: Medium
@@ -138,6 +141,7 @@ Stack under test:
 ---
 
 ### QA-07: Ledger `_out()` never clears items on Reset or Setting change, showing stale items on the Public Page
+- **Status:** Fixed. Browser check Oct 17: after a hemostat handover the public page listed hemostat. Switching trays cleared it to "Nothing out" on both the dashboard and http://127.0.0.1:8080/. The count follows the newest event's `out` list.
 - **Component**: `ledger/`
 - **Owner**: Evan
 - **Severity**: High
@@ -155,6 +159,7 @@ Stack under test:
 ---
 
 ### QA-08: Dashboard setting selection is overwritten by state polling; server settings never loaded
+- **Status:** Fixed. Browser check Oct 17: choosing Dental office loads mouth mirror, explorer, and cotton pliers from `GET /setting`. Switching trays while the arm is waiting for a pull shows "Could not switch trays" and the picker returns to the current tray.
 - **Component**: `dashboard/`
 - **Owner**: Evan
 - **Severity**: Medium
@@ -171,6 +176,7 @@ Stack under test:
 ---
 
 ### QA-09: Empty Results tables render blank headers and borders alongside "No measured trials yet" note
+- **Status:** Fixed. Browser check Oct 17: with no measured trials, both pages show "No measured trials yet." and the empty tables are `display: none`.
 - **Component**: `dashboard/`, `ledger/`
 - **Owner**: Evan
 - **Severity**: Low / Cosmetic
@@ -186,6 +192,7 @@ Stack under test:
 ---
 
 ### QA-10: Dashboard sample fallback never retries connecting if opened before controller starts
+- **Status:** Fixed. Browser check Oct 17: the first `/state` request was forced to fail. The page showed "Controller is not running. This is a sample handover." and then returned to live on its own.
 - **Component**: `dashboard/`
 - **Owner**: Evan
 - **Severity**: Low
@@ -202,6 +209,7 @@ Stack under test:
 ---
 
 ### QA-11: Pressing Spacebar while focused on command buttons triggers emergency stop
+- **Status:** Fixed. Browser check Oct 17: Space on the hemostat button left the arm idle. Space on the page body stopped it. Reset cleared that stop.
 - **Component**: `dashboard/`
 - **Owner**: Evan
 - **Severity**: Low / Usability
