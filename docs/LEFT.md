@@ -2,6 +2,32 @@
 
 Evan's tasks (E1 to E7) aren't listed here; he's on them. As of 5 PM he has pushed settings, the dashboard, the ledger, the tables page and a Devpost draft, and `controller.test_flows` (28/28) and `vision.test_vision` still pass with them in. `docs/STATUS.md` stays the checklist; this file is the gap list. Whoever finishes an item deletes it here in the same commit.
 
+## Agents running now (stay in your scope)
+
+| Agent | Works on | May edit |
+| --- | --- | --- |
+| Caiden, session 1 (orchestrator) | L1 to L10 below | `controller/` (except `trials.py`), `voice/`, `arm/check_setup.py`, `arm/record.py`, `controller/run_all.py`, `README.md` "Running it", `docs/SLIDES.md`, `explore/` |
+| Caiden, session 2 (orchestrator) | Q1 to Q4 below | `docs/BRINGUP.md`, `controller/trials.py`, `docs/AUDIT.md`, `explore/` |
+| Evan, Cursor | E3 to E7 | `dashboard/`, `ledger/`, `settings/`, `docs/DATA-LOG.md`, `docs/DEVPOST.md` |
+| Brandon, Cursor | B5, B6, B8 | `vision/`, `docs/PERCEPTRON.md` |
+| Anish, Codex | R1 to R4 below | `arm/` except `check_setup.py` and `record.py` |
+| Anish, Antigravity | G1, G2 below | `docs/PITCH.md`, `docs/QA.md` |
+
+## More work (Q, R, G)
+
+| # | What | Who |
+| --- | --- | --- |
+| Q1 | `docs/BRINGUP.md`: the exact step-by-step for tonight, with commands: ports, cameras, calibration ids, taping, measuring poses, the first teleop, recording, the dataset check, training, the first live skill, calibration with Brandon, the first handoff. Each step lists what you should see and what to do if you don't | Caiden 2 |
+| Q2 | `controller/trials.py`: runs the success tests in `docs/PLAN.md` (N tries per item and lighting through the controller, logging each with `ledger.log_test`), with a prompt to the operator between tries | Caiden 2 |
+| Q3 | `docs/AUDIT.md`: read every part against `docs/CONTRACTS.md` and list mismatches and likely bugs, by owner. Fix nothing outside your scope; post the list | Caiden 2 |
+| Q4 | A sim backup: a recorded full run on the MuJoCo sim arm with voice and the dashboard, in case the real arm fails at judging | Caiden 2 |
+| R1 | `python -m arm.train pipeline`: check a local dataset first (fps, camera names and sizes, joint names, episode count, cadence), register the Hugging Face repo, wait for validation, train, follow, wait for a ready deployment, write `PERCEPTRON_DEPLOYMENT_ID` into `.env` | Codex |
+| R2 | `arm/teach.py`: torque off, move the arm by hand, press a key to save the current joints as home, carry or safe-spot in `arm/rig.json`, and mark the handoff-region corners | Codex |
+| R3 | `Arm.prepare(instructions)` in `real_arm.py` that pre-opens robot sessions, for Caiden's L2. Optional method, so the contract doesn't change | Codex |
+| R4 | Live bring-up with Anish once the arm is plugged in and the team key is in: capabilities, `real_arm --dry-run` against the real joints, the five-point `move_to` check, gripper load sign | Codex |
+| G1 | `docs/PITCH.md`: tighten the 3-minute script and judge Q&A against what's built, with `[measured]` slots for the numbers. Plain words, no buzzwords, no em dashes | Antigravity |
+| G2 | Browser QA: start the stack with the fake arm and `vision --fake`, click through the dashboard and the public page, try every control, and write bugs by owner in `docs/QA.md` | Antigravity |
+
 ## Blockers only people can clear
 
 | What | Blocks | Who |
