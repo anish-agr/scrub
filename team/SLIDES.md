@@ -1,49 +1,47 @@
 # Backup slides
 
-Owner: Caiden. Five slides in Google Slides. Shown only if the arm fails at judging, and used as title cards in the video. The story, numbers and names match `team/PITCH.md`. Sources for every number are in the Sources table there.
+Owner: Caiden. Five slides in Google Slides. Shown only if the arm can't run at the table, and usable as title cards in the video. The story and numbers match `team/PITCH.md`. Sources for the outside numbers are in the Sources table there and in `team/CONTEXT.md` Part 1, section 4.
 
-Fill `[measured]` from `GET /stats` and the dashboard tables on Sunday morning. If a number is not there yet, delete the line instead of leaving the bracket on a slide.
-
-## Which level
-
-These slides match level 1 of `team/DEMO.md` (live real arm, model where it passed, taught for the rest). Level 2: change the "Perceptron Isaac" bullet on slide 3 to "taught skills, labeled; the fine-tuned model is in our video". Level 3: add "the arm shown is a simulation; the real-arm video is beside it" to slide 2. Never show a number that is still "to fill from the ledger".
+Our own numbers come only from `team/FACTS-0718.md` (ledger, dataset, logs). If a number isn't there, delete the line. Never leave a bracket on a slide.
 
 ## Slide text (paste into Google Slides)
 
 **1. Surgeons need a second pair of hands**
 - A surgical tech job takes about 120 days to fill.
-- Without one, the surgeon looks away from the patient, puts down what they're holding, and searches the tray.
-- In one Mayo Clinic study, about 1 in 5,500 operations left an item inside the patient. Most of those counts were called correct.
-- US hospital staff have about 385,000 needle and sharps injuries a year.
-- Small print: Periop Leader 2024; Cima et al., J Am Coll Surg 2008; CDC.
+- Without one, the surgeon looks away from the patient and searches the tray.
+- When an instrument is missing, the case waits: about 10 minutes a case in one study.
+- Small print: Periop Leader 2024; Nichol et al., BMC Surgery 2024.
 
 **2. Scrub**
-- Ask out loud. The instrument arrives handle first. The gripper lets go when you take it.
-- The fine-tuned model picks; our code keeps it safe and carries it to the hand.
-- Operating room tray: scalpel handle, hemostat, Mayo scissors.
-- Scalpels go to a safe spot, never hand to hand.
-- Set a tool in the return spot and it goes back to its slot.
-- Say "count" and it reads what's still out. The case summary arrives by text.
+- Ask out loud for an instrument. Three on the tray: scalpel, hemostat, Mayo scissors.
+- The arm picks it with a skill we taught it from our recorded demonstrations.
+- It slows as it nears the handoff point and lets go when you pull.
+- After each handoff it goes straight home on its own.
+- Say "stop" and it freezes where it is. Say "continue" and it goes on.
+- Returns on the real arm are done by hand. Our video shows returns in simulation, labeled.
 
 **3. How it works**
 - Picture: `docs/media/system.png` (same as `docs/media/system.svg`).
-- A phone call to a Photon number. An ElevenLabs voice agent. Gemini turns the words into one command from the tray.
-- Perceptron Isaac 0.5, fine-tuned on our own demonstrations on this arm, does the pick for the items that passed their real tries. The others use a skill we taught by hand, labeled `taught` on the dashboard.
-- The fine-tuned model picks; our code keeps it safe and carries it to the hand: smoothing, speed and joint limits, a claw guard, a heat guard, a grasp check, and a planned move from carry to the hand.
-- One overhead camera: a hand tracker finds the open hand, Perceptron vision reads the tray.
-- Only the controller moves the arm. "Stop" skips Gemini and freezes the arm until a person resets it.
-- Every event goes to MongoDB Atlas.
+- Voice: an ElevenLabs agent and our voice server. Instrument names are matched on the laptop, so a request starts the arm right away.
+- The arm: an SO-101. We recorded our own demonstrations of each pick with a leader arm. A request plays the averaged demonstrations for that instrument.
+- A separate Perceptron training run used the same demonstrations. No model is deployed on the arm.
+- Perceptron's vision API: detect checks the tray, OCR reads the printed count sheet. Gemini is the OCR fallback. (Keep this line only if shots 7 and 8 were recorded.)
+- Every telemetry row and saved demonstration goes to MongoDB Atlas. The public page runs on Vultr.
 
-**4. Results**
-- Success by item and by lighting (bright, normal, dim), with the tries and a 95% range: [measured].
-- Median request to hand: [measured] s over [measured] handoffs.
-- Real tries per item (10 each, model and taught shown separately): [to fill from the ledger].
-- Second setting, the robotics bench tray: include only if it ran on the real arm today. Otherwise delete this line.
+**4. Safety, checked in code**
+- "Stop" freezes the arm in place. KILL cuts the motors at once.
+- Every move is speed-capped and kept inside each joint's range.
+- The gripper stops at contact plus a small squeeze.
+- Lets go only on a pull or on "let go".
+- Motor temperatures every 2 seconds. At 60 C it goes home and turns its motors off until it cools.
+- Research prototype. It never touches the patient.
 
-**5. Business**
-- Surgery centers first, starting in training labs. A monthly fee per operating room.
+**5. Results and business**
+- Real handoffs today, by instrument: from `team/FACTS-0718.md` only. Delete this line if the file has no count.
+- Recorded demonstrations: from `team/FACTS-0718.md` only.
+- Surgical training labs first (no patient), then surgery centers. A monthly fee per operating room.
 - Planning numbers: $750 per room per month plus $1,500 setup. Assumptions until we talk to buyers.
-- Runs on an open-source arm that costs a few hundred dollars. The software is ready for a medical-grade arm.
-- Helps scrub techs. Doesn't replace them. Research prototype, not a medical device.
+- Runs on an open-source arm that costs a few hundred dollars.
+- Helps scrub techs. Doesn't replace them. Not a medical device.
 
 Link to the deck:
