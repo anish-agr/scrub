@@ -216,7 +216,7 @@ def wrist_line(bgr):
     if lines is None:
         return None
     cand = []
-    for x1, y1, x2, y2 in lines[:, 0]:
+    for x1, y1, x2, y2 in np.asarray(lines).reshape(-1, 4):
         x1, x2, y1, y2 = x1 / sx, x2 / sx, y1 / sy, y2 / sy
         if abs(y2 - y1) < 1e-3:
             continue  # horizontal: can't cross the gap row
