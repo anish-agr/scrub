@@ -6,6 +6,7 @@
 // switch the tray) like a camera read. The reply is its `say`. Controller down or an error: worded here the same way,
 // and the read is kept for the summary.
 import { execFile } from "node:child_process";
+import { randomUUID } from "node:crypto";
 import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
@@ -139,6 +140,7 @@ export async function handlePhoto(photo: Photo, text: string, from: string | nul
   }
   const { say, read } = wordPhoto(kind, res, setting, st?.out || []);
   // Controller down or an error: kept for the end-of-case summary (sheet comparison, expired packs).
-  if (res) d.record({ type: "read", t: Date.now() / 1000, command_id: null, case_id: st?.case_id ?? null, say, read: read as ScrubEvent["read"] });
+  // Own id per photo read: two reads in the same millisecond would otherwise share summary.ts's dedupe key.
+  if (res) d.record({ type: "read", t: Date.now() / 1000, command_id: `photo-${randomUUID()}`, case_id: st?.case_id ?? null, say, read: read as ScrubEvent["read"] });
   return say;
 }
