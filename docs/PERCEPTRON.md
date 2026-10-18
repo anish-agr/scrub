@@ -75,3 +75,77 @@ Confirmed on live call using `PERCEPTRON_API_KEY`:
 When a call fails or exceeds the timeout, the last good TrayState is posted again with `"stale": true`. That field is optional and extra; the rest of the body still matches `docs/CONTRACTS.md`.
 
 Live testing confirmed `POST https://api.perceptron.inc/v1/detect` accepts the data URL payload, respects `reasoning_effort: "none"`, and returns pixel bounding boxes within 3.11 seconds.
+
+---
+
+## Multimodal Chat & Video / Caption Capabilities (`/v1/chat/completions`)
+
+Perceptron provides an OpenAI-compatible Chat Completions API for image captioning, video understanding, and temporal event clipping (checked from `docs.perceptron.inc` Oct 17, 2026).
+
+### Endpoint and auth
+
+- `POST https://api.perceptron.inc/v1/chat/completions`
+- Header `Authorization: Bearer $PERCEPTRON_API_KEY`
+- Header `Content-Type: application/json`
+- Model: `perceptron-mk1.5` (or `perceptron-mk1`)
+
+### Captioning styles and prompts
+
+Perceptron supports both concise and detailed caption styles using task prompts or the Python SDK helper `caption()`:
+
+1. **Concise caption**
+   - SDK helper: `caption(style="concise")`
+   - Optimal prompt: `"Provide a concise, human-friendly caption for the upcoming image."`
+   - Use case: Short event descriptions for case logs and dashboard timelines (e.g. `"scalpel set at the safe spot, 14:02"`).
+
+2. **Detailed caption**
+   - SDK helper: `caption(style="detailed")`
+   - Optimal prompt: `"Provide a detailed caption describing key objects, relationships, and context in the upcoming image."`
+
+### Video inputs and temporal clipping
+
+Perceptron accepts video inputs (`video/mp4`, `video/webm`) as hosted URLs (`video_url`), via the SDK `video()` helper, or as sampled frame arrays (`image_url` data URLs).
+
+Request payload with video clipping and thinking mode:
+
+```json
+{
+  "model": "perceptron-mk1.5",
+  "messages": [
+    {
+      "role": "user",
+      "content": [
+        {
+          "type": "video_url",
+          "video_url": {"url": "https://example.com/clip.mp4"}
+        },
+        {
+          "type": "text",
+          "text": "Identify and label the key action in this clip (e.g. 'scalpel set at the safe spot')."
+        }
+      ]
+    }
+  ],
+  "vision_config": {
+    "annotation_format": "clip",
+    "enable_thinking": true
+  }
+}
+```
+
+- `vision_config.annotation_format`: `"clip"` prompts the model to localize moments or return temporal clip annotations in seconds.
+- `vision_config.enable_thinking`: `true` enables reasoning traces (`<think>` blocks) before generating output.
+- When sending local frames directly (no public video hosting), pass key frame data URLs:
+  `{"type": "image_url", "image_url": {"url": "data:image/jpeg;base64,..."}}`.
+
+### Integration with Scrub case replay (X4)
+
+1. **Rolling buffer:** `vision/clips.py` maintains an in-memory ring buffer of recent frames from the overhead camera.
+2. **Event clips:** For each Event posted by the controller (`picked`, `handed`, `set_down`, `released`, `returned`, `stopped`, `missed`), vision saves a 3-second `.mp4` clip (`pre_s=1.5`, `post_s=1.5`) under `vision/clips/<case_id>/`.
+3. **Post-case labeling:** Calling `POST /clips/label` queries Perceptron's chat completions endpoint with the clip's key frame to produce an event description. When the API key is unset or offline, a clinical fallback label is generated (`"<item> <action>, HH:MM"`).
+4. **Endpoints on port 8001:**
+   - `GET /clips?case_id=<case_id>`: List clips and labels for a case.
+   - `POST /clips/record`: Explicitly capture a clip around an event.
+   - `POST /clips/label`: Label all clips for a case using Perceptron.
+   - `GET /clips/{case_id}/{filename}`: Stream a clip video (`.mp4`) or thumbnail (`.jpg`).
+
