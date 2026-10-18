@@ -355,10 +355,14 @@ $('resetBtn').onclick = () => { L = S.defaultLayout(); init2(); msg('Reset to th
 function persist() { S.saveLocalLayout(L); }
 function update() { persist(); scheduleReach(); }
 function init2() {
-  $('selSetting').value = L.setting; fillProc(); scheduleReach();
+  fillSettings(); $('selSetting').value = L.setting; fillProc(); scheduleReach();
 }
 function fillProc() { const ps = S.PROCEDURES[L.setting]; if (!ps.some(p => p.id === L.procedure)) L.procedure = ps[0].id; $('selProc').innerHTML = ps.map(p => `<option value="${p.id}">${p.name}</option>`).join(''); $('selProc').value = L.procedure; }
-$('selSetting').innerHTML = Object.keys(S.CATALOG).map(k => `<option value="${k}">${S.CATALOG[k].label}</option>`).join('');
+function fillSettings() {  /* surgical, bench; a loaded hidden tray (dental) shows only while it is the current one */
+  const ks = S.SHOWN_SETTINGS.concat(S.SHOWN_SETTINGS.includes(L && L.setting) || !(L && S.CATALOG[L.setting]) ? [] : [L.setting]);
+  $('selSetting').innerHTML = ks.map(k => `<option value="${k}">${S.CATALOG[k].label}</option>`).join('');
+}
+fillSettings();
 $('selSetting').onchange = e => {
   L.setting = e.target.value; fillProc(); const ids = proc().tray;
   L.slots.forEach((s, i) => s.item = ids[i] || null); update();

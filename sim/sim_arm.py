@@ -209,7 +209,7 @@ class SimArm:
         return self._cart_move(call, steps[0], 0.12)
 
     def set_setting(self, setting):
-        """Show another setting's items (surgical, dental, bench) without writing layout.json.
+        """Show another setting's items (surgical or bench; any id in setting_items loads) without writing layout.json.
         Rebuilds the scene (items back in slots, arm home) unless it is already active."""
         if setting not in self.layout["setting_items"]:
             return False
