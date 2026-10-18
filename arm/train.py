@@ -26,7 +26,8 @@ class PublicRunInfo:
     It is not the private pipeline resume file and contains no credentials.
     """
     def __init__(self, repo_id, path):
-        if not re.fullmatch(r"[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+", repo_id or "") or any(p in {".", ".."} for p in repo_id.split("/")):
+        # repo_id None means a direct upload: no public dataset URL, the dataset id is recorded instead.
+        if repo_id is not None and (not re.fullmatch(r"[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+", repo_id) or any(p in {".", ".."} for p in repo_id.split("/"))):
             raise ValueError("Public run info needs an HF user/dataset repo id, not a URL or token")
         self.path = Path(path)
         if self.path.is_symlink() or not self.path.parent.is_dir():
@@ -36,8 +37,8 @@ class PublicRunInfo:
             if not isinstance(old, dict) or old.get("kind") != "scrub_robotics_run" or old.get("schema_version") != 1:
                 raise ValueError("Existing run-info file is unfamiliar; refusing to overwrite it")
         self.info = {"kind": "scrub_robotics_run", "schema_version": 1,
-                     "dataset_url": "https://huggingface.co/datasets/" + repo_id,
-                     "job_id": None, "checkpoint_id": None, "deployment_id": None,
+                     "dataset_url": "https://huggingface.co/datasets/" + repo_id if repo_id else None,
+                     "dataset_id": None, "job_id": None, "checkpoint_id": None, "deployment_id": None,
                      "status": "training"}
 
     @staticmethod
@@ -63,6 +64,8 @@ class PublicRunInfo:
                 temporary.unlink(missing_ok=True)
 
     def observe(self, value):
+        if isinstance(value, dict) and value.get("dataset_id"):
+            self.info["dataset_id"] = self.identifier(value["dataset_id"])
         if isinstance(value, dict) and value.get("job_id"):
             self.info["job_id"] = self.identifier(value["job_id"])
         if isinstance(value, dict) and value.get("deployment_id") and value.get("env_updated") is True:
@@ -119,7 +122,8 @@ def pipeline_with_run_info(args, *, output=emit, api_factory=None):
     """Wrap the existing pipeline without modifying its file or spending extra jobs."""
     if args.check_only:
         return run_pipeline(args, emit=output)
-    publisher = PublicRunInfo(args.repo_id, args.run_info or Path(__file__).with_name("run_info.json"))
+    repo_id = args.repo_id if getattr(args, "source", "upload") == "hf" else None
+    publisher = PublicRunInfo(repo_id, args.run_info or Path(__file__).with_name("run_info.json"))
 
     def observe(value):
         publisher.observe(value)
@@ -203,12 +207,15 @@ def main(argv=None):
     sub.add_parser("deployments")
     contract = sub.add_parser("contract")
     contract.add_argument("id")
-    pipeline = sub.add_parser("pipeline", help="preflight local export, register HF, validate, train and deploy")
+    pipeline = sub.add_parser("pipeline", help="local check + QA, upload (or register HF), validate, train and deploy")
     pipeline.add_argument("root")
     pipeline.add_argument("--cadence-report", required=True)
-    pipeline.add_argument("--repo-id")
+    pipeline.add_argument("--source", choices=["upload", "hf"], default="upload",
+                          help="upload: send the checked local folder directly to Perceptron (default). "
+                               "hf: register an already pushed public HF repo (--repo-id, --revision)")
+    pipeline.add_argument("--repo-id", help="HF user/repo, only with --source hf")
     pipeline.add_argument("--name", default="scrub")
-    pipeline.add_argument("--revision", default="main")
+    pipeline.add_argument("--revision", default="main", help="HF commit SHA, only with --source hf")
     pipeline.add_argument("--idempotency-key")
     pipeline.add_argument("--state-file")
     pipeline.add_argument("--env-file")
@@ -220,7 +227,9 @@ def main(argv=None):
     pipeline.add_argument("--timeout", type=float, default=21600)
     pipeline.add_argument("--check-only", action="store_true")
     pipeline.add_argument("--confirmed-replay", action="store_true")
-    pipeline.add_argument("--confirmed-hf-matches-local", action="store_true")
+    pipeline.add_argument("--confirmed-hf-matches-local", action="store_true", help="required with --source hf")
+    pipeline.add_argument("--accept-qa-fail", default="",
+                          help="episode indexes a person reviewed in qa.html and accepts despite a QA FAIL, e.g. 1,5,7")
     args = parser.parse_args(argv)
     if args.command == "self-test":
         raise SystemExit(self_test())
@@ -246,7 +255,13 @@ def main(argv=None):
             if dataset.get("state", dataset.get("status")) != "ready":
                 raise APIError("Dataset must be ready before training")
             # Present the complete evidence before the explicit quota-spending call.
-            emit({"validation": api.validation(args.dataset_id), "capabilities": api.capabilities()})
+            validation, capabilities = api.validation(args.dataset_id), api.capabilities()
+            emit({"validation": validation, "capabilities": capabilities})
+            from .pipeline import capabilities_allow, validation_complete
+            if not validation_complete(validation):
+                raise APIError("Validation has not passed; training not submitted")
+            capabilities_allow(capabilities, {"backend": args.backend, "mode": args.mode, "steps": args.steps,
+                                              "action_horizon": 30, "rtc_enabled": True})
             emit(api.train({"dataset_id": args.dataset_id, "backend": args.backend,
                             "mode": args.mode, "steps": args.steps,
                             "action_horizon": 30, "rtc_enabled": True}, args.idempotency_key))
@@ -277,7 +292,7 @@ def self_test():
             self.temp = tempfile.TemporaryDirectory()
             self.addCleanup(self.temp.cleanup)
             self.path = Path(self.temp.name) / "run_info.json"
-            self.args = SimpleNamespace(repo_id="scrub-team/scrub", check_only=False, run_info=self.path)
+            self.args = SimpleNamespace(repo_id="scrub-team/scrub", source="hf", check_only=False, run_info=self.path)
             self.api = Mock()
             self.api.job.return_value = {"status": "succeeded", "checkpoint_id": "cp_test", "ignored_secret": "test-only-do-not-export"}
             self.api.checkpoint.return_value = {"id": "cp_test", "ignored_secret": "test-only-do-not-export"}
@@ -299,7 +314,7 @@ def self_test():
             self.assertEqual((info["job_id"], info["checkpoint_id"], info["deployment_id"]), ("job_test", "cp_test", "dep_test"))
             self.assertEqual(info["status"], "ready")
             self.assertNotIn("test-only-do-not-export", self.path.read_text())
-            self.assertEqual(set(info), {"kind", "schema_version", "dataset_url", "job_id", "checkpoint_id", "deployment_id", "status", "updated_at"})
+            self.assertEqual(set(info), {"kind", "schema_version", "dataset_url", "dataset_id", "job_id", "checkpoint_id", "deployment_id", "status", "updated_at"})
 
         def test_check_only_never_creates_public_artifact(self):
             self.args.check_only = True
@@ -363,12 +378,13 @@ def self_test():
         def test_actual_pipeline_publishes_all_identifiers_without_network(self):
             args = SimpleNamespace(**{**vars(self.args), "root": "unused", "cadence_report": "unused",
                                       "confirmed_replay": True, "confirmed_hf_matches_local": True,
-                                      "idempotency_key": "offline-export", "name": "scrub", "revision": "test-commit",
+                                      "idempotency_key": "offline-export", "name": "scrub", "revision": "0" * 40,
                                       "backend": "standard", "mode": "expert_only", "steps": 1000,
                                       "interval": .01, "timeout": 1,
                                       "state_file": Path(self.temp.name) / "state.json",
                                       "env_file": Path(self.temp.name) / ".env"})
-            self.api.capabilities.return_value = {"supported": True}
+            self.api.capabilities.return_value = {"backends": {"standard": ["expert_only"]}, "action_horizons": [30],
+                                                  "rtc": [False, True], "steps": [1000]}
             self.api.register_dataset.return_value = {"id": "ds_test"}
             self.api.dataset.return_value = {"status": "ready"}
             self.api.validation.return_value = {"status": "passed"}
@@ -377,7 +393,8 @@ def self_test():
             self.api.metrics.return_value = {"next_cursor": 1}
             self.api.deployments.return_value = {"items": [{"id": "dep_test", "checkpoint_id": "cp_test", "status": "ready"}]}
             self.api.contract.return_value = {"contract_id": "contract_test"}
-            with patch("arm.pipeline.local_check", return_value={"fingerprint": "test-local-snapshot"}):
+            with patch("arm.pipeline.local_check", return_value={"fingerprint": "test-local-snapshot", "episodes": 2}), \
+                    patch("arm.pipeline.qa_check", return_value={"episodes": 2, "pass": [0, 1], "warn": [], "fail": {}}):
                 pipeline_with_run_info(args, output=lambda value: None, api_factory=lambda: self.api)
             info = json.loads(self.path.read_text())
             self.assertEqual((info["job_id"], info["checkpoint_id"], info["deployment_id"]), ("job_test", "cp_test", "dep_test"))

@@ -221,10 +221,44 @@ def with_request_to_hand(caption: str, clip: dict[str, Any]) -> str:
     return caption
 
 
+POST_CAPTION_TIMEOUT_S = 2.0
+CAPTION_FIELDS = ("label", "label_source", "agrees", "caption_item", "caption_action", "caption_latency_ms", "filename")
+
+
+def auto_caption_on() -> bool:
+    """VISION_AUTO_CAPTION=1/0 turns captioning each new clip on or off. Unset: on when a Perceptron key is set."""
+    v = os.environ.get("VISION_AUTO_CAPTION", "").strip().lower()
+    if v:
+        return v not in ("0", "false", "off", "no")
+    return bool(os.environ.get("PERCEPTRON_API_KEY", "").strip())
+
+
+def caption_record(clip: dict[str, Any]) -> dict[str, Any]:
+    """The body for the controller's POST /vision/caption."""
+    event = clip.get("event") or {}
+    return {"case_id": event.get("case_id") or clip.get("case_id"), "event_type": event.get("type") or clip.get("event_type"),
+            "item": clip.get("item"), "t": clip.get("timestamp"), **{k: clip.get(k) for k in CAPTION_FIELDS}}
+
+
+def post_caption(clip: dict[str, Any], controller_url: str | None = None, client=None) -> bool:
+    """POST the clip's caption to {CONTROLLER_URL}/vision/caption. False on any failure; never raises."""
+    url = (controller_url or os.environ.get("CONTROLLER_URL", "http://localhost:8000")).rstrip("/") + "/vision/caption"
+    try:
+        resp = (client or httpx).post(url, json=caption_record(clip), timeout=POST_CAPTION_TIMEOUT_S)
+        return resp.status_code == 200
+    except Exception as exc:  # noqa: BLE001 - the controller may be down; the clip keeps its caption
+        logger.warning("caption not posted to the controller: %s", type(exc).__name__)
+        return False
+
+
 class ClipManager:
     """Manages rolling video frame buffer, recording clips for events, and labeling via Perceptron."""
 
-    def __init__(self, clips_dir: Path | None = None, max_buffer_frames: int = 150):
+    def __init__(self, clips_dir: Path | None = None, max_buffer_frames: int = 150,
+                 auto_caption: bool | None = None, controller_url: str | None = None):
+        # auto_caption: caption each new clip on its own thread and post it to the controller (None: auto_caption_on()).
+        self.auto_caption = auto_caption_on() if auto_caption is None else auto_caption
+        self.controller_url = controller_url
         self.clips_dir = clips_dir or (ROOT / "vision" / "clips")
         self.clips_dir.mkdir(parents=True, exist_ok=True)
         self.buffer: deque[tuple[float, np.ndarray]] = deque(maxlen=max_buffer_frames)
@@ -333,7 +367,18 @@ class ClipManager:
             self._save_case_metadata(case_id)
 
         logger.info("recorded clip %s for %s (%d frames)", filename, case_id, len(frames_in_window))
+        if self.auto_caption:  # its own thread: the event and camera loops never wait on Perceptron
+            threading.Thread(target=self.caption_and_post, args=(clip_info,), daemon=True).start()
         return clip_info
+
+    def caption_and_post(self, clip: dict[str, Any]) -> bool:
+        """Caption one clip (label_clip) and post it to the controller's ledger. Never raises."""
+        try:
+            self.label_clip(clip)
+        except Exception as exc:  # noqa: BLE001
+            logger.warning("auto caption failed: %s", type(exc).__name__)
+            return False
+        return post_caption(clip, self.controller_url)
 
     def _save_case_metadata(self, case_id: str) -> None:
         case_dir = self.clips_dir / case_id
@@ -396,20 +441,22 @@ class ClipManager:
             event = clip.get("event") or {"type": clip.get("event_type"), "item": clip.get("item")}
             label = format_event_label(event, clip.get("timestamp"))
 
-        clip["label"] = label
-        clip["label_source"] = source
-        clip["caption_item"] = answer.get("item_seen") if source == "perceptron" else None
-        clip["caption_action"] = answer.get("action") if source == "perceptron" else None
-        clip["agrees"] = (caption_agrees(clip, answer.get("item_seen"), answer.get("action"))
-                          if source == "perceptron" else None)
-        clip["caption_latency_ms"] = latency_ms
-        clip["caption_frames"] = len(frames) if source == "perceptron" else 0
-        clip["caption_error"] = error if source == "fallback" else None
-        clip["labeled_at"] = time.time()
-
+        update = {
+            "label": label,
+            "label_source": source,
+            "caption_item": answer.get("item_seen") if source == "perceptron" else None,
+            "caption_action": answer.get("action") if source == "perceptron" else None,
+            "agrees": (caption_agrees(clip, answer.get("item_seen"), answer.get("action"))
+                       if source == "perceptron" else None),
+            "caption_latency_ms": latency_ms,
+            "caption_frames": len(frames) if source == "perceptron" else 0,
+            "caption_error": error if source == "fallback" else None,
+            "labeled_at": time.time(),
+        }
         case_id = clip.get("case_id")
-        if case_id:
-            with self._lock:
+        with self._lock:  # auto-caption runs on its own thread while record_event may be saving the same case
+            clip.update(update)
+            if case_id:
                 self._save_case_metadata(case_id)
 
         return label

@@ -6,7 +6,7 @@ from collections import defaultdict
 import cv2
 
 from .captions import assess, load_captions, load_qa
-from .common import digest, encode, events, frame_at, frames, provenance, read_json, save_provenance, stamp, write_json
+from .common import arm_kind, digest, encode, events, frame_at, frames, provenance, read_json, save_provenance, select_arm, stamp, write_json
 
 
 def successful_trials(rows):
@@ -26,8 +26,10 @@ def successful_trials(rows):
             continue
         accepted.append({'command_id':command,'item':request.get('item'),'case_id':request.get('case_id'),
             'start':request['t'],'end':released['t'],'handed':handed['t'],
-            'request_to_hand_s':handed.get('request_to_hand_s'),
-            'episode':next((r['episode'] for r in group if isinstance(r.get('episode'),int)),None),'synthetic':any(row.get('synthetic') or row.get('fake_arm') for row in group)})
+            'request_to_hand_s':handed.get('request_to_hand_s'),'skill_source':handed.get('skill_source'),
+            'episode':next((r['episode'] for r in group if isinstance(r.get('episode'),int)),None),
+            'arm':next((k for k in ('synthetic','fake','simulation') if any(arm_kind(row)==k for row in group)),'real'),
+            'synthetic':any(arm_kind(row) in {'synthetic','fake'} for row in group)})
     return accepted,excluded
 
 
@@ -36,12 +38,16 @@ def rank(takes):
     return sorted(takes,key=lambda row:(row.get('caption_score',0),row['framing_score_laplacian']),reverse=True)
 
 
-def find(ws, ledger, manifest='manifest.json', cut=False, gemini=False, captions=True, clips_dir=None, vision_url=None, qa=None):
+def find(ws, ledger, manifest='manifest.json', cut=False, gemini=False, captions=True, clips_dir=None, vision_url=None, qa=None,
+         arm=None, skill_source=None):
     ledger=ws.source(ledger)
-    trials,excluded=successful_trials(events(ledger))
+    trials,excluded=successful_trials(select_arm(events(ledger),arm))
+    if skill_source:
+        trials=[t for t in trials if t['skill_source']==skill_source]
     caption_rows=load_captions(trials,ledger,clips_dir,vision_url) if captions else []
     qa_rows=load_qa(qa) if captions and qa else {}
-    assets=read_json(ws.source(manifest))['assets']
+    registry=ws.source(manifest)
+    assets=read_json(registry)['assets'] if registry.is_file() else []  # no footage yet: still list the ledger trials
     ranked=[]
     for trial in trials:
         for asset in assets:
@@ -52,8 +58,8 @@ def find(ws, ledger, manifest='manifest.json', cut=False, gemini=False, captions
             meta=provenance(source)
             if meta.get('time_altered'):
                 raise ValueError("Rank original clips, not time-compressed derivatives")
-            if trial['synthetic'] and meta['kind']=='real':
-                raise ValueError("Synthetic ledger cannot establish a real take outcome")
+            if trial['arm']!='real' and meta['kind']=='real':
+                raise ValueError("Synthetic or sim-arm ledger cannot establish a real take outcome")
             begin=max(0,trial['start']-start-.3)
             end=min(asset['duration_s'],trial['end']-start+.5)
             image=frame_at(source,trial['handed']-start)
@@ -74,7 +80,7 @@ def find(ws, ledger, manifest='manifest.json', cut=False, gemini=False, captions
                 item['cut']=str(output)
             ranked.append(item)
     ranked=rank(ranked)
-    report={'takes':ranked,'excluded':excluded,'unmatched_trials':[t['command_id'] for t in trials if not any(r['command_id']==t['command_id'] for r in ranked)],
+    report={'trials':len(trials),'arm':arm or 'all','skill_source':skill_source,'takes':ranked,'excluded':excluded,'ledger_trials':trials,'unmatched_trials':[t['command_id'] for t in trials if not any(r['command_id']==t['command_id'] for r in ranked)],
         'gemini':'not used; local ledger and sharpness only' if not gemini else 'SKIPPED: optional remote framing scorer not configured; no footage uploaded',
         'captions_used':captions,
         'note':'Editorial selection only, not a measured success-rate denominator. Failures remain in the ledger.'}

@@ -69,7 +69,10 @@ def resolve_plan(ws,edl,bindings,demo=False):
         if meta.get('time_altered') or meta.get('continuous') is False or any('find cut'==op.get('command') for op in meta.get('operations',[])):
             raise ValueError("Edited/time-altered derivative cannot be an unedited arm roll")
         shots=[{'slot':'ARM_ROLL','duration_s':details['duration_s'],'treatment':'clean'}]
-        cards=read_json(ws.source('cards/index.json'))['cards']
+        index=ws.source('cards/index.json')
+        if not index.is_file():
+            raise ValueError(f"No {index}: run `python -m video --root {ws.root} cards --arm real` first (the end cards hold the success table)")
+        cards=read_json(index)['cards']
         for path in cards:
             if Path(path).stem=='end' or Path(path).stem.startswith('end-'):
                 name=Path(path).stem
@@ -176,6 +179,14 @@ def normalize_delivery(ws,assembled,output,duration,allow_leveling=True):
         return result
     return {'target_lufs':-16,'input_measurement':measured,'measured_lufs':integrated,
             'verification':verified,'method':'two-pass measured loudnorm, delivery remeasured'}
+
+
+def check(ws,edl,bindings,demo=False):
+    """Dry run: every gate of render (bindings, provenance, real_only, lengths, cards) without encoding."""
+    plan,shots,duration=resolve_plan(ws,edl,bindings,demo)
+    return {'edl':str(Path(edl).resolve()),'ok':True,'duration_s':duration,'mode':plan.get('mode','shots'),
+            'real_only':plan.get('real_only',True),
+            'shots':[{'slot':s['slot'],'source':s['path'],'kind':s['meta']['kind'],'in_s':s['in_s'],'duration_s':s['duration_s']} for s in shots]}
 
 
 def render(ws,edl,bindings,output,demo=False,preview=False):
