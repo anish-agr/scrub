@@ -7,8 +7,7 @@ Evan's tasks (E1 to E7) aren't listed here; he's on them. As of 5 PM he has push
 | Agent | Works on | May edit |
 | --- | --- | --- |
 | Caiden, session 1 (orchestrator) | L1 to L10 below | `controller/` (except `trials.py`), `voice/`, `arm/check_setup.py`, `arm/record.py`, `controller/run_all.py`, `README.md` "Running it", `docs/SLIDES.md`, `explore/` |
-| Evan, Cursor (Grok only) | E3 to E7 | `dashboard/`, `ledger/`, `settings/`, `docs/DATA-LOG.md`, `docs/DEVPOST.md` |
-| Brandon, Cursor (Grok only) | B5, B6, B8 | `vision/`, `docs/PERCEPTRON.md` |
+| Evan, Cursor (Grok only) | E3 to E7, then Brandon's V1 to V3 | `dashboard/`, `ledger/`, `settings/`, `docs/DATA-LOG.md`, `docs/DEVPOST.md`, `vision/`, `docs/PERCEPTRON.md` |
 | Anish, Codex | R1 to R4, Q1, Q2 below | `arm/` except `check_setup.py` and `record.py`; `docs/BRINGUP.md`; `controller/trials.py` (new file only) |
 | Anish, Antigravity | G1, G2 below | `docs/PITCH.md`, `docs/QA.md` |
 
@@ -24,6 +23,9 @@ Evan's tasks (E1 to E7) aren't listed here; he's on them. As of 5 PM he has push
 | R2 | `arm/teach.py`: torque off, move the arm by hand, press a key to save the current joints as home, carry or safe-spot in `arm/rig.json`, and mark the handoff-region corners | Codex |
 | R3 | `Arm.prepare(instructions)` in `real_arm.py` that pre-opens robot sessions, for Caiden's L2. Optional method, so the contract doesn't change | Codex |
 | R4 | Live bring-up with Anish once the arm is plugged in and the team key is in: capabilities, `real_arm --dry-run` against the real joints, the five-point `move_to` check, gripper load sign | Codex |
+| V1 | B5 tooling: `vision/mark_slots.py` works on a live frame or a saved image, writes boxes for all three trays in the settings format, and is tested with `--fake` | Evan (for Brandon) |
+| V2 | B6 tooling: `vision/calibrate.py` accepts both guided gripper points and `--pairs` from `explore` page 42, reports the fit error in cm, and the controller gets `target` once `vision/calibration.json` exists. Test with synthetic pairs | Evan (for Brandon) |
+| V3 | B8 tooling: a lighting test mode that records detection rate, hand-tracking rate and stale rate per lighting tag to a CSV. Also confirm live `/v1/detect` works with `PERCEPTRON_API_KEY` | Evan (for Brandon) |
 | G1 | `docs/PITCH.md`: tighten the 3-minute script and judge Q&A against what's built, with `[measured]` slots for the numbers. Plain words, no buzzwords, no em dashes | Antigravity |
 | G2 | Browser QA: start the stack with the fake arm and `vision --fake`, click through the dashboard and the public page, try every control, and write bugs by owner in `docs/QA.md` | Antigravity |
 
