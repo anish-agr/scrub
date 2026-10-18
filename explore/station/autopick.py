@@ -652,7 +652,8 @@ class AutoPick:
 # ---- calibrate: the arm maps the side camera to the table by itself (no network, no person)
 CAL_XS = (0.15, 0.20, 0.25, 0.30)
 CAL_YS = (-0.14, -0.08, -0.02, 0.04, 0.10)
-CAL_Z = (0.04, 0.0)        # jaw tip heights (m): above the instruments; extrapolated down to the grasp height
+CAL_Z = (0.08, 0.045)      # jaw tip heights (m), extrapolated down to the grasp height. The jaw tape hides magnets:
+                           # at 0.0 (2.5 cm over the table) it pulled an instrument up, so stay ~6+ cm above
 CAL_SETTLE_S = 0.6
 
 
@@ -675,8 +676,15 @@ def jaw_by_motion(closed_bgr, open_bgr):
     area = st_[i, cv2.CC_STAT_AREA]
     if not 60 <= area <= 0.05 * m.size:  # nothing moved, or a person/the whole view moved
         return None
+    # the jaw tape (black) where the finger was in the closed frame: a fixed spot on the fingertip
+    near = cv2.dilate((lab == i).astype(np.uint8), np.ones((7, 7), np.uint8)).astype(bool)
+    tape = near & (cv2.cvtColor(closed_bgr, cv2.COLOR_BGR2GRAY) < 60)
+    if tape.sum() >= 30:
+        ty, tx = np.nonzero(tape)
+        tip = ty >= np.percentile(ty, 70)  # the bottom of the tape is the fingertip; far out, 3 px is ~2 cm
+        return float(tx[tip].mean()), float(ty[tip].mean())
     ys, xs = np.nonzero(lab == i)
-    low = ys >= np.percentile(ys, 80)  # the fingertip end of the moving region
+    low = ys >= np.percentile(ys, 80)  # no tape found: the fingertip end of the moving region
     return float(xs[low].mean()), float(ys[low].mean())
 
 
@@ -719,6 +727,7 @@ class Calibrate:
         home = {m: float(self.cal["home_deg"][m]) for m in JOINTS}
         self.stops.append(({**home, "gripper": JAW_CLOSE}, False, None))
         self.cur, self.i, self.t0, self.done_fit = cur, 0, None, False
+        self.stamp = time.strftime("%Y%m%d-%H%M%S")
 
     def tick(self, st, now):
         if self.i >= len(self.stops):
@@ -758,6 +767,17 @@ class Calibrate:
     def _capture(self, st, xyz, shot):
         c, o = shot.get("closed"), shot.get("open")
         px = jaw_by_motion(c, o) if c is not None and o is not None else None
+        try:  # keep every wiggle pair: lets the jaw finder be checked and tuned later
+            import cv2
+            d = FRAMES_DIR / f"calibrate-{self.stamp}"
+            d.mkdir(parents=True, exist_ok=True)
+            k = len(list(d.glob("*-closed.jpg")))
+            cv2.imwrite(str(d / f"{k:02d}-closed.jpg"), c)
+            cv2.imwrite(str(d / f"{k:02d}-open.jpg"), o)
+            with (d / "stops.jsonl").open("a") as f:
+                f.write(json.dumps({"k": k, "grid": list(xyz), "px": px, "joints": shot["joints"]}) + "\n")
+        except Exception:  # noqa: BLE001
+            pass
         if px is None:
             return
         q = np.array([shot["joints"][m] for m in JOINTS])  # where the arm really was, not where it was told

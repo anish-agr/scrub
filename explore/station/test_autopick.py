@@ -232,7 +232,8 @@ def test_calibrate_recovers_the_table_map(tmp_path, monkeypatch):
         img = np.full((480, 640, 3), 230, np.uint8)
         u, v = int(p[0] / p[2]), int(p[1] / p[2] - (tip[2] + 0.022) * 300)
         off = int(s.gripper / 3)  # the moving finger swings sideways as the jaw opens
-        cv2.line(img, (u + off, v - 30), (u + off, v), (30, 30, 30), 6)
+        cv2.line(img, (u + off, v - 30), (u + off, v - 6), (150, 150, 150), 6)  # white-ish finger
+        cv2.line(img, (u + off, v - 6), (u + off, v), (20, 20, 20), 6)  # black tape on the fingertip
         return img
     d._frame = frame
     t = [0.0]
