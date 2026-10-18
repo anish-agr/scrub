@@ -47,6 +47,7 @@ ERROR_AFTER = 10                                 # consecutive failed loops befo
 HTML = HERE / "station.html"
 # Run mode: a driver moves the follower instead of the leader (never recorded). "module:Class", loaded lazily
 # so a driver file that is missing or broken only hides that driver. Interface: replay.py's docstring.
+RESTART_MARK = Path.home() / "scrub-logs" / "station-restart"  # run_station.sh starts it again when this exists
 CAM_RESTART_S = 15  # a camera down this long while parked: the station restarts itself (a hung camera
                     # only reopens in a new process on macOS)
 DRIVERS = {"replay": "replay:Replay", "autopick": "autopick:AutoPick"}
@@ -651,6 +652,12 @@ class Station:
                 self._dispatch("home", None, {})
             self.restart_pending = True
             return True, "reconnecting: parking, saving, restarting the station (about 15 s)"
+        if action in ("pause", "resume"):  # voice "stop" freezes the run where it is; "continue" goes on
+            fn = getattr(self.auto, action, None) if self.state == "running" and self.auto is not None else None
+            if not callable(fn):
+                return False, f"{action}: nothing is running"
+            fn()
+            return True, "frozen where it is" if action == "pause" else "continuing"
         if action == "release":  # "let go" (voice or the page): open at the offer
             if self.state != "running" or self.auto is None or not callable(getattr(self.auto, "release", None)):
                 return False, "let go: nothing is being held out"
@@ -1123,6 +1130,7 @@ class Station:
         if getattr(self, "restart_pending", False) and not self.restart_requested and \
                 self.state in ("off", "parked", "error", "killed") and not self.saving and self.auto is None:
             self.note("reconnect: restarting the station now")
+            self._mark_restart()
             self.restart_requested = True
             self.stop_evt.set()
 
@@ -1151,8 +1159,16 @@ class Station:
             return
         self.note(f"{', '.join(sorted(roles))} camera hung for {CAM_RESTART_S} s: restarting the station "
                   "to bring it back (about 15 s; the dataset is saved first)")
+        self._mark_restart()
         self.restart_requested = True
         self.stop_evt.set()
+
+    def _mark_restart(self) -> None:
+        try:
+            RESTART_MARK.parent.mkdir(parents=True, exist_ok=True)
+            RESTART_MARK.write_text(time.strftime("%H:%M:%S"))
+        except OSError:
+            pass
 
     def start_thread(self) -> threading.Thread:
         t = threading.Thread(target=self.run, daemon=True, name="station-loop")
@@ -1484,9 +1500,9 @@ def main(argv=None) -> None:
     finally:
         st.close()
         srv.shutdown()
-    if st.restart_requested:  # a hung camera: a fresh process opens it again (same arguments)
-        print("restarting the station for the camera", flush=True)
-        os.execv(sys.executable, [sys.executable] + sys.argv)
+    if st.restart_requested:  # a fresh process opens a hung camera again: run_station.sh restarts on exit 75
+        print("restarting the station (exit 75 for run_station.sh)", flush=True)
+        os._exit(75)
 
 
 if __name__ == "__main__":

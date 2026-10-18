@@ -407,3 +407,24 @@ def test_average_demos_smooth_then_let_go(tmp_path, monkeypatch):
             d.release()
             released = True
     assert released and d.handed
+
+
+def test_pause_freezes_then_resume_continues(monkeypatch):
+    d = AP.AutoPick({"mode": "hold"}, detector=Det())
+    st = St()
+    d.start(st)
+    d._detect_thread.join(10)
+    t = [0.0]
+    monkeypatch.setattr(AP.time, "perf_counter", lambda: t[0])
+    for _ in range(30):
+        d.tick(st, {})
+        t[0] += 1 / 30
+    seg_before = d.seg
+    d.pause()
+    for _ in range(300):  # 10 s frozen
+        assert d.tick(st, {}) == {}
+        t[0] += 1 / 30
+    assert d.seg == seg_before and d.status()["phase"].startswith("frozen")
+    d.resume()
+    a = d.tick(st, {})
+    assert a and "shoulder_pan.pos" in a and d.seg == seg_before  # carries on from the same point

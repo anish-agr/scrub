@@ -2,7 +2,7 @@
 import WebSocket from "ws";
 import { randomUUID } from "node:crypto";
 import { CONTROLLER_URL, JUDGE_TTL_MS } from "./config.js";
-import { STATION_ACTIONS, stationCommand, stationOn, stationReply } from "./station.js";
+import { STATION_ACTIONS, stationCommand, stationFast, stationOn, stationReply } from "./station.js";
 
 // read_sheet, read_tray, read_pack (optional, the OCR pass): item is null; the answer comes as a `read` event.
 export type Action = "handover" | "return" | "count" | "stop" | "got_it" | "let_go" | "unknown" | "read_sheet" | "read_tray" | "read_pack";
@@ -18,7 +18,8 @@ export interface Candidate {
   distance?: number; distance_m?: number; position?: number[]; center_px?: number[]; arm_xy?: number[]; box?: number[];
 }
 export interface Clarification { say: string; item?: string | null; candidates: Candidate[]; question_id?: string; confirm?: boolean }
-export interface CommandReply { accepted: boolean; reason: string | null; say: string | null; clarify?: Clarification }
+export interface CommandReply { accepted: boolean; reason: string | null; say: string | null; clarify?: Clarification;
+  station?: boolean }  // true: the station did it, no controller events will follow (reply at once)
 export interface ScrubEvent {
   type: string; t: number; item?: string | null; step?: string | null; say?: string | null;
   command_id?: string | null; setting?: string | null; lighting?: string | null;
@@ -68,11 +69,12 @@ export async function postCommand(c: Command): Promise<CommandReply> {
   // page picks up (unknown) gets no reply at all.
   if (stationOn()) {
     if (STATION_ACTIONS.has(c.action)) {
-      const m = await stationCommand(c);
-      console.log(`[station] ${c.action}${c.item ? " " + c.item : ""}: ${m}`);
-      return stationReply(c, m);
+      const tag = `[station] ${c.action}${c.item ? " " + c.item : ""}`;
+      const m = await stationFast(c, undefined, undefined, (done) => console.log(`${tag}: ${done}`));
+      console.log(`${tag}: ${m}`);
+      return { ...stationReply(c, m), station: true };
     }
-    if (c.action === "unknown") return { accepted: false, reason: "unknown command", say: null };
+    if (c.action === "unknown") return { accepted: false, reason: "unknown command", say: null, station: true };
   }
   return call("POST", "/command", c, COMMAND_TIMEOUT_MS);
 }
@@ -81,7 +83,15 @@ export interface ClarifyLog {
   question_id?: string; answer?: string; answer_ms?: number; context?: string; reason?: string; status?: string;
 }
 export const postClarify = (body: ClarifyLog): Promise<unknown> => call("POST", "/clarify", body);
-export const postStop = (): Promise<{ accepted: boolean }> => call("POST", "/stop");
+// Stop the station's arm too (the real arm when STATION_URL is set), in parallel; either side failing never
+// blocks the other. Accepted when either one took it.
+export async function postStop(): Promise<{ accepted: boolean; station?: boolean }> {
+  const st = stationOn() ? stationCommand(makeCommand("stop", null, "stop")).then((m) => {
+    console.log(`[station] stop: ${m}`); return !/unreachable/.test(m); }) : Promise.resolve(false);
+  const ctl = call("POST", "/stop").then(() => true, (e) => { if (!stationOn()) throw e; return false; });
+  const [a, b] = await Promise.all([st, ctl]);
+  return { accepted: a || b, station: stationOn() };
+}
 export const getSetting = (): Promise<any> => call("GET", "/setting");
 export const getState = (): Promise<State> => call("GET", "/state");
 // Judge mode from GET /state, cached for JUDGE_TTL_MS so a tray switch or a clinic word doesn't wait on it each time.

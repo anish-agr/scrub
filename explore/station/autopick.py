@@ -736,9 +736,28 @@ class AutoPick:
         self._detect_thread = threading.Thread(target=self._detect, args=(st, frame), daemon=True, name="autopick-detect")
         self._detect_thread.start()
 
+    def pause(self) -> None:
+        """'stop' by voice: freeze where it is (motors on, holding), the run's clock stops; resume() goes on."""
+        if not getattr(self, "_paused_at", None):
+            self._paused_at = time.perf_counter()
+
+    def resume(self) -> None:
+        t = getattr(self, "_paused_at", None)
+        if t:
+            dt = time.perf_counter() - t
+            self._paused_at = None
+            for name in ("seg_t0", "h_t0"):  # shift every running clock by the time spent frozen
+                if getattr(self, name, None) is not None:
+                    setattr(self, name, getattr(self, name) + dt)
+            if getattr(self, "al", None) and "t0" in self.al:
+                self.al["t0"] += dt
+
     def tick(self, st, obs):
         if self._aborted:
             return None
+        if getattr(self, "_paused_at", None):
+            self._detail = "frozen: say 'continue', 'return to home' or 'kill'"
+            return {}  # hold every joint where it is
         if self.mode == "calibrate":
             out = self.cal_run.tick(st, time.perf_counter())
             self._phase, self._detail, self._progress = self.cal_run.phase, self.cal_run.detail, self.cal_run.progress
@@ -818,7 +837,8 @@ class AutoPick:
                              answer="timeout", status="cancelled", reason="cancelled", answer_ms=answer_ms)
 
     def status(self) -> dict:
-        out = {"phase": self._phase, "detail": self._detail, "progress": round(self._progress, 2)}
+        out = {"phase": ("frozen (" + self._phase + ")") if getattr(self, "_paused_at", None) else self._phase,
+               "detail": self._detail, "progress": round(self._progress, 2)}
         if self.found:
             out["target"] = self.found
         with self._choice_lock:
