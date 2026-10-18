@@ -27,7 +27,7 @@ The controller does not have to be running. The first failed POST to `/vision/ha
 | `lighting.py` | Mean brightness, and `--test` to append hand / detect / stale rates to a CSV |
 | `hand_heights.json` | Default hand height 0.18 m, plus one height per clinician |
 
-`target` stays null until `vision/calibration.json` exists, except `python -m vision --fake`, which posts a stand-in target so the fake arm can finish a handover. The API returns no confidence, so a fresh TrayState uses `1.0`. A failed call keeps the last good state and sets `stale` true (optional field).
+`GET /tray_check` reports `stale: true` with no tray read yet, after a failed read, or when the last read is over 3 s old (a hung detect), so the controller says it can't check instead of "missing everything". `wrong_slot[].in_slot_of` is another item's id or null. Event clips: vision polls the controller's `/events/recent` every 0.5 s and saves a clip for each picked, handed, set_down, released, returned, stopped and missed event once its 1.5 s after-window has passed. Events from before vision started are skipped. The clip buffer keeps frames at 640 px wide. `target` stays null until `vision/calibration.json` exists, except `python -m vision --fake`, which posts a stand-in target so the fake arm can finish a handover. The API returns no confidence, so a fresh TrayState uses `1.0`. A failed call keeps the last good state and sets `stale` true (optional field).
 
 ## Lamp check (B1)
 
@@ -87,7 +87,7 @@ curl -X POST http://localhost:8001/clinician -H "Content-Type: application/json"
 
 ## Tested
 
-Comb on Oct 17, 2026. `python -m vision.test_vision`: 36 tests OK.
+Comb on Oct 17, 2026. `python -m vision.test_vision`: 41 tests OK (second comb pass added clip events, tray check `in_slot_of`, tray check staleness, clip paths, clip buffer size).
 
 What passed:
 

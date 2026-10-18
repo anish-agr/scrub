@@ -33,7 +33,11 @@ ROOT = Path(__file__).resolve().parent.parent
 
 
 class Poster:
-    """POST to the controller. Log the first failure for each path, then keep going."""
+    """POST to the controller. Log the first failure for each path, then keep going.
+
+    httpx.Client is safe to share across threads, so the hand loop never waits behind a tray-loop call.
+    The lock only guards the warned set.
+    """
 
     def __init__(self, base_url: str):
         self.base_url = base_url.rstrip("/")
@@ -42,37 +46,36 @@ class Poster:
         self._client = httpx.Client(timeout=0.4)
 
     def post(self, path: str, payload: dict) -> bool:
-        with self._lock:
-            try:
-                response = self._client.post(self.base_url + path, json=payload)
-                response.raise_for_status()
-                return True
-            except Exception:
-                if path not in self._warned:
-                    self._warned.add(path)
-                    logger.warning("controller %s not accepting %s; continuing", self.base_url, path)
-                return False
+        try:
+            response = self._client.post(self.base_url + path, json=payload)
+            response.raise_for_status()
+            return True
+        except Exception:
+            with self._lock:
+                first = path not in self._warned
+                self._warned.add(path)
+            if first:
+                logger.warning("controller %s not accepting %s; continuing", self.base_url, path)
+            return False
 
     def current_setting(self, fallback: str) -> str:
-        with self._lock:
-            try:
-                response = self._client.get(self.base_url + "/state", timeout=0.4)
-                response.raise_for_status()
-                setting = response.json().get("setting")
-                if setting:
-                    return setting
-            except Exception:
-                pass
+        try:
+            response = self._client.get(self.base_url + "/state", timeout=0.4)
+            response.raise_for_status()
+            setting = response.json().get("setting")
+            if setting:
+                return setting
+        except Exception:
+            pass
         return os.environ.get("VISION_SETTING", fallback)
 
     def get_json(self, path: str):
-        with self._lock:
-            try:
-                response = self._client.get(self.base_url + path, timeout=0.4)
-                response.raise_for_status()
-                return response.json()
-            except Exception:
-                return None
+        try:
+            response = self._client.get(self.base_url + path, timeout=0.4)
+            response.raise_for_status()
+            return response.json()
+        except Exception:
+            return None
 
 
 @dataclass
@@ -97,6 +100,7 @@ class Runtime:
     tray: dict | None = None
     detections: list = field(default_factory=list)
     last_good_tray: dict | None = None
+    tray_failing: bool = False
     other_hand_boxes: list = field(default_factory=list)
     lighting: dict | None = None
     last_posted_lighting: str | None = None
@@ -206,6 +210,9 @@ def publish_tray(runtime: Runtime) -> dict | None:
         detections = list(runtime.detector.detect(frame, categories))
         state = tray_from_detections(setting, detections, stale=False)
         with runtime.lock:
+            if runtime.tray_failing:
+                logger.info("tray perception back")
+            runtime.tray_failing = False
             runtime.last_good_tray = state
             runtime.detections = detections
             hand = runtime.hand
@@ -218,10 +225,14 @@ def publish_tray(runtime: Runtime) -> dict | None:
             if gripper_px is not None:
                 runtime.gripper_px = gripper_px
             runtime.other_hand_boxes = obstacles
-    except Exception:
-        logger.warning("tray perception failed; keeping the last good state", exc_info=False)
+    except Exception as exc:
+        # Once per outage, not once a second. The message names the error type only (never the request headers).
         with runtime.lock:
+            first = not runtime.tray_failing
+            runtime.tray_failing = True
             previous = runtime.last_good_tray
+        if first:
+            logger.warning("tray perception failed (%s); posting the last good state as stale", type(exc).__name__)
         if previous:
             state = dict(previous)
             state["stale"] = True
@@ -296,23 +307,53 @@ def _loop(stop: threading.Event, period: float, fn, runtime: Runtime, name: str)
             stop.wait(remaining)
 
 
+CLIP_EVENTS = ("picked", "handed", "set_down", "released", "returned", "stopped", "missed")
+
+
+def _event_key(ev: dict) -> str:
+    """One key per event. Every event of a handover shares its command_id, so the id alone is not enough:
+    keyed on it, the `command` event hid the picked, handed and released after it and no clip was saved."""
+    return f"{ev.get('type')}|{ev.get('command_id')}|{ev.get('t')}"
+
+
+CLIP_POST_S = 1.5  # ClipManager.record_event's default window after the event
+
+
+def clip_new_events(runtime: Runtime, events, seen: dict, pending: list, record: bool = True, now: float | None = None) -> None:
+    """Queue a clip for each new clip-worthy event, and save the ones whose window after the event has passed.
+    `seen` is insertion-ordered and kept short. record=False only marks events seen (the first poll: those
+    events predate the frames in the buffer)."""
+    for ev in events if isinstance(events, list) else []:
+        if not isinstance(ev, dict):
+            continue
+        key = _event_key(ev)
+        if key in seen:
+            continue
+        seen[key] = True
+        if record and ev.get("type") in CLIP_EVENTS:
+            pending.append(ev)
+    while len(seen) > 500:
+        seen.pop(next(iter(seen)))
+    now = time.time() if now is None else now
+    while pending and float(pending[0].get("t") or 0) + CLIP_POST_S <= now:
+        runtime.clips.record_event(pending.pop(0))
+
+
 def _event_loop(stop: threading.Event, runtime: Runtime):
-    seen: set[str] = set()
+    seen: dict = {}
+    pending: list = []
+    primed = False
     while not stop.is_set():
         try:
             getter = getattr(runtime.poster, "get_json", None)
             if getter is not None:
                 events = getter("/events/recent?n=20")
-                if isinstance(events, list):
-                    for ev in events:
-                        eid = str(ev.get("command_id") or f"{ev.get('type')}_{ev.get('t')}")
-                        if eid not in seen:
-                            seen.add(eid)
-                            if ev.get("type") in ("picked", "handed", "set_down", "released", "returned", "stopped", "missed"):
-                                runtime.clips.record_event(ev)
+                clip_new_events(runtime, events, seen, pending, record=primed)
+                primed = primed or isinstance(events, list)
         except Exception:
-            pass
-        stop.wait(1.0)
+            logger.exception("clip events failed")
+            pending.clear()
+        stop.wait(0.5)
 
 
 def start_loops(runtime: Runtime) -> threading.Event:

@@ -996,6 +996,82 @@ class ExtensionTests(unittest.TestCase):
             self.assertEqual(label, "scalpel set down on the safe spot, 14:02")
 
 
+class CombTests(unittest.TestCase):
+    def test_clip_events_share_a_command_id(self):
+        """Bug: keyed on command_id, the `command` event hid every later event of that handover."""
+        from vision.service import clip_new_events
+
+        recorded = []
+
+        class Clips:
+            def record_event(self, ev):
+                recorded.append(ev["type"])
+
+        runtime = type("R", (), {"clips": Clips()})()
+        seen, pending = {}, []
+        events = [{"type": t, "command_id": "a", "t": 100.0 + i} for i, t in
+                  enumerate(["command", "step", "picked", "handed", "released"])]
+        clip_new_events(runtime, events[:2], seen, pending, record=False, now=200.0)  # first poll: only marked
+        clip_new_events(runtime, events, seen, pending, now=103.0)  # picked's window is still open
+        self.assertEqual(recorded, [])
+        clip_new_events(runtime, events, seen, pending, now=200.0)
+        self.assertEqual(recorded, ["picked", "handed", "released"])
+        clip_new_events(runtime, events, seen, pending, now=300.0)  # never twice
+        self.assertEqual(len(recorded), 3)
+
+    def test_tray_check_in_slot_of_is_an_item_or_null(self):
+        from vision.tray_check import check_tray
+
+        setting = fallback_setting("surgical")
+        for item, x in zip(setting["items"], (30, 180, 330)):
+            item["slot"] = [x, 40, x + 110, 110]
+        setting["return_spot"] = [480, 320, 590, 390]
+        box = lambda x1, y1, x2, y2: {"top_left": {"x": x1, "y": y1}, "bottom_right": {"x": x2, "y": y2}}  # noqa: E731
+        res = check_tray(setting, [
+            {"mention": "scalpel", "point_box": box(30, 40, 140, 110)},
+            {"mention": "hemostat", "point_box": box(480, 320, 590, 390)},   # in the return spot
+            {"mention": "mayo scissors", "point_box": box(330, 40, 440, 110)},
+            {"mention": "mayo scissors", "point_box": box(10, 300, 60, 350)},  # a second pair lying loose
+        ])
+        self.assertEqual([(w["item"], w["in_slot_of"], w["found_in"]) for w in res["wrong_slot"]],
+                         [("hemostat", None, "return_spot")])
+
+    def test_tray_check_stale_without_a_fresh_read(self):
+        capture = FakeCapture()
+        lock_controls(capture)
+        runtime = build_runtime(capture, fake_hands=lambda _f: [], detector=ScriptDetector([]))
+        runtime.poster = RecordingPoster()
+        try:
+            client = _client(runtime)
+            self.assertTrue(client.get("/tray_check").json()["stale"])  # no read yet: not "missing everything"
+            publish_tray(runtime)
+            self.assertFalse(client.get("/tray_check").json()["stale"])
+            runtime.tray["t"] -= 10  # the tray loop stuck in a slow detect
+            self.assertTrue(client.get("/tray_check").json()["stale"])
+        finally:
+            runtime.grabber.stop()
+
+    def test_clip_files_stay_inside_clips(self):
+        from vision.clips import ClipManager
+
+        mgr = ClipManager(clips_dir=Path(tempfile.mkdtemp()))
+        clip = mgr.record_event({"type": "picked", "item": "../x", "case_id": "../../etc", "t": time.time()})
+        self.assertTrue(Path(clip["path"]).resolve().is_relative_to(mgr.clips_dir.resolve()))
+        self.assertIsNone(mgr.file_path("..", "calibration.json"))
+        self.assertIsNone(mgr.file_path("case", "../a.mp4"))
+        self.assertIsNotNone(mgr.file_path(clip["case_id"], clip["filename"]))
+
+    def test_clip_buffer_keeps_small_frames(self):
+        from vision.clips import ClipManager
+
+        mgr = ClipManager(clips_dir=Path(tempfile.mkdtemp()))
+        frame = np.zeros((720, 1280, 3), dtype=np.uint8)
+        mgr.add_frame(frame, 1.0)
+        mgr.add_frame(frame, 1.0)  # the same grabber frame from the other loop
+        self.assertEqual(len(mgr.buffer), 1)
+        self.assertEqual(mgr.buffer[0][1].shape, (360, 640, 3))
+
+
 def _free_port() -> int:
     import socket
 
