@@ -166,6 +166,11 @@ def flush(timeout: float = 6.0) -> None:
 
 def read_registers(port: str) -> dict:
     import scservo_sdk as scs
+    if str(ROOT) not in sys.path:
+        sys.path.insert(0, str(ROOT))
+    from arm.backends import port_holders
+    if busy := port_holders(port):  # macOS opens a held port anyway; two programs on one bus collide
+        raise RuntimeError(f"{port} is in use by pid {', '.join(map(str, busy))}")
     ph = scs.PortHandler(port)
     if not ph.openPort():
         raise RuntimeError(f"can't open {port} (in use?)")
@@ -242,7 +247,21 @@ def idle(every: float = 30.0) -> None:
         time.sleep(every)
 
 
+def main(argv=None) -> None:
+    import argparse
+    p = argparse.ArgumentParser(description="Arm thermal telemetry: local JSONL rows and MongoDB.")
+    sub = p.add_subparsers(dest="cmd")
+    sub.add_parser("snapshot", help="every heat-related register on both arms (the ports must be free)")
+    sub.add_parser("watch", help="live view of the latest temperatures from MongoDB (default)")
+    sub.add_parser("upload", help="send local rows MongoDB hasn't got yet")
+    idle_p = sub.add_parser("idle", help="log follower temperatures while nothing else uses the arm")
+    idle_p.add_argument("every", nargs="?", type=float, default=30.0, help="seconds between reads (30)")
+    a = p.parse_args(argv)
+    if a.cmd == "idle":
+        idle(a.every)
+    else:
+        {"snapshot": snapshot, "upload": upload, "watch": watch, None: watch}[a.cmd]()
+
+
 if __name__ == "__main__":
-    cmd = sys.argv[1] if len(sys.argv) > 1 else "watch"
-    {"snapshot": snapshot, "upload": upload, "watch": watch,
-     "idle": lambda: idle(float(sys.argv[2]) if len(sys.argv) > 2 else 30.0)}[cmd]()
+    main()

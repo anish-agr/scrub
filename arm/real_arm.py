@@ -341,7 +341,9 @@ class Arm:
                             if done:
                                 self._finish("released_and_still" if self._skill_return else "closed_and_still", True)
                             else:
-                                row = self._clamp(self._timeline.command(tick, self._last_sent))
+                                # From the clamped command: after wake() at the folded home the last command is
+                                # the measured pose, past the URDF limits, and forward kinematics refuses it.
+                                row = self._clamp(self._timeline.command(tick, self._clamp(self._last_sent)))
                                 if self._timeline.active(tick) is not None:
                                     if not self._played:
                                         anchor, still_since = state.copy(), now
@@ -677,7 +679,7 @@ class Arm:
                         state = self._state.copy()
                         if time.perf_counter() - self._state_time > .1:
                             raise RuntimeError("Observation joints are stale")
-                        rtc = self._timeline.rtc(tick, self._last_sent)
+                        rtc = self._timeline.rtc(tick, self._clamp(self._last_sent))
                         gap = bool(self._timeline.chunks) and rtc is None
                     if gap:
                         # Expired chunk: there is no legal prior_start_index.

@@ -25,6 +25,10 @@ NAMES = ["shoulder_pan", "shoulder_lift", "elbow_flex", "wrist_flex", "wrist_rol
 
 def _bus():
     import scservo_sdk as scs
+    sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+    from arm.backends import port_holders
+    if busy := port_holders(PORT):  # macOS opens a held port anyway; two programs on one bus collide
+        sys.exit(f"{PORT} is in use by pid {', '.join(map(str, busy))}: stop the recorder or controller first")
     ph = scs.PortHandler(PORT)
     if not ph.openPort():
         sys.exit(f"can't open {PORT}: stop the recorder first (it owns the port)")
@@ -157,9 +161,19 @@ def go_home_and_rest() -> dict:
     return {"moved_s": round(steps / 30, 1), "off_by_deg": off, "torque": "off"}
 
 
-if __name__ == "__main__":
-    cmd = sys.argv[1] if len(sys.argv) > 1 else "show"
+def main(argv=None) -> None:
+    import argparse
+    p = argparse.ArgumentParser(description="The follower's home (parking) pose. Every command but --help opens "
+                                f"{PORT}, so stop the recorder and controller first.")
+    p.add_argument("cmd", nargs="?", default="show", choices=["save", "show", "test", "home", "on", "off"],
+                   help="save: current pose becomes home; show (default): home vs now; test: wake, hold, rest, "
+                        "report drift; home: glide home then torque off; on/off: torque")
+    cmd = p.parse_args(argv).cmd
     if cmd in ("home", "on", "off"):
         print({"home": go_home_and_rest, "on": lambda: torque(True), "off": lambda: torque(False)}[cmd]())
     else:
         {"save": save, "show": show, "test": test}[cmd]()
+
+
+if __name__ == "__main__":
+    main()

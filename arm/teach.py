@@ -260,7 +260,8 @@ def main(argv=None):
     argv = sys.argv[1:] if argv is None else argv
     if argv[:1] == ["skill"]:
         return skill_main(argv[1:])
-    parser = argparse.ArgumentParser(description=__doc__)
+    parser = argparse.ArgumentParser(prog="python -m arm.teach", description=__doc__,
+                                     epilog="Taught skills: python -m arm.teach skill <item> {pick,return} --help")
     parser.add_argument("--rig", type=Path, default=DEFAULT_RIG)
     parser.add_argument("--port", default=os.getenv("SO101_PORT"))
     parser.add_argument("--robot-id", default=os.getenv("SO101_ROBOT_ID", "scrub_follower"))

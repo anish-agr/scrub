@@ -42,11 +42,14 @@ the operator explicitly invokes `upload`; no dataset was inspected in setup.
 ## Training pipeline (R1)
 
 ```text
+python -m arm.dataset_check <local-export> [--cadence-report <cadence.json>]
 python -m arm.train pipeline <local-export> --cadence-report <cadence.json> --check-only
 python -m arm.train pipeline <local-export> --cadence-report <cadence.json> --repo-id <user>/scrub --revision <HF-commit> --idempotency-key scrub-run-1 --confirmed-replay --confirmed-hf-matches-local
 ```
 
-The first command is entirely offline. The second spends one training submission
+The first two commands are offline. `arm.dataset_check` runs only the local
+preflight below (default report `<root>-cadence.json`) and prints `NOT READY: <why>`
+with exit 1 on a failure. The second spends one training submission
 only after local checks, a ready dataset and completed service validation. Use
 an immutable HF commit when possible; publishing to HF is a separate step, and
 the operator must confirm that repo/revision contains this local export.
@@ -150,9 +153,9 @@ both `/dev/tty.*` and `/dev/cu.*` on the Mac): teleop, recording, replay and
 Source APIs were inspected against LeRobot `v0.4.4`:
 `robots/so_follower/{so_follower,config_so_follower}.py`,
 `cameras/opencv/{camera_opencv,configuration_opencv}.py`, and
-`motors/{motors_bus.py,feetech/tables.py}`. LeRobot is not installed or hardware
-tested here. Install its workshop-approved source checkout with Feetech/camera
-extras in the arm environment, then verify these imports there. The dependency
+`motors/{motors_bus.py,feetech/tables.py}`. The repo `.venv` on the recording
+Mac has LeRobot 0.4.4 with the Feetech and camera extras (install it separately:
+`pip install 'lerobot[feetech]==0.4.4'`). The dependency
 file here covers offline tests/client code, not LeRobot's heavy hardware stack.
 
 ## Hardware layer: hardware.py, thermal.py, handoff.py
@@ -253,9 +256,10 @@ the batch it appends one `docs/DATA-LOG.md` row through `ledger.logbook.log_batc
 batch's loop rate from `<root>-cadence.json`. The default backend runs
 `explore/arm_session.py` as a subprocess (the recorder that works on the Mac);
 `--lerobot` runs the plain BRINGUP section 6 `lerobot-record` (local unless
-`--push`). arm_session has no use_degrees flag: it relies on LeRobot's SO-101
-default (true in the installed LeRobot), and `record` refuses to start if that
-default is ever false. `SCRUB_FOLLOWER_PORT`, `SCRUB_LEADER_PORT`,
+`--push`). Both backends pass `--robot.use_degrees=true --teleop.use_degrees=true`
+(also LeRobot 0.4.4's default), matching `real_arm.py`. Both refuse to start
+while another process has an arm port open, naming the pid and command.
+`SCRUB_FOLLOWER_PORT`, `SCRUB_LEADER_PORT`,
 `SCRUB_SIDE_CAMERA` and `SCRUB_WRIST_CAMERA` set the defaults.
 
 ## Before hardware
@@ -286,7 +290,7 @@ motion. `--dry-run --rig <separate-test-copy.json> --joints <six-values>` runs
 the same keyboard/save flow with fake joints. The copy's `urdf` must resolve
 to the SO-101 chain file (use an absolute path if the copy is elsewhere).
 Dry-run refuses the shipped `arm/rig.json` so fake poses cannot silently
-replace measured ones. Eight offline teaching tests cover saves, invalid
+replace measured ones. Twelve offline teaching tests cover saves, invalid
 readings/regions, concurrent edits and the no-torque-enable/no-target rule.
 
 `rig.json` is an unmeasured template with `hardware_verified: false`, null
@@ -333,4 +337,5 @@ another script, connects with `python -m controller --real-arm`.
 - Teach: .venv/bin/python -m arm.teach skill hemostat pick --setting surgical --supported-and-empty  (Enter/g/o/u/p/q)
 - Files: arm/skills/<setting>/<item>-<direction>.json; arm/skills/example/ is a format example, never played.
 - Check: .venv/bin/python -m arm.taught --check --setting surgical [--fake]  (real run replays at speed 0.15, no instrument)
+  Prints FAIL and exits 1 while any item in the setting is not taught yet; `--setting example` passes.
 - Steps and timing: docs/TEACH.md. API: arm.taught.load / play(skill, goto=, set_gripper=, stopped=, offset=None).

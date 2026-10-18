@@ -9,6 +9,8 @@ Checks for the LeRobot demos before they use one of the two Isaac training jobs.
 | Replay | `.venv/bin/python explore/dataset/replay.py --root <ds> --episode 0 --port 8095` | The MuJoCo arm set to the recorded joints next to the real side and wrist video. `--check` prints joint-limit and tip-height problems with no server. |
 | Aim | `.venv/bin/python explore/dataset/aim.py --live` (port 8096) | Camera level, sharpness, brightness, and a ghost of a reference frame with shift/rotation/scale. While `explore/arm_session.py` runs it reads that session's streams on :8090 and never opens a camera. File mode: `--side-image`, `--wrist-image`, `--dataset`. |
 
+Tests (a synthetic dataset, no recorded data): `.venv/bin/python -m pytest -q explore/dataset/test_dataset_tools.py`.
+
 Found on the first test recording (Oct 17):
 - shoulder_lift rests at about -103.7 deg, past the URDF limit of -100 deg, so `arm/kinematics.py` rejects the rest pose. Suggest a shoulder_lift offset of about +4 deg in `arm/rig.json`, measured on the arm (Anish's file).
 - The wrist camera runs at about 23 fps (LeRobot needs 30) and was dark in every test episode.
