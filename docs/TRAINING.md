@@ -91,7 +91,7 @@ Keys: robotics uses `PERCEPTRON_TEAM_API_KEY`, vision uses `PERCEPTRON_API_KEY`,
 - One process owns the follower port and each camera. Stop teleop before recording or replay.
 - State and action are six values in this order: `shoulder_pan.pos`, `shoulder_lift.pos`, `elbow_flex.pos`, `wrist_flex.pos`, `wrist_roll.pos`, `gripper.pos`. Five joints in degrees, gripper 0 closed to 100 open.
 - Cameras are exactly `observation.images.side` and `observation.images.wrist`. The side camera sees the whole task, the wrist camera sees the grasp. Check with images, not metadata. Fix glare and occlusion before collecting more.
-- Tape the base, tray, slots, and camera mounts. Keep them fixed for every batch and both runs. Move the item a little inside its slot; do not move the layout or a camera.
+- Tape the base, tray, slots and camera mounts. Keep them fixed for every batch and both runs. Move the item a little inside its slot; do not move the layout or a camera.
 - Do one slow teleop move first if the setup is new. Stop on unexpected direction, jerk or collision risk.
 
 ### Per-light targets
