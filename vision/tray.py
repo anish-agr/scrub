@@ -161,6 +161,7 @@ class FakeDetector:
         self._empty_items: set[str] = set()
         self._filled_items: set[str] = set()
         self._return_item: str | None = None
+        self._slot_overrides: dict[str, str] = {}
         self._client = httpx.Client(timeout=0.2)
         self.calls = 0
 
@@ -175,10 +176,20 @@ class FakeDetector:
     def set_return_spot(self, item_id: str | None) -> None:
         self._return_item = item_id
 
+    def place_item_in_slot(self, item_id: str, target_slot_item_id: str) -> None:
+        """Place an item into another item's slot to simulate wrong-slot placement."""
+        self._slot_overrides[item_id] = target_slot_item_id
+
+    def swap_slots(self, item1: str, item2: str) -> None:
+        """Swap the slot locations of two items."""
+        self._slot_overrides[item1] = item2
+        self._slot_overrides[item2] = item1
+
     def reset(self) -> None:
         self._empty_items.clear()
         self._filled_items.clear()
         self._return_item = None
+        self._slot_overrides.clear()
 
     def _sync_with_controller(self) -> tuple[set[str], str | None, dict | None]:
         empty = set(self._empty_items)
@@ -237,7 +248,8 @@ class FakeDetector:
             item_id = normalized.replace(" ", "_")
             if item_id in empty_items:
                 continue
-            box = slots_by_id.get(item_id) or default_boxes[index % len(default_boxes)]
+            target_slot_id = self._slot_overrides.get(item_id, item_id)
+            box = slots_by_id.get(target_slot_id) or default_boxes[index % len(default_boxes)]
             detections.append(
                 {
                     "mention": category,

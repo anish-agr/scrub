@@ -13,6 +13,7 @@ import httpx
 
 from vision.calibrate import load_calibration, palm_target, target_pixel
 from vision.camera import FrameGrabber, exposure_is_locked
+from vision.clips import ClipManager
 from vision.draw import annotate, jpeg_bytes
 from vision.geometry import path_is_clear
 from vision.hand import HandTracker, hand_box, hand_is_open, palm_center
@@ -100,6 +101,7 @@ class Runtime:
     lighting: dict | None = None
     last_posted_lighting: str | None = None
     lighting_period: float = 1.0
+    clips: ClipManager = field(default_factory=ClipManager)
     lock: threading.Lock = field(default_factory=threading.Lock)
 
     def preview_jpeg(self) -> bytes:
@@ -136,6 +138,7 @@ def publish_hand(runtime: Runtime) -> dict | None:
     if latest is None:
         return None
     frame, _t = latest
+    runtime.clips.add_frame(frame, _t)
     height, width = frame.shape[:2]
     if runtime.hand_source is not None:
         hands = runtime.hand_source(frame)
@@ -196,6 +199,7 @@ def publish_tray(runtime: Runtime) -> dict | None:
     if latest is None:
         return None
     frame, _t = latest
+    runtime.clips.add_frame(frame, _t)
     setting = setting_document(runtime)
     categories = categories_for(setting, runtime.include_extra_categories)
     try:
@@ -292,11 +296,31 @@ def _loop(stop: threading.Event, period: float, fn, runtime: Runtime, name: str)
             stop.wait(remaining)
 
 
+def _event_loop(stop: threading.Event, runtime: Runtime):
+    seen: set[str] = set()
+    while not stop.is_set():
+        try:
+            getter = getattr(runtime.poster, "get_json", None)
+            if getter is not None:
+                events = getter("/events/recent?n=20")
+                if isinstance(events, list):
+                    for ev in events:
+                        eid = str(ev.get("command_id") or f"{ev.get('type')}_{ev.get('t')}")
+                        if eid not in seen:
+                            seen.add(eid)
+                            if ev.get("type") in ("picked", "handed", "set_down", "released", "returned", "stopped", "missed"):
+                                runtime.clips.record_event(ev)
+        except Exception:
+            pass
+        stop.wait(1.0)
+
+
 def start_loops(runtime: Runtime) -> threading.Event:
     stop = threading.Event()
     threading.Thread(target=_loop, args=(stop, runtime.hand_period, publish_hand, runtime, "hand"), name="hand", daemon=True).start()
     threading.Thread(target=_loop, args=(stop, runtime.tray_period, publish_tray, runtime, "tray"), name="tray", daemon=True).start()
     threading.Thread(target=_loop, args=(stop, runtime.lighting_period, publish_lighting, runtime, "lighting"), name="lighting", daemon=True).start()
+    threading.Thread(target=_event_loop, args=(stop, runtime), name="events", daemon=True).start()
     return stop
 
 
