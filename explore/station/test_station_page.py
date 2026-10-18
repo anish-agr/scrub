@@ -43,8 +43,22 @@ ctx.fetch=async (url,options)=>{
   await vm.runInContext('answerChoice("closest","active-123")',ctx);
   assert.deepEqual(sent,{action:"clarify_answer",question_id:q.id,side:"closest"});
   ctx.sample.run.driver_status.question=null;
+  ctx.sample.run.driver_status.phase="clarify_timeout";
+  ctx.sample.run.driver_status.detail="I'll wait for you to ask again.";
   vm.runInContext("renderRun(sample)",ctx);
   assert.equal(node("which-one").hidden,true); // timeout clears without waiting for the run to end
+  assert.equal(node("b-run").disabled,false);
+  assert.equal(node("r-args").disabled,false);
+  assert.equal(node("r-driver").disabled,false);
+  assert.equal(node("b-stop").disabled,false);
+  assert.match(node("runtext").textContent,/I'll wait for you to ask again\./);
+  node("r-args").value='{"instance":{"side":"left"}}';
+  node("b-run").onclick();
+  assert.deepEqual(sent,{action:"run",driver:"autopick",args:{instance:{side:"left"}}});
+  ctx.sample.run.driver_status.phase="clarify_failed";
+  vm.runInContext("renderRun(sample)",ctx);
+  assert.equal(node("b-run").disabled,true);
+  assert.equal(node("r-args").disabled,true);
   ctx.sample.run.driver_status.question=q;ctx.sample.state="homing";
   vm.runInContext("renderRun(sample)",ctx);
   assert.equal(node("which-one").hidden,true); // stop/abort hides a stale question

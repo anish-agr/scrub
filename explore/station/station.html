@@ -301,14 +301,16 @@ function renderRecord(s){
 
 function renderRun(s){
   const running=s.state==="running", run=s.run;
-  $("b-run").disabled=running||s.state!=="idle"||!$("r-driver").value;
+  const retry=running&&run&&run.driver==="autopick"&&run.driver_status&&run.driver_status.phase==="clarify_timeout";
+  $("b-run").disabled=!(s.state==="idle"||retry)||!$("r-driver").value;
   $("b-run").querySelector("small").textContent=s.state==="idle"?"starts from where the arm is":
-    running?"running…":["parked","off","killed"].includes(s.state)?"press Motors on first":`not while ${LABEL[s.state]||s.state}`;
+    retry?"ask again; holds until the new run starts":running?"running…":
+    ["parked","off","killed"].includes(s.state)?"press Motors on first":`not while ${LABEL[s.state]||s.state}`;
   $("b-stop").disabled=!running;
   const apOk=[...$("r-driver").options].some(o=>o.value==="autopick"&&!o.disabled);
   ["b-pick","b-cal","b-look"].forEach(id=>{$(id).disabled=running||s.state!=="idle"||!apOk;});
   if($("b-cal").disabled)calArm(false);
-  ["r-driver","r-episode","r-speed","r-args"].forEach(id=>$(id).disabled=running);
+  ["r-driver","r-episode","r-speed","r-args"].forEach(id=>$(id).disabled=running&&!retry);
   $("runlive").hidden=!running;
   if(running&&run){const d=run.driver_status||{};
     $("runtext").textContent=`${run.driver} · ${d.phase||""} · ${d.detail||""} · ${fmt(run.seconds||0)}`;

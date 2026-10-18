@@ -451,6 +451,7 @@ class AutoPick:
         self._question = None
         self._answer = None
         self._choice_rows = []
+        self._choice_st = None
         self.cal = calib or load_calib()
         self.detector, self.label = detector, label.strip()
         if kin is None:
@@ -479,6 +480,7 @@ class AutoPick:
     # ---- interface
     def start(self, st) -> None:
         self._aborted = False
+        self._choice_st = st
         self.start_pose = {m: float(st.joints[m]) for m in JOINTS}
         self.start_pose["gripper"] = float(st.gripper if st.gripper is not None else JAW_OPEN)
         if self.mode == "calibrate":
@@ -565,10 +567,15 @@ class AutoPick:
 
     def abort(self) -> None:
         with self._choice_lock:
+            question = self._question
+            answer_ms = round((time.perf_counter() - self._choice_t0) * 1000) if question else None
             self._aborted = True
             self._phase = "aborted"
             self._question = None
             self._choice_event.set()  # wake the worker without waiting for the 15 s timeout
+        if question:
+            self._choice_log(self._choice_st, "clarify_answer", question_id=question["id"], item=self.label,
+                             answer="timeout", status="cancelled", reason="cancelled", answer_ms=answer_ms)
 
     def status(self) -> dict:
         out = {"phase": self._phase, "detail": self._detail, "progress": round(self._progress, 2)}
@@ -603,18 +610,19 @@ class AutoPick:
             answer_ms = round((time.perf_counter() - self._choice_t0) * 1000)
             self._choice_event.set()
         self._choice_log(st, "clarify_answer", question_id=q["id"], item=self.label, side=side,
-                         slot=slot, answer_ms=answer_ms)
+                         answer=side, status="answered", reason=None, slot=slot, answer_ms=answer_ms)
         return True, f"autopick: your {side} one"
 
     def _which_one(self, st, rows):
         import uuid
+        plural = self.label if self.label.endswith("s") else self.label + "s"
         question = {"id": uuid.uuid4().hex, "item": self.label, "count": len(rows),
-                    "say": f"Which {self.label}: the one on your left or your right?",
+                    "say": f"I see two {plural}: the left one or the right one?",
                     "orientation": instances.ORIENTATION, "timeout_s": instances.CLARIFY_TIMEOUT_S,
                     "choices": ["left", "right"]}
         if len(rows) > 2:
-            question["say"] = (f"I see {len(rows)} {self.label} candidates. Your leftmost or rightmost? "
-                               "Press C for the closest one, or answer closest through the control API.")
+            question["say"] = (f"I see {len(rows)} {self.label} candidates: your leftmost, your rightmost, "
+                               "or the one closest to you? Press C for closest.")
         self._choice_log(st, "clarify", question_id=question["id"], item=self.label, say=question["say"],
                          candidates=[{k: v for k, v in r.items() if k != "hit"} for r in rows],
                          orientation=instances.ORIENTATION, timeout_s=instances.CLARIFY_TIMEOUT_S)
@@ -622,6 +630,7 @@ class AutoPick:
             if self._aborted:
                 return None
             self._choice_event.clear()
+            self._choice_st = st
             self._answer, self._choice_rows = None, rows
             self._choice_t0 = time.perf_counter()
             self._choice_deadline = self._choice_t0 + instances.CLARIFY_TIMEOUT_S
@@ -630,13 +639,19 @@ class AutoPick:
         st.note("autopick: " + question["say"])
         self._choice_event.wait(instances.CLARIFY_TIMEOUT_S)
         with self._choice_lock:
+            question = self._question
             self._question = None
             if self._aborted:
                 return None
             if self._answer is None:
-                self._phase, self._detail = "clarify_timeout", "Which one timed out: holding still. Stop to end the run."
+                self._phase, self._detail = "clarify_timeout", "I'll wait for you to ask again."
+            answer_ms = round((time.perf_counter() - self._choice_t0) * 1000)
             answer = self._answer
         if answer is None:
+            if question:
+                self._choice_log(st, "clarify_answer", question_id=question["id"], item=self.label,
+                                 answer="timeout", status="timeout", reason="timeout", answer_ms=answer_ms,
+                                 say="I'll wait for you to ask again.")
             st.note("autopick: " + self._detail)
         return answer
 
