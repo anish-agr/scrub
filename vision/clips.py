@@ -12,6 +12,7 @@ import base64
 import json
 import logging
 import os
+import re
 import threading
 import time
 from collections import deque
@@ -26,6 +27,14 @@ logger = logging.getLogger("vision.clips")
 ROOT = Path(__file__).resolve().parent.parent
 
 CHAT_COMPLETIONS_URL = "https://api.perceptron.inc/v1/chat/completions"
+BUFFER_WIDTH = 640  # frames are kept at this width: 150 full 1280x720 frames would be over 400 MB
+_SAFE = re.compile(r"[^A-Za-z0-9._-]")
+
+
+def safe_name(text: str) -> str:
+    """A file or folder name that stays inside clips/ (no slashes, no "..")."""
+    name = _SAFE.sub("_", str(text)).strip(".") or "x"
+    return name[:120]
 
 
 def format_event_label(event: dict, timestamp: float | None = None) -> str:
@@ -79,9 +88,13 @@ class ClipManager:
     def add_frame(self, frame: np.ndarray, timestamp: float | None = None) -> None:
         """Add a frame to the rolling buffer."""
         t = timestamp if timestamp is not None else time.time()
+        h, w = frame.shape[:2]
+        # Smaller copy for wide frames; a plain copy otherwise (callers reuse their frame).
+        small = cv2.resize(frame, (BUFFER_WIDTH, int(h * BUFFER_WIDTH / w))) if w > BUFFER_WIDTH else frame.copy()
         with self._lock:
-            # Store a copy or reference
-            self.buffer.append((t, frame.copy()))
+            if self.buffer and self.buffer[-1][0] == t:
+                return  # the hand and tray loops both add the grabber's latest frame
+            self.buffer.append((t, small))
 
     def record_event(
         self,
@@ -92,9 +105,9 @@ class ClipManager:
     ) -> dict[str, Any] | None:
         """Extract a clip around an event from the rolling buffer and save as .mp4."""
         event_t = float(event.get("t") or time.time())
-        case_id = str(event.get("case_id") or f"case-{int(event_t)}")
-        ev_type = str(event.get("type") or "event")
-        item = event.get("item") or "arm"
+        case_id = safe_name(event.get("case_id") or f"case-{int(event_t)}")
+        ev_type = safe_name(event.get("type") or "event")
+        item = safe_name(event.get("item") or "arm")
 
         with self._lock:
             buffer_copy = list(self.buffer)
@@ -259,3 +272,15 @@ class ClipManager:
         """Return all clips for a case."""
         with self._lock:
             return list(self._case_clips.get(case_id, []))
+
+    def all_clips(self) -> dict[str, list[dict[str, Any]]]:
+        with self._lock:
+            return {case_id: list(clips) for case_id, clips in self._case_clips.items()}
+
+    def file_path(self, case_id: str, filename: str) -> Path | None:
+        """The clip or thumbnail file, or None for a name that would leave clips/."""
+        if safe_name(case_id) != case_id or safe_name(filename) != filename:
+            return None
+        if not filename.endswith((".mp4", ".jpg")):
+            return None
+        return self.clips_dir / case_id / filename

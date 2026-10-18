@@ -122,6 +122,8 @@ class PerceptronDetector:
         self.url = url
         self.timeout = timeout
         self.last_latency_s: float | None = None
+        # One client for every call: keeps the TLS connection open instead of a new handshake each second.
+        self._client: httpx.Client | None = None
 
     def detect(self, bgr, categories: list[str]) -> list[dict]:
         if not self.api_key:
@@ -136,7 +138,9 @@ class PerceptronDetector:
             "config": {"output": "box", "reasoning_effort": "none"},
         }
         started = time.perf_counter()
-        response = httpx.post(
+        if self._client is None:
+            self._client = httpx.Client(timeout=self.timeout)
+        response = self._client.post(
             self.url,
             json=payload,
             headers={"Authorization": f"Bearer {self.api_key}"},

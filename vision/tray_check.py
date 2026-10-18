@@ -88,9 +88,15 @@ def check_tray(setting: dict, detections: list[dict]) -> dict[str, Any]:
                     "expected_slot": expected_slot,
                     "actual_box": box,
                     "found_in": found_in,
-                    "in_slot_of": found_in,
+                    # Another item's id, or null. The controller words a null as "not in its place"; a
+                    # string here was read as an item ("in the unassigned slot", "in the return_spot slot").
+                    "in_slot_of": found_in if found_in in slots_by_id else None,
                 }
             )
+
+    # A second one of an item (a restock) lying loose is not a misplaced item when one sits in its slot.
+    # One in another item's slot still counts: that slot is taken.
+    wrong_slot = [w for w in wrong_slot if not (w["item"] in correct_set and w["in_slot_of"] is None)]
 
     # Check for missing items (not in correct slot and not detected anywhere)
     for item in items:
