@@ -108,6 +108,8 @@ class Runtime:
     lighting_period: float = 1.0
     clips: ClipManager = field(default_factory=ClipManager)
     lock: threading.Lock = field(default_factory=threading.Lock)
+    local_detector: object | None = None
+    last_detect_s: float | None = None
 
     def preview_jpeg(self) -> bytes:
         latest = self.grabber.latest()
@@ -199,6 +201,57 @@ def setting_document(runtime: Runtime) -> dict:
     return load_setting(runtime.repo, setting_id)
 
 
+# A finished detect within the detector timeout is a Perceptron answer. A normal tray call is
+# 3.8 to 4.7 s (docs/RECOGNITION.md), so the cutoff is that timeout (6 s), not a shorter guess.
+# Anything slower, or a failed call, uses the local slot check.
+
+
+def _stale_copy(previous: dict) -> dict:
+    state = dict(previous)
+    state["stale"] = True
+    state["t"] = time.time()
+    state["detector"] = "none"
+    state["slots"] = [dict(slot) for slot in previous.get("slots") or []]
+    state["return_spot"] = dict(previous.get("return_spot") or {})
+    return state
+
+
+def perceive_tray(runtime: Runtime, frame, setting: dict) -> tuple[dict, list]:
+    """Perceptron when it answers quickly. Otherwise the local slot check. Stale only if both miss."""
+    from vision.tray_find import register_tray
+
+    setting = register_tray(frame, setting)
+    categories = categories_for(setting, runtime.include_extra_categories)
+    detections = None
+    started = time.perf_counter()
+    try:
+        detections = list(runtime.detector.detect(frame, categories))
+    except Exception as exc:
+        failed = exc
+    else:
+        failed = None
+    runtime.last_detect_s = time.perf_counter() - started
+    history = list(getattr(runtime, "detect_ms", []) or [])
+    history.append(round(runtime.last_detect_s * 1000))
+    runtime.detect_ms = history[-50:]
+    limit = float(getattr(runtime.detector, "timeout", None) or 6.0)
+    fresh = detections is not None and failed is None and runtime.last_detect_s <= limit
+    if fresh:
+        state = tray_from_detections(setting, detections, stale=False, detector="perceptron")
+        return state, detections
+    local = runtime.local_detector
+    if local is not None:
+        state = local.read(frame, setting)
+        if state is not None:
+            return state, []
+    if failed is not None:
+        raise failed
+    if detections is None:
+        raise RuntimeError("detect failed")
+    state = tray_from_detections(setting, detections, stale=False, detector="perceptron")
+    return state, detections
+
+
 def publish_tray(runtime: Runtime) -> dict | None:
     latest = runtime.grabber.latest()
     if latest is None:
@@ -206,12 +259,8 @@ def publish_tray(runtime: Runtime) -> dict | None:
     frame, _t = latest
     runtime.clips.add_frame(frame, _t)
     setting = setting_document(runtime)
-    categories = categories_for(setting, runtime.include_extra_categories)
     try:
-        t0 = time.perf_counter()
-        detections = list(runtime.detector.detect(frame, categories))
-        runtime.detect_ms = (runtime.detect_ms + [round((time.perf_counter() - t0) * 1000)])[-50:]
-        state = tray_from_detections(setting, detections, stale=False)
+        state, detections = perceive_tray(runtime, frame, setting)
         with runtime.lock:
             if runtime.tray_failing:
                 logger.info("tray perception back")
@@ -237,13 +286,10 @@ def publish_tray(runtime: Runtime) -> dict | None:
         if first:
             logger.warning("tray perception failed (%s); posting the last good state as stale", type(exc).__name__)
         if previous:
-            state = dict(previous)
-            state["stale"] = True
-            state["t"] = time.time()
-            state["slots"] = [dict(slot) for slot in previous.get("slots") or []]
-            state["return_spot"] = dict(previous.get("return_spot") or {})
+            state = _stale_copy(previous)
         else:
             state = empty_tray(setting, stale=True)
+            state["detector"] = "none"
     with runtime.lock:
         runtime.tray = state
     payload = {
@@ -253,6 +299,8 @@ def publish_tray(runtime: Runtime) -> dict | None:
         "stale": state.get("stale", False),
         "t": state["t"],
     }
+    if state.get("detector"):
+        payload["detector"] = state["detector"]
     runtime.poster.post("/vision/tray", payload)
     return payload
 
@@ -377,6 +425,14 @@ def remember_clinician(runtime: Runtime, name: str, hand_height_m: float) -> dic
     return data
 
 
+def _local_detector():
+    if os.environ.get("VISION_LOCAL", "1") == "0":
+        return None
+    from vision.local_detect import LocalDetector
+
+    return LocalDetector()
+
+
 def build_runtime(
     capture,
     controls: dict | None = None,
@@ -422,6 +478,7 @@ def build_runtime(
         clinician=os.environ.get("CLINICIAN") or None,
         controls=controls or {},
         include_extra_categories=os.environ.get("VISION_EXTRA_CATEGORIES", "1") != "0",
+        local_detector=_local_detector(),
     )
 
 

@@ -229,8 +229,14 @@ class TrayTests(unittest.TestCase):
         self.assertFalse(second["stale"])
 
         third = publish_tray(runtime)
-        self.assertTrue(third["stale"])
+        self.assertFalse(third["stale"])
+        self.assertEqual(third["detector"], "local")
         self.assertFalse(_slot(third, "hemostat")["present"])
+        runtime.local_detector = None
+        detector.script.append(RuntimeError("api down"))
+        fourth = publish_tray(runtime)
+        self.assertTrue(fourth["stale"])
+        self.assertEqual(fourth.get("detector"), "none")
         self.assertEqual(runtime.tray_period, 1.0)
 
     def test_return_spot_and_aliases(self):
