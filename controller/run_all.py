@@ -246,6 +246,7 @@ def url_table(a, public_url: str | None = None, lan: str | None = None, skipped:
         rows += [("vision preview", f"{v}/"), ("vision stream", f"{v}/stream")]
     if "voice" not in skipped and not voice_skip_reason(a):
         rows.append(("voice health", f"http://localhost:{P['voice']}/health"))
+        rows.append(("no phone (talk)", f"http://localhost:{P['voice']}/talk"))
     if a.ledger:
         rows.append(("ledger page", f"http://localhost:{P['ledger']}/"))
     if a.tunnel:
