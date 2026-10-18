@@ -136,9 +136,14 @@ def test_handle_in_jaw_holds_gentle_squeeze():
     assert end == {"done": "off"} and d.grip_hold == 9.0
 
 
-def test_empty_close_is_a_miss():
+def test_empty_close_is_a_miss_in_hold_mode():
     d, end = _run_with_jaw(3.0)
     assert end == {"done": "home"} and d.missed and d.status()["phase"] == "missed"
+
+
+def test_handoff_offers_even_when_the_jaw_reads_empty():
+    d, end = _run_with_jaw(3.0, mode="handoff")
+    assert not d.missed and d.hand is not None  # went on to the offer (magnets can hold a thin handle)
 
 
 def _handoff(take_at=None, pull_at=None, timeout=60.0):

@@ -390,7 +390,13 @@ class AutoPick:
         self._progress = (self.seg + min(1.0, (now - self.seg_t0) / seg["dur"])) / len(self.plan)
         if now - self.seg_t0 >= seg["dur"] + seg.get("hold", 0.0):
             if seg["name"] == "grip" and self.grip_hold is None and not self.missed:
-                self._missed(st, pose)  # closed on nothing: don't carry an empty jaw to the handoff
+                if self.mode == "handoff":
+                    # the magnets under the jaw tape hold a thin handle while the jaw reads nearly shut, so a
+                    # small reading is not proof of a miss: offer it anyway; the hand at the offer decides
+                    self.grip_hold = JAW_CLOSE
+                    st.note(f"autopick: jaw reads {st.gripper} (thin grip or empty); offering it anyway")
+                else:
+                    self._missed(st, pose)  # closed on nothing: don't carry an empty jaw home
             self.seg += 1
             self.seg_t0 = None
             if self.seg >= len(self.plan) and self.mode == "handoff" and not self.missed and self.hand != "done":
