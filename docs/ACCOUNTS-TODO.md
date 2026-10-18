@@ -7,7 +7,7 @@ Checked Oct 17 on the arm Mac. `.env` was read only for set or empty, never valu
 1. Perceptron robotics team key: set but the service answers HTTP 401 (key wrong, expired or for a different team). Blocks run 1.
 2. Hugging Face token: `HF_TOKEN` empty.
 3. ElevenLabs agent id: `ELEVENLABS_AGENT_ID` empty, and the Custom LLM URL needs the current tunnel URL.
-4. Photon: project id and secret are set (as `SPECTRUM_PROJECT_ID` and `SPECTRUM_PROJECT_SECRET`) but the iMessage line number is not found, SIP inbound for calls is not confirmed, and `python -m deploy` still reports MISSING for `PHOTON_API_KEY` and `PHOTON_PROJECT_ID`.
+4. Photon: project id and secret are set (as `SPECTRUM_PROJECT_ID` and `SPECTRUM_PROJECT_SECRET`) but the iMessage line number is not found, SIP inbound for calls is not confirmed. (`python -m deploy` now reads the Spectrum names and shows them as set.)
 5. MongoDB Atlas: `MONGODB_URI` empty on this Mac (Brandon ticked E3, so a URI exists on another machine).
 6. Vultr, GoDaddy: no evidence done.
 7. Devpost: team and draft submitted not confirmed from this Mac.
