@@ -1,0 +1,9 @@
+version: 1
+mode: continuous_arm
+real_only: true
+width: 1920
+height: 1080
+fps: 30
+# Entire ARM_ROLL at original speed, then every paginated success-table end card.
+# No per-try montage, idle cut, speed change, reordering, topdown or fake substitute.
+end_card_s: 8

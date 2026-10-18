@@ -1,0 +1,39 @@
+# Exact cut table from docs/DEVPOST.md: ends at 2:05, not exactly 2:00.
+version: 1
+mode: edit
+real_only: true
+width: 1920
+height: 1080
+fps: 30
+duration_s: 125
+# Optional supporting slots are catalogued, never silently substituted for real action.
+slots:
+  A1: Hemostat request, pick, handle-first handoff and release
+  A2: Scalpel to safe spot, not to hand
+  A3: Return hemostat to its slot
+  A4: Lamp/glare and handoff, real lighting table
+  A5: Bench tray and pliers
+  A6: Count readback and summary arriving on phone
+  A7: Dashboard tables with actual rates and ranges
+  A8: Team and arm
+  N1: Labeled sim backup, only for a separate making-of or backup edit
+  N2: Leader/follower training session, making-of only
+  N3: Actual training status/dataset screen, making-of only
+  N4: Fake-arm dashboard capture, labeled simulation, not real-demo substitute
+  N5: Phone call/text capture
+  N6: Diagram/title cards
+  N7: Tray at rest or lamp close-up
+  N8: Quiet room tone, never fabricated robot speech
+shots:
+  - {slot: N7, duration_s: 5, treatment: clean, caption: "Scrub. A robot arm that passes instruments when you ask."}
+  - {slot: A1, duration_s: 23, treatment: clean}
+  - {slot: A2, duration_s: 14, treatment: clean, caption: "Safe spot."}
+  - {slot: A3, duration_s: 16, treatment: clean, caption: "Return."}
+  - {slot: A4, duration_s: 14, treatment: clean, caption: "Bright, normal, dim."}
+  - {slot: A5, duration_s: 16, treatment: clean, caption: "Same code. Different tray."}
+  - {slot: A6, duration_s: 16, treatment: clean, caption: "What is still out."}
+  - {slot: A7, duration_s: 12, treatment: clean}
+  - {slot: A8, duration_s: 9, treatment: clean, caption: "Anish, Caiden, Brandon, Evan. DubHacks."}
+# A making-of EDL may use treatment: topdown, side-by-side, or picture-in-picture.
+# Bind camera + secondary (+ secondary_in_s) explicitly in data/video/edit.json.
+# Never change real_only to hide a reconstruction inside the real demo.
