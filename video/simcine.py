@@ -88,10 +88,11 @@ ITEM_GEOMS = {
                  + _box((0, 0.009, 0), (0.003, 0.003, 0.0018), "steel_dark")
                  + _cap((-0.0009, 0.011, 0), (-0.0005, 0.047, 0), 0.0013, "steel")
                  + _cap((0.0009, 0.011, 0), (0.0005, 0.047, 0), 0.0013, "steel")),
-    "scalpel": (_box((0, -0.012, 0), (0.0045, 0.03, 0.0016), "steel_dark")
-                + _box((0, -0.036, 0.0017), (0.0046, 0.004, 0.0002), "sharp_band")
-                + _box((0, 0.026, 0), (0.0035, 0.009, 0.0003), "steel")
-                + _box((0.0012, 0.036, 0), (0.0021, 0.003, 0.0003), "steel")),
+    "scalpel": (_box((0, -0.008, 0), (0.0042, 0.034, 0.0013), "steel_dark")
+                + "".join(_box((0, -0.036 + 0.004 * k, 0.0014), (0.0038, 0.0008, 0.0002), "steel") for k in range(6))
+                + _box((0, 0.029, 0), (0.0028, 0.007, 0.0003), "steel")
+                + _cap((0.0026, 0.024, 0), (0.0, 0.041, 0), 0.0011, "steel")
+                + _cap((-0.0022, 0.022, 0), (-0.0008, 0.038, 0), 0.0006, "steel")),
     "mayo_scissors": (_ring(-0.011, -0.042, 0.0075, 0.0015, "steel") + _ring(0.011, -0.042, 0.0075, 0.0015, "steel")
                       + _cap((-0.009, -0.035, 0), (-0.0012, 0.0, 0), 0.0019, "steel")
                       + _cap((0.009, -0.035, 0), (0.0012, 0.0, 0), 0.0019, "steel")
@@ -101,18 +102,38 @@ ITEM_GEOMS = {
 }
 
 DECOR = {
-    "hemostat": None, "mayo_scissors": None,  # filled from ITEM_GEOMS below
+    # thumb (tissue) forceps
     "forceps": (_cap((-0.004, -0.05, 0), (-0.0008, 0.05, 0), 0.0014, "steel")
                 + _cap((0.004, -0.05, 0), (0.0008, 0.05, 0), 0.0014, "steel")
                 + _box((0, -0.05, 0), (0.0045, 0.003, 0.0014), "steel")),
-    "probe": _cap((0, -0.06, 0), (0, 0.06, 0), 0.0016, "steel") + _cap((0, 0.06, 0), (0.003, 0.068, 0), 0.0012, "steel"),
-    "needle_holder": (_ring(-0.008, -0.036, 0.006, 0.0013, "steel") + _ring(0.008, -0.036, 0.006, 0.0013, "steel")
-                      + _cap((-0.006, -0.03, 0), (-0.0015, 0.012, 0), 0.0018, "steel")
-                      + _cap((0.006, -0.03, 0), (0.0015, 0.012, 0), 0.0018, "steel")
-                      + _box((0, 0.013, 0), (0.0032, 0.003, 0.0018), "steel_dark")
-                      + _cap((0, 0.015, 0), (0, 0.032, 0), 0.0024, "steel_dark")),
+    # needle holder: gold ring handles (tungsten carbide jaws), short heavy jaws
+    "needle_holder": (_ring(-0.008, -0.038, 0.006, 0.0014, "gold") + _ring(0.008, -0.038, 0.006, 0.0014, "gold")
+                      + _cap((-0.006, -0.032, 0), (-0.0016, 0.012, 0), 0.0019, "steel")
+                      + _cap((0.006, -0.032, 0), (0.0016, 0.012, 0), 0.0019, "steel")
+                      + _box((0, 0.013, 0), (0.0034, 0.003, 0.0019), "steel_dark")
+                      + _cap((0, 0.015, 0), (0, 0.03, 0), 0.0026, "steel_dark")),
+    # Army-Navy retractor: a flat blade with a lip at each end
+    "retractor": (_box((0, 0, 0), (0.006, 0.048, 0.0009), "steel")
+                  + _box((0, 0.05, 0.004), (0.006, 0.002, 0.005), "steel")
+                  + _box((0, -0.05, 0.0035), (0.0045, 0.002, 0.0045), "steel")),
+    # Metzenbaum scissors: long thin shanks, curved blades
+    "metzenbaum": (_ring(-0.009, -0.045, 0.0062, 0.0013, "steel") + _ring(0.009, -0.045, 0.0062, 0.0013, "steel")
+                   + _cap((-0.007, -0.039, 0), (-0.001, 0.015, 0), 0.0014, "steel")
+                   + _cap((0.007, -0.039, 0), (0.001, 0.015, 0), 0.0014, "steel")
+                   + _cap((-0.001, 0.015, 0), (0.002, 0.04, 0), 0.0017, "steel")
+                   + _cap((0.001, 0.015, 0), (0.0035, 0.04, 0), 0.0017, "steel")
+                   + _cap((0.003, 0.04, 0), (0.007, 0.05, 0), 0.0014, "steel")),
+    # towel clamp: rings and short curved tips that cross
+    "towel_clamp": (_ring(-0.008, -0.022, 0.006, 0.0013, "steel") + _ring(0.008, -0.022, 0.006, 0.0013, "steel")
+                    + _cap((-0.006, -0.016, 0), (0.002, 0.016, 0), 0.0016, "steel")
+                    + _cap((0.006, -0.016, 0), (-0.002, 0.016, 0), 0.0016, "steel")
+                    + _cap((0.002, 0.016, 0), (-0.004, 0.024, 0), 0.0012, "steel")
+                    + _cap((-0.002, 0.016, 0), (0.004, 0.024, 0), 0.0012, "steel")),
+    # Yankauer suction tip: clear plastic, bulb at the end
+    "yankauer": (_cap((0, -0.06, 0.002), (0, 0.03, 0.002), 0.0038, "plastic")
+                 + _cap((0, 0.03, 0.002), (0.004, 0.052, 0.002), 0.0028, "plastic")
+                 + '<geom type="sphere" pos="0.0045 0.055 0.002" size="0.0034" material="plastic" contype="0" conaffinity="0"/>'),
 }
-DECOR["hemostat"], DECOR["mayo_scissors"] = ITEM_GEOMS["hemostat"], ITEM_GEOMS["mayo_scissors"]
 HAND = ""  # the handoff spot has no prop; the arm's motion shows it
 
 VISUAL = """<visual>
@@ -134,6 +155,8 @@ ASSETS = """<asset>
   <material name="drape" rgba="0.22 0.42 0.64 1" specular="0.03" shininess="0.05"/>
   <material name="steel" rgba="0.82 0.84 0.88 1" specular="1" shininess="0.95" reflectance="0.35"/>
   <material name="steel_dark" rgba="0.56 0.58 0.62 1" specular="0.9" shininess="0.9" reflectance="0.25"/>
+  <material name="gold" rgba="0.82 0.66 0.32 1" specular="0.9" shininess="0.8" reflectance="0.2"/>
+  <material name="plastic" rgba="0.86 0.90 0.93 0.75" specular="0.6" shininess="0.7"/>
   <material name="sharp_band" rgba="0.80 0.12 0.09 1" specular="0.3"/>
   <material name="glove" rgba="0.38 0.58 0.93 1" specular="0.35" shininess="0.4"/>
   <material name="gown" rgba="0.30 0.47 0.52 1" specular="0.05"/>
@@ -163,9 +186,8 @@ def cinematic_xml():
         pan += g((cx, cy, 0.0018), (hx - 0.01, hy - 0.01, 0.0002), "tape")
         pan += g((cx, cy, 0.0021), (hx - 0.03, hy - 0.03, 0.0002), "paper")
         # instruments that sit on the real tray but aren't part of the demo (forceps, probe, a second clamp)
-        for x, y, kind in ((0.31, -0.13, "hemostat"), (0.31, 0.0, "forceps"), (0.31, 0.13, "mayo_scissors"),
-                           (0.355, -0.13, "probe"), (0.355, 0.0, "needle_holder"), (0.355, 0.13, "forceps"),
-                           (0.185, -0.17, "probe"), (0.185, 0.17, "forceps")):
+        for x, y, kind in ((0.31, -0.13, "needle_holder"), (0.31, 0.0, "retractor"), (0.31, 0.13, "metzenbaum"),
+                           (0.355, -0.13, "towel_clamp"), (0.355, 0.0, "forceps"), (0.355, 0.13, "yankauer")):
             pan += f'<body pos="{x} {y} 0.004">' + DECOR[kind] + "</body>"
         src = src.replace(m.group(0), pan, 1)
     src = re.sub(r'(<geom name="return_spot"[^>]*?)rgba="[^"]*"', r'\g<1>rgba="0 0 0 0"', src)
@@ -204,6 +226,9 @@ def apply_pose(data, mocap_ids, pose_a, pose_b=None, u=0.0, holding=None):
     qa = np.array(pose_a["qpos"])
     qb = np.array(pose_b["qpos"]) if pose_b else qa
     data.qpos[:6] = (1 - u) * qa + u * qb
+    # the sim opens the jaw to 100 deg; show a natural opening, and the jaw closed on the item while holding
+    lo, hi = -0.1745, 1.7453
+    data.qpos[5] = 0.06 if holding else -0.08 + (data.qpos[5] - lo) / (hi - lo) * 0.85
     for name, pose in pose_a["mocap"].items():
         mid = mocap_ids.get(name)
         if mid is None:
