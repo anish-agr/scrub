@@ -99,3 +99,60 @@ def test_camera_frames(arm):
     g = Grabber(arm)  # pytest runs on the main thread, so rendering works inline
     for cam in ("overhead", "wrist"):
         assert g.frame(cam)[:2] == b"\xff\xd8"
+
+
+def test_scene_items_moves_item_and_pick_follows(arm):
+    import numpy as np
+    arm.reload()
+    arm.go_home()
+    c = TestClient(create_app(arm, Grabber(arm)))
+    r = c.post("/scene/items", json={"items": [
+        {"id": "hemostat", "x": 0.30, "y": 0.12, "yaw": 0.5},
+        {"id": "scalpel", "x": 0.9, "y": 0.0, "yaw": 0},      # out of reach
+        {"id": "nope", "x": 0.25, "y": 0.0, "yaw": 0},        # unknown id
+        {"id": "wire_cutters", "x": 0.25, "y": 0.0, "yaw": 0},  # not in this setting
+        {"id": "mayo_scissors"},                              # missing x, y
+    ]}).json()["results"]
+    assert [x["ok"] for x in r] == [True, False, False, False, False]
+    assert all(x["why"] for x in r[1:])
+    with arm.lock:
+        assert np.allclose(arm.data.mocap_pos[arm._mocap["hemostat"]][:2], (0.30, 0.12))
+    assert arm.run_skill("pick the hemostat")  # from the moved spot, not the tray slot
+    # picked up and lifted to ABOVE_Z over the moved spot (the slot is at y=-0.08)
+    assert np.allclose(arm.tip()[:2], (0.30, 0.12), atol=0.02)
+    assert arm.state()["holding"] == "hemostat"
+    assert arm.set_down_safe_spot()
+    assert "hemostat" not in arm.layout.get("_item_xy", {})  # placed: override gone
+    c.post("/scene/items", json={"items": [{"id": "scalpel", "x": 0.3, "y": -0.1}]})
+    c.post("/scene/reset")
+    assert arm.layout.get("_item_xy", {}) == {}
+    with arm.lock:
+        assert np.allclose(arm.data.mocap_pos[arm._mocap["scalpel"]][:2], arm.layout["slots"][1])
+
+
+def test_scene_setting_switches_items_without_touching_layout_file(arm):
+    c = TestClient(create_app(arm, Grabber(arm)))
+    try:
+        assert c.post("/scene/setting", json={"setting": "bench"}).json()["setting"] == "bench"
+        assert c.post("/scene/setting", json={"setting": "nope"}).status_code == 404
+        r = c.post("/scene/items", json={"items": [{"id": "hex_key", "x": 0.30, "y": -0.05, "yaw": 1.0}]}).json()
+        assert r["results"][0]["ok"]
+        arm.go_home()
+        assert arm.run_skill("pick the hex key")
+        assert abs(arm.tip()[0] - 0.30) < 0.02 and abs(arm.tip()[1] + 0.05) < 0.02
+        assert c.get("/layout").json()["setting"] == "surgical"  # file unchanged
+    finally:
+        arm.setting_override = None
+        arm.reload()
+
+
+def test_run_skill_accepts_hyphenated_names(arm):
+    arm.setting_override = "bench"
+    try:
+        arm.reload()
+        arm.go_home()
+        assert arm.run_skill("pick the needle-nose pliers")
+        assert arm.state()["holding"] == "needle_nose_pliers"
+    finally:
+        arm.setting_override = None
+        arm.reload()

@@ -39,6 +39,8 @@ python3.10 -m venv .venv && .venv/bin/pip install -r sim/requirements.txt   # on
 | `POST /reach/batch` `{"points":[[x,y,z],...]}` | `{"results":[{"reachable","error_m","q"},...]}` |
 | `GET /layout`, `PUT /layout` | read or write `layout.json` (PUT rebuilds the scene and reloads the arm) |
 | `POST /scene/reset` | put every item back in its slot and the arm at home (between smoke runs) |
+| `POST /scene/items` | `{"items":[{"id","x","y","yaw"}]}` moves items to table spots (arm meters); picks follow them until `/scene/reset`. Per-item `ok`/`why` (unknown id, not in setting, unreachable) |
+| `POST /scene/setting` | `{"setting":"bench"}` switches the in-memory tray setting (the bench console syncs it from the controller) |
 | `/web/*`, `/models/*` | static files from `sim/web/` and `sim/models/` |
 
 ## Using it from the controller (C1 hook)

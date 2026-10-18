@@ -176,9 +176,9 @@ async function pollId() {
   const tb = $("idtable").querySelector("tbody");
   if (!r.ok) {
     $("idmsg").innerHTML = `<span class="warn">identifier not running (${esc(C.identify)}): ${esc(r.error || "")}</span>`;
-    tb.innerHTML = ""; ID = null;
+    tb.innerHTML = ""; ID = null; $("idcam").style.display = "none";
   } else {
-    ID = r.state; $("idmsg").textContent = "";
+    ID = r.state; $("idmsg").textContent = ""; $("idcam").style.display = "block";
     $("idcam").src = C.identify + "/api/frame.jpg?t=" + Date.now();
     tb.innerHTML = (ID.items || []).map(it => `<tr><td>${esc(it.id)}</td><td class="${it.present ? "ok" : "dim"}">${it.present ? "yes" : "no"}</td>
       <td>${it.confidence != null ? (+it.confidence).toFixed(2) : "-"}</td><td>${esc(it.by || "")}</td>
