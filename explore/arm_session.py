@@ -225,7 +225,7 @@ def guard_joints() -> None:
     moves it back the other way."""
     from lerobot.robots.so_follower.so_follower import SOFollower
     send = SOFollower.send_action
-    st = {"since": {}, "hold": {}, "dir": {}, "temp": {}, "temp_t": 0.0}
+    st = {"since": {}, "hold": {}, "dir": {}, "temp": {}, "temp_t": 0.0, "limp": set()}
 
     def guarded(self, action):
         now = time.perf_counter()
@@ -247,6 +247,18 @@ def guard_joints() -> None:
                 continue
             goal, here, load = action[k], pos[m], abs(int(loads.get(m, 0)))
             push = goal - here
+            if m == "wrist_flex":
+                # Wrapped past its calibrated end (the reading jumps to the far side): holding "here"
+                # gets clamped back to the limit and it keeps pushing into the stop. Torque off.
+                lim = getattr(self, "_scrub_limits", None) or joint_limits(self.bus)
+                self._scrub_limits = lim
+                if m in st["limp"] or not lim[m][0] - 10 <= here <= lim[m][1] + 10:
+                    if m not in st["limp"]:
+                        self.bus.write("Torque_Enable", m, 0)
+                        st["limp"].add(m)
+                        print(f"joint guard: {m} reads {here:.0f}, outside its calibrated range: torque off, "
+                              f"recalibrate", flush=True)
+                    continue
             if m in st["hold"]:
                 # Released when the leader comes back to where the follower is or moves the other way.
                 if abs(goal - st["hold"][m]) < 2.0 or push * st["dir"][m] < 0:
@@ -261,6 +273,12 @@ def guard_joints() -> None:
                 st["since"].setdefault(m, now)
                 if hot or now - st["since"][m] > JOINT_STALL_S:
                     st["hold"][m], st["dir"][m] = here, (1 if push > 0 else -1)
+                    if hot:
+                        try:
+                            import arm_ui
+                            arm_ui.discard_episode(f"{m} too hot")
+                        except ImportError:
+                            pass
                     action[k] = here
                     print(f"joint guard: {m} {'hot ' + str(st['temp'][m]) + ' C' if hot else 'blocked (load ' + str(load) + ')'}, "
                           f"holding at {here:.0f} instead of pushing to {goal:.0f}", flush=True)
@@ -269,7 +287,8 @@ def guard_joints() -> None:
         try:
             import arm_ui
             arm_ui.S["motors"] = {m: {"temp_c": st["temp"].get(m), "load": int(loads.get(m, 0)),
-                                      "held": m in st["hold"]} for m in (*ARM_JOINTS, "gripper")}
+                                      "held": m in st["hold"], "limp": m in st["limp"]}
+                                  for m in (*ARM_JOINTS, "gripper")}
         except ImportError:
             pass
         return send(self, action)
