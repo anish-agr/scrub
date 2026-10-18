@@ -38,8 +38,62 @@ The controller does not have to be running. The first failed POST to `/vision/ha
 | `lighting.py` | Mean brightness, and `--test` to append hand / detect / stale rates to a CSV |
 | `hand_heights.json` | Default hand height 0.18 m, plus one height per clinician |
 | `test_vision.py` | All the fake-input tests |
+| `reading.py` | Reading (OCR): count sheet, tray tag, pack label. QR, then Perceptron, then Gemini |
+| `test_reading.py` | Reading tests with fake HTTP, and the OpenCV renders of a sheet, a tag and a label |
 
-Routes on port 8001: `GET /` preview page, `/stream` (MJPEG, `?frames=N` stops after N), `/snapshot`, `/health` (camera, exposure lock, `fps.overhead`, `detect_ms` and `detect_p50_ms` over the last 50 detects), `/vision/hand`, `/vision/tray`, `/lighting`, `/tray_check`, `/clips`, `/clips/{case_id}/{file}`; `POST /clinician`, `/gripper`, `/clips/record`, `/clips/label`.
+Routes on port 8001: `GET /` preview page, `/stream` (MJPEG, `?frames=N` stops after N), `/snapshot`, `/health` (camera, exposure lock, `fps.overhead`, `detect_ms` and `detect_p50_ms` over the last 50 detects), `/vision/hand`, `/vision/tray`, `/lighting`, `/tray_check`, `/clips`, `/clips/{case_id}/{file}`, `/read/last`; `POST /clinician`, `/gripper`, `/clips/record`, `/clips/label`, `/read/count_sheet`, `/read/tray_tag`, `/read/pack_label`.
+
+## Reading (OCR)
+
+`vision/reading.py` reads three things from a photo or the overhead frame:
+
+| Route | Returns (plus `method`, `latency_ms`, `ok`, `error`, `attempts`) |
+| --- | --- |
+| `POST /read/count_sheet` | `tray`, `tray_text`, `items: [{item, name, printed_name, expected, initial, closing}]`, `dropped`, `setting` |
+| `POST /read/tray_tag` | `tray` (a setting id or null), `text`, `qr` (payloads found) |
+| `POST /read/pack_label` | `labels: [{item, item_text, lot, sterilized, expires, sterilized_text, expires_text, indicator_text, expired}]`, `expired` (any), `today`, `setting` |
+| `GET /read/last` | the last result of each reader |
+
+The body is a JPEG (`Content-Type: image/jpeg`), a multipart file, or `{"source": "overhead"}` for the current camera frame. `setting` (form field, JSON field or query) picks the item list; without it vision uses the setting it already tracks. `today` (YYYY-MM-DD) sets the date for `expired`. The OCR call runs in a worker thread: `/vision/hand` answered in at most 5.2 ms during a read.
+
+```
+curl -X POST -H "Content-Type: image/jpeg" --data-binary @sheet.jpg http://localhost:8001/read/count_sheet
+curl -X POST -F file=@label.jpg -F setting=surgical http://localhost:8001/read/pack_label
+curl -X POST -H "Content-Type: application/json" -d '{"source":"overhead"}' http://localhost:8001/read/tray_tag
+python -m vision.reading count_sheet sheet.jpg --setting surgical   # same thing from the command line
+```
+
+Order: the tray tag tries QR first (OpenCV, payload `scrub:tray:<id>`). Then Perceptron OCR, then Gemini. A backend that errors, times out, or returns JSON that does not validate hands over to the next one. `method` says which one answered; `latency_ms` is the whole read.
+
+Fixed list, never invent: the schemas only allow the setting's item ids and the known setting ids (`settings/*.json`, not `*.local.json`), plus `other`. Then each printed name is matched again to an id, name or alias (also a close spelling, difflib 0.85). A row whose printed name matches nothing is dropped and listed in `dropped`. A count sheet with no matching row, or a pack label with no printed item name, counts as no answer.
+
+Dates come back as YYYY-MM-DD. Numeric dates are read US style (10/17/2026) unless the first number is over 12. A month-only expiry (2026-11) means the last day of that month. `expired` is true when the expiry is before today.
+
+Perceptron OCR is `POST https://api.perceptron.inc/v1/chat/completions` on `perceptron-mk1.5` with `response_format: {"type": "json_schema", "json_schema": {"name", "strict": true, "schema"}}` and the image as an `image_url` data URL. There is no separate OCR endpoint. Gemini uses `responseSchema` with the same enums.
+
+Live check, Oct 18, on OpenCV renders (a count sheet with 4 rows and handwritten-style counts, a text-only tray tag, a pack label), each clean and with a perspective warp:
+
+| Reader | Perceptron, reasoning `low` | Perceptron, reasoning `none` | Gemini 3.5 Flash Lite |
+| --- | --- | --- | --- |
+| Count sheet | 2/2 correct, 1.9 to 2.2 s | 2/2, 1.0 to 1.1 s | 2/2, 2.4 to 2.9 s |
+| Tray tag (text) | 2/2, 1.0 to 1.1 s | 2/2, 0.5 to 0.7 s | 2/2, 1.7 to 2.1 s |
+| Pack label | 2/2, 1.2 to 2.2 s | 2/2, 0.6 to 0.8 s | 2/2, 1.7 to 12.1 s |
+| Tray tag (QR) | 2/2 by QR, 15 to 30 ms, no API call | | |
+
+Every reader dropped the invented "Army-Navy retractor" row. On the fake camera frame (no label in it) Perceptron once made up a pack label (item_text "null", lot 123456789); the empty-label rule above now drops that, and the same request then answered `ok: false`. These are renders, not photos of the real props; rerun on photos before quoting accuracy.
+
+Settings in `.env`:
+
+```
+READ_PERCEPTRON_TIMEOUT_S=8      # worst measured 2.2 s
+READ_GEMINI_TIMEOUT_S=15         # one call took 12.1 s
+READ_PERCEPTRON_REASONING=low    # none was 2x faster and as correct on renders; low is kept for handwriting
+READ_MAX_SIDE=1600               # long side of the uploaded JPEG
+PERCEPTRON_OCR_MODEL=perceptron-mk1.5
+GEMINI_MODEL=gemini-3.5-flash-lite
+```
+
+A backend whose key is not set is skipped. With neither key the result is `ok: false`, `error` "no OCR backend (no API key set)"; QR tags still read.
 
 ## Detect timing
 

@@ -2,13 +2,18 @@
 
 from __future__ import annotations
 
+import json
 import os
 import time
+from email.parser import BytesParser
+from email.policy import HTTP
 
-from fastapi import FastAPI
+from fastapi import FastAPI, Request
+from fastapi.concurrency import run_in_threadpool
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import HTMLResponse, Response, StreamingResponse
+from fastapi.responses import HTMLResponse, JSONResponse, Response, StreamingResponse
 
+from vision import reading
 from vision.service import Runtime, controls_locked, remember_clinician, setting_document
 from vision.tray import load_setting
 from vision.tray_check import check_tray
@@ -149,7 +154,83 @@ def create_app(runtime: Runtime) -> FastAPI:
         media_type = "video/mp4" if filename.endswith(".mp4") else "image/jpeg"
         return Response(content=path.read_bytes(), media_type=media_type)
 
+    # Reading (OCR). Each call takes a JPEG body, a multipart file, or {"source": "overhead"}. The OCR call runs
+    # in the thread pool, so the event loop and the camera, hand and tray threads keep going.
+    app.state.reads = {}
+    readers = {
+        "count_sheet": lambda img, setting, today: reading.read_count_sheet(img, setting, backends=app.state.read_backends, repo=runtime.repo),
+        "tray_tag": lambda img, setting, today: reading.read_tray_tag(img, backends=app.state.read_backends, repo=runtime.repo),
+        "pack_label": lambda img, setting, today: reading.read_pack_label(img, setting, today, backends=app.state.read_backends),
+    }
+    app.state.read_backends = None  # None: Perceptron then Gemini, from the keys in the environment
+
+    @app.post("/read/{kind}")
+    async def read(kind: str, request: Request):
+        if kind not in readers:
+            return JSONResponse({"ok": False, "error": f"unknown reader {kind}"}, status_code=404)
+        try:
+            image, fields = await read_input(request)
+        except ValueError as exc:
+            return JSONResponse({"ok": False, "error": str(exc)}, status_code=400)
+        if image is None:
+            if fields.get("source") != "overhead":
+                return JSONResponse({"ok": False, "error": "send a JPEG, a multipart file, or {\"source\": \"overhead\"}"}, status_code=400)
+            latest = runtime.grabber.latest()
+            if latest is None:
+                return JSONResponse({"ok": False, "error": "no overhead frame yet"}, status_code=503)
+            image = latest[0]
+        sid = fields.get("setting") or request.query_params.get("setting")
+        if sid and sid not in reading.known_settings(runtime.repo):
+            return JSONResponse({"ok": False, "error": f"unknown setting {sid}"}, status_code=404)
+        today = fields.get("today") or request.query_params.get("today")
+
+        def work():
+            setting = reading.load_setting_merged(runtime.repo, sid) if sid else setting_document(runtime)
+            return readers[kind](image, setting, today)
+
+        try:
+            result = await run_in_threadpool(work)
+        except ValueError as exc:  # unreadable image, bad date
+            return JSONResponse({"ok": False, "error": str(exc)}, status_code=400)
+        result["kind"], result["t"] = kind, time.time()
+        app.state.reads[kind] = result
+        return result
+
+    @app.get("/read/last")
+    def read_last():
+        """The last result of each reader since vision started."""
+        return app.state.reads
+
     return app
+
+
+async def read_input(request: Request):
+    """(image bytes or None, fields). JSON body: fields only. multipart: the first file part plus text fields.
+    Anything else: the raw body is the image."""
+    raw_ctype = request.headers.get("content-type") or ""
+    ctype = raw_ctype.lower()
+    body = await request.body()
+    if ctype.startswith("application/json"):
+        try:
+            data = json.loads(body or b"{}")
+        except ValueError:
+            raise ValueError("body is not JSON") from None
+        return None, data if isinstance(data, dict) else {}
+    if ctype.startswith("multipart/form-data"):
+        msg = BytesParser(policy=HTTP).parsebytes(b"Content-Type: " + raw_ctype.encode() + b"\r\n\r\n" + body)
+        image, fields = None, {}
+        for part in msg.iter_parts():
+            payload = part.get_payload(decode=True) or b""
+            if part.get_filename() is not None or part.get_content_type().startswith("image/"):
+                image = image or payload
+            elif part.get_param("name", header="content-disposition"):
+                fields[part.get_param("name", header="content-disposition")] = payload.decode("utf-8", "replace").strip()
+        if not image:
+            raise ValueError("multipart body has no file")
+        return image, fields
+    if not body:
+        return None, {}
+    return body, {}
 
 
 def mjpeg(runtime: Runtime, frames: int | None = None):
