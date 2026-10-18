@@ -2,9 +2,10 @@
 // Event `say` lines stream into the open reply. Lines that arrive with no reply open wait for the next turn.
 import { HOLD_S } from "./config.js";
 import { followEvents, makeCommand, postCommand, postStop, type ScrubEvent } from "./controller.js";
-import { isEndCase, isStop, parse } from "./parse.js";
+import { isEndCase, isStop, isTrayCheck, parse } from "./parse.js";
 import { currentSetting, forgetSetting } from "./settings.js";
 import { endCase, recordEvent } from "./summary.js";
+import { voiceTrayCheck } from "./tray.js";
 
 type Say = (line: string) => void;
 
@@ -82,6 +83,11 @@ async function run(heard: string, hold: (types: string[], holdS: number) => void
     speak("Closing the case. The summary is on its way to your phone.");
     hold([], 0.5);
     endCase().catch((e) => console.log(`[summary] ${(e as Error).message}`));
+    return;
+  }
+  if (isTrayCheck(heard)) {
+    speak(await voiceTrayCheck());
+    hold([], 0.5);
     return;
   }
   // The controller's current setting, so Gemini only sees ids on this tray.
