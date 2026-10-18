@@ -378,7 +378,7 @@ function paintConn(){
 }
 $("api").addEventListener("change",e=>{API=e.target.value.trim().replace(/\/$/,"");$("mockapi").textContent=API;mode="unknown";if(ws)try{ws.close()}catch(_){};ws=null;probe();});
 
-/* ---------------- mock controller (shapes from docs/CONTRACTS.md, timing like controller/fake_arm.py) ---------------- */
+/* ---------------- mock controller (shapes from controller/server.py, timing like controller/fake_arm.py) ---------------- */
 const MOCK={
   st:null,timers:[],jobs:[],gen:0,
   boot(){ if(!this.st) this.st={step:"idle",item:null,out:[],setting:"surgical",lighting:"normal",judge:false}; applyState(Object.assign({},this.st)); },

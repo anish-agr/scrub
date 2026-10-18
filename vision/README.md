@@ -27,7 +27,7 @@ The controller does not have to be running. The first failed POST to `/vision/ha
 | `service.py` | The hand (10 Hz), tray (1 Hz), lighting (1 Hz) and clip-event (2 Hz) loops, and the posts to the controller |
 | `camera.py` | Opens the camera, turns off auto exposure and auto white balance, one grabber thread, `FakeCapture` |
 | `hand.py` | MediaPipe Tasks hand landmarker, palm center, open-palm check |
-| `tray.py` | `POST https://api.perceptron.inc/v1/detect`, maps boxes onto slots, `FakeDetector` for `--fake`. See `docs/PERCEPTRON-ROBOTICS.md` (Part 2) |
+| `tray.py` | `POST https://api.perceptron.inc/v1/detect`, maps boxes onto slots, `FakeDetector` for `--fake`. |
 | `tray_check.py` | Missing and wrong-slot items for `GET /tray_check` |
 | `clips.py` | Rolling frame buffer, one .mp4 and thumbnail per event under `vision/clips/<case_id>/` (git-ignored), labels |
 | `app.py` | HTTP routes (below) |
@@ -86,7 +86,7 @@ Live check, Oct 18, on OpenCV renders (a count sheet with 4 rows and handwritten
 | Pack label | 2/2, 1.2 to 2.2 s | 2/2, 0.6 to 0.8 s | 2/2, 1.7 to 12.1 s |
 | Tray tag (QR) | 2/2 by QR, 15 to 30 ms, no API call | | |
 
-A pack label's lot comes back without a printed `LOT` / `Lot no.:` prefix (Perceptron copied it once on a camera-simulated sheet). The scored bench on the printed props is `explore/recognition/read_bench.py`, results in `docs/RECOGNITION.md`. Every reader dropped the invented "Army-Navy retractor" row. On the fake camera frame (no label in it) Perceptron once made up a pack label (item_text "null", lot 123456789); the empty-label rule above now drops that, and the same request then answered `ok: false`. These are renders, not photos of the real props; rerun on photos before quoting accuracy.
+A pack label's lot comes back without a printed `LOT` / `Lot no.:` prefix (Perceptron copied it once on a camera-simulated sheet). The scored bench on the printed props is `explore/recognition/read_bench.py`. Every reader dropped the invented "Army-Navy retractor" row. On the fake camera frame (no label in it) Perceptron once made up a pack label (item_text "null", lot 123456789); the empty-label rule above now drops that, and the same request then answered `ok: false`. These are renders, not photos of the real props; rerun on photos before quoting accuracy.
 
 Settings in `.env`:
 
@@ -128,7 +128,7 @@ offered as on-tray candidates. Regression tests: `python -m pytest -q vision/tes
 
 ## Detect timing
 
-`docs/RECOGNITION.md` measured `/v1/detect` at 3.8 to 4.7 s on 640x480 trays. A live `--check-api` call on a flat 640x480 frame took 1.6 s on Oct 18. So the detector shrinks any frame wider than 640 px before upload (the 1280x720 camera frame goes up as 640x360) and scales the boxes back to the full frame. Its timeout is 6 s. `GET /tray_check` calls a read stale once it is older than that timeout plus 2 s (8 s). Watch `detect_p50_ms` on `/health`. Override in `.env`:
+We measured `/v1/detect` at 3.8 to 4.7 s on 640x480 trays. A live `--check-api` call on a flat 640x480 frame took 1.6 s on Oct 18. So the detector shrinks any frame wider than 640 px before upload (the 1280x720 camera frame goes up as 640x360) and scales the boxes back to the full frame. Its timeout is 6 s. `GET /tray_check` calls a read stale once it is older than that timeout plus 2 s (8 s). Watch `detect_p50_ms` on `/health`. Override in `.env`:
 
 ```
 VISION_DETECT_TIMEOUT_S=6

@@ -1,8 +1,6 @@
 # arm
 
-Owner: Anish. Steps in `docs/ARM.md`.
-
-`real_arm.py` implements the arm interface in `docs/CONTRACTS.md` with LeRobot. It plays taught skills (recorded demonstrations), and it can run a Perceptron policy deployment. One fine-tuning job exists (`job_629682f9575271b687e2c734`, scalpel, submitted 08:49 Oct 18); at 09:08 it was training with 0 deployments, so there is no fine-tuned policy to run yet. `rig.json` holds the home, carry and safe-spot poses and the handoff region. Only the controller imports this folder.
+`real_arm.py` implements the arm interface in `controller/server.py` with LeRobot. It plays taught skills (recorded demonstrations), and it can run a Perceptron policy deployment. One fine-tuning job exists (`job_629682f9575271b687e2c734`, scalpel, submitted 08:49 Oct 18); at 09:08 it was training with 0 deployments, so there is no fine-tuned policy to run yet. `rig.json` holds the home, carry and safe-spot poses and the handoff region. Only the controller imports this folder.
 
 The real arm in the demo ran through `explore/station`, not this folder: its picks replay our recorded demonstrations (autopick average mode). The training commands below are offline-tested, and `python -m arm.train pipeline` submitted one job with them (`job_629682f9575271b687e2c734`, log `~/scrub-logs/train-run-1.log`). Check it with `python -m arm.train status job job_629682f9575271b687e2c734` and `python -m arm.train deployments`.
 
@@ -254,7 +252,7 @@ with skills/motion, so it may wait for a running skill; `freeze()` stays nonbloc
 
 Test: `python -m unittest arm.test_prepare -v` (11 tests, fake sessions, no key).
 Caiden can call the optional hook when settings change via `getattr`; no
-`controller/` or `docs/CONTRACTS.md` edits were made here.
+`controller/` or `controller/server.py` edits were made here.
 
 ## Recording (L6): check_setup and record
 
@@ -366,4 +364,4 @@ another script, connects with `python -m controller --real-arm`.
 - Files: arm/skills/<setting>/<item>-<direction>.json; arm/skills/example/ is a format example, never played.
 - Check: .venv/bin/python -m arm.taught --check --setting surgical [--fake]  (real run replays at speed 0.15, no instrument)
   Prints FAIL and exits 1 while any item in the setting is not taught yet; `--setting example` passes.
-- Steps and timing: docs/TEACH.md. API: arm.taught.load / play(skill, goto=, set_gripper=, stopped=, offset=None).
+- API: arm.taught.load / play(skill, goto=, set_gripper=, stopped=, offset=None).

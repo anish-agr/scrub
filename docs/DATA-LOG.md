@@ -1,6 +1,6 @@
 # Data log
 
-Owner: Evan. One row per batch of demos. Targets match `docs/TRAINING.md`: operating room, 20 hand-out and 10 put-back per item; robotics bench, 15 hand-out and 10 put-back per item. Split each across bright, normal and dim.
+Owner: Evan. One row per batch of demos. Targets: operating room, 20 hand-out and 10 put-back per item; robotics bench, 15 hand-out and 10 put-back per item. Split each across bright, normal and dim.
 
 Fill a row when a batch is recorded with Anish. Direction is `hand-out` or `put-back`. Lighting is `bright`, `normal`, or `dim`. Demos is how many clips are in that batch. Dataset name is the Hub name, or `local` if it stayed on the laptop.
 
