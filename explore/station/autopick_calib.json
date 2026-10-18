@@ -1,0 +1,143 @@
+{
+ "note": "Learned Oct 18 from scrub-dataset episodes 10-13 (side camera position after ep 9): table homography from the follower's blue jaw tape (pixel) vs URDF forward kinematics (arm metres), near-table frames only, RANSAC. Held-out error 0.5-2.8 cm. Grasp poses from the scalpel-handle demos that lifted >= 3 cm.",
+ "table_H": [
+  [
+   0.04391771450150365,
+   -0.01900931522960036,
+   -9.42971347634893
+  ],
+  [
+   -0.0001238475350830373,
+   -0.010864448386552653,
+   2.4768659473822177
+  ],
+  [
+   0.21133389667310887,
+   -0.24965835776246603,
+   1.0
+  ]
+ ],
+ "grasp_z_m": -0.022,
+ "approach_dz_m": 0.06,
+ "lift_dz_m": 0.12,
+ "workspace_m": {
+  "x": [
+   0.1,
+   0.32
+  ],
+  "y": [
+   -0.16,
+   0.16
+  ]
+ },
+ "demos": [
+  {
+   "ep": 4,
+   "grasp_deg": [
+    11.82,
+    17.14,
+    26.73,
+    41.8,
+    74.77,
+    11.68
+   ],
+   "approach_deg": [
+    14.2,
+    12.92,
+    27.08,
+    50.33,
+    74.24,
+    25.61
+   ],
+   "tip_m": [
+    0.234,
+    -0.049,
+    -0.033
+   ],
+   "lift_m": 0.122
+  },
+  {
+   "ep": 8,
+   "grasp_deg": [
+    4.62,
+    23.21,
+    13.54,
+    53.93,
+    69.58,
+    11.95
+   ],
+   "approach_deg": [
+    8.22,
+    19.52,
+    14.42,
+    56.66,
+    73.89,
+    28.52
+   ],
+   "tip_m": [
+    0.244,
+    -0.024,
+    -0.027
+   ],
+   "lift_m": 0.136
+  },
+  {
+   "ep": 12,
+   "grasp_deg": [
+    9.98,
+    22.95,
+    16.18,
+    75.12,
+    89.01,
+    11.75
+   ],
+   "approach_deg": [
+    11.74,
+    6.42,
+    17.67,
+    76.09,
+    79.08,
+    20.66
+   ],
+   "tip_m": [
+    0.178,
+    -0.033,
+    -0.017
+   ],
+   "lift_m": 0.155
+  },
+  {
+   "ep": 13,
+   "grasp_deg": [
+    20.88,
+    16.61,
+    22.24,
+    82.15,
+    75.91,
+    12.67
+   ],
+   "approach_deg": [
+    21.32,
+    16.53,
+    21.8,
+    73.45,
+    82.77,
+    32.87
+   ],
+   "tip_m": [
+    0.142,
+    -0.048,
+    0.0
+   ],
+   "lift_m": 0.169
+  }
+ ],
+ "home_deg": {
+  "shoulder_pan": 2.8,
+  "shoulder_lift": -102.2,
+  "elbow_flex": 97.7,
+  "wrist_flex": 72.3,
+  "wrist_roll": -9.3,
+  "gripper": 4.8
+ }
+}

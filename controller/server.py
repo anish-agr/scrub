@@ -27,6 +27,7 @@ class Command(BaseModel):
     heard: Optional[str] = None
     source: Optional[str] = None
     t: Optional[float] = None
+    method: Optional[str] = None  # --skills smart: force the first grasp method (trials); ignored otherwise
 
 
 class Setting(BaseModel):

@@ -11,7 +11,7 @@ from collections import deque
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 
-from . import lines, reads, settings
+from . import lines, picker, reads, settings
 
 try:
     import ledger  # Evan's; optional
@@ -46,11 +46,21 @@ PREPARE_TRIES = 3           # pre-opening the robot model's sessions (L2): tries
 PREPARE_RETRY_S = 5.0
 JUDGE_ACTIONS = ("handover", "count", "stop", "got_it")  # all a judge may ask for (L3)
 STATE_MAX_AGE_S = 6 * 3600  # a saved count older than this is from another day: start a fresh case
-SKILL_MODES = ("model", "taught", "auto")
+SKILL_MODES = ("model", "taught", "auto", "smart")
 TRIES_FILE = Path(os.environ.get("SCRUB_TRIES_FILE") or Path.home() / "scrub-logs" / "skill-tries.json")
 AUTO_TRIES = 3              # --skills auto: the model runs an item once it passed this many real tries in a row
 TRIES_KEPT = 20
 TELEMETRY_S = 1.0           # arm.telemetry() poll period (its own thread; /state reads the cache)
+# --skills smart (controller/picker.py chooses the grasp method per item) and the sharps rules (docs/PICKING.md)
+LOCATE_S = 2.5              # vision /locate limit; no answer: pick without a located pose
+ABSENT_CONFIDENCE = 0.6     # /locate found: false at or above this from a vision method: not on the tray
+VISION_METHODS = ("local", "perceptron", "gemini")
+WRIST_S = 3.0               # wrist camera "is it in the gripper" limit
+KEEPOUT_WAIT_S = 8.0        # a hand inside the sharp keep-out: wait this long for it to move back
+ZONE_WAIT_S = 10.0          # safe zone blocked: hold above it this long, then put the sharp back in its slot
+ZONE_POLL_S = 0.5
+PICK_EVENTS = ("picked", "missed", "handed", "set_down", "returned")
+LOCATE_URL = None           # None: VISION_URL; tests set "" (no vision, no network)
 
 
 def _saved_spot() -> list:
@@ -106,6 +116,23 @@ def _taught_available(setting_id: str) -> dict:
         return {}
 
 
+def _rig() -> dict:
+    try:
+        return json.loads((Path(__file__).resolve().parent.parent / "arm" / "rig.json").read_text())
+    except Exception:  # noqa: BLE001
+        return {}
+
+
+def _grasp():
+    from arm import grasp  # pure functions (numpy); only the controller imports arm/
+    return grasp
+
+
+def _target_ok(t) -> bool:
+    return (isinstance(t, (list, tuple)) and len(t) == 3
+            and all(isinstance(v, (int, float)) and not isinstance(v, bool) and math.isfinite(v) for v in t))
+
+
 def _is(e: Exception, name: str) -> bool:
     return any(c.__name__ == name for c in type(e).__mro__)
 
@@ -129,10 +156,11 @@ def _api_error(e: Exception) -> tuple[int | None, str] | None:
 class Controller:
     def __init__(self, arm, fake_arm: bool, setting_id: str = "surgical", judge: bool = False,
                  state_file: str | Path | None = None, skills: str = "model", deployment: bool = True,
-                 tries_file: str | Path | None = None, arm_kind: str | None = None):
+                 tries_file: str | Path | None = None, arm_kind: str | None = None, locator=None):
         self.arm = arm
         self.fake_arm = fake_arm  # true for anything but the real arm (fake and sim): kept out of real stats
-        self.arm_kind = arm_kind or ("fake" if fake_arm else "real")  # "fake" | "sim" | "real", on /state and events
+        self.arm_kind = arm_kind or ("real" if not fake_arm else "sim" if "Sim" in type(arm).__name__ else "fake")  # on /state and events
+        self.test = bool(os.environ.get("SCRUB_TEST"))  # test runs tag their events test: true
         if skills not in SKILL_MODES:
             raise ValueError(f"skills must be one of {SKILL_MODES}")
         self.skills = skills            # --skills model|taught|auto
@@ -186,6 +214,15 @@ class Controller:
         self._prep_said = False         # spoke a prepare failure since the last setting change
         self.prepared = None            # setting id whose sessions the arm has open
         self.taught = _taught_available(self.setting["id"])
+        # --skills smart: vision's /locate and /safe_zone, the chosen methods for this flow, its pick event fields
+        url = os.environ.get("VISION_URL", "http://localhost:8001") if LOCATE_URL is None else LOCATE_URL
+        self.locator = locator or picker.Locator(url)
+        self._order: list = []
+        self.pick_fields: dict = {}
+        self.last_zone_check = None     # {zone_check, zone_confirm, t} of the last sharp set-down
+        if skills == "smart":
+            picker.load_cache()
+            self._refresh_policy()
         self._prepare()
         if callable(getattr(arm, "telemetry", None)):
             threading.Thread(target=self._telemetry_loop, daemon=True).start()
@@ -213,6 +250,10 @@ class Controller:
         }
         if self.skill_source and type_ not in ("command", "count"):
             ev["skill_source"] = self.skill_source
+        if type_ in PICK_EVENTS:
+            ev.update(self.pick_fields)
+        if self.test:
+            ev["test"] = True
         ev.update(kw)
         self.history.append(ev)
         if self._state_pool is not None:
@@ -254,17 +295,41 @@ class Controller:
                 # per item: the source its pick runs with (null: --skills taught and no taught skill)
                 "skills": {"mode": self.skills,
                            "items": {it["id"]: self._skill_source(it["id"], "pick") for it in self.setting["items"]}},
+                "safe_zone": self._zone_state(), "last_zone_check": self.last_zone_check,
                 "latency_ms": {"skill": ms[-1] if ms else None, "skill_p50": statistics.median(ms) if ms else None,
                                "skill_n": len(ms), "hand_age": age(self.hand_at), "tray_age": age(self.tray_at)},
             }
+            if self.skills == "smart":
+                st["skills"]["policy"] = {it["id"]: {k: c.get(k) for k in ("method", "confidence", "why", "order")}
+                                          for it in self.setting["items"] for c in [self._choice(it["id"])]}
             if hasattr(self.arm, "telemetry"):
                 st["arm_telemetry"] = self.telemetry
             return st
+
+    def _zone_state(self) -> dict:
+        zone = self._safe_zone()
+        return {"center": (zone or {}).get("center"), "size": (zone or {}).get("size"),
+                "problems": self._zone_problems(zone)}
+
+    def _safe_zone(self) -> dict | None:
+        try:
+            return self.arm.safe_zone() if callable(getattr(self.arm, "safe_zone", None)) else None
+        except Exception:  # noqa: BLE001
+            return None
+
+    def _zone_problems(self, zone) -> list:
+        """Why the safe zone can't take a sharp (real arm only; the sim's own zone is fine): [] when it can."""
+        if self.arm_kind != "real":
+            return []
+        probs = list(_grasp().safe_zone_problems(getattr(self.arm, "rig", None) or _rig()))
+        return probs or ([] if zone else ["no safe zone on the arm"])
 
     # ---------- skill source ----------
     def _skill_source(self, item_id: str, direction: str) -> str | None:
         """"model" or "taught" for one item's pick or return under --skills. None: taught asked for, none recorded."""
         taught = direction in self.taught.get(item_id, ())
+        if self.skills == "smart":
+            return self._choice(item_id, direction)["method"]
         if self.skills == "model":
             return "model"
         if self.skills == "taught":
@@ -272,6 +337,31 @@ class Controller:
         if self.deployment and self._model_proven(item_id):
             return "model"
         return "taught" if taught else "model"
+
+    def _choice(self, item_id: str, direction: str = "pick") -> dict:
+        """--skills smart: picker's in-memory choice {method, order, confidence, why} (no I/O)."""
+        return picker.choose(item_id, self.setting["id"], deployment=self.deployment,
+                             taught=direction in self.taught.get(item_id, ()))
+
+    def _methods(self, item_id: str, direction: str) -> list:
+        """Methods an item can use now: model with a deployment, taught ones with a taught skill, ik always."""
+        taught = direction in self.taught.get(item_id, ())
+        return ["model"] * self.deployment + ["taught", "taught_adjusted"] * taught + ["ik"]
+
+    def _refresh_policy(self) -> None:
+        """--skills smart: re-rank every item from the real-arm ledger rows on its own thread (MongoDB, the policy file)."""
+        if self.skills != "smart":
+            return
+        sid, items = self.setting["id"], [i["id"] for i in self.setting["items"]]
+        taught = {k for k, v in self.taught.items() if "pick" in v}
+        dep, light = self.deployment, self.lighting
+
+        def run():
+            try:
+                picker.refresh(sid, items, deployment=dep, taught=taught, lighting=light)
+            except Exception as e:  # noqa: BLE001 - the cached choice stays
+                print(f"[picker] refresh failed: {e!r}", flush=True)
+        threading.Thread(target=run, daemon=True).start()
 
     def _model_proven(self, item_id: str) -> bool:
         """The model passed this item's last AUTO_TRIES real tries."""
@@ -327,9 +417,10 @@ class Controller:
         return {"accepted": ok, "reason": reason, "say": say}
 
     def _emit_command(self, cmd, accepted, reason, say) -> None:
+        extra = {"method": cmd["method"]} if cmd.get("method") else {}
         self.emit("command", say=say, item=cmd.get("item"), command_id=cmd["id"],
                   action=cmd.get("action"), heard=cmd.get("heard"), source=cmd.get("source"),
-                  accepted=accepted, reason=reason)
+                  accepted=accepted, reason=reason, **extra)
 
     def _check(self, cmd: dict) -> tuple[bool, str | None, str | None]:
         """(accepted, reason, say) for handover, return, got_it, unknown. Called with the lock held."""
@@ -345,18 +436,25 @@ class Controller:
         if len(self.jobs) >= MAX_QUEUE:
             return False, "queue full", lines.BUSY
         busy = self.step not in ("idle", "stopped", "error") or bool(self.jobs)
+        if self.judge or self.skills != "smart":
+            cmd.pop("method", None)  # a forced grasp method is for --skills smart trials, never a judge
+        method = cmd.get("method")
         if action == "return":
             if item_id is None and not self._out_here() and not self._return_spot_item():
                 return False, "nothing is out", lines.NOTHING_OUT
             it = settings.item(self.setting, item_id or "")
             if it and self._skill_source(it["id"], "return") is None:
                 return False, "no taught skill", lines.no_taught(it["name"])
+            if method and (not it or method not in self._methods(it["id"], "return")):
+                return False, "method unavailable", lines.method_unavailable(method)
             return True, None, None
         it = settings.item(self.setting, item_id or "")
         if it is None:
             return False, f"{item_id!r} is not in {self.setting['id']}", lines.NOT_IN_SETTING
         if self._skill_source(it["id"], "pick") is None:
             return False, "no taught skill", lines.no_taught(it["name"])
+        if method and method not in self._methods(it["id"], "pick"):
+            return False, "method unavailable", lines.method_unavailable(method)
         coming = lines.coming_sharp if it.get("sharp") else lines.coming
         return True, None, lines.queued(it["name"]) if busy else coming(it["name"])
 
@@ -569,6 +667,7 @@ class Controller:
                 self.step, self.item = "idle", None
             self._prep_said = False
         self.taught = _taught_available(setting_id)
+        self._refresh_policy()
         sync = getattr(self.arm, "set_setting", None)  # the sim arm rebuilds its scene for the new tray
         if sync:
             try:
@@ -702,10 +801,7 @@ class Controller:
 
     def _hand_ready(self) -> dict | None:
         h = self._hand_fresh()
-        t = h.get("target") if h else None
-        good = (isinstance(t, (list, tuple)) and len(t) == 3
-                and all(isinstance(v, (int, float)) and not isinstance(v, bool) and math.isfinite(v) for v in t))
-        if h and h.get("open") and good and h.get("path_clear", True):
+        if h and h.get("open") and _target_ok(h.get("target")) and h.get("path_clear", True):
             return h
         return None
 
@@ -819,6 +915,7 @@ class Controller:
             finally:
                 self.cmd = None
                 self.skill_source = None
+                self._order, self.pick_fields = [], {}
                 self._idle_since = time.time()
 
     def _call(self, gen: int, fn, *args, **kw):
@@ -857,10 +954,11 @@ class Controller:
         self.emit("stopped", say=say, reason=reason)
         raise Stopped
 
-    def _skill(self, gen: int, instruction: str) -> bool:
+    def _skill(self, gen: int, instruction: str, located: dict | None = None) -> bool:
         t0 = time.monotonic()
+        kw = {"located": located} if located is not None else {}
         try:
-            return self._call(gen, self.arm.run_skill, instruction, source=self.skill_source or "model")
+            return self._call(gen, self.arm.run_skill, instruction, source=self.skill_source or "model", **kw)
         finally:
             self._skill_ms.append(round((time.monotonic() - t0) * 1000))
 
@@ -892,9 +990,16 @@ class Controller:
                 self._call(gen, self.arm.go_home)
         return False, 1
 
-    def _use_source(self, it: dict, direction: str) -> bool:
-        """Pick the skill source for this flow; False (and say so) when taught is asked for and none exists."""
+    def _use_source(self, it: dict, direction: str, method: str | None = None) -> bool:
+        """Pick the skill source for this flow; False (and say so) when taught is asked for and none exists.
+        --skills smart: the method order from the picker (a command's method first); a handover sets its
+        skill_source per attempt in _pick_smart."""
         self.taught = _taught_available(self.setting["id"])  # a skill taught since start counts
+        if self.skills == "smart":
+            order = self._choice(it["id"], direction)["order"]
+            self._order = [method] + [m for m in order if m != method] if method else order
+            self.skill_source = self._order[0] if direction == "return" else None
+            return True
         src = self._skill_source(it["id"], direction)
         if src is None:
             self.emit("missed", say=lines.no_taught(it["name"]), item=it["id"])
@@ -904,14 +1009,49 @@ class Controller:
 
     def _handover(self, cmd: dict, gen: int) -> None:
         it = settings.item(self.setting, cmd["item"])
-        if not self._use_source(it, "pick"):
+        if not self._use_source(it, "pick", cmd.get("method")):
             return
+        if not it.get("sharp"):
+            return self._hand_over(cmd, gen, it)
+        if not self._zone_ok(it):
+            return
+        sharp = getattr(self.arm, "sharp_mode", None)  # slower moves the whole time a sharp is in the flow
+        if sharp:
+            sharp(True)
+        try:
+            self._hand_over(cmd, gen, it)
+        finally:
+            if sharp:
+                try:
+                    sharp(False)
+                except Exception as e:  # noqa: BLE001
+                    print(f"[sharp] sharp_mode off failed: {e!r}", flush=True)
+
+    def _zone_ok(self, it: dict) -> bool:
+        """Real arm: refuse a sharp before moving when the safe zone isn't taught or is too near the handoff."""
+        probs = self._zone_problems(self._safe_zone())
+        if not probs:
+            return True
+        taught = not any("no safe" in p for p in probs)
+        self.skill_source = None  # a refusal, not a try
+        self.emit("missed", say=(lines.zone_too_close if taught else lines.zone_not_taught)(it["name"]),
+                  item=it["id"], reason="safe zone: " + "; ".join(probs))
+        return False
+
+    def _hand_over(self, cmd: dict, gen: int, it: dict) -> None:
         self.set_step("finding", item=it["id"])
         if self._slot_present(it["id"]) is False:
             self.emit("missed", say=lines.not_on_tray(it["name"]))
             self.set_step("idle", item=None)
             return
-        ok, retries = self._pick(gen, it, it["pick_instruction"], want_closed=True)
+        if self.skills == "smart":
+            ok, retries = self._pick_smart(gen, it)
+            if self.arm_kind == "real":
+                self._refresh_policy()
+            if ok is None:
+                return  # vision says it isn't on the tray (said)
+        else:
+            ok, retries = self._pick(gen, it, it["pick_instruction"], want_closed=True)
         if not ok:
             self.emit("missed", say=lines.couldnt_pick(it["name"]), retries=retries)
             self._call(gen, self.arm.open_gripper)
@@ -922,8 +1062,8 @@ class Controller:
         self.emit("picked", retries=retries)
         elapsed = lambda: round(time.time() - cmd["received"], 2)  # noqa: E731
 
-        if it.get("sharp"):
-            self._set_down(gen, it, lines.sharp_down(it["name"]), elapsed, retries)
+        if it.get("sharp"):  # never to a hand, whatever was asked
+            self._sharp_down(gen, it, lines.sharp_down(it["name"]), elapsed, retries)
             self._home(gen)
             return
 
@@ -960,6 +1100,12 @@ class Controller:
     def _reach_hand(self, gen: int, it: dict) -> bool:
         """Move to the hand (or the saved spot). Slow near the hand; freeze if the hand is lost
         or the path is blocked. False means the flow already set the item down."""
+        sharp = it if it.get("sharp") else settings.item(self.setting, self.held or "")
+        if sharp and sharp.get("sharp"):  # defense in depth: a sharp never goes to a hand
+            print(f"[sharp] refused to hand over the {sharp['id']}", flush=True)
+            self._sharp_down(gen, sharp, lines.sharp_down(sharp["name"]))
+            self._home(gen)
+            return False
         if self._tracking():
             hand = self._wait(gen, self._hand_ready, HAND_WAIT_S, lines.SHOW_HAND)
             if hand is None:
@@ -996,6 +1142,195 @@ class Controller:
         self._set_down(gen, it, lines.set_down(it["name"]), None, None)
         self._home(gen)
         return False
+
+    # ---------- smart pick ----------
+    def _bounded(self, gen: int, fn, limit: float):
+        """fn() on its own thread for at most limit seconds (None after, or if it raises). A stop wins at once."""
+        box, done = [None], threading.Event()
+
+        def run():
+            try:
+                box[0] = fn()
+            except Exception as e:  # noqa: BLE001
+                print(f"[smart] {e!r}", flush=True)
+            finally:
+                done.set()
+        threading.Thread(target=run, daemon=True).start()
+        end = time.monotonic() + limit
+        while not done.wait(0.05):
+            if self.gen != gen:
+                raise Stopped
+            if time.monotonic() >= end:
+                return None
+        if self.gen != gen:
+            raise Stopped
+        return box[0]
+
+    def _pick_smart(self, gen: int, it: dict) -> tuple[bool | None, int]:
+        """--skills smart: locate, pick with the first method, check the grip (jaw, then the wrist camera); on a miss
+        open, back off and retry once with the next method. (True, retry), (False, 1), or (None, 0) when vision
+        is sure the item isn't on the tray."""
+        order = self._order or ["model"]
+        for attempt, method in enumerate([order[0], order[1] if len(order) > 1 else order[0]]):
+            loc = self._bounded(gen, lambda: self.locator.locate(it["id"], LOCATE_S), LOCATE_S + 0.5)
+            where = {"locate_method": loc.get("method") if loc else None,
+                     "locate_confidence": loc.get("confidence") if loc else None}
+            if (attempt == 0 and loc and loc.get("found") is False and loc.get("method") in VISION_METHODS
+                    and float(loc.get("confidence") or 0) >= ABSENT_CONFIDENCE):
+                self.emit("missed", say=lines.not_on_tray(it["name"]), **where)
+                self.set_step("idle", item=None)
+                return None, 0
+            self.skill_source = method
+            self.pick_fields = {**where, "grasp_check": "none", "retry": attempt}
+            self.set_step("picking")
+            ran = self._skill(gen, it["pick_instruction"], located=loc)
+            done_at = time.time()
+            self.set_step("checking")
+            ok = ran and self._grip_ok(gen, it)
+            if ok:
+                self._call(gen, self.arm.go_carry)  # lift clear; the tray check rides on this move
+                ok = self._lifted(gen, it, done_at + TRAY_LAG_S) is not False
+            self._record_try(it["id"], "pick", method, ok)
+            if ok:
+                return True, attempt
+            if attempt == 0:
+                self.emit("missed", say=lines.retry(it["name"]), retries=1)
+                self._call(gen, self.arm.open_gripper)
+                self._call(gen, self.arm.go_home)  # back above the slot area before the next method
+        return False, 1
+
+    def _grip_ok(self, gen: int, it: dict) -> bool:
+        """The jaw says held/empty/unknown; the wrist camera (bounded) says yes/no/None. A miss: the jaw shut on
+        nothing, or the jaw can't tell and the camera says no. Held but the camera says no: still a pick, flagged."""
+        says = _grasp().gripper_says(self._call(gen, self.arm.gripper_position), self._load())
+        wrist = None
+        if says != "empty":
+            try:
+                jpeg = self.arm.wrist_jpeg() if callable(getattr(self.arm, "wrist_jpeg", None)) else None
+            except Exception:  # noqa: BLE001 - no frame: the jaw decides
+                jpeg = None
+            if jpeg:
+                wrist = self._bounded(gen, lambda: picker.ask_in_gripper(jpeg, it["name"], WRIST_S), WRIST_S + 0.5)
+        jaw = says != "unknown"
+        self.pick_fields["grasp_check"] = ("gripper+wrist" if jaw and wrist is not None else "gripper" if jaw
+                                           else "wrist" if wrist is not None else "none")
+        if says == "held" and wrist is False:
+            self.pick_fields["wrist_disagrees"] = True
+        return not (says == "empty" or (says == "unknown" and wrist is False))
+
+    # ---------- sharps ----------
+    def _hand_target(self) -> list | None:
+        h = self._hand_fresh()
+        t = h.get("target") if h else None
+        return list(t) if _target_ok(t) else None
+
+    def _near_sharp(self, target) -> bool:
+        """A hand target within HAND_KEEPOUT_M of the gripper tip or the safe zone center."""
+        pts = []
+        try:
+            tip = self.arm.tip() if callable(getattr(self.arm, "tip", None)) else None
+            if tip is not None:
+                pts.append([float(v) for v in tip][:3])
+        except Exception:  # noqa: BLE001
+            pass
+        zone = self._safe_zone()
+        if zone and zone.get("center"):
+            pts.append([float(v) for v in zone["center"]][:3])
+        keep = _grasp().HAND_KEEPOUT_M
+        return any(math.dist(target, p) < keep for p in pts if len(p) == 3)
+
+    def _hand_near(self) -> bool:
+        t = self._hand_target()
+        return t is not None and self._near_sharp(t)
+
+    def _keepout_wait(self, gen: int) -> None:
+        """A hand inside the keep-out before a sharp move: say so and wait up to KEEPOUT_WAIT_S for it to clear."""
+        if self._hand_near():
+            self.emit("step", say=lines.HAND_BACK)
+            self._wait(gen, lambda: not self._hand_near(), KEEPOUT_WAIT_S, None)
+
+    def _sharp_move(self, gen: int, fn) -> bool:
+        """One arm move while a sharp is held: freeze (a stop; reset rearms) if a hand comes inside the keep-out."""
+        done, why = threading.Event(), [None]
+
+        def run():
+            while not done.wait(0.05):
+                if self._hand_near():
+                    why[0] = "keepout"
+                    self.arm.freeze()
+                    return
+        th = threading.Thread(target=run, daemon=True)
+        th.start()
+        try:
+            ok = self._call(gen, fn)
+        finally:
+            done.set()
+            th.join()
+            if why[0]:
+                self._hold(lines.HAND_BACK, "hand_keepout")
+        return ok
+
+    def _zone_clear(self, gen: int):
+        z = self._bounded(gen, lambda: self.locator.safe_zone(2.0), 2.5)
+        return z.get("clear") if z else None
+
+    def _zone_wait(self, gen: int) -> str:
+        """"clear", "cleared_after_wait", "no_camera" or "timeout" from vision's /safe_zone."""
+        clear = self._zone_clear(gen)
+        if clear is None:
+            return "no_camera"
+        if clear:
+            return "clear"
+        self.emit("step", say=lines.CLEAR_ZONE)
+        end = time.time() + ZONE_WAIT_S
+        while time.time() < end:
+            self._wait(gen, lambda: False, ZONE_POLL_S, None)
+            if self._zone_clear(gen) is True:
+                return "cleared_after_wait"
+        return "timeout"
+
+    def _sharp_down(self, gen, it, say, elapsed=None, retries=None) -> bool:
+        """A held sharp to the safe zone: wait out a hand in the keep-out, hover above the zone, wait for it to clear
+        (else back to its slot: False), set down under the keep-out watcher, confirm it from the overhead camera."""
+        self._keepout_wait(gen)
+        self.set_step("setting_down")
+        hover = getattr(self.arm, "hover_safe_spot", None)
+        if hover and not self._sharp_move(gen, hover):
+            print("[sharp] hover_safe_spot refused; set_down_safe_spot decides", flush=True)
+        check = self._zone_wait(gen)
+        if check == "timeout":
+            self._sharp_to_slot(gen, it)
+            return False
+        if not self._sharp_move(gen, self.arm.set_down_safe_spot):
+            self._fail(lines.SET_DOWN_FAILED, "set_down_safe_spot returned False")
+        with self.lock:
+            if it["id"] not in self.out:
+                self.out.append(it["id"])
+            self.held = None
+        z = self._bounded(gen, lambda: self.locator.safe_zone(2.0), 2.5)
+        confirm = z.get("item_in_zone") == it["id"] if z and z.get("method", "none") != "none" else None
+        self.last_zone_check = {"zone_check": check, "zone_confirm": confirm, "t": time.time()}
+        self.emit("set_down", say=say, request_to_hand_s=elapsed() if elapsed else None, retries=retries,
+                  zone_check=check, zone_confirm=confirm)
+        return True
+
+    def _sharp_to_slot(self, gen: int, it: dict) -> None:
+        """The safe zone stayed blocked: put the sharp back in its slot (same method order), or hold for a reset."""
+        src = self.skill_source
+        self.set_step("returning")
+        for m in (self._order or [src or "model"])[:2]:
+            self.skill_source = m
+            if self._sharp_move(gen, lambda: self._skill(gen, it["return_instruction"])):
+                break
+        else:
+            self._fail(lines.couldnt_return(it["name"]) + " Holding.", "safe zone blocked and the return failed")
+        with self.lock:
+            self.held = None
+            if it["id"] in self.out:
+                self.out.remove(it["id"])
+        self.skill_source = src  # the event is about the pick's method
+        self.last_zone_check = {"zone_check": "timeout_to_slot", "zone_confirm": None, "t": time.time()}
+        self.emit("missed", say=lines.zone_blocked_back(it["name"]), zone_check="timeout_to_slot")
 
     def _watch_hand(self):
         """Freeze the arm if the hand disappears or the path blocks while moving, or (fast leg only) the hand
@@ -1117,7 +1452,7 @@ class Controller:
         if it is None:
             self.emit("missed", say=lines.NOTHING_OUT, item=None)
             return
-        if not self._use_source(it, "return"):
+        if not self._use_source(it, "return", cmd.get("method")):
             return
         self.set_step("returning", item=it["id"])
         ok, retries = self._pick(gen, it, it["return_instruction"], want_closed=False)

@@ -6,12 +6,15 @@ from pathlib import Path
 
 import httpx
 
-from . import picker
+# Never Atlas, never the repo's policy file.
+os.environ.update(MONGODB_URI="", SKILL_POLICY_FILE=os.path.join(tempfile.mkdtemp(prefix="scrub-test-picker-"), "p.json"))
+
+from . import picker  # noqa: E402
 
 
 def ev(cmd, item, type_, src, ok_time=None, lighting="normal", **kw):
     e = {"type": type_, "item": item, "command_id": cmd, "skill_source": src, "lighting": lighting, "setting": "surgical",
-         "fake_arm": False, "request_to_hand_s": ok_time, "t": float(len(str(cmd))) + hash(cmd) % 7}
+         "fake_arm": False, "arm": "real", "request_to_hand_s": ok_time, "t": float(len(str(cmd))) + hash(cmd) % 7}
     e.update(kw)
     return e
 
@@ -67,6 +70,32 @@ def test_fake_and_sim_rows_ignored_and_other_items():
         + [dict(e, arm="fake") for e in tries("ik", "x", [True] * 5, prefix="a")]
     ik = next(e for e in picker.rank(rows, "x", picker.DEFAULT_ORDER, False) if e["method"] == "ik")
     assert (ik["n"], ik["ok"]) == (2, 1), ik
+
+
+def test_only_rows_tagged_real_count_and_test_rows_never():
+    untagged = [{k: v for k, v in e.items() if k != "arm"} for e in tries("ik", "x", [True] * 10, prefix="u")]
+    rows = untagged + tries("ik", "x", [True] * 10, prefix="t", test=True) + tries("ik", "x", [False] * 3, prefix="r")
+    ik = next(e for e in picker.rank(rows, "x", picker.DEFAULT_ORDER, False) if e["method"] == "ik")
+    assert (ik["n"], ik["ok"]) == (3, 0), ik
+
+
+def test_min_tries_before_a_rate_moves_a_method():
+    rows = tries("ik", "x", [True] * 9) + tries("taught_adjusted", "x", [False] * 9)
+    c = picker.refresh("surgical", ["x"], deployment=False, taught=True, rows=rows, write=False)["x"]
+    assert c["order"] == ["taught_adjusted", "ik"] and c["why"] == "taught_adjusted 9/10 real tries, default order", c
+    rows += tries("ik", "x", [True], prefix="more")
+    c = picker.refresh("surgical", ["x"], deployment=False, taught=True, rows=rows, write=False)["x"]
+    assert c["order"] == ["taught_adjusted", "ik"], c  # ik trusted now, but taught_adjusted keeps its place
+    rows += tries("taught_adjusted", "x", [False], prefix="more")
+    c = picker.refresh("surgical", ["x"], deployment=False, taught=True, rows=rows, write=False)["x"]
+    assert c["order"] == ["ik", "taught_adjusted"] and c["why"].startswith("ik 10/10"), c
+
+
+def test_a_retry_with_the_next_method_is_a_try_for_each():
+    rows = [ev("c1", "x", "missed", "taught_adjusted", t=1.0), ev("c1", "x", "picked", "ik", t=2.0),
+            ev("c1", "x", "handed", "ik", 7.0, t=3.0)]
+    r = {e["method"]: (e["n"], e["ok"]) for e in picker.rank(rows, "x", picker.DEFAULT_ORDER, False)}
+    assert r == {"taught_adjusted": (1, 0), "ik": (1, 1)}, r
 
 
 def test_retry_success_counts_once_and_unsourced_miss_ignored():

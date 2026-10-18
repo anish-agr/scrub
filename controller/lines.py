@@ -40,6 +40,15 @@ def auto_return(name): return f"Returning the {name}."
 def no_taught(name): return f"I have no taught skill for the {name}."  # --skills taught and none recorded
 
 
+# Sharps (any item with sharp: true) only ever go to the taught safe zone.
+HAND_BACK = "Hand back, I'm holding a sharp."   # a hand inside the keep-out while a sharp is held
+CLEAR_ZONE = "Clear the safe spot."             # the overhead camera sees something in the safe zone
+def zone_not_taught(name): return f"The safe spot isn't taught. I won't pick the {name}."
+def zone_too_close(name): return f"The safe spot is too close to the handoff. I won't pick the {name}."
+def method_unavailable(method): return f"The {method} pick isn't ready for that one."  # a trial forced a method
+def zone_blocked_back(name): return f"The safe spot stayed blocked. {cap(name)} back in {'their' if _plural(name) else 'its'} slot."
+
+
 def _a(word): return ("an " if word[:1] in "aeiou" else "a ") + word
 
 

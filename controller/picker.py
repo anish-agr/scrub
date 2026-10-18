@@ -19,10 +19,11 @@ from pathlib import Path
 import httpx
 
 ROOT = Path(__file__).resolve().parents[1]
-POLICY_FILE = ROOT / "data" / "skill_policy.json"
+POLICY_FILE = Path(os.environ.get("SKILL_POLICY_FILE") or ROOT / "data" / "skill_policy.json")  # tests point it elsewhere
 DEFAULT_ORDER = ("model", "taught_adjusted", "ik")
 PICK_OK = ("picked", "handed", "set_down")
 LIGHTING_MIN = 5  # rows a lighting group needs before it alone decides
+MIN_TRIES = 10    # real tries a method needs on an item before its rate may move it from its default-order place
 
 DETECT_URL = "https://api.perceptron.inc/v1/detect"
 GEMINI_URL = "https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent"
@@ -41,17 +42,18 @@ def wilson_lower(successes: int, n: int, z: float = 1.96) -> float:
 
 
 def _is_real(row: dict) -> bool:
-    if row.get("fake_arm") or row.get("sim"):
+    """Only rows the controller tagged arm "real" (untagged rows are not trusted: tests once wrote fake_arm false
+    rows from a fake arm), never a test row, a fake or a sim."""
+    if row.get("test") or row.get("fake_arm") or row.get("sim"):
         return False
-    if row.get("arm") not in (None, "real") or row.get("real") is False:
-        return False
-    return True
+    return row.get("arm") == "real"
 
 
 def outcomes(rows: list[dict]) -> list[dict]:
     """One outcome per pick command from raw ledger events (real arm only).
 
-    success: a picked/handed/set_down event with a skill_source for that command_id; failure: only missed events with a
+    One try per (command_id, skill_source): a retry with the next method makes the first method's miss its own failed try.
+    success: a picked/handed/set_down event with that skill_source; failure: only missed events with a
     skill_source (a missed with no skill_source is "not on tray" or "no taught skill", not a try).
     Already-built outcomes ({"ok", "source"}) pass through.
     """
@@ -66,16 +68,16 @@ def outcomes(rows: list[dict]) -> list[dict]:
         src = r.get("skill_source")
         if not src or r.get("type") not in PICK_OK + ("missed",):
             continue
-        key = (r.get("setting"), r.get("command_id") if r.get("command_id") is not None else ("row", id(r)))
+        key = (r.get("setting"), r.get("command_id") if r.get("command_id") is not None else ("row", id(r)), src)
         groups.setdefault(key, []).append(r)
-    for (setting, _), evs in groups.items():
+    for (setting, _, _), evs in groups.items():
         evs.sort(key=lambda e: e.get("t") or 0)
         won = [e for e in evs if e["type"] in PICK_OK]
         last = (won or evs)[-1]
         rts = next((e["request_to_hand_s"] for e in evs
                     if e["type"] in ("handed", "set_down") and e.get("request_to_hand_s")), None)
         out.append({"setting": setting, "item": last.get("item"), "source": last["skill_source"], "ok": bool(won),
-                    "lighting": last.get("lighting"), "rts": rts, "t": last.get("t")})
+                    "lighting": last.get("lighting"), "rts": rts, "t": last.get("t"), "arm": "real"})
     return out
 
 
@@ -103,6 +105,8 @@ def rank(rows: list[dict], item_id: str, methods, deployment: bool = True, *,
 
     Lower Wilson bound desc, then median request-to-hand asc, then default order. "model" goes first when its lower
     bound is >= the best other. "model" is dropped without a deployment, "taught_adjusted" without a taught skill.
+    Only methods with MIN_TRIES real tries are ranked by data, and only among the places such methods hold in the
+    default order; a method with fewer keeps its default-order place.
     With no taught_adjusted tries, plain "taught" tries stand in as its prior (entry carries "prior": "taught").
     """
     outs = [o for o in outcomes(rows) if o.get("item") == item_id and (setting is None or o.get("setting") in (None, setting))]
@@ -127,7 +131,10 @@ def rank(rows: list[dict], item_id: str, methods, deployment: bool = True, *,
             if i and (not others or round(e["lower"], 6) >= round(max(others), 6)):
                 entries.insert(0, entries.pop(i))
             break
-    return entries
+    # Too few tries: back to its default-order place. Trusted methods fill the remaining places in data order.
+    by_default = sorted(entries, key=lambda e: pos.get(e["method"], 9))
+    trusted = iter([e for e in entries if e["n"] >= MIN_TRIES])
+    return [e if e["n"] < MIN_TRIES else next(trusted) for e in by_default]
 
 
 def _why(entries: list[dict]) -> str:
@@ -141,13 +148,15 @@ def _why(entries: list[dict]) -> str:
         s = f"{e['method']} {e['ok']}/{e['n']} ({word}{e['lower']:.2f})"
         return s + " via taught prior" if e.get("prior") else s
 
+    if top["n"] < MIN_TRIES:
+        return f"{top['method']} {top['n']}/{MIN_TRIES} real tries, default order"
     if len(entries) == 1:
         return fmt(top)
     nxt = entries[1]
-    if top["n"] == 0:
-        return f"{top['method']} untested; {fmt(nxt)} not better"
     if nxt["n"] == 0:
         return f"{fmt(top)}; {nxt['method']} untested"
+    if nxt["n"] < MIN_TRIES:
+        return f"{fmt(top)}; {nxt['method']} only {nxt['n']}/{MIN_TRIES} real tries"
     if round(top["lower"], 6) == round(nxt["lower"], 6):
         return f"{fmt(top)} ties {fmt(nxt, '')}, faster median"
     return f"{fmt(top)} beats {fmt(nxt, '')}"
@@ -280,7 +289,7 @@ def _mongo_rows() -> list[dict] | None:
     try:
         client = pymongo.MongoClient(uri, serverSelectionTimeoutMS=3000)
         query = {"type": {"$in": list(PICK_OK) + ["missed"]}, "skill_source": {"$exists": True},
-                 "fake_arm": {"$ne": True}, "sim": {"$ne": True}}
+                 "arm": "real", "test": {"$ne": True}, "fake_arm": {"$ne": True}, "sim": {"$ne": True}}
         return [r for r in client["scrub"]["events"].find(query, {"_id": 0}) if _is_real(r)]
     except Exception:  # noqa: BLE001 - Atlas down or bad URI: fall back to the local ledger
         return None
