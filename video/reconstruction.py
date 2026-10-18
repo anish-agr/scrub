@@ -92,19 +92,41 @@ class JointRenderer:
     def close(self):
         self.renderer.close()
 
+    def project_plane(self, points, width, height):
+        self.renderer.update_scene(self.data, self.camera)
+        cam = self.renderer.scene.camera[0]
+        forward, up, pos = np.asarray(cam.forward), np.asarray(cam.up), np.asarray(cam.pos)
+        right = np.cross(forward, up)
+        relative = np.asarray(points, dtype=float) - pos
+        x, y = relative @ right, relative @ up
+        vertical = float(cam.frustum_top - cam.frustum_bottom)
+        horizontal = vertical * width / height
+        return np.float32(np.column_stack([(x/horizontal + .5)*width, (.5-y/vertical)*height]))
 
-def render_joints(ws, source, output, width=960, height=720, episode=0, plate=None, start_time=None):
+
+def render_joints(ws, source, output, width=960, height=720, episode=0, plate=None, start_time=None, alignment=None):
     states, fps, doc = load_joints(source, episode)
-    renderer = JointRenderer(ws, width, height)
     meta = {"kind": "reconstructed", "synthetic": bool(doc.get("synthetic")),
             "note": "Joint positions replayed exactly; instrument poses static/illustrative, no contact/outcome inferred."}
     background = cv2.imread(str(plate)) if plate else None
     if plate and background is None:
         raise ValueError("Cannot read photo plate")
-    # A plane warp of the tray alone is not a calibrated arm-base/world plate.
-    # Require a documented matching full-scene projection before compositing.
-    if background is not None and background.shape[:2] != (height, width):
-        raise ValueError("Plate must match the orthographic world projection; supply calibrated width/height")
+    if background is not None and alignment is None:
+        raise ValueError("Photo compositing needs --plate-alignment with four measured world_corners_m in arm frame")
+    renderer = JointRenderer(ws, width, height)
+    if background is not None:
+        config = read_json(alignment)
+        points = np.asarray(config["world_corners_m"], dtype=float)
+        if points.shape != (4,3) or not np.isfinite(points).all() or np.ptp(points[:,2]) > .001:
+            renderer.close()
+            raise ValueError("Four measured, coplanar TL/TR/BR/BL world points required")
+        if not doc.get("synthetic") and config.get("synthetic"):
+            renderer.close()
+            raise ValueError("Synthetic alignment cannot calibrate real joint data")
+        projected = renderer.project_plane(points, width, height)
+        h,w = background.shape[:2]
+        transform = cv2.getPerspectiveTransform(np.float32([[0,0],[w-1,0],[w-1,h-1],[0,h-1]]), projected)
+        background = cv2.warpPerspective(background, transform, (width,height), borderValue=(221,232,236))
     def images():
         try:
             for state in states:
@@ -120,4 +142,5 @@ def render_joints(ws, source, output, width=960, height=720, episode=0, plate=No
         joint_source=str(Path(source).resolve()), episode=episode,
         start_time=start_time if start_time is not None else doc.get("start_time"),
         objects="Static slot illustration only; joint data cannot establish grasps, releases or tool motion.",
+        plate=str(plate) if plate else None, plate_alignment=str(alignment) if alignment else None,
         operations=[{"command": "topdown reconstruction", "joint_units": "degrees_gripper_0_100", "orthographic": True}])
