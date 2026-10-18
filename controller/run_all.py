@@ -3,7 +3,8 @@
   .venv/bin/python -m controller.run_all                       # fake arm, vision --fake, voice, opens the dashboard
   .venv/bin/python -m controller.run_all --arm sim             # MuJoCo arm (sim_vision stands in for vision/)
   .venv/bin/python -m controller.run_all --arm real --vision real --tunnel --judge
-  .venv/bin/python -m controller.run_all --real --tunnel        # judging: real arm + real vision + voice + ledger page, --judge, --skills auto
+  .venv/bin/python -m controller.run_all --real                 # judging: real arm + real vision + voice + ledger page, --judge,
+                                                               # --skills auto, a tunnel, the ElevenLabs agent pointed at it
   .venv/bin/python -m controller.run_all --base-port 8240 --no-voice --no-open   # a test stack beside the live one
   .venv/bin/python -m controller.run_all reset                 # between judges: clear the count, surgical tray, normal light
   .venv/bin/python -m controller.run_all backup [--loop]       # the arm failed: sim arm stack plus a scripted demo run
@@ -12,6 +13,8 @@
 Ports: controller --port (8000), vision --vision-port (8001), sim viewer --sim-port (8002), voice --voice-port (3000),
 ledger page --ledger-port (8080). --base-port N moves them together: N, N+1, N+2, N-5000 and N+3.
 Children get CONTROLLER_URL, VISION_URL and VOICE_PORT. Ctrl-C stops every child.
+--real with the arm unusable (SO101_PORT empty, missing, or held by another program) runs the sim arm instead and says so.
+Each new tunnel URL is pushed to the ElevenLabs agent (cd voice && npm run agent -- <url>); --no-agent skips that.
 """
 from __future__ import annotations
 
@@ -66,6 +69,9 @@ def parse(argv: list[str] | None = None) -> argparse.Namespace:
     p.add_argument("--tunnel", nargs="?", const="pinggy", choices=sorted(TUNNEL_SCRIPTS),
                    help="public tunnel to voice: npm run tunnel (pinggy), tunnel:cf or tunnel:ngrok")
     p.add_argument("--tunnel-cmd", help=argparse.SUPPRESS)  # tests: a fake tunnel command
+    p.add_argument("--no-tunnel", action="store_true", help="--real without a tunnel")
+    p.add_argument("--no-agent", action="store_true", help="don't point the ElevenLabs agent at the tunnel")
+    p.add_argument("--agent-cmd", help=argparse.SUPPRESS)  # tests: a fake agent update command (the URL is appended)
     p.add_argument("--ledger", action="store_true", help="also start the ledger public page (python -m ledger serve)")
     p.add_argument("--open", action=argparse.BooleanOptionalAction, default=True, help="open the dashboard (default on)")
     p.add_argument("--judge", action="store_true", help="pass --judge to the controller (judge mode)")
@@ -129,6 +135,7 @@ class Child:
     critical: bool = False
     stop_sig: int = signal.SIGINT  # SIGINT lets the sim controller and uvicorn shut down cleanly
     proc: subprocess.Popen | None = None
+    started: float = 0.0
     reported: bool = False
     pump: threading.Thread | None = None
     lines: list[str] = field(default_factory=list)
@@ -219,7 +226,8 @@ def plan(a, judge_ok: bool | None = None) -> tuple[list[Child], list[str]]:
     return kids, notes
 
 
-def url_table(a, public_url: str | None = None, lan: str | None = None, skipped: set | None = None) -> list[tuple[str, str]]:
+def url_table(a, public_url: str | None = None, lan: str | None = None, skipped: set | None = None,
+              phone: str | None = None) -> list[tuple[str, str]]:
     P, skipped = ports(a), skipped or set()
     c = f"http://localhost:{P['controller']}"
     rows = [("dashboard", dashboard_url(a)), ("judge console", f"{c}/demo"), ("nurse console", f"{c}/nurse"),
@@ -241,6 +249,8 @@ def url_table(a, public_url: str | None = None, lan: str | None = None, skipped:
         rows.append(("public tunnel", public_url or "(not seen yet; watch the [tunnel] lines)"))
         if public_url:
             rows.append(("ElevenLabs LLM URL", f"{public_url}/v1"))
+    if a.tunnel or phone:
+        rows.append(("phone (call it)", phone or "(no number yet: voice/README.md Call setup, npm run photon -- setup)"))
     return rows
 
 
@@ -272,12 +282,80 @@ def answers(url: str, timeout: float = 2.0) -> bool:
         return False
 
 
+def env_file() -> dict:
+    """Non-secret wiring from the repo .env (SO101_PORT, PHOTON_LINE). Only these names are read."""
+    try:
+        from dotenv import dotenv_values
+        vals = dotenv_values(ROOT / ".env")
+    except Exception:  # noqa: BLE001 - no dotenv or no file: the shell alone
+        vals = {}
+    return {k: (os.environ.get(k) or vals.get(k) or "") for k in ("SO101_PORT", "PHOTON_LINE")}
+
+
+def arm_holders(port: str) -> list[int]:
+    try:
+        from arm.backends import port_holders
+        return port_holders(port)
+    except Exception:  # noqa: BLE001 - can't tell: let the controller try the arm
+        return []
+
+
+def real_arm_problem(port: str, holders=arm_holders, exists=os.path.exists) -> str | None:
+    """Why the real arm can't be used right now, or None."""
+    if not port:
+        return "SO101_PORT is empty"
+    if not exists(port):
+        return f"{port} not found (arm unplugged or off)"
+    pids = holders(port)
+    if pids:
+        return f"{port} is held by PID {', '.join(map(str, pids))} (recorder or teleop?)"
+    return None
+
+
+def prepare_start(a, wiring: dict | None = None, holders=arm_holders, exists=os.path.exists) -> list[str]:
+    """--real: a tunnel by default; a busy or missing real arm becomes the sim arm. Returns lines to print."""
+    notes, wiring = [], env_file() if wiring is None else wiring
+    a.arm_note = ""
+    if a.real and not a.tunnel and not a.no_tunnel and not a.no_voice:
+        a.tunnel = "cf" if (ROOT / "voice" / ".bin" / "cloudflared").exists() else "pinggy"
+    if a.arm == "real":
+        why = real_arm_problem(wiring.get("SO101_PORT", ""), holders, exists)
+        if why:
+            a.arm = "sim"
+            if a.vision == "real":
+                a.vision = "none"  # the camera sees the real table, not the sim; sim_vision posts the tray
+            a.arm_note = f"real arm not usable ({why}): running the SIM arm instead"
+            notes.append(a.arm_note)
+    return notes
+
+
+def agent_update(a, url: str, say=print) -> list[str]:
+    """Point the ElevenLabs agent at this tunnel (voice/scripts/agent.ts). Returns the phone numbers it lists."""
+    cmd = (shlex.split(a.agent_cmd) if a.agent_cmd else ["npm", "run", "-s", "agent", "--"]) + [url]
+    try:
+        out = subprocess.run(cmd, cwd=ROOT / "voice", capture_output=True, text=True, timeout=120)
+    except (OSError, subprocess.TimeoutExpired) as e:
+        say(f"run_all: ElevenLabs agent not updated: {e}")
+        return []
+    phones = []
+    for line in (out.stdout + out.stderr).splitlines():
+        if line.startswith("PHONE "):
+            phones.append(line.split()[1])
+        if line.strip():
+            say(f"[agent] {line}" if not line.startswith("[") else line)
+    if out.returncode:
+        say(f"run_all: ElevenLabs agent update failed (exit {out.returncode}); Custom LLM URL is {url}/v1")
+    return phones
+
+
 # ---------------------------------------------------------------- running children
 class Stack:
     def __init__(self, out=None, verbose: bool = False):
         self.verbose = verbose
         self.children: list[Child] = []
         self.public_url: str | None = None
+        self.agent_url: str | None = None  # the tunnel URL the ElevenLabs agent was last pointed at
+        self.phones: list[str] = []
         self.stopping = False
         self._out, self._lock = out or (lambda text: print(text, flush=True)), threading.Lock()
 
@@ -289,6 +367,7 @@ class Stack:
         ch.proc = subprocess.Popen(ch.cmd, cwd=ch.cwd, env=ch.env, stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
                                    stdin=subprocess.DEVNULL, text=True, bufsize=1, errors="replace",
                                    start_new_session=True)  # own process group: we stop npm and its node together
+        ch.started = time.time()
         self.children.append(ch)
         ch.pump = threading.Thread(target=self._pump, args=(ch,), daemon=True)
         ch.pump.start()
@@ -396,6 +475,8 @@ def bring_up(a, stack: Stack) -> tuple[bool, set]:
         if ch.name == "tunnel":
             if not stack.wait_tunnel(ch, 30):
                 stack.say("run_all: no public URL from the tunnel yet; it prints below when it appears")
+            else:
+                sync_agent(a, stack)
             continue
         if not stack.wait_healthy(ch, a.timeout):
             code = ch.proc.poll()
@@ -409,9 +490,25 @@ def bring_up(a, stack: Stack) -> tuple[bool, set]:
     return True, skipped
 
 
+def sync_agent(a, stack: Stack) -> None:
+    """Once per new tunnel URL: point the ElevenLabs agent at it."""
+    if not stack.public_url or stack.public_url == stack.agent_url or getattr(a, "no_agent", True):
+        return
+    stack.agent_url = stack.public_url
+    stack.phones = agent_update(a, stack.public_url, stack.say) or stack.phones
+
+
+def phone_number(a, stack: Stack, wiring: dict | None = None) -> str | None:
+    line = (env_file() if wiring is None else wiring).get("PHOTON_LINE")
+    return line or (stack.phones[0] if stack.phones else None)
+
+
 def print_table(a, stack: Stack, skipped: set) -> None:
     title = f"Scrub stack: {a.arm} arm, vision {a.vision}, voice {'off' if voice_skip_reason(a) or 'voice' in skipped else 'on'}"
-    stack.say(f"\n{title}\n{format_table(url_table(a, stack.public_url, lan_ip(), skipped))}\nCtrl-C stops everything.\n")
+    if getattr(a, "arm_note", ""):
+        title += f"\n  ** {a.arm_note} **"
+    rows = url_table(a, stack.public_url, lan_ip(), skipped, phone_number(a, stack))
+    stack.say(f"\n{title}\n{format_table(rows)}\nCtrl-C stops everything.\n")
 
 
 def open_pages(a) -> None:
@@ -423,9 +520,20 @@ def open_pages(a) -> None:
         webbrowser.open(f"http://localhost:{P['sim']}/web/viewer.html")
 
 
-def watch(stack: Stack) -> int:
+def restart_tunnel(stack: Stack, ch: Child) -> Child | None:
+    """A tunnel that ran a while and died (free tunnels expire) is started again; the new URL goes to the agent."""
+    if stack.stopping or time.time() - ch.started < 20:
+        return None
+    stack.public_url = None
+    stack.say("run_all: restarting the tunnel; the ElevenLabs agent gets the new URL")
+    return stack.start(Child(ch.name, ch.cmd, ch.cwd, ch.env, None))
+
+
+def watch(stack: Stack, a=None) -> int:
     """Until Ctrl-C. A controller crash stops everything; any other crash is reported and the rest keeps going."""
     while True:
+        if a is not None:
+            sync_agent(a, stack)
         for ch in stack.crashed():
             stack.say(f"run_all: {ch.name} EXITED (code {ch.proc.returncode}). Last lines:")
             for line in ch.lines[-5:]:
@@ -433,8 +541,8 @@ def watch(stack: Stack) -> int:
             if ch.critical:
                 stack.say("run_all: the controller is gone; stopping the rest")
                 return 1
-            if ch.name == "tunnel":
-                stack.say("run_all: free tunnels end after about 60 min: rerun with --tunnel and paste the new URL")
+            if ch.name == "tunnel" and not restart_tunnel(stack, ch):
+                stack.say("run_all: the tunnel died right away; rerun with --tunnel (or another kind, e.g. --tunnel pinggy)")
             stack.say(f"run_all: still running: {', '.join(c.name for c in stack.children if c.proc.poll() is None)}")
         time.sleep(0.5)
 
@@ -447,12 +555,14 @@ def cmd_start(a) -> int:
     stack = Stack(verbose=a.verbose)
     signal.signal(signal.SIGTERM, _sigterm)
     try:
+        for n in prepare_start(a):
+            stack.say(f"run_all: {n}")
         ok, skipped = bring_up(a, stack)
         if not ok:
             return 1
         print_table(a, stack, skipped)
         open_pages(a)
-        return watch(stack)
+        return watch(stack, a)
     except KeyboardInterrupt:
         stack.say("\nrun_all: stopping")
         return 0

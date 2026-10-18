@@ -3,13 +3,15 @@
 // Through the tunnel: VOICE_URL=https://<tunnel> npm run say -- "stop"
 // No caller id by default, so a test turn never moves the live server's end-of-case text to a made-up number.
 // SAY_CALLER=+1... npm run say -- "end of case" acts as that caller.
+import { LLM_SECRET } from "../src/config.js";  // the .env VOICE_LLM_SECRET, sent like ElevenLabs sends it
+
 const heard = process.argv.slice(2).join(" ") || "grab me the kelly";
 const base = process.env.VOICE_URL || `http://localhost:${process.env.VOICE_PORT || 3000}`;
 const t0 = Date.now();
 const ms = () => `+${Date.now() - t0}ms`;
 const res = await fetch(`${base}/v1/chat/completions`, {
   method: "POST",
-  headers: { "content-type": "application/json", authorization: `Bearer ${process.env.VOICE_LLM_SECRET || ""}` },
+  headers: { "content-type": "application/json", authorization: `Bearer ${process.env.VOICE_LLM_SECRET || LLM_SECRET}` },
   body: JSON.stringify({ model: "scrub", stream: true, messages: [
     { role: "system", content: `You are Scrub. Caller: ${process.env.SAY_CALLER || "{{system__caller_id}}"}` },
     { role: "user", content: heard },

@@ -66,7 +66,7 @@ Status, as of Oct 18: the controller, vision, voice, ledger, dashboard, sim arm 
 - [docs/DATA-LOG.md](docs/DATA-LOG.md): one row per recorded batch
 - [AGENTS.md](AGENTS.md): rules for Claude, Codex and Cursor in this repo
 
-Team working notes, removed before the repo goes public: [team/STATUS.md](team/STATUS.md) (checkboxes; the first unchecked one is your next task), [team/TASKS.md](team/TASKS.md), [team/PROMPTS.md](team/PROMPTS.md) (the prompt to paste into your agent), [team/PLAN.md](team/PLAN.md), [team/PITCH.md](team/PITCH.md), [team/DEMO.md](team/DEMO.md).
+Team working notes, removed before the repo goes public: [team/LEFT.md](team/LEFT.md) (what's left, who, steps, deadline), [team/STATE.md](team/STATE.md) (what exists and works), [team/PROMPTS.md](team/PROMPTS.md) (the prompt to paste into your agent), [team/PITCH.md](team/PITCH.md), [team/DEMO.md](team/DEMO.md).
 
 ## Running it
 

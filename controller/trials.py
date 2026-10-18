@@ -1,4 +1,4 @@
-"""Operator-gated PLAN.md trials over HTTP; no direct arm access.
+"""Operator-gated trial matrix (the old PLAN.md rows) over HTTP; no direct arm access.
 
 python -m controller.trials --plan-only
 python -m controller.trials --self-test
