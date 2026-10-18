@@ -177,15 +177,15 @@ Tick every box before spending a training run. Perceptron allows 2 successful jo
 - [ ] The job ids from Anish are checked (`arm.train status job <id>`) and the quota left is known.
 - [ ] `PERCEPTRON_DEPLOYMENT_ID` is empty or names a real deployment.
 - [ ] `.venv/bin/python -m arm.train capabilities` answers HTTP 200: `standard`, `expert_only`, horizon 30, RTC and 1000 steps allowed. Result written in `docs/ARM.md`.
-- [ ] `.venv/bin/python -m deploy` shows Perceptron robotics PASS and Hugging Face PASS (`HF_TOKEN`, `HF_USER` set).
+- [ ] `.venv/bin/python -m deploy` shows Perceptron robotics PASS. Hugging Face also passes (`HF_USER=caidenm11`), but the default pipeline uploads straight to Perceptron and does not need it.
 - [ ] Counts meet the plan for this run, every episode logged in `docs/DATA-LOG.md`.
-- [ ] Every episode has a measured 29 to 31 Hz in the cadence file (no gaps, no duplicates, no filled-in 30.0).
+- [ ] Every episode has a measured 29 to 31 Hz loop and side and wrist cameras at 29 to 31 fps (the pipeline refuses otherwise; `SCRUB_ACCEPT_CAMERA_FPS=wrist=22` lowers the wrist floor on purpose and prints a warning). Every task is an exact `pick the <item>` or `return the <item>` from `settings/surgical.json` (the 13 "pick the spatula" episodes in `~/scrub-dataset` fail this).
 - [ ] A stable snapshot: encoding finished, nothing writing to the folder.
-- [ ] `.venv/bin/python -m explore.dataset.qa --root ~/scrub-dataset --out ~/qa.html` has no FAIL.
+- [ ] `.venv/bin/python -m explore.dataset.qa --root ~/scrub-surgical --out ~/qa.html --captions` has no FAIL (the pipeline runs the same QA and blocks on a FAIL; a gripper false alarm passes only with `--accept-qa-fail <eps>` after a person watched that episode). Read the caption report for failed grasps.
 - [ ] `.venv/bin/python -m arm.dataset_check ~/scrub-dataset --cadence-report ~/scrub-dataset-cadence.json` passes.
 - [ ] Episode 0 replayed on the real follower with a spotter (procedure 7.3); for run 2 also one episode of each new item.
 - [ ] `.venv/bin/python -m arm.train pipeline ~/scrub-dataset --cadence-report ~/scrub-dataset-cadence.json --check-only` exits 0 with fps 30.
-- [ ] The dataset is pushed to Hugging Face as `<HF_USER>/scrub` and the commit SHA of that revision is in hand for `--revision`.
+- [ ] Upload source chosen: the default `--source upload` sends the checked folder straight to Perceptron and saves the dataset id before any bytes move (registering counts against Perceptron's dataset quota, so run it once). Only with `--source hf`: the dataset is pushed as `caidenm11/scrub` and the 40-character commit SHA is passed as `--revision`.
 - [ ] The idempotency key is `scrub-run-1` or `scrub-run-2`, and the resume state file `.env.pipeline-<key>.json` is not deleted.
 - [ ] Anish says "approve" out loud and Caiden has read the full command.
 
@@ -227,10 +227,8 @@ Kept from the old hardware list. Commands and what you should see.
 
 ## Code
 
-Everything planned is built and its tests pass (`team/STATE.md`). These three are open because each sits in a folder another session or owner was editing during this pass.
+Everything planned is built and its tests pass (`team/STATE.md`). These are open because each sits in a folder another session or owner was editing during this pass.
 
 | What | Who | Why it is still open |
 | --- | --- | --- |
-| `vision/profile_loop.py` `rss_bytes()` only works on Windows, so on the Mac it returns 0 and `vision.test_pipeline` `test_short_sim_source_loop_stays_bounded` fails. Fix: when `sys.platform != "win32"`, return `resource.getrusage(resource.RUSAGE_SELF).ru_maxrss` (bytes on macOS, KiB on Linux, so multiply by 1024 there) | Brandon | vision changed 30 minutes before this pass ended |
-| Paths to files moved into `team/`: `arm/README.md` line 3 and `ledger/README.md` line 3 name `docs/TASKS.md` (now `team/LEFT.md`); `ledger/README.md` line 86 and `controller/nurse.html` line 8 name `explore/prototypes/` (now `team/prototypes/`); `design/README.md` line 4 names `explore/status-board/` (now `team/status-board/`); `controller/demo.html` lines 10, 13, 145 and 157 name `docs/PITCH.md` (now `team/PITCH.md`) and line 120 and 157 name `PLAN.md` (deleted; the beats are in `team/PITCH.md`). Comments and doc text only, nothing reads these paths | Caiden's pages session (owns those folders and pages tonight) | this pass was told not to touch `arm/`, `ledger/`, `design/` or page HTML |
 | `video/` test `test_every_command_on_markerless_synthetic_assets` fails in a fresh worktree because the Playwright browser is not installed under `data/video/browser`. Install it once: `PLAYWRIGHT_BROWSERS_PATH=$PWD/data/video/browser .venv/bin/python -m playwright install chromium` | Caiden | environment setup, only on a new checkout |
