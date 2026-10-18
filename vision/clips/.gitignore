@@ -1,0 +1,3 @@
+# Ignore all recorded video clips and metadata in vision/clips
+*
+!.gitignore

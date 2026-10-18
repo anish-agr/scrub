@@ -13,7 +13,7 @@ Evan's tasks (E1 to E7) aren't listed here; he's on them. As of 5 PM he has push
 | Anish, Codex | R1 to R4, Q1, Q2 below | `arm/` except `check_setup.py` and `record.py`; `docs/BRINGUP.md`; `controller/trials.py` (new file only) |
 | Brandon, Cursor chat 1 (Grok) | hardware walkthrough: overhead camera, B5, B6 with Anish, B8 | `.env`, box fields in `settings/*.json`, `vision/calibration.json`, `vision/hand_heights.json`, his STATUS section |
 | Brandon, Cursor chat 2 (Grok) | `deploy/check_env.py`, Vultr and GoDaddy (E6 deploy, from Evan) | `deploy/` |
-| Anish, Antigravity | F5, F6, the vision QA bugs, then G3 and G4. V1 to V3 already landed (Evan's Cursor) | `vision/`, `docs/PERCEPTRON.md`, `docs/QA.md`, `docs/NEXT.md`, `docs/DEV-POST.md` |
+| Anish, Antigravity | X3 (tray check) and X4 (event clips & Perceptron labeling) landed. Vision stack complete. | `vision/`, `docs/PERCEPTRON.md` |
 | Caiden, phase 2 (after session 1 ends) | F1 to F4 and QA-12 done; left: the real call and text (C3, C4, C7) | `controller/`, `voice/` |
 
 ## More work (Q, R, G)
@@ -41,8 +41,6 @@ From `docs/PROPOSAL.md` ("What's next", the tracks) and `explore/research/04-bui
 
 | # | What | Track it serves | Who | May edit |
 | --- | --- | --- | --- | --- |
-| X3 | **Tray check before a case (vision side):** vision's `GET /tray_check` compares the tray to the setting's item list and reports what's missing or in the wrong slot. The command side is done: "check the tray" by voice or text asks the controller's `GET /tray_check`, which calls vision; the shape to return is in `controller/README.md` (Extra endpoints). Until it exists Scrub says "I can't check the tray right now." | Perceptron Perception, Photon | Antigravity | `vision/`, `docs/PERCEPTRON.md` |
-| X4 | **Find events in video:** vision keeps short clips around each event per `case_id`; after the case, Perceptron's video or caption capability (check docs.perceptron.inc for what exists) labels them ("scalpel set at the safe spot, 14:02"), shown in the replay | Perceptron Perception | Antigravity | `vision/`, `docs/PERCEPTRON.md` |
 | X9 | **Data and model links:** the Hugging Face dataset and the deployment id shown on the dashboard and in the Devpost text, filled in by `arm.train pipeline` | Perceptron Robotics | Codex | `arm/` |
 
 ## Blockers only people can clear
