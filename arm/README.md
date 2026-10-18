@@ -330,7 +330,7 @@ another script, connects with `python -m controller --real-arm`.
    termination can occur before the end of a return trajectory.
 
 ## Taught skills (backup, labeled "taught")
-Teach: .venv/bin/python -m arm.teach skill hemostat pick --setting surgical --supported-and-empty  (Enter/g/o/u/p/q)
-Files: arm/skills/<setting>/<item>-<direction>.json; arm/skills/example/ is a format example, never played.
-Check: .venv/bin/python -m arm.taught --check --setting surgical [--fake]  (real run replays at speed 0.15, no instrument)
-Steps and timing: docs/TEACH.md. API: arm.taught.load / play(skill, goto=, set_gripper=, stopped=, offset=None).
+- Teach: .venv/bin/python -m arm.teach skill hemostat pick --setting surgical --supported-and-empty  (Enter/g/o/u/p/q)
+- Files: arm/skills/<setting>/<item>-<direction>.json; arm/skills/example/ is a format example, never played.
+- Check: .venv/bin/python -m arm.taught --check --setting surgical [--fake]  (real run replays at speed 0.15, no instrument)
+- Steps and timing: docs/TEACH.md. API: arm.taught.load / play(skill, goto=, set_gripper=, stopped=, offset=None).
