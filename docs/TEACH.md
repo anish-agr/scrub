@@ -1,6 +1,6 @@
 # Teaching a taught skill
 
-Taught skills are the labeled backup to the model. Each one is 4 to 6 joint waypoints you set by moving the arm by hand. Every event from a taught skill carries `skill_source: "taught"`, and the dashboard says so.
+Taught skills are the controller's labeled way to move the real arm (no Perceptron model was trained: 0 jobs). Each one is 4 to 6 joint waypoints you set by moving the arm by hand. Every event from a taught skill carries `skill_source: "taught"`, and the dashboard says so.
 
 Budget: under 15 minutes per item (about 5 for the pick, 5 for the return, 3 for the check).
 
@@ -8,7 +8,7 @@ Files land in `arm/skills/<setting>/<item>-<direction>.json`, for example `arm/s
 
 ## Before you start
 
-1. `home` and `carry` are already taught in `arm/rig.json` (`team/LEFT.md` step 5).
+1. `home` is measured in `arm/rig.json`. `carry` is still `null` there, so measure it first.
 2. The tray is taped and the instrument sits in its slot.
 3. Nothing else has the arm port open: close the controller, teleop and any recording.
 4. The follower arm is powered (12 V supply on, LEDs lit).

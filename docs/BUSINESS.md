@@ -6,7 +6,7 @@ Scrub is a research prototype, not a medical device. We make no clinical claims.
 
 ## Summary
 
-Scrub is a robot arm that passes instruments when a surgeon asks out loud. It carries each one to the handoff point, slows down as it gets there, lets go when the surgeon pulls it, and goes straight home. It keeps a running count of what's out.
+Scrub is a robot arm that passes instruments when a surgeon asks out loud. It carries each one to the handoff point, lets go when the surgeon pulls it or says let go, and goes straight home. It keeps a running count of what's out.
 
 Operating rooms can't hire enough scrub techs. We would sell Scrub per operating room per month, starting with surgery centers, and first in training labs where no patient is involved.
 
@@ -24,8 +24,8 @@ Operating rooms can't hire enough scrub techs. We would sell Scrub per operating
 
 Scrub helps scrub techs. It doesn't replace them.
 
-- **Handoff by voice.** The surgeon says "hemostat" or "Mayo scissors." Scrub brings it to the handoff point and slows down as it gets there.
-- **Lets go on a pull.** It opens when the clinician takes the tool, or says "got it."
+- **Handoff by voice.** The surgeon says "hemostat" or "Mayo scissors." Scrub brings it to the handoff point under a speed cap.
+- **Lets go on a pull.** It opens when the clinician pulls the tool, or says "let go."
 - **Goes home.** After each handoff the arm goes straight home on its own. Putting a tool back is manual in this prototype.
 - **Keeps the count.** "Count" reads back what's out, checked against the camera. "Check the tray" says what's missing before the case.
 
@@ -67,11 +67,11 @@ How to read this:
 
 ## 6. What we proved this weekend
 
-1. **Voice to handoff on a $250 arm.** A spoken request picks one of three instruments (scalpel handle, hemostat, Mayo scissors) and carries it to the handoff point with a skill we taught it from our own demonstrations.
-2. **A checked grasp.** The gripper checks each pick before carrying.
-3. **Gentle motion.** Speed and joint limits on every move, and the arm slows as it nears the handoff point. It lets go only on a pull or "got it", then goes home.
-4. **Stop.** "Stop" freezes the arm until a person resets it.
-5. **Heat.** The thermal guard reads motor temperatures every 2 s while it drives the arm and rests it with torque off.
+1. **Voice to handoff on a $250 arm.** A spoken request moved the real arm, which replayed our recorded demonstrations of the scalpel and handed it to a hand: 2 real handoffs (06:39 and 07:02, Oct 18). We recorded 29 episodes, 24 usable. No model was fine-tuned (0 Perceptron training jobs).
+2. **A checked grasp, in the sim.** In the controller and sim, the gripper and wrist camera check each pick before carrying. The real-arm replay path has no grasp check.
+3. **Gentle motion.** A speed cap on every motor (45 deg/s peak in autopick, slower when hot). It lets go when you pull it or say "let go", then goes home.
+4. **Stop.** "Stop" freezes the arm where it is.
+5. **Heat.** The thermal guard checks motor temperatures every 2 s, rests the arm with torque off at 60 C and resumes at 50 C.
 
 Success rates by item and lighting go here only once real tries are logged.
 

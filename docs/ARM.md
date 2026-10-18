@@ -1,6 +1,6 @@
 # Arm, recording and fine-tuning
 
-> **Demo scope (Oct 18 morning):** the demo uses three instruments (scalpel handle, hemostat, Mayo scissors), has no sharps safe spot and no hand tracking (the arm slows as it nears the handoff point), and the arm goes home after each handoff. Return on the real arm is manual. `safe_spot` below is no longer needed.
+> **What happened (Oct 18 morning):** this file is the plan for recording and fine-tuning. We recorded 29 episodes (24 usable) and started 0 Perceptron training jobs, so no fine-tuned model exists. Real picks replay our recorded demonstrations through the station (`explore/station/README.md`, autopick average mode), and the arm goes home after each handoff. Return on the real arm is manual. `safe_spot` below was cut and is no longer needed. Results with sources: `devpost/FACTS-0718.md`.
 
 Owner: Anish. The workshop is the source of truth. Where it differs from below, the workshop wins and this file gets updated.
 
@@ -12,7 +12,7 @@ The full notes from the workshop deck are in `explore/research/isaac-workshop-no
 - One dataset can hold several instructions, and the model follows the instruction text. We use one dataset, `<hf user>/scrub`.
 - The model gives positions only, no gripper load. We read load from the Feetech bus.
 - Predict latency per chunk is about 283 ms at p95. A 1,000-step run takes about 45 minutes plus export.
-- Open: image augmentation in their pipeline, whether the arm comes to judging (see the message for Perceptron staff in `team/DEMO.md`), and whether LeRobot's end-effector control works on the SO-101 (we use our own IK in `arm/kinematics.py`).
+- Open: image augmentation in their pipeline, whether the arm comes to judging, and whether LeRobot's end-effector control works on the SO-101 (we use our own IK in `arm/kinematics.py`).
 
 ## Perceptron's format
 
@@ -84,8 +84,7 @@ stop power (no sharp tool or person in the work envelope initially):
    smallest suitable speed; measure tip error (goal ~2 cm), check tool attitude
    and handle-first presentation separately. FK/IK round trips are not a
    substitute for this physical check.
-5. Measure load changes and test explicit `got_it`, safe-spot arrival/release,
-   stopped-state rearm, and unavailable-policy handling. No claim of clinical
+5. Measure load changes and test explicit `got_it`, stopped-state rearm, and unavailable-policy handling. No claim of clinical
    validation or hardware success has been made.
 
 The dataset format, training and inference calls are in `docs/PERCEPTRON-ROBOTICS.md`. Short version: 30 FPS, cameras named `side` and `wrist` at 640x480, six joint values with the gripper at 0 to 100, and a public Hugging Face repo or a direct upload.
@@ -112,7 +111,7 @@ Perceptron's arms come assembled, so skip `lerobot-setup-motors` unless they say
 
 ## One demonstration
 
-- **Hand out:** the arm starts at home, the item in its slot. Pick it by the handle, lift to the carry pose, hold still. Then carry it to the handoff point and hold it there for the pull. (The demo has no safe spot and no hand tracking.)
+- **Hand out:** the arm starts at home, the item in its slot. Pick it by the handle, lift to the carry pose, hold still. Then carry it to the handoff point and hold it there for the pull.
 - **Put back:** the item lies in the return spot. Pick it, place it in its slot.
 - Instructions: `pick the <name>` and `return the <name>`, matching `settings/*.json`.
 
@@ -122,7 +121,9 @@ Perceptron's arms come assembled, so skip `lerobot-setup-motors` unless they say
 - the lighting: a third each in bright, normal and dim
 - which other items are on the tray
 
-## Recording order
+## Recording order (plan)
+
+The plan below called for 90 demos; we recorded 29 episodes, 24 usable (`docs/DATA.md`).
 
 | Order | Setting | Items | Demos | Arm time |
 | --- | --- | --- | --- | --- |
@@ -132,7 +133,9 @@ Per item: 20 pick and 10 return. Two people: one on the leader arm, one resettin
 
 If arm time turns out short, cut returns first. Never cut the three surgical picks.
 
-## Fine-tuning runs
+## Fine-tuning runs (plan, not run)
+
+No job was submitted: `GET /v1/jobs` returned 0 jobs and `python -m arm.train deployments` returned `{"items": []}` on Oct 18.
 
 1. **Run 1:** right after the operating room set, to see early whether grasps work.
 2. **Run 2:** the operating room and bench settings.

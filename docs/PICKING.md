@@ -1,10 +1,10 @@
 # Picking: how Scrub chooses and checks a pick
 
-> **Demo scope (Oct 18 morning):** the demo uses three instruments (scalpel handle, hemostat, Mayo scissors), has no sharps safe spot and no hand tracking (the arm slows as it nears the handoff point), and the arm goes home after each handoff. Return on the real arm is manual. The sharps safe-zone flow below is still in the code but is not used or claimed in the demo. No Perceptron model is deployed, so `model` never runs.
+> **Demo scope (Oct 18 morning):** this page describes the controller's `--skills smart` path, which runs on the sim and the fake arm. The real arm in the demo runs through the station (`explore/station/README.md`): each pick replays the average of our recorded demonstrations for that item (autopick average mode), and the arm goes home after each handoff. Return on the real arm is manual. 0 Perceptron training jobs and 0 deployments exist, so `model` never runs.
 
-`--skills smart` picks each instrument with the method that has the best measured record for that item, checks every grasp, and retries once with the next method. Sharps never go to a hand, whatever the method or the voice command.
+`--skills smart` picks each instrument with the method that has the best measured record for that item, checks every grasp, and retries once with the next method. In the controller, sharps never go to a hand (see Sharps below).
 
-Code: `controller/picker.py` (choice), `controller/core.py` (`_pick_smart` and the sharp flow), `arm/grasp.py` (the grasp methods and the safe-zone rules), `vision/locate.py` (`GET /locate`, `GET /safe_zone` on vision). Contract fields: `docs/CONTRACTS.md`.
+Code: `controller/picker.py` (choice), `controller/core.py` (`_pick_smart` and the sharp flow), `arm/grasp.py` (the grasp methods and the safe-zone rules), `vision/locate.py` (`GET /locate` on vision). Contract fields: `docs/CONTRACTS.md`.
 
 ## The methods
 
@@ -27,7 +27,7 @@ All of them run through the same 30 Hz playback, joint limits, gripper torque, t
 
 ## How the method is chosen
 
-`controller/picker.py` reads the ledger (MongoDB `scrub.events`, else the local ledger buffer) and keeps only rows with `arm: "real"` and no `test` tag. Rows from before Oct 18, 3 AM have no `arm` field, so none count. That includes the 24 fake "real" rows that tests wrote to Atlas (`team/NOTES-DATA.md`). Each command is one try per method used. For each item it ranks the available methods:
+`controller/picker.py` reads the ledger (MongoDB `scrub.events`, else the local ledger buffer) and keeps only rows with `arm: "real"` and no `test` tag. Rows from before Oct 18, 3 AM have no `arm` field, so none count. That includes the fake "real" rows that `controller/test_flows.py` wrote to Atlas. Each command is one try per method used. For each item it ranks the available methods:
 
 - by the lower bound of the 95% Wilson interval on the success rate, then by median request-to-hand time;
 - `model` goes first when its lower bound is at least the best other's, so a deployed model would run wherever it earns it;
@@ -36,15 +36,9 @@ All of them run through the same 30 Hz playback, joint limits, gripper torque, t
 
 The choice is written to `data/skill_policy.json` and shown on the ops page (`/state` `skills.policy`: method, confidence, why, order). It refreshes at start, on a setting change, and after each real-arm pick. Print the table and refresh it by hand with `.venv/bin/python -m controller.picker --setting surgical`.
 
-## Sharps
+## Sharps (controller only, cut from the demo)
 
-Any item with `sharp: true` in `settings/*.json` (the scalpel) only ever ends at the safe zone, with every method including the model:
-
-- The controller never hands it over. "Hand me the scalpel" is answered "Scalpel to the safe spot." The move-to-hand code also refuses a sharp as a second guard.
-- On the real arm a sharp isn't picked at all unless `arm/rig.json` has a taught `safe_zone` that is at least 15 cm from the handoff box and doesn't overlap it ("The safe spot isn't taught. I won't pick the scalpel."). Teach it with `python -m arm.teach`, key `s`: it saves the set-down pose (`safe_spot`, blade down and pointed away from the handoff side) and the taped square (`safe_zone`) and warns if it is too close.
-- While a sharp is held the arm runs at half speed. A hand within 20 cm of the gripper or the zone makes Scrub say "Hand back, I'm holding a sharp" and wait up to 8 s. A hand coming that close during the hover, set-down or put-back freezes the arm (stopped; a person resets). The set-down path must not cross the handoff box; the arm refuses one that does.
-- Before set-down Scrub hovers above the zone and checks it with the overhead camera (`/safe_zone`). Clear: set down (`zone_check: clear`). Blocked: "Clear the safe spot", up to 10 s (`cleared_after_wait`), then it puts the scalpel back in its slot (`missed`, `timeout_to_slot`). No camera answer: set down (`no_camera`).
-- After set-down the overhead camera confirms the scalpel is in the zone (`zone_confirm`).
+Any item with `sharp: true` in `settings/*.json` (the scalpel) is never handed over by the controller: it goes to a taught set-down zone instead (`arm/grasp.py` `safe_zone_problems`, `arm/real_arm.py`, `controller/core.py`). That zone was cut from the demo and is not taught (`arm/rig.json` has `"safe_zone": null`), so the controller refuses to pick the scalpel on the real arm. The real-arm demo runs through the station (`explore/station/README.md`), which replays our recorded scalpel demonstrations and offers the scalpel handle to the hand.
 
 ## Per item, measured
 
@@ -54,12 +48,12 @@ Oct 18, 3:15 AM. **No method has a real try yet.** The arm is busy with run 1 re
 | --- | --- | --- | --- | --- |
 | hemostat | no deployment (run 1 not trained) | no taught skill | needs `vision/calibration.json` | default order, no real tries |
 | mayo scissors | no deployment | no taught skill | needs calibration | default order, no real tries |
-| scalpel (safe zone only) | no deployment | no taught skill | needs calibration | refused on the real arm until `safe_zone` is taught |
+| scalpel (never handed by the controller) | no deployment | no taught skill | needs calibration | refused on the real arm (no taught set-down zone) |
 
-On the sim (`run_all backup`, `--skills smart`), every run is CLEAN: picks, the handoffs and the scalpel to its safe zone (`zone_check: no_camera`, since the backup runs no vision). The sim tests also show the point of `taught_adjusted` and `ik`. With an item 3 cm off its slot, the plain taught pick closes on nothing, while `taught_adjusted` with the measured offset and `ik` both pick it (`sim/test_sim.py`).
+On the sim (`run_all backup`, `--skills smart`), every run is CLEAN: picks, the handoffs and the scalpel set down in the sim's zone (`zone_check: no_camera`, since the backup runs no vision). The sim tests also show the point of `taught_adjusted` and `ik`. With an item 3 cm off its slot, the plain taught pick closes on nothing, while `taught_adjusted` with the measured offset and `ik` both pick it (`sim/test_sim.py`).
 
-Fill this table from `python -m controller.picker --setting surgical` after the real tries (`team/LEFT.md`).
+Fill this table from `python -m controller.picker --setting surgical` after real controller tries. None exist: the real-arm runs went through the station.
 
 ## For the pitch (honest, today)
 
-"On the real arm each pick is a skill we taught it from our own demonstrations, and the gripper checks the grasp before it carries." Don't claim a per-item method or a model pick until the table above has real numbers and a deployment exists.
+"On the real arm each pick replays our own recorded demonstrations of that item." The station's replay path has no grasp check, so claim the grasp check only for the controller and sim. Don't claim a per-item method or a model pick until the table above has real numbers and a deployment exists.

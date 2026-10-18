@@ -1,6 +1,6 @@
 # Scrub: tonight's bring-up
 
-> **Demo scope (Oct 18 morning):** the demo uses three instruments (scalpel handle, hemostat, Mayo scissors), has no sharps safe spot and no hand tracking (the arm slows as it nears the handoff point), and the arm goes home after each handoff. Return on the real arm is manual. Steps below that teach `safe_spot` or use other trays are not needed for the demo.
+> **Demo scope (Oct 18 morning):** the demo uses three instruments (scalpel handle, hemostat, Mayo scissors), and the arm goes home after each handoff. Return on the real arm is manual. Steps below that teach `safe_spot` (cut) or use other trays are not needed for the demo. This is the controller bring-up procedure. The real-arm demo ran through the station instead (`explore/station/README.md`), 0 Perceptron training jobs were started, and no bench items were recorded, so the training, trial-matrix and bench steps were not carried out.
 
 The arm is on the Mac. Run every command from the repository root in zsh, with the
 repo venv active (it has LeRobot and Feetech; plain `python` is not on this Mac's PATH):

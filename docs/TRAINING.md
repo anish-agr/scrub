@@ -1,6 +1,6 @@
 # How to train Scrub (one page to share)
 
-> **Demo scope (Oct 18 morning):** the demo uses three instruments (scalpel handle, hemostat, Mayo scissors), has no sharps safe spot and no hand tracking (the arm slows as it nears the handoff point), and the arm goes home after each handoff. Return on the real arm is manual. The safe-spot ending for the scalpel below is out of scope; record the scalpel like the other picks, ending at the handoff point.
+> **Demo scope (Oct 18 morning):** the demo uses three instruments (scalpel handle, hemostat, Mayo scissors), and the arm goes home after each handoff. Return on the real arm is manual. This page is the plan. What happened: 29 episodes recorded (24 usable; scalpel handle, scalpel, hemostat, tweezers, spatula), none of the bench items below, lighting not logged per episode, and 0 Perceptron training jobs, so no model was trained or deployed. Real picks replay our recorded demonstrations (`explore/station/README.md`). Record the scalpel like the other picks, ending at the handoff point.
 
 This is the plain version. Every command with every flag is in `docs/BRINGUP.md` sections 6 to 8. Run all of this on **the laptop the arm is plugged into** (the Mac), from the repo root, after `source .venv/bin/activate` (plain `python` is not on the Mac's PATH without it).
 
@@ -116,7 +116,7 @@ Exact instruction text (from `settings/*.json`; aliases like "kelly" are for voi
 | wire_cutters | `pick the wire cutters` | `return the wire cutters` |
 | hex_key | `pick the hex key` | `return the hex key` |
 
-A non-sharp pick ends held, still, at the carry pose. A return starts from the return spot, places the item in its slot and ends at home. The scalpel pick ends at the safe spot; do not mix other endings under `pick the scalpel`.
+A non-sharp pick ends held, still, at the carry pose. A return starts from the return spot, places the item in its slot and ends at home. The scalpel pick ends at the handoff point like the other picks.
 
 ### One batch
 
