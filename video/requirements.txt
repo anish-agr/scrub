@@ -1,0 +1,10 @@
+numpy
+opencv-python
+Pillow
+imageio-ffmpeg>=0.6
+PyYAML
+playwright
+mujoco
+pyarrow
+# Optional face detection (clean --faces): pip install mediapipe
+# Optional framing review is deliberately not enabled by default.
