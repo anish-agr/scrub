@@ -85,7 +85,8 @@ def main() -> None:
     for name, c in cal.items():
         lo, hi = c["range_min"], c["range_max"]
         span = (hi - lo) * 360 / 4096
-        near = lo < WRAP_MARGIN or hi > 4095 - WRAP_MARGIN
+        # LeRobot never sweeps wrist_roll: it gets the full 0..4095 turn on purpose.
+        near = name != "wrist_roll" and (lo < WRAP_MARGIN or hi > 4095 - WRAP_MARGIN)
         ok &= not near
         print(f"{name:14s} {lo:5d} .. {hi:5d}  ({span:5.0f} deg){'   NEAR THE WRAP: recalibrate with the joint centred' if near else ''}")
     print("calibration looks good" if ok else "a range sits near the 0/4095 wrap: run this again and centre that joint first")
