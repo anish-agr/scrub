@@ -2,14 +2,9 @@
 
 A robot arm that passes instruments by voice. Built at DubHacks '26 (Oct 17 to 18, 2026).
 
-A clinician asks for an instrument out loud. The SO-101 arm picks it from the tray and brings it to the clinician's open hand, handle first, and lets go when they pull or say "got it." Scalpels go to a fixed safe spot instead of hand to hand. Instruments set in the return spot go back to their slots. Scrub keeps a running count and reads back what's out.
+A clinician asks for an instrument out loud. The SO-101 arm picks it from the tray, carries it to the handoff point, slows down as it gets there, and lets go when they pull or say "got it." Then it goes straight home on its own. Scrub keeps a running count and reads back what's out.
 
-Scrub is surgical first: the operating room tray is the main setting. The robotics bench tray is the second setting, to show that a new setting needs only demonstrations and no new code. A dental tray file exists in `settings/` but isn't demoed.
-
-| Setting | Items |
-| --- | --- |
-| Operating room | scalpel handle, hemostat, Mayo scissors |
-| Robotics bench | needle-nose pliers, wire cutters, hex key |
+The tray holds three instruments: scalpel handle, hemostat and Mayo scissors. On the real arm, putting an instrument back is manual. The demo video shows a simulated electromagnet return, labeled as simulation.
 
 ## How it fits together
 
@@ -18,15 +13,15 @@ phone on speaker
   -> Photon number -> ElevenLabs voice agent -> voice/ (Gemini turns words into a command)
                                                    |
                                                    v
-vision/ (camera: tray state + hand position) -> controller/ -> arm/ -> SO-101
-                                                   |            (Perceptron Isaac 0.5 model, or a taught skill)
+vision/ (camera: tray state) -> controller/ -> arm/ -> SO-101
+                                                   |            (taught skill today; Perceptron model once deployed)
                                                    v
                                     ledger/ (MongoDB) + dashboard/ (web page)
 ```
 
 Only the controller moves the arm. Everything else sends it information.
 
-Status, as of Oct 18: the controller, vision, voice, ledger, dashboard, sim arm and fake arm run and are tested. The phone path (Photon number into the ElevenLabs agent) is designed and being set up; the phone number is pending, and until it exists you can drive the same voice server with `cd voice && npm run say -- "grab me the kelly"`. No Isaac 0.5 model is deployed yet, so on the real arm the picks come from taught skills (`arm/taught.py`) and each event says which source moved the arm. The series and memory pages read the local ledger. Tiger Data and Backboard are not connected. What each tool does today, with proof commands, is in [docs/INTEGRATION.md](docs/INTEGRATION.md).
+Status, as of 07:15 Oct 18: the controller, vision, voice, ledger, dashboard, sim arm and fake arm run and are tested. On the real arm, the recording station (`explore/station/`) picks and hands over with skills we taught it: each one replays an averaged path from our recorded demonstrations. No Perceptron model is deployed (0 deployments), so no pick comes from a model, and each event says which source moved the arm. The Photon line (+1 785 867 1047) goes to the ElevenLabs agent and `voice/`; without a call you can drive the same voice server with `cd voice && npm run say -- "grab me the kelly"`. What each tool does today, with proof commands, is in [docs/INTEGRATION.md](docs/INTEGRATION.md).
 
 ## Folders and owners
 
@@ -39,10 +34,10 @@ Status, as of Oct 18: the controller, vision, voice, ledger, dashboard, sim arm 
 | `deploy/` | Vultr public page scripts and `python -m deploy` (checks every key and service) | Caiden |
 | `arm/` | LeRobot wrapper, hardware layer, `move_to`, taught skills, recording, training pipeline | Anish |
 | `docs/` | contracts, setup, arm and training guides, integration proof | Anish |
-| `vision/` | camera, MediaPipe hand tracker, calibration, Perceptron tray perception, event clips | Brandon |
+| `vision/` | camera, calibration, Perceptron tray perception, OCR reads, event clips | Brandon |
 | `dashboard/` | the web page and tablet view | Evan |
 | `ledger/` | MongoDB logging, success tables, case replay, public judge page | Evan |
-| `settings/` | one JSON file per tray | Evan |
+| `settings/` | one JSON file per tray (the demo uses `surgical.json`) | Evan |
 | `design/` | the shared stylesheet and its check scripts | Evan |
 | `video/` | builds the demo and arm videos from the ledger and dataset | Evan |
 | `team/` | the team's working notes (status, tasks, pitch, prompts). Removed before the repo goes public | everyone |
@@ -56,9 +51,9 @@ Status, as of Oct 18: the controller, vision, voice, ledger, dashboard, sim arm 
 - [docs/CONTRACTS.md](docs/CONTRACTS.md): the messages and endpoints every part codes against
 - [docs/SETUP.md](docs/SETUP.md): accounts, keys, installs
 - [docs/BRINGUP.md](docs/BRINGUP.md): first power-on of the arm and cameras
-- [docs/ARM.md](docs/ARM.md): connecting the arm, recording demos, fine-tuning
+- [docs/ARM.md](docs/ARM.md): connecting the arm, recording demos, training
 - [docs/TRAINING.md](docs/TRAINING.md): what to record and the operator checklist
-- [docs/TEACH.md](docs/TEACH.md): taught skills, the labeled backup to the model
+- [docs/TEACH.md](docs/TEACH.md): taught skills, what moves the real arm today
 - [docs/PERCEPTRON-ROBOTICS.md](docs/PERCEPTRON-ROBOTICS.md): Perceptron's training, inference and vision APIs (schema in `docs/perceptron-openapi.json`)
 - [docs/RECOGNITION.md](docs/RECOGNITION.md): tray recognition bench results
 - [docs/BUSINESS.md](docs/BUSINESS.md): the business case
@@ -95,7 +90,7 @@ A second stack beside a live one (for testing) needs `--base-port 8100 --offline
 | URL | What |
 | --- | --- |
 | http://localhost:8000/ | dashboard |
-| http://localhost:8000/demo | judge console: 1 surgical, 2 bench, R reset, Space stop, J judge mode |
+| http://localhost:8000/demo | judge console: 1 surgical, R reset, Space stop, J judge mode |
 | http://localhost:8000/ops | operator page: step, skill source, arm temperatures, camera rates, latencies, errors |
 | http://localhost:8000/nurse, /tablet.html | nurse console, tablet view |
 | http://localhost:8001/ | vision preview (`/stream` is the camera) |
@@ -110,7 +105,7 @@ At the demo table (the full run order is in [team/DEMO.md](team/DEMO.md)):
                                                  # the running stack: every part answers and connects
 ```
 
-`check` without `--url` starts its own fake stack on 8100 and checks that instead. With `--url` it never moves a real arm. It does switch to the bench tray and back, which clears the count, and on a fake or sim arm it runs one hemostat handover. So run it before a case, then `run_all reset`.
+`check` without `--url` starts its own fake stack on 8100 and checks that instead. With `--url` it never moves a real arm. It does switch to another tray setting and back, which clears the count, and on a fake or sim arm it runs one hemostat handover. So run it before a case, then `run_all reset`.
 
 Each part also runs alone: `.venv/bin/python -m controller --fake-arm` (8000), `.venv/bin/python -m vision --fake` (8001), `cd voice && npm run dev` (3000), `.venv/bin/python -m ledger serve` (8080). The docs write `python -m ...` for short; on the Mac that means `source .venv/bin/activate` first.
 
