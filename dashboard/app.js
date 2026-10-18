@@ -60,6 +60,7 @@ const model = {
   catalog: SETTINGS.surgical,
   serverCatalog: null,
   settingPending: false,
+  link: "connecting",
 };
 
 let socket = null;
@@ -73,7 +74,7 @@ const $ = (id) => document.getElementById(id);
 function nameOf(itemId) {
   if (!itemId) return "";
   const found = model.catalog.items.find((item) => item.id === itemId);
-  return found ? found.name : itemId.replaceAll("_", " ");
+  return found ? found.name : String(itemId).replaceAll("_", " ");
 }
 
 function clock(t) {
@@ -126,6 +127,12 @@ function render() {
   const log = $("log");
   const atBottom = log.scrollHeight - log.scrollTop - log.clientHeight < 24;
   log.replaceChildren();
+  if (!model.events.length) {
+    const empty = document.createElement("li");
+    empty.className = "empty";
+    empty.textContent = "No events yet.";
+    log.appendChild(empty);
+  }
   model.events.forEach((event) => {
     const li = document.createElement("li");
     const time = document.createElement("time");
@@ -138,7 +145,9 @@ function render() {
     if (event.item) bits.push(nameOf(event.item));
     if (event.step) bits.push(STEP_LABEL[event.step] || event.step);
     if (event.say) bits.push(event.say);
-    if (event.request_to_hand_s != null) bits.push(`${Number(event.request_to_hand_s).toFixed(1)}s`);
+    if (event.request_to_hand_s != null && !Number.isNaN(Number(event.request_to_hand_s))) {
+      bits.push(`${Number(event.request_to_hand_s).toFixed(1)}s`);
+    }
     detail.textContent = bits.join(" · ");
     if (event.say) detail.classList.add("say");
     li.append(time, kind, detail);
@@ -147,8 +156,16 @@ function render() {
   if (atBottom) log.scrollTop = log.scrollHeight;
 
   const pill = $("link-pill");
-  pill.textContent = model.live ? "live" : "sample";
-  pill.className = model.live ? "pill live" : "pill offline";
+  if (!model.live) {
+    pill.textContent = "sample";
+    pill.className = "pill offline";
+  } else if (model.link === "live") {
+    pill.textContent = "live";
+    pill.className = "pill live";
+  } else {
+    pill.textContent = model.link === "reconnecting" ? "reconnecting" : "connecting";
+    pill.className = "pill offline";
+  }
 
   if (SHOWN_SETTINGS.includes(model.setting)) $("setting").value = model.setting;
   $("lighting").value = model.lighting;
@@ -447,10 +464,21 @@ async function stopArm() {
 }
 
 function openSocket() {
-  if (socket) socket.close();
+  if (socket) {
+    socket.onclose = null;
+    socket.onmessage = null;
+    socket.close();
+  }
   const protocol = location.protocol === "https:" ? "wss" : "ws";
-  socket = new WebSocket(`${protocol}://${location.host}/events`);
-  socket.onmessage = (message) => {
+  const current = new WebSocket(`${protocol}://${location.host}/events`);
+  socket = current;
+  current.onopen = () => {
+    if (socket !== current) return;
+    model.link = "live";
+    pullRecent();
+    render();
+  };
+  current.onmessage = (message) => {
     try {
       const payload = JSON.parse(message.data);
       const events = Array.isArray(payload) ? payload : [payload];
@@ -459,14 +487,19 @@ function openSocket() {
       /* ignore a malformed frame */
     }
   };
-  socket.onclose = () => {
-    if (model.live) setTimeout(openSocket, 1000);
+  current.onclose = () => {
+    if (socket !== current || !model.live) return;
+    model.link = "reconnecting";
+    render();
+    setTimeout(() => {
+      if (socket === current && model.live) openSocket();
+    }, 1000);
   };
 }
 
 function rateText(row) {
   const pct = percent(row.success_rate);
-  if (row.wilson_low == null || row.wilson_high == null) return pct;
+  if (row.wilson_low == null || row.wilson_high == null || row.successes == null || row.attempts == null) return pct;
   return `${pct} (${row.successes} of ${row.attempts}, ${percent(row.wilson_low)} to ${percent(row.wilson_high)})`;
 }
 
@@ -485,12 +518,17 @@ function seconds(value) {
   return `${Number(value).toFixed(1)}s`;
 }
 
+function tableRows(rows) {
+  return Array.isArray(rows) ? rows.filter((row) => row && typeof row === "object") : [];
+}
+
 function fillTable(tableId, rows, labelKey) {
   const body = document.querySelector(`#${tableId} tbody`);
   body.replaceChildren();
-  rows.forEach((row) => {
+  tableRows(rows).forEach((row) => {
     const tr = document.createElement("tr");
-    const label = labelKey === "item" ? nameOf(row.item) : row[labelKey];
+    const raw = labelKey === "item" ? nameOf(row.item) : row[labelKey];
+    const label = raw == null ? "" : String(raw);
     [label, row.attempts, rateText(row), seconds(row.median_request_to_hand_s)].forEach((value) => {
       const cell = document.createElement("td");
       cell.textContent = value;
@@ -501,22 +539,26 @@ function fillTable(tableId, rows, labelKey) {
 }
 
 function paintStats(report) {
-  const rows = (report && report.by_item ? report.by_item.length : 0) + (report && report.by_lighting ? report.by_lighting.length : 0);
-  $("median").textContent = `Median handoff ${seconds(report && report.median_request_to_hand_s)}`;
+  const safe = report && typeof report === "object" ? report : {};
+  const itemRows = tableRows(safe.by_item);
+  const lightRows = tableRows(safe.by_lighting);
+  const rows = itemRows.length + lightRows.length;
+  $("median").textContent = `Median handoff ${seconds(safe.median_request_to_hand_s)}`;
   const recent = model.events
     .filter((event) => event.request_to_hand_s != null)
     .slice(-6)
     .map((event) => seconds(event.request_to_hand_s));
   $("handoffs").textContent = recent.length ? `Recent handoffs ${recent.join(", ")}` : "";
-  const next = report && report.next_likely;
+  const next = safe.next_likely;
   const line = $("next-likely");
   if (line) {
+    const share = next ? Number(next.share) : NaN;
     line.textContent = next && next.item
-      ? `Likely next: ${nameOf(next.item)} (${Math.round(Number(next.share) * 100)}%)`
+      ? `Likely next: ${nameOf(next.item)}${Number.isNaN(share) ? "" : ` (${Math.round(share * 100)}%)`}`
       : "";
   }
-  fillTable("by-item", (report && report.by_item) || [], "item");
-  fillTable("by-lighting", (report && report.by_lighting) || [], "lighting");
+  fillTable("by-item", itemRows, "item");
+  fillTable("by-lighting", lightRows, "lighting");
   document.querySelector(".tables").classList.toggle("has-rows", rows > 0);
 }
 
@@ -715,6 +757,7 @@ function wire() {
 function goLive(state) {
   clearFakeTimers();
   model.live = true;
+  model.link = "connecting";
   model.events = [];
   samplePlayed = false;
   $("banner").hidden = true;

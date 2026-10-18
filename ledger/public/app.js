@@ -18,7 +18,7 @@ function nameOf(itemId) {
 
 function rateText(row) {
   const pct = percent(row.success_rate);
-  if (row.wilson_low == null || row.wilson_high == null) return pct;
+  if (row.wilson_low == null || row.wilson_high == null || row.successes == null || row.attempts == null) return pct;
   return `${pct} (${row.successes} of ${row.attempts}, ${percent(row.wilson_low)} to ${percent(row.wilson_high)})`;
 }
 
@@ -32,12 +32,17 @@ function seconds(value) {
   return `${Number(value).toFixed(1)}s`;
 }
 
+function tableRows(rows) {
+  return Array.isArray(rows) ? rows.filter((row) => row && typeof row === "object") : [];
+}
+
 function fillTable(tableId, rows, labelKey) {
   const body = document.querySelector(`#${tableId} tbody`);
   body.replaceChildren();
-  rows.forEach((row) => {
+  tableRows(rows).forEach((row) => {
     const tr = document.createElement("tr");
-    const label = labelKey === "item" ? nameOf(row.item) : row[labelKey];
+    const raw = labelKey === "item" ? nameOf(row.item) : row[labelKey];
+    const label = raw == null ? "" : String(raw);
     [label, row.attempts, rateText(row), seconds(row.median_request_to_hand_s)].forEach((value) => {
       const cell = document.createElement("td");
       cell.textContent = value;
@@ -48,9 +53,10 @@ function fillTable(tableId, rows, labelKey) {
 }
 
 function paint(report) {
+  const safe = report && typeof report === "object" ? report : {};
   const out = $("out");
   out.replaceChildren();
-  const items = report.out || [];
+  const items = Array.isArray(safe.out) ? safe.out : [];
   if (!items.length) {
     const empty = document.createElement("li");
     empty.className = "empty";
@@ -63,10 +69,12 @@ function paint(report) {
       out.appendChild(li);
     });
   }
-  $("median").textContent = `Median handoff ${seconds(report.median_request_to_hand_s)}`;
-  fillTable("by-item", report.by_item || [], "item");
-  fillTable("by-lighting", report.by_lighting || [], "lighting");
-  const rows = (report.by_item || []).length + (report.by_lighting || []).length;
+  $("median").textContent = `Median handoff ${seconds(safe.median_request_to_hand_s)}`;
+  const itemRows = tableRows(safe.by_item);
+  const lightRows = tableRows(safe.by_lighting);
+  fillTable("by-item", itemRows, "item");
+  fillTable("by-lighting", lightRows, "lighting");
+  const rows = itemRows.length + lightRows.length;
   document.querySelector("main").classList.toggle("has-rows", rows > 0);
   $("status").hidden = true;
 }
@@ -78,8 +86,9 @@ async function loadCases() {
     const response = await fetch("/api/cases", { cache: "no-store" });
     if (!response.ok) throw new Error("bad");
     const rows = await response.json();
+    if (!Array.isArray(rows)) throw new Error("bad");
     list.replaceChildren();
-    const shown = (rows || []).slice(0, 8);
+    const shown = rows.slice(0, 8);
     if (!shown.length) {
       const empty = document.createElement("li");
       empty.textContent = "No cases yet.";
@@ -103,7 +112,8 @@ async function refresh() {
   try {
     const response = await fetch("/api/stats", { cache: "no-store" });
     if (!response.ok) throw new Error("bad");
-    paint(await response.json());
+    const report = await response.json();
+    paint(report);
   } catch (error) {
     $("status").hidden = false;
     $("status").textContent = "The ledger is not answering.";
