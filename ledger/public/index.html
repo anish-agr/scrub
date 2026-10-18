@@ -1,14 +1,23 @@
 <!DOCTYPE html>
-<html lang="en">
+<!-- STYLE: Swiss nurse-station status board on warm paper. -->
+<html lang="en" data-theme="paper">
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>Scrub</title>
   <link rel="stylesheet" href="style.css">
+  <style>
+    main{display:grid;grid-template-columns:minmax(0,1.25fr) minmax(0,1fr);gap:0 32px}
+    .intro{grid-column:1;grid-row:1}.live-count{grid-column:2;grid-row:1}.method,.results,.recent-cases,.team,.tracks-section{grid-column:1/-1}
+    .intro p:not(.lead):not(.kicker){max-width:65ch}.live-count .out li{font-size:32px}.live-count .median{padding-top:20px;border-top:1px solid var(--hair)}
+    .diagram{font:12px/1.6 var(--m);white-space:pre-wrap;overflow-wrap:anywhere;background:var(--paper2);padding:16px;margin:16px 0}
+    .stack{display:none;padding-left:20px}.stack li{padding:8px 0}.tracks{columns:2;column-gap:32px}.tracks li{break-inside:avoid}
+    @media(max-width:800px){main{grid-template-columns:minmax(0,1fr)}.intro,.live-count{grid-column:1;grid-row:auto}.diagram{display:none}.stack{display:block}.tracks{columns:1}}
+  </style>
 </head>
-<body>
+<body class="scrub-ui" data-page="judge">
   <header class="top">
-    <span class="mark">Scrub</span>
+    <div><span class="mark">Scrub</span><span class="subtitle">Instrument count and case record</span></div>
     <nav>
       <a href="cases.html">Cases</a>
       <a href="series.html">Series</a>
@@ -17,10 +26,10 @@
     </nav>
   </header>
 
-  <p id="status" class="banner" hidden></p>
+  <p id="status" class="banner warning" role="status" hidden></p>
 
   <main>
-    <section>
+    <section class="intro">
       <p class="kicker">What it is</p>
       <p class="lead">Scrub is a robot arm that passes instruments when you ask out loud.</p>
       <p>It picks the tool from the tray and brings it to an open hand, handle first. A scalpel goes to a fixed safe spot instead of hand to hand.</p>
@@ -29,7 +38,7 @@
       <p>A research prototype, not a medical device.</p>
     </section>
 
-    <section>
+    <section class="method">
       <p class="kicker">How it works</p>
       <pre class="diagram">phone on speaker
   -&gt; Photon number -&gt; ElevenLabs voice agent -&gt; voice/ (Gemini turns words into a command)
@@ -48,13 +57,13 @@ vision/ (camera: tray state + hand position) -&gt; controller/ -&gt; arm/ -&gt; 
       </ol>
     </section>
 
-    <section>
+    <section class="live-count">
       <p class="kicker">Out right now</p>
       <ul id="out" class="out"></ul>
       <p id="median" class="median">Median handoff</p>
     </section>
 
-    <section>
+    <section class="results">
       <p class="kicker">Results</p>
       <p class="note">Each rate includes the tries and a 95% range.</p>
       <div class="table-wrap">
@@ -76,17 +85,17 @@ vision/ (camera: tray state + hand position) -&gt; controller/ -&gt; arm/ -&gt; 
       <p id="tables-empty" class="empty-note">No real-arm tries yet.</p>
     </section>
 
-    <section>
+    <section class="recent-cases">
       <p class="kicker">Cases</p>
       <ul id="replays" class="cases"></ul>
     </section>
 
-    <section>
+    <section class="team">
       <p class="kicker">Team</p>
       <p>Anish, Caiden, Brandon, Evan. DubHacks '26.</p>
     </section>
 
-    <section>
+    <section class="tracks-section">
       <p class="kicker">Tracks</p>
       <ul class="tracks">
         <li><b>Community Kitchen.</b> A working assistant for a real staffing gap in health care.</li>
@@ -103,6 +112,7 @@ vision/ (camera: tray state + hand position) -&gt; controller/ -&gt; arm/ -&gt; 
       </ul>
     </section>
   </main>
+  <footer>Team Scrub · DubHacks '26 <a href="#">Terms</a><a href="#">Privacy</a></footer>
   <script src="app.js"></script>
 </body>
 </html>

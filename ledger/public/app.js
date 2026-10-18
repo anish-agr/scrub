@@ -23,12 +23,12 @@ function rateText(row) {
 }
 
 function percent(rate) {
-  if (rate == null || Number.isNaN(Number(rate))) return "—";
+  if (rate == null || Number.isNaN(Number(rate))) return "--";
   return `${Math.round(Number(rate) * 100)}%`;
 }
 
 function seconds(value) {
-  if (value == null || Number.isNaN(Number(value))) return "—";
+  if (value == null || Number.isNaN(Number(value))) return "--";
   return `${Number(value).toFixed(1)}s`;
 }
 
