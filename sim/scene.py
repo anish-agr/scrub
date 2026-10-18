@@ -34,6 +34,15 @@ ITEMS = {
     "screwdriver": ([
         'type="capsule" fromto="0 -0.06 0 0 -0.015 0" size="0.009"',
         'type="capsule" fromto="0 -0.015 0 0 0.055 0" size="0.0025"'], "0.85 0.15 0.15 1"),
+    "flathead_screwdriver": ([
+        'type="capsule" fromto="0 -0.05 0 0 -0.015 0" size="0.008"',
+        'type="capsule" fromto="0 -0.015 0 0 0.045 0" size="0.0025"',
+        'type="box" pos="0 0.048 0" size="0.004 0.005 0.001"'], "0.85 0.15 0.15 1"),
+    "phillips_screwdriver": ([
+        'type="capsule" fromto="0 -0.05 0 0 -0.015 0" size="0.008"',
+        'type="capsule" fromto="0 -0.015 0 0 0.045 0" size="0.0025"',
+        'type="box" pos="0 0.048 0" size="0.003 0.005 0.001"',
+        'type="box" pos="0 0.048 0" size="0.001 0.005 0.003"'], "0.15 0.35 0.85 1"),
 }
 PARK = (0.0, 0.0, -1.0)  # items of other settings wait out of sight
 
@@ -67,11 +76,15 @@ def _patched_arm():
     return re.sub(r'(<body name="wrist_camera"[^>]*>)', r"\1" + cam, s, count=1)
 
 
+def tray_slots(layout):
+    return layout.get("setting_slots", {}).get(layout.get("setting", "surgical"), layout["slots"])
+
+
 def tray_slot(layout, item):
     """The (x, y) tray slot of an item in the active setting, or None."""
     items = layout.get("setting_items", {}).get(layout.get("setting", "surgical"), [])
     # Only the active tray: another tray's item has no slot here (its index would point at this tray's item).
-    return layout["slots"][items.index(item)] if item in items else None
+    return tray_slots(layout)[items.index(item)] if item in items else None
 
 
 def slot_position(layout, item):
@@ -107,7 +120,7 @@ def build(layout=None):
         for n, p, c in marks)
     slots_xml = "\n".join(
         f'    <geom name="slot{i}" type="box" size="0.035 0.035 0.0005" pos="{p[0]} {p[1]} 0.0066" rgba="0.15 0.15 0.15 1" contype="0" conaffinity="0"/>'
-        for i, p in enumerate(L["slots"]))
+        for i, p in enumerate(tray_slots(L)))
     hx, hy, hz = L["hand_zone"]
     xml = f"""<mujoco model="scrub_scene">
   <include file="_arm.xml"/>
