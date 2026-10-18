@@ -56,7 +56,7 @@ async function chatCompletions(req: http.IncomingMessage, res: http.ServerRespon
   // A busy call never takes over where the active call's end-of-case text goes.
   if (!busy) setCaller(callerFrom(messages));
   const act = (say: (l: string) => void, signal?: AbortSignal) =>
-    !heard ? Promise.resolve() : busy && !isStop(heard) ? Promise.resolve(say(BUSY_LINE)) : handleTurn(heard, say, signal, t0);
+    !heard ? Promise.resolve() : busy && !isStop(heard) ? Promise.resolve(say(BUSY_LINE)) : handleTurn(heard, say, signal, t0, `call:${conv || callerFrom(messages) || "anonymous"}`);
 
   if (body.stream === false) {
     const lines: string[] = [];
@@ -92,9 +92,9 @@ const server = http.createServer(async (req, res) => {
       return json(res, 401, { error: "bad key" });
     }
     if (req.method === "POST" && url === "/heard") {
-      const { text: heard = "" } = await readBody(req);
+      const { text: heard = "", context } = await readBody(req);
       const lines: string[] = [];
-      await handleTurn(String(heard), (l) => lines.push(l), undefined, t0);
+      await handleTurn(String(heard), (l) => lines.push(l), undefined, t0, typeof context === "string" ? `local:${context.slice(0, 100)}` : "local");
       return json(res, 200, { heard, say: lines });
     }
     if (req.method === "POST" && url === "/summary") return json(res, 200, await endCase());

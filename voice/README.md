@@ -33,6 +33,14 @@ caller -> Photon number -> Photon Voice profile (SIP, TLS) -> ElevenLabs agent (
 
 ## Texts
 
+### Which one?
+
+Items may optionally have `group` and `variant` strings. A shared alias or group word (for example `scissors`) asks which one before posting any movement command. Say the variant, full name, first/second, either/any/you pick, or cancel/never mind. A question expires after 15 seconds; a late answer never moves the arm. Stop always bypasses questions, settings and Gemini. Gemini can also suggest a bounded list of candidates or request a yes/no confirmation for an uncertain interpretation; movement waits for yes.
+
+The same flow runs on calls and Photon text threads. Questions are scoped to `Conversation:` (caller id as fallback), a Photon space id (sender as fallback), or `/heard`'s optional `context` string. Text replies never answer a call's question. `POST /command` may return `clarify: {say,item,candidates,question_id?}` or emit a `clarify` event with the originating `command_id`. Candidates accept `{item?,id?,label?,variant?,side?,slot?,instance?}`; left/right/closest answers become `Command.instance`, never a new action or invented item. Voice-generated questions and answers are sent best-effort to `POST /clarify` for telemetry. An HTTP-only controller refusal such as "already out" is spoken too, with duplicate event lines suppressed.
+
+`npm test` includes `scripts/test-which-one.ts`: deterministic ambiguity and Gemini validation, every choice/cancel phrase, fake-clock expiry, independent call/text contexts, by-sight command routing, telemetry, and real `/heard` and `/v1/chat/completions` routes against a fake controller. No hardware or API keys.
+
 Text the Photon number (same iMessage thread as the end-of-case summary). The listener only starts when `PHOTON_PROJECT_ID` and `PHOTON_API_KEY` are in `.env`; otherwise the server logs `[texts] off`. Gemini reads the text (structured output, the current setting's item ids plus `surgical`/`bench`); with no key or a Gemini error it falls back to a local match.
 
 | You text | Scrub replies |

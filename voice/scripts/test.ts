@@ -980,3 +980,5 @@ console.log("voice tests passed");
   assert.match(templateSummary(sf), /^Still out: hemostat\. Check the count\.\nCount sheet disagrees: hemostat \(sheet 1, Scrub 0\)\.\nExpired pack: scalpel, 2026-10-01\.\n/);
   console.log("voice text read and photo tests passed");
 }
+
+await import("./test-which-one.js");
