@@ -11,6 +11,7 @@ from dotenv import load_dotenv
 
 from vision.app import create_app
 from vision.camera import FakeCapture, lock_controls, open_capture
+from vision.sim_source import SimCapture
 from vision.hand import synthetic_landmarks
 from vision.service import ROOT, build_runtime, start_loops
 from vision.tray import FakeDetector
@@ -29,6 +30,8 @@ def main(argv: list[str] | None = None) -> None:
     load_dotenv(ROOT / ".env")
     parser = argparse.ArgumentParser(description="Scrub overhead vision")
     parser.add_argument("--fake", action="store_true", help="synthetic camera, hand, and tray")
+    parser.add_argument("--source", choices=("camera", "sim"), default=os.environ.get("VISION_SOURCE", "camera"),
+                        help="sim reads the overhead MJPEG from the MuJoCo sim (port 8002)")
     parser.add_argument("--port", type=int, default=int(os.environ.get("VISION_PORT", "8001")))
     # 127.0.0.1 keeps the camera stream off the venue network. --host 0.0.0.0 (or VISION_HOST) opens it, for a
     # dashboard or nurse page opened from another device: they read the stream at <their host>:8001.
@@ -50,6 +53,11 @@ def main(argv: list[str] | None = None) -> None:
             fake_calibration=True,
         )
         logger.info("fake camera, exposure locked=%s", controls)
+    elif args.source == "sim":
+        capture = SimCapture()
+        controls = lock_controls(capture, exposure=-6, white_balance=4500)
+        logger.info("sim overhead %s", capture.url)
+        runtime = build_runtime(capture, controls=controls)
     else:
         index = int(os.environ.get("CAMERA_INDEX", "0"))
         capture = open_capture(index)
