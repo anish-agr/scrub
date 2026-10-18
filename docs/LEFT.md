@@ -1,34 +1,206 @@
-# What's left (Sat Oct 17, after the comb pass)
+# What's left (Sun Oct 18, 1:45 AM)
 
-The software is finished for the demo: every planned feature is built, the comb fixed every critical and high finding (`docs/AUDIT.md`), and every test suite passes. What remains is hardware and accounts, which only people can do. Two ordered lists replace this file:
+The one list of what is left before judging. It replaces STATUS, WORKING-NOW, NEXT, TASKS, PLAN, HARDWARE-TODO and ACCOUNTS-TODO. What exists and works now is in `docs/STATE.md`. If something is done, it is not here; delete an item when it is done.
 
-- **`docs/HARDWARE-TODO.md`**: every arm, camera, recording, training and test step, in order, with the exact command for this Mac, what you should see, and what to do if you don't. Start at step 1 (the wrist camera).
-- **`docs/ACCOUNTS-TODO.md`**: every key and account (Perceptron team key, Hugging Face, ElevenLabs agent, Photon line, MongoDB on this Mac, Vultr, GoDaddy, Devpost, Commit Fellowship, DEV), with where to get it and whether it works now.
+Commands are bash on the arm Mac, from the repo root. `.venv/bin/python` is the Python. One process owns the arm ports and the cameras at a time: stop teleop, the recorder or station, `arm.teach`, the controller and `python -m vision` before the next step. Follower `/dev/tty.usbmodem5C821089781`, leader `/dev/tty.usbmodem5C821067211`, calibration ids `scrub_follower` and `scrub_leader`. Never paste a key into chat, a doc or a commit.
 
-`docs/STATUS.md` stays the checklist. `docs/STATE.md` is the map of the system. `docs/WORKING-NOW.md` says who is editing what.
+Fixed deadlines: final Devpost submitted by 9:30 AM (locks 10:00, needs the public repo and the 2 to 3 minute video), everyone in the HUB Ballroom at 10:20, judging from 10:30.
 
-> **Scope (Sat 6:30 PM): no dental tools, so the dental setting is dropped.** Scrub is surgical first. The demo runs the operating room tray, plus the robotics bench tray to show a second setting with no new code. `settings/dental.json` stays in the code but isn't recorded or demoed.
+Roles: Anish arm, training and the pitch. Caiden controller, voice and tools. Brandon vision and the clinician hand. Evan tray, lamp, `docs/DATA-LOG.md`, Devpost and the video edit.
 
-## Decisions the team still owes
+## People only
 
-| Decision | Why it matters | Where |
+Ordered by deadline. Arm items point to a step in "Tonight's plan" and a procedure in "Arm procedures" below.
+
+### Training job ids (Anish, now, by 2:00)
+Anish reported 2 successful training jobs. No doc or file records their ids, and `arm.train deployments` lists 0 deployments. Send both ids in the chat, then for each:
+`.venv/bin/python -m arm.train status job <id>`
+If both jobs used the team's quota of 2 successful jobs, run 1 below cannot start: ask the Perceptron staff before spending anything.
+
+### Clear the wrong deployment id (Caiden, by 2:00)
+`PERCEPTRON_DEPLOYMENT_ID` in `.env` is reported to hold a vision API key, not a deployment id (`python -m deploy`: "id not among 0 deployments"; on Oct 18 at 00:50 `status deployment` on it returned HTTP 404). Edit `.env` so the line reads `PERCEPTRON_DEPLOYMENT_ID=` (empty). After run 1 deploys, the pipeline writes the real id; check with `.venv/bin/python -m arm.train deployments` and `.venv/bin/python -m deploy` (Perceptron deployment PASS).
+
+### Set the follower port (Caiden, by 2:00)
+`SO101_PORT` is missing from `.env`, and `arm.teach skill`, `arm.taught --check` and the controller read it. Add `SO101_PORT=/dev/tty.usbmodem5C821089781`. Check: `.venv/bin/python -m deploy` lists SO101_PORT as set.
+
+### Restart vision and the controller on the new builds (Brandon for vision, Caiden for the controller, by 2:00)
+Vision on :8001 is an older `--fake` build: its `/health` has no `fps` or `detect_p50_ms`. The controller on :8000 is a fake-arm build with no `skills` in `/state`.
+1. Ctrl+C the old `python -m vision --fake` (or `kill` its pid from `ps aux | grep "vision --fake"`).
+2. With the overhead camera plugged in: `.venv/bin/python -m vision`. It binds 127.0.0.1 now. If a phone or tablet must show the stream, start it with `VISION_HOST=0.0.0.0 .venv/bin/python -m vision`.
+3. `curl -s localhost:8001/health`: you should see `camera: true`, `fps` and, after a few detects on the real camera, `detect_p50_ms`. Write that number in the chat; `TRAY_STALE_S` (8 s) must stay above it.
+4. Restart the controller the same way (or stop it and use `run_all`), then `curl -s localhost:8000/state` should include `skills`.
+
+### Cache the MediaPipe model (Brandon, by 2:00)
+`vision/models/` is empty, so the first `python -m vision` downloads the hand model. Run `.venv/bin/python -m vision` once on internet (the restart above does it), then `ls vision/models` should list the model file. After that vision starts offline.
+
+### Devpost draft check (Evan, by 2:30)
+STATUS never confirmed the Saturday draft. Open https://devpost.com, the DubHacks '26 project, Edit: confirm the team, the draft text from `docs/DEVPOST.md` and the tracks. Per `docs/INTEGRATION.md`, do not tick MLH Tiger Data or MLH Backboard unless their keys land (see below).
+
+### Arm night run (Anish, Evan, Brandon, Caiden, 1:45 to 8:15)
+The ordered run is "Tonight's plan" below: cameras, tape, teleop test, poses, run 1 data, gates, run 1, more data and taught skills, real tries, run 2, more tries, filming. Each step names who and which process owns the arm.
+
+### Teach poses and set hardware_verified (Anish, by 2:30; hardware_verified after procedure 10)
+`arm/rig.json` has a measured `home`, but `carry` and `safe_spot` are null and `hardware_verified` is false. Teach them with procedure 5. Set `hardware_verified: true` only after the five-point reach check and the gripper load check pass (procedure 10). `arm.taught --check` on the arm and the real-arm controller need it.
+
+### Teach the taught skills (Anish, by 4:15)
+`arm/skills/surgical/` is empty. Teach pick and return for `hemostat`, `mayo_scissors` and `scalpel` with `docs/TEACH.md`, about 15 minutes per item:
+`.venv/bin/python -m arm.teach skill hemostat pick --setting surgical --supported-and-empty`
+`.venv/bin/python -m arm.teach skill hemostat return --setting surgical --supported-and-empty`
+Check without the arm: `.venv/bin/python -m arm.taught --check --setting surgical --fake` (every item `ok`, final PASS). Check on the arm once `hardware_verified` is true: `.venv/bin/python -m arm.taught --check --setting surgical`. The plan records no bench episodes, so the bench tray has no real-arm skill unless someone also teaches `--setting bench` items.
+
+### Real-try measurements: latency, sessions, pull release (Anish and Caiden, during plan step 8, by 5:10)
+1. M6 and M7: after 5 picks on the real arm, `curl -s localhost:8000/arm/pose | jq .counters`. If `late / (accepted + late)` is over 0.2, move the arm Mac to a phone hotspot or a wired link and measure again.
+2. M8: if the controller start prints 3 or more `HTTP 409` lines, the deployment caps sessions. Say so in the chat; Caiden decides whether to pre-open fewer.
+3. Pull release: close the gripper on a real hemostat and read the held load, then have a person pull and read it again (procedure 10.2). Set `PULL_COLLAPSE_FRAC` in `.env` to a share between the pulled and held loads (default 0.3; `0` turns it off). If the load does not change, leave it off and release on "got it".
+4. If the hand flickers open and closed in the vision preview and stops the approach, set `HAND_CLOSED_READS=0` in `.env` and restart the controller.
+
+### Slot boxes and camera-to-arm calibration (Brandon with Anish, by 6:30)
+`slot` and `return_spot` are null in `settings/surgical.json` and `settings/bench.json`, and `vision/calibration.json` does not exist. Procedure 8 (B5 and B6). Brandon marks slot boxes on his own view while Anish records; calibration needs the arm still and the controller stopped.
+
+### Lighting tests (Brandon, by 6:30)
+With the real overhead camera: `.venv/bin/python -m vision.lighting --all-conditions --csv ~/scrub-lighting.csv` (bright, normal, dim in turn). Post the hand, detect and stale rates per light in the chat.
+
+### Backup video (Evan or Caiden, by 7:00)
+Screen-record the sim backup with the dashboard open: `.venv/bin/python -m controller.run_all backup --offline --loop --pause 2`. Stop any stack on :8000 first. Label it as the sim in the video. Used for demo level 3 (`docs/DEMO.md`).
+
+### Perceptron staff message (Anish, by 8:00)
+Send the message in `docs/DEMO.md` ("Message for Anish to send the Perceptron staff"): can the arm come to the Ballroom, is there an outlet, live or video only. Adjust it to what is true (do not say a fine-tuned model runs until a deployment passes tries).
+
+### Backup slide deck (Caiden, by 8:00)
+Build the 5-slide Google Slides deck from `docs/SLIDES.md` (diagram `docs/media/system.png`) and paste the link in `docs/SLIDES.md` and the chat. Leave the success-table slide marked "to fill from the ledger" until plan step 13.
+
+### Perceptron arm video and demo video (Anish operates, Evan films and edits, Caiden runs `video/`, 7:15 to 8:15)
+Plan step 12 and procedure 14. Real tries only. Write ledger events for the cut with `.venv/bin/python -m video export-ledger`, then render `.venv/bin/python -m video render --edl video/edl/perceptron-arm.yaml --bindings edit.json --output renders/perceptron-arm.mp4` (`video/README.md`, `docs/VIDEO-TOOL.md`). The demo video (2 to 3 minutes) uses `video/edl/demo.yaml` and the shot list in `docs/DEVPOST.md`. Upload both. Say "cleaned" if a failed try is cut. Never call it clinically validated.
+
+### Domain and HTTPS (Evan or Brandon, by 8:30)
+No domain is bought, so `SCRUB_PUBLIC_URL` is empty and the replay link in the summary text has no host. Steps in `deploy/README.md` (GoDaddy, HTTPS):
+1. MLH GoDaddy Registry offer on the DubHacks sponsor page, buy one short domain.
+2. Manage DNS: A record `@` to `144.202.95.111`, TTL 600; CNAME `www` to `@`, TTL 600.
+3. HTTPS from a Windows machine (this Mac has no `pwsh`): `powershell -File deploy/enable_https.ps1 -Target root@144.202.95.111 -Domain <domain> -Email <school email>`.
+4. Add `SCRUB_PUBLIC_URL=https://<domain>` to `.env`; `.venv/bin/python -m deploy` shows Vultr public page PASS on the domain.
+If not done by 8:30, the QR card and Devpost use `http://144.202.95.111/` and MLH GoDaddy is dropped from the tracks.
+
+### Make the repo public (Anish, the repo owner, at 8:30)
+`docs/README-PUBLIC.md` becomes `README.md` (commit it), then on GitHub `anish-agr/dubhacks-2026`, Settings, Change visibility, Public (or `gh repo edit anish-agr/dubhacks-2026 --visibility public --accept-visibility-change-consequences`). The history was scanned for keys on Oct 17 (no hits, `.env` never committed); rerun `git log -p | grep -iE "api_key|secret|mongodb\+srv"` on anything added since.
+
+### Tiger Data and Backboard: keys or drop (Evan, by 9:15)
+`TIGER_DATABASE_URL`, `BACKBOARD_API_KEY` and `BACKBOARD_ASSISTANT_ID` are missing; the pages run from the local ledger. Either add them (Tiger: https://console.cloud.timescale.com, new service, copy the `postgresql://...` URL into `TIGER_DATABASE_URL`; Backboard: https://app.backboard.io, API key plus an assistant named Scrub; then `.venv/bin/python -m deploy` PASS), or remove both from Devpost and `docs/DEVPOST.md` (lines 25 and 26 and the built-with list at line 116, per `docs/INTEGRATION.md`).
+
+### Fill the measured numbers and pick the demo level (Evan for Devpost, Caiden for docs, Anish reviews, 8:15 to 9:15)
+Plan step 13. Fill every `[measured]` and "to fill from the ledger" in `docs/PITCH.md`, `docs/DEVPOST.md` and the slides from `curl -s localhost:8080/api/stats` (real-arm tries only). Mark anything unproven as unproven; claim "fine-tuned" only for items whose model picks passed. Anish picks the demo level from `docs/DEMO.md` (level 1 `--skills auto`, level 2 `--skills taught`, level 3 sim backup next to the real video).
+
+### Final Devpost (Evan, by 9:30)
+Upload the demo video, paste the final text from `docs/DEVPOST.md`, link the public repo, check the tracks, submit. Screenshot in the chat.
+
+### Pack for the Ballroom (everyone, 9:15 to 9:30)
+Arm, power strip, spare USB cable, laptop, tape, trays, towel, lamp, phone. In the HUB Ballroom by 10:20.
+
+### MLH Commit Fellowship form (Anish, after the Devpost submit, by 10:00)
+https://mlh.link/commit-fellowship-form.
+
+### Rehearsal (everyone, 9:30 to 10:20 and in line)
+Three runs of `docs/DEMO.md`, under 3 minutes twice in a row. Anish speaks, Brandon is the clinician hand, Caiden runs the stack and the stop key (Space), Evan swaps trays and the lamp. Judging command on the real arm: `.venv/bin/python -m controller.run_all --real --tunnel`. Between judges: `.venv/bin/python -m controller.run_all reset`.
+
+### Phone call
+Steps being finalized: see voice/README.md Call setup.
+
+### Thermal baseline experiment (Caiden, only when the arm is free; not needed for the demo)
+TH2 in `explore/research/overheating/HANDOFF.md`: baseline experiment 1, then fan-only experiment 2, every follower motor at or under 47 C at the start, up to 10 minutes of the fixed routine, never bypass the 60 C cooldown. Analyze with `.venv/bin/python explore/thermal_analyze.py --session <id>` and append the C/min per motor to HANDOFF Results.
+
+### DEV post (Anish, after the event)
+https://dev.to, New Post, the writeup from the last section of `docs/DEVPOST.md`, the MLH hackathon tag, link it in Devpost.
+
+## Tonight's plan
+
+Written 00:45 for 00:45 to 09:30. Goal: a fine-tuned model that passes real tries, and a Perceptron arm video. Training is the only thing on a clock, so the data steps come first and everything else runs while it trains. Times are targets; if a step slips, cut in the order at the end. At 1:45 nothing in the repo shows step 1 or later done, and no recorder holds the ports.
+
+Rule for every step: one process owns the arm ports and the cameras. Stop the one before it first. The recorder is `.venv/bin/python -m arm.record` (over `explore/arm_session.py`) or the persistent station `.venv/bin/python explore/station/station.py --task "pick the hemostat" --root ~/scrub-dataset` (page http://localhost:8090; Space starts and saves, Backspace discards, Escape is KILL and drops a raised arm).
+
+Facts at 00:50: `arm.train deployments` returns an empty list, `status deployment` on the id in `.env` returned HTTP 404, and no job or dataset id is written in any doc. Treat run 1 as the first real job unless the job ids from Anish say otherwise.
+
+| Clock | Step | Who | Owns the arm and cameras |
+| --- | --- | --- | --- |
+| 00:45 to 01:00 | 1. Cameras to 30 fps at 640x480: `.venv/bin/python -m arm.check_setup --side C920 --wrist icspring --seconds 3` (procedures 1 and 2). Lamp on, direct USB ports. If the wrist camera will not reach 28 fps, write what fixed it in `docs/DATA-LOG.md` notes | Anish at the cameras, Caiden reads the output | `arm.check_setup` only |
+| 01:00 to 01:15 | 2a. Tape the base, tray outline, slots, return spot and both camera mounts (procedure 3). Cameras never move after this | Anish, Evan | none |
+| 01:15 to 01:20 | 2b. One slow teleop test (procedure 4) | Anish | `explore/arm_session.py` |
+| 01:20 to 01:40 | 2c. Teach `home`, `carry`, `safe_spot` and the handoff box into `arm/rig.json`, plus the shoulder_lift offset (procedure 5). Torque stays off after exit | Anish; Caiden reviews `arm/rig.json` | `arm.teach` only |
+| 01:40 to 02:30 | 3. Run 1 data: hemostat only, 30 to 40 episodes, "pick the hemostat" and "return the hemostat", normal and bright light (about 20 pick, 10 to 20 return, half per light). `--print-only` first (procedure 6). Cadence about 30 Hz after each episode. Log every batch in `docs/DATA-LOG.md` | Anish drives the leader; Evan resets, moves the lamp, writes the log | the recorder only. Brandon marks slot boxes on his own laptop view, no ports from this Mac |
+| 02:30 to 02:50 | 4. Gates, read-only on the dataset: `.venv/bin/python -m explore.dataset.qa --root ~/scrub-dataset --out ~/qa.html`, `.venv/bin/python -m arm.dataset_check ~/scrub-dataset --cadence-report ~/scrub-dataset-cadence.json`, then `.venv/bin/python -m arm.train pipeline ~/scrub-dataset --cadence-report ~/scrub-dataset-cadence.json --check-only`. Replay episode 0 (procedure 7.3). Fix every FAIL, re-record those episodes. Every item in "Perceptron pre-flight" ticked | Caiden runs QA, Anish replays | `lerobot-replay` for the replay, then nothing |
+| 02:50 to 03:05 | 5. Upload and start run 1 (procedure 7.6, key `scrub-run-1`). Anish says "approve" out loud; Caiden checks the printed job id and the command first. Job id in the chat and in `docs/TRAINING.md` | Anish, Caiden | none (cloud) |
+| 03:05 to 04:15 | 6. While run 1 trains (about 45 min plus queue and export): record the Mayo scissors and the scalpel (pick ends at the safe spot), normal and bright, about 25 pick and 10 return each. Then teach taught skills for hemostat, scissors, scalpel (`docs/TEACH.md`). Follow the job in another terminal: `.venv/bin/python -m arm.train follow <job-id>`. Do not change the run-1 folder or cadence file until the deployment is ready unless you snapshotted them (`docs/TRAINING.md`) | Anish and Evan record, then Anish teaches. Caiden watches the job and runs QA on new batches | the recorder, then `arm.teach`, one at a time |
+| 04:15 | 7. Check run 1: `.venv/bin/python -m arm.train deployments` shows a ready deployment and `PERCEPTRON_DEPLOYMENT_ID` is set. If not ready by 04:45, keep recording and teaching and ask the Perceptron staff | Anish, Caiden | none |
+| 04:20 to 05:10 | 8. 10 real tries for the hemostat with the model: `.venv/bin/python -m controller --real-arm --skills model` plus vision, ask by `curl` or voice (procedure 9). Brandon is the hand, Evan resets, Caiden holds Space. Log each try (`controller/trials.py` or the ledger). Take the latency, session and pull-release readings (People only) | all four | the controller only |
+| 05:10 to 05:20 | 9. Run 2 on the full surgical dataset if QA is clean (key `scrub-run-2`, procedure 11). The last run. Start no later than 05:30 so it finishes before 07:00 | Anish, Caiden | none |
+| 05:20 to 06:30 | 10. While run 2 trains: 10 tries per item with `--skills taught` for the scissors and the scalpel, ledger rows labeled `taught`. Brandon finishes slot boxes and `vision/calibration.json` (procedure 8). Evan starts `.venv/bin/python -m video ingest` on clips filmed so far. Sleep in shifts, at most two asleep at once | all | the controller only |
+| 06:00 | Feature freeze: only fixes and tests from here | all | |
+| 06:30 to 07:15 | 11. Run 2 ready: 10 tries per item with `--skills model` (hemostat, scissors, scalpel). An item goes to `model` only if it passes its last 3 tries; `--skills auto` then picks per item. If run 2 is not ready by 07:15, use run 1 only | all four | the controller only |
+| 07:15 to 08:15 | 12. Film with `video/`: real tries only, cleaned only, the ledger success table as the end card, `video/edl/perceptron-arm.yaml` | Anish operates, Evan films and edits, Caiden runs `video/` | the controller for filming, then nothing |
+| 08:15 to 09:15 | 13. Devpost: video, measured numbers from the ledger, unproven marked unproven. Fill `docs/PITCH.md` and `docs/SLIDES.md` blanks. Choose the demo level (`docs/DEMO.md`) | Evan, Caiden, Anish | none |
+| 09:15 to 09:30 | 14. Submit on Devpost. Pack for the Ballroom | everyone | none |
+
+What to cut if time runs short, first to last: sleep stays; drop the dim and extra-light batches; drop run 2 and use run 1 plus taught skills (level 1 still says which source each item used); the bench tray is not in this plan; 10 tries per item becomes 5 and the table says 5. Never cut QA before an upload and never film with a failed try removed without saying "cleaned" in the video.
+
+## Perceptron pre-flight
+
+Tick every box before spending a training run. Perceptron allows 2 successful jobs per team; never start a speculative or replacement job. Sources: `docs/TRAINING.md` (Gates before each training run), `docs/PERCEPTRON-ROBOTICS.md` Part 1.
+
+- [ ] The job ids from Anish are checked (`arm.train status job <id>`) and the quota left is known.
+- [ ] `PERCEPTRON_DEPLOYMENT_ID` is empty or names a real deployment.
+- [ ] `.venv/bin/python -m arm.train capabilities` answers HTTP 200: `standard`, `expert_only`, horizon 30, RTC and 1000 steps allowed. Result written in `docs/ARM.md`.
+- [ ] `.venv/bin/python -m deploy` shows Perceptron robotics PASS and Hugging Face PASS (`HF_TOKEN`, `HF_USER` set).
+- [ ] Counts meet the plan for this run, every episode logged in `docs/DATA-LOG.md`.
+- [ ] Every episode has a measured 29 to 31 Hz in the cadence file (no gaps, no duplicates, no filled-in 30.0).
+- [ ] A stable snapshot: encoding finished, nothing writing to the folder.
+- [ ] `.venv/bin/python -m explore.dataset.qa --root ~/scrub-dataset --out ~/qa.html` has no FAIL.
+- [ ] `.venv/bin/python -m arm.dataset_check ~/scrub-dataset --cadence-report ~/scrub-dataset-cadence.json` passes.
+- [ ] Episode 0 replayed on the real follower with a spotter (procedure 7.3); for run 2 also one episode of each new item.
+- [ ] `.venv/bin/python -m arm.train pipeline ~/scrub-dataset --cadence-report ~/scrub-dataset-cadence.json --check-only` exits 0 with fps 30.
+- [ ] The dataset is pushed to Hugging Face as `<HF_USER>/scrub` and the commit SHA of that revision is in hand for `--revision`.
+- [ ] The idempotency key is `scrub-run-1` or `scrub-run-2`, and the resume state file `.env.pipeline-<key>.json` is not deleted.
+- [ ] Anish says "approve" out loud and Caiden has read the full command.
+
+## Arm procedures
+
+Kept from the old hardware list. Commands and what you should see.
+
+1. **Wrist camera (icspring) to 30 fps** (Anish or Caiden, 15 min). On Oct 17 it ran 22.6 fps; LeRobot needs 30. Plug it directly into a Mac port, lamp on so the grasp area is bright, close every app using a camera. Run `.venv/bin/python -m arm.check_setup --wrist icspring --seconds 3`. You should see `wrist ... 640x480 ... 30.x ... PASS` and a bright saved frame showing the jaws and the table. Under 28 fps: another port on the other side, another cable, a brighter lamp. If it passes only in bright light, record bright and normal only and say so in `docs/DATA-LOG.md`. Never record under 29 Hz.
+2. **Side camera (C920) seen** (Anish or Caiden, 5 min). Plug it in directly, run `.venv/bin/python -m arm.check_setup --no-cameras`; you should see `HD Pro Webcam C920`, `icspring camera`, `MacBook Pro Camera`. Missing: another cable and port, replug; last resort another 640x480 webcam passed with `--side <name part>`. Then `.venv/bin/python -m arm.check_setup --side C920 --wrist icspring --seconds 3`: both roles PASS at about 30 fps and a final `PASS`. If the C920 reports 30 but looks choppy (repeated frames), the room is too dim.
+3. **Tape** (Anish and one person, 10 min). Arm base, tray outline, slots, return spot, both camera mounts. Keep the safe spot clear and apart from the handoff region.
+4. **Slow teleop test** (Anish, 5 min). `.venv/bin/python explore/arm_session.py --side C920 --wrist icspring`, open http://localhost:8090, move the leader slowly through the full range. You should see the follower copy it, both feeds live, the loop at about 30 Hz and no "joint guard" lines. Ctrl+C. On `joint guard: wrist_flex ... outside its calibrated range`: `.venv/bin/python explore/calibrate_follower.py` (cycle the 12 V power first if a motor reads past one turn). Without hardware, `.venv/bin/python explore/arm_session.py --check` says whether `~/scrub-dataset` is ready to train.
+5. **Teach poses** (Anish, 20 min). Support the empty arm by hand, nothing else on the port. `.venv/bin/python -m arm.teach --port /dev/tty.usbmodem5C821089781 --robot-id scrub_follower --supported-and-empty`. Move by hand, then key plus Enter: `h` home, `c` carry, `s` safe spot, `a` and `b` opposite corners of the handoff box (at least 1 cm apart on every axis), `p` print, `q` quit. Torque stays off. You should see `home`, `carry`, `safe_spot` and the region in `arm/rig.json`, and `hardware_verified` still false. Measure the shoulder_lift offset (rest reads about -103.7 deg, past the URDF limit of -100; suggested +4 deg) and the joint signs, put them in `arm/rig.json`, then `.venv/bin/python -m arm --dry-run --self-test` must still pass.
+6. **Record** (Anish drives, one person resets). Look first: `.venv/bin/python -m arm.record --task "pick the hemostat" --lighting bright --episodes 5 --side C920 --wrist icspring --print-only`, then the same without `--print-only`. Keys: `n` or right arrow ends an episode, `r` or left arrow re-records, `q` or Esc saves and quits. Cadence about 30 Hz after each episode; under 29, close apps and re-record. Exact task words are in `docs/TRAINING.md` (`pick the mayo scissors`, `return the hemostat`, ...). After each batch one new row should be in `docs/DATA-LOG.md`; if not, `.venv/bin/python -m ledger log --setting surgical --item hemostat --direction hand-out --lighting bright --demos 5 --dataset local --notes "cadence ok"`. Throw away bad or blocked-camera episodes.
+7. **Check, replay, run 1** (Anish).
+   1. QA: `.venv/bin/python -m explore.dataset.qa --root ~/scrub-dataset --out ~/qa.html`, open it, fix every FAIL.
+   2. Variety: `PYTHONPATH=. .venv/bin/python explore/dataset/variety.py --root ~/scrub-dataset --out ~/variety.html`.
+   3. Replay episode 0 (clear workspace, blunt object, nobody in the path): `lerobot-replay --robot.type=so101_follower --robot.port=/dev/tty.usbmodem5C821089781 --robot.id=scrub_follower --robot.use_degrees=true --dataset.repo_id=<HF_USER>/scrub --dataset.root=$HOME/scrub-dataset --dataset.episode=0`. It should repeat the recorded move.
+   4. Local check: `.venv/bin/python -m arm.dataset_check ~/scrub-dataset --cadence-report ~/scrub-dataset-cadence.json` and `.venv/bin/python -m arm.train pipeline ~/scrub-dataset --cadence-report ~/scrub-dataset-cadence.json --check-only`: no problems, every episode 29 to 31 Hz.
+   5. Push to the Hub and note the commit SHA (`docs/TRAINING.md`).
+   6. Run 1: `.venv/bin/python -m arm.train pipeline ~/scrub-dataset --cadence-report ~/scrub-dataset-cadence.json --repo-id <HF_USER>/scrub --revision <HF_COMMIT> --idempotency-key scrub-run-1 --backend standard --mode expert_only --steps 1000 --confirmed-replay --confirmed-hf-matches-local`.
+   7. You should see the dataset ready, validation passed, a job id, then a ready deployment and `PERCEPTRON_DEPLOYMENT_ID` written to `.env`. If the reply is lost, rerun the same command with the same key; never a new key. Validation failed: `.venv/bin/python -m arm.train validation <dataset id>`, fix, make a new dataset.
+8. **Slot boxes and calibration** (Brandon, with Anish for B6). B5: overhead camera index set (`CAMERA_INDEX` from the shell or `.env`), `.venv/bin/python -m vision` in its own terminal, `curl -s http://localhost:8001/snapshot -o ~/scrub-tray.jpg`, `.venv/bin/python -m vision.mark_slots --setting surgical --image ~/scrub-tray.jpg`, then `--setting bench`. You should see `slot` and `return_spot` filled in both settings files; check with `curl -s localhost:8001/tray_check`. Wrong place means the camera moved: re-snapshot. B6: real camera, controller stopped, arm still. `.venv/bin/python -m vision.calibrate`, one line per point `pixel_x pixel_y arm_x arm_y arm_z` in meters, 6 to 8 spread points, then a blank line, plus held-out points. Accept only if the held-out error is under about 2 cm (the command writes the file even when it is not). Restart vision, check http://localhost:8001/ shows a non-null `target` for a hand and `path_clear` changes with an obstacle. Save one real hand height for the clinician with `POST /clinician` (default 0.18 m).
+9. **First real tries** (Anish, Caiden). `.venv/bin/python -m controller --real-arm --setting surgical` (add `--skills model` or `taught`). It must not move on connect. `curl -s -XPOST localhost:8000/command -H 'content-type: application/json' -d '{"action":"handover","item":"hemostat","source":"keyboard"}'` with a spotter and the stop in reach (`curl -XPOST localhost:8000/stop`). You should see pick, carry, slow approach, release only after a pull or `got_it`, then home. Reset after a stop: `curl -XPOST localhost:8000/reset -H 'content-type: application/json' -d '{"clear_count":false}'`. An item that fails often gets 10 more episodes before run 2.
+10. **Reach and gripper load checks** (Anish, before `hardware_verified`).
+    1. Reach: 5 spread points inside the handoff box (corners and center) with `move_to`, measure the tip with a ruler: each within about 2 cm, handle toward the person. A miss means fixing signs, offsets or the base transform in `arm/rig.json` and repeating all five.
+    2. Gripper load: close on a real item and on air, read the signed `Present_Load` both times (`arm/real_arm.py` `gripper_load()`), then once more while a person pulls. No usable change means pull release stays off and the demo uses "got it".
+    3. Both pass: measured poses, region and limits in `arm/rig.json`; `.venv/bin/python -m arm.train contract <DEPLOYMENT_ID>`, check six joints in order, absolute targets, two cameras, horizon and rate 30, RTC delay 12, pin its `contract_id` in `verified_contract_id`; set `hardware_verified: true`; `.venv/bin/python -m unittest arm.test_kinematics arm.test_real_arm -v` still passes.
+11. **Run 2** (Anish, the last run). Same pipeline command with `--idempotency-key scrub-run-2`, a newly pinned revision of the whole dataset, the same gates. It starts from the base model. Confirm a new ready deployment with `.venv/bin/python -m arm.train deployments`.
+12. **Voice handoff on the real arm** (Caiden, Anish). Real arm up, voice on :3000. `curl -s -XPOST localhost:3000/heard -H 'content-type: application/json' -d '{"text":"grab me the kelly"}'` (moves the real arm). You should hear "Hemostat coming.", see the handover, release on "got it", home. "stop" must hold the arm at any point.
+13. **Success tests** (Anish, Evan, a spotter). `.venv/bin/python -m controller.trials --plan-only` shows the full 195-trial matrix; tonight's plan uses 10 tries per item instead. Start with `.venv/bin/python -m controller.trials --settings surgical --items hemostat --lighting normal --actions handover --tries 2` and widen. A person confirms physical success after each try; failures count. Each try lands in the ledger and the dashboard tables.
+14. **Perceptron arm video** (Anish, 15 min). One clean real handoff from request to home, side and wrist views plus the arm in frame. A labeled sim backup next to it. Save outside the repo, upload for Devpost.
+
+## Team decisions still open
+
+| Decision | Why it matters | Decide by |
 | --- | --- | --- |
-| May the real arm use the saved spot when vision is down? | Today, after 5 s with no Hand posts, the arm goes to the saved spot without a hand check. "Only toward an open hand" holds only while vision runs | `docs/AUDIT.md` Low |
-| Is the 400 ms deadline measured from the right moment? | Image age at execution can reach about 580 ms. Decide after reading `counters.late` on `/arm/pose` during the first real handovers | `docs/AUDIT.md` M6, M7 |
+| May the real arm use the saved spot when vision is down? | After 5 s with no Hand posts, the arm goes to the saved spot without a hand check. "Only toward an open hand" holds only while vision runs (`docs/AUDIT.md` Low) | before plan step 8 (4:20) |
+| Is the 400 ms deadline measured from the right moment? | It is measured after the frame is grabbed and encoded, so image age at execution can reach about 580 ms. Decide from the `counters.late` reading in plan step 8 (`docs/AUDIT.md` M6, M7) | 6:00 feature freeze |
 
-## Software left (small, owned)
+## Code
 
-| What | Who |
-| --- | --- |
-| `explore/arm_session.py`: refuse to record while another process holds the follower port (`arm.backends.port_holders`), like `arm.record` and `arm.teach` already do | Caiden |
-| `docs/OVERVIEW.md` section 2: "and turnover is high" has no source; use "a surgical tech job takes about 120 days to fill (Periop Leader, 2024)". Section 7: the gripper guard and heat watching now hold for the real arm too (comb H6) | Anish |
-| P2: build the Google Slides deck from `docs/SLIDES.md` and paste the link there | a person |
-| Q4: screen-record `python -m controller.run_all backup` with the dashboard as the backup video | Evan or Caiden |
+Nearly empty. Everything planned is built and its tests pass (`docs/STATE.md`). What is left is doc text, kept here because each file has an owner.
 
-## Sunday, before judging
-
-- Fill every `[measured]` in `docs/PITCH.md`, `docs/DEVPOST.md` and the slides from `GET /stats` (real-arm tries only; fake-arm rows are left out).
-- E7 demo video (2 to 3 min) from the shot list in `docs/DEVPOST.md`; A12 Perceptron arm video.
-- P5: rehearse three times with the roles in `docs/DEMO.md`, under 3 minutes.
-- 8:30 AM: `docs/README-PUBLIC.md` becomes `README.md`, repo made public (history already scanned: no keys).
-- 9:30 AM: final Devpost submitted. P6 Commit Fellowship form after.
+| What | Who | Why it is still open |
+| --- | --- | --- |
+| `docs/OVERVIEW.md` section 2: "and turnover is high" has no source. Use "a surgical tech job takes about 120 days to fill (Periop Leader, 2024)", the line the pitch already uses | Anish | a one-line doc fix nobody has made |
+| `docs/DEMO.md` "Flag check on Oct 18 00:55" says `run_all` and the controller have no `--skills`. Both have it now (`--skills {model,taught,auto}`), and `run_all --real` is the judging preset. Drop the long-form fallback note | Caiden | written before `--skills` landed |
+| `video/` test `test_every_command_on_markerless_synthetic_assets` fails in a fresh worktree because the Playwright browser is not installed under `data/video/browser`. Install it once: `PLAYWRIGHT_BROWSERS_PATH=$PWD/data/video/browser .venv/bin/python -m playwright install chromium` | Caiden | environment setup, not a code bug; only matters on a new checkout |
