@@ -21,6 +21,15 @@ export const GEMINI_API_KEY = keys.GEMINI_API_KEY || "";
 export const GEMINI_MODEL = env.GEMINI_MODEL || "gemini-3.5-flash-lite";
 // Past this, use the local alias match instead of waiting on Gemini (ms).
 export const GEMINI_TIMEOUT_MS = Number(env.GEMINI_TIMEOUT_MS || 1500);
+// Opt-in for full reasoning models used by the PC demo; existing deployments stay unchanged.
+export const GEMINI_THINKING_LEVEL = env.GEMINI_THINKING_LEVEL?.trim().toLowerCase();
+export const GEMINI_MAX_OUTPUT_TOKENS = Number(env.GEMINI_MAX_OUTPUT_TOKENS || 0);
+if (GEMINI_THINKING_LEVEL && !["low", "medium", "high"].includes(GEMINI_THINKING_LEVEL)) {
+  throw new Error("GEMINI_THINKING_LEVEL must be low, medium or high");
+}
+if (!Number.isInteger(GEMINI_MAX_OUTPUT_TOKENS) || GEMINI_MAX_OUTPUT_TOKENS < 0) {
+  throw new Error("GEMINI_MAX_OUTPUT_TOKENS must be a non-negative integer");
+}
 export const PHOTON_PROJECT_ID = keys.PHOTON_PROJECT_ID || keys.SPECTRUM_PROJECT_ID || "";
 export const PHOTON_SECRET = keys.PHOTON_API_KEY || keys.SPECTRUM_PROJECT_SECRET || "";
 // Who gets the end-of-case text when the call didn't carry a caller id.

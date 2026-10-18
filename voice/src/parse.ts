@@ -1,6 +1,6 @@
 // Words heard on the call -> one Command or a question. Known names and ambiguity are deterministic.
-import { GoogleGenAI, Type } from "@google/genai";
-import { GEMINI_API_KEY, GEMINI_MODEL, GEMINI_TIMEOUT_MS } from "./config.js";
+import { GoogleGenAI, ThinkingLevel, Type } from "@google/genai";
+import { GEMINI_API_KEY, GEMINI_MODEL, GEMINI_TIMEOUT_MS, GEMINI_THINKING_LEVEL, GEMINI_MAX_OUTPUT_TOKENS } from "./config.js";
 import { ACTIONS, type Action, type Candidate, type Clarification, type Instance } from "./controller.js";
 import type { Setting } from "./settings.js";
 
@@ -104,6 +104,10 @@ Clinician said: "${heard}"`;
       responseMimeType: "application/json",
       responseSchema: commandSchema(ids),
       temperature: 0,
+      ...(GEMINI_THINKING_LEVEL ? { thinkingConfig: {
+        thinkingLevel: ({ low: ThinkingLevel.LOW, medium: ThinkingLevel.MEDIUM, high: ThinkingLevel.HIGH })[GEMINI_THINKING_LEVEL as "low" | "medium" | "high"],
+      } } : {}),
+      ...(GEMINI_MAX_OUTPUT_TOKENS ? { maxOutputTokens: GEMINI_MAX_OUTPUT_TOKENS } : {}),
       abortSignal: AbortSignal.timeout(GEMINI_TIMEOUT_MS),
     },
   });
