@@ -19,7 +19,6 @@ Evan's tasks (E1 to E7) aren't listed here; he's on them. As of 5 PM he has push
 | Q2 | `controller/trials.py`: runs the success tests in `docs/PLAN.md` (N tries per item and lighting through the controller, logging each with `ledger.log_test`), with a prompt to the operator between tries | Codex |
 | Q3 | `docs/AUDIT.md`: read every part against `docs/CONTRACTS.md` and list mismatches and likely bugs, by owner. Done in the final verification pass | Caiden, final pass |
 | Q4 | A sim backup: a recorded full run on the MuJoCo sim arm with voice and the dashboard, in case the real arm fails at judging | Caiden, final pass |
-| R2 | `arm/teach.py`: torque off, move the arm by hand, press a key to save the current joints as home, carry or safe-spot in `arm/rig.json`, and mark the handoff-region corners | Codex |
 | R3 | `Arm.prepare(instructions)` in `real_arm.py` that pre-opens robot sessions, for Caiden's L2. Optional method, so the contract doesn't change | Codex |
 | R4 | Live bring-up with Anish once the arm is plugged in and the team key is in: capabilities, `real_arm --dry-run` against the real joints, the five-point `move_to` check, gripper load sign | Codex |
 | V1 | B5 tooling: `vision/mark_slots.py` works on a live frame or a saved image, writes boxes for all three trays in the settings format, and is tested with `--fake` | Evan (for Brandon) |

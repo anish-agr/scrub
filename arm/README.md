@@ -138,6 +138,35 @@ file here covers offline tests/client code, not LeRobot's heavy hardware stack.
 
 ## Before hardware
 
+### Hand-guided teaching (R2)
+
+```text
+python -m arm.teach --port <follower-port> --robot-id scrub_follower --supported-and-empty
+python -m unittest arm.test_teach -v
+```
+
+Run only with the empty arm physically supported: disabling torque can make
+it fall. Close the controller, teleop and recording first so teach alone owns
+the serial bus. Reuse the dataset's saved follower calibration; this tool never
+recalibrates, configures motors, enables torque, or sends position targets.
+It uses degrees, no cameras and no API key. Torque remains **off on exit**.
+
+Move by hand, then type a key and Enter: `h` saves home, `c` carry, `s` safe_spot,
+`p` prints joints/FK, `a` and `b` mark opposite handoff-region corners, `q` quits.
+Both corners are required before the region is saved; every axis must span at
+least 1 cm. Corner coordinates are FK estimates, not a new measurement of the
+base transform: verify signs, offsets and base frame against real positions
+first. Teaching does not calibrate the kinematic model.
+
+Saves preserve unrelated rig fields, refuse concurrent edits, and always set
+`hardware_verified: false`; only a later physical acceptance check enables
+motion. `--dry-run --rig <separate-test-copy.json> --joints <six-values>` runs
+the same keyboard/save flow with fake joints. The copy's `urdf` must resolve
+to the SO-101 chain file (use an absolute path if the copy is elsewhere).
+Dry-run refuses the shipped `arm/rig.json` so fake poses cannot silently
+replace measured ones. Eight offline teaching tests cover saves, invalid
+readings/regions, concurrent edits and the no-torque-enable/no-target rule.
+
 `rig.json` is an unmeasured template with `hardware_verified: false`, null
 poses and a null `verified_contract_id`. Do not flip these just to bypass a
 failure. Measure/verify:

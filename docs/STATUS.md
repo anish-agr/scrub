@@ -22,6 +22,7 @@ Agents: the first unchecked box in your person's section is the next task. Tick 
 - [ ] P1 pitch script final
 - [ ] P6 Commit Fellowship form
 - [x] R1 training pipeline: local preflight/cadence, resumable HF registration, validation, training/follow, matching ready deployment and `.env` update; `python -m unittest arm.test_pipeline -v` passes 10 offline tests. Commands/evidence format in `arm/README.md`; no real job submitted.
+- [x] R2 torque-off hand-guided teaching: `python -m arm.teach --port <port> --supported-and-empty`, h/c/s poses and a/b FK region corners, atomic rig updates with hardware verification cleared. `python -m unittest arm.test_teach -v` passes 8 offline tests; no real torque operation run.
 
 ## Caiden
 
