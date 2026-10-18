@@ -39,7 +39,7 @@ Key facts by stage (details in the verbatim commands below):
 
 ### 2.1 Verbatim commands (from the deck's Commands drawers, in slide order)
 
-Identifiers like `team/pick-place`, `ds_REPLACE`, `place the blue block in the tray` are the deck's placeholders.
+Identifiers like `<team>/pick-place`, `ds_REPLACE`, `place the blue block in the tray` are the deck's placeholders.
 
 **Save the key and build the header file (both private: only you can read them)**
 
@@ -143,7 +143,7 @@ lerobot-record \
   --robot.cameras="{side: $SIDE, wrist: $WRIST}" \
   --teleop.type=${ARM}_leader --teleop.port=$LEADER \
   --teleop.id=leader \
-  --dataset.repo_id=team/pick-place \
+  --dataset.repo_id=<team>/pick-place \
   --dataset.root=./lerobot-export \
   --dataset.fps=30 --dataset.num_episodes=50 \
   --dataset.single_task="place the blue block in the tray" \
@@ -155,7 +155,7 @@ lerobot-record \
 ```bash
 # Spot-check before uploading: replay episode 0 on the follower
 lerobot-replay --robot.type=${ARM}_follower --robot.port=$FOLLOWER \
-  --robot.id=follower --dataset.repo_id=team/pick-place \
+  --robot.id=follower --dataset.repo_id=<team>/pick-place \
   --dataset.root=./lerobot-export --dataset.episode=0
 ```
 
@@ -467,7 +467,7 @@ Answers to the `docs/ARM.md` workshop-notes table (lines 9-22):
 
 ## 4. Differences vs our repo docs (all paths under `dubhacks-2026/`)
 
-1. **Job quota vs two-run plan.** Deck: 2 successful jobs per team (and 2 queued). `docs/ARM.md:68-72` plans Run 1, Run 2, then "10 more demos before the next run"; `team/LEFT.md` A5 (line 45) and A10 (line 50) are Run 1 and Run 2. That spends the entire quota; a third "fix-up" run is not possible unless capabilities says otherwise. Failed/cancelled jobs probably don't count as "successful" (inferred). Check `GET /v1/capabilities` now.
+1. **Job quota vs two-run plan.** Deck: 2 successful jobs per team (and 2 queued). `docs/ARM.md:68-72` plans Run 1, Run 2, then "10 more demos before the next run" and our task list had Run 1 and Run 2. That spends the entire quota; a third "fix-up" run is not possible unless capabilities says otherwise. Failed/cancelled jobs probably don't count as "successful" (inferred). Check `GET /v1/capabilities` now.
 2. **Demo counts.** `docs/ARM.md:58-64` and TASKS A4/A9 (lines 44, 49): 75 per setting, 25 per item (15 hand-out + 10 put-back), 225 total. Deck recommends 50+ episodes minimum with about 10 per object location, quality over quantity. Our counts are within the deck's guidance, but the unit is different: the deck counts per object location/variation, not per item. Our 15 per instruction is above 10 per location only if we treat each instruction as one location (inferred). Position/angle jitter in `docs/ARM.md:51-54` matches the deck's "vary slowly" rule only if we start with a tight setup; deck advises "make one setup reliable, then add" locations/lighting/camera changes, while ARM.md:50-54 varies position, lighting (thirds) and clutter from episode 1 (conflict, inferred risk).
 3. **Conditioning on which item.** `docs/PERCEPTRON-ROBOTICS.md:32` and `:66` ask "can one dataset mix tasks / does the model follow the instruction?". Deck: instruction is a text input to the VLA; set once per robot session (matches `docs/PERCEPTRON-ROBOTICS.md:53`); record with the EXACT task string you will send; split is stratified by task. So one model with 18 instructions (pick/return x 9) is the intended design; the fallback "train one model per setting" is unneeded and impossible under the 2-job quota anyway. Confirm by trying run 1 with several instructions.
 4. **Single dataset / single calibration.** Deck: one calibration and one camera placement per dataset, never recalibrate mid-dataset. ARM.md:56-62 records three settings in different slots, possibly hours apart; for run 2 to train on all 225 episodes they need to be in one dataset (each job takes one `dataset_id`, and each starts from the base checkpoint, not from run 1) (inferred). Use one repo and `--resume=true` (with `--dataset.root`) and the same `follower`/`leader` ids and camera mounts across all slots. `docs/PERCEPTRON-ROBOTICS.md:19-30` uses `--robot.id=scrub_follower`; any id works if reused.
@@ -477,12 +477,12 @@ Answers to the `docs/ARM.md` workshop-notes table (lines 9-22):
 8. **Training path.** `docs/ARM.md:39` says "lerobot-train is the LeRobot equivalent"; `:40` uses `lerobot-rollout` with a policy path. Deck has no local training or LeRobot rollout: training and inference go only through the service's HTTP API; the policy runs remotely. `lerobot-rollout` is not mentioned (inferred: not applicable). Drop lines 39-40's alternatives.
 9. **Inference endpoints.** `docs/PERCEPTRON-ROBOTICS.md:52-53` says the grant returns `endpoint_url` and the robot session is `POST {endpoint_url}/deployments/{id}/sessions`. Deck: inference lives at `$CONTROL_URL/v1/inference` (same base URL), and the grant is described as echoing `session_id` plus the two tokens (no `endpoint_url` mentioned). Deck routes: `GET /v1/inference/deployments/{id}/contract`, `POST /v1/inference/deployments/{id}/sessions`, `POST /v1/inference/sessions/{session_id}/predict|reset`, `DELETE /v1/inference/sessions/{session_id}`. Check `docs/perceptron-openapi.json` for which is current; if `endpoint_url` is returned, use it.
 10. **Predict metadata.** `docs/PERCEPTRON-ROBOTICS.md:54` lists `contract_id, observation_id, sequence, timestamp_seconds, state, image_encoding` and optional `rtc`. Deck adds `capture_age_ms` and `deadline_ms` (400.0) in metadata; the RTC block is required from request 2 (prior_chunk_id, prior_start_index, delay 1-12); first request omits `rtc`. Deck also adds: one request in flight, strictly increasing sequence and timestamps, timestamp must match rows elapsed, late replies (past capture + delay/30 s) must be dropped, chunk switches at `execute_from_index` (12) not on arrival, images binary PNG (up to 1920x1080).
-11. **Timing/stop.** `docs/PERCEPTRON-ROBOTICS.md:54` says "send actions on the contract's timing"; deck specifies it: 30 Hz row playback, request every 15 rows, hold if no chunk covers now. `:58` says "the API doesn't say when a skill is finished": confirmed, the deck has no done/stop signal; the only defined "stop" is hold. So `run_skill`'s own stop rule (max_s, gripper closed + still about 1 s, freeze) in `team/LEFT.md` A6 (line 46) stays our design.
+11. **Timing/stop.** `docs/PERCEPTRON-ROBOTICS.md:54` says "send actions on the contract's timing"; deck specifies it: 30 Hz row playback, request every 15 rows, hold if no chunk covers now. `:58` says "the API doesn't say when a skill is finished": confirmed, the deck has no done/stop signal; the only defined "stop" is hold. So `run_skill`'s own stop rule (max_s, gripper closed + still about 1 s, freeze) stays our design.
 12. **Sessions.** `docs/PERCEPTRON-ROBOTICS.md:55` "DELETE when done". Deck: after DELETE you need a fresh grant (new session_id) and new robot session, not just a new robot session; `reset` is the between-episodes call and keeps the instruction. Our plan "each skill opens (or reuses a cached) session for its instruction" (`:53`) needs the one-instruction-per-session rule plus one robot session per grant `session_id` (inferred from "bound to the session_id you chose").
 13. **Latency question** (`docs/PERCEPTRON-ROBOTICS.md:69`, ARM.md:19): answered, p95 283 ms private path. Training time question (`:67`, ARM.md:14): about 45 min projected, 1000 steps only. Concurrent deployments (`:68`): not answered.
-14. **Cameras.** `docs/PERCEPTRON-ROBOTICS.md:62`: overhead third webcam for `vision/` and fallback to the side camera. Deck: the dataset must have exactly two streams `side` and `wrist`; the fixed side view "sees the whole task". The third webcam is fine as a separate device, not recorded. Camera ids can change on re-plug (`lerobot-find-cameras` every session), which affects `CAMERA_INDEX` in `team/LEFT.md` B1 (line 76). Opening one USB camera from both LeRobot and `vision/` at once usually fails (inferred), so the fallback "vision reads the side camera" means frames must come from one process.
-15. **Perception API.** `team/LEFT.md` B4 (line 79) and `docs/PERCEPTRON-ROBOTICS.md` assume a "Perceptron vision API"; the deck documents none (see section 3).
-16. **Gripper load.** `team/LEFT.md` A6 (line 46) wants gripper "position and load", C6 `wait_for_pull` uses a "load jump". Deck/contract exposes only `gripper.pos`; load must come from LeRobot's Feetech bus directly (inferred; not via the model).
+14. **Cameras.** `docs/PERCEPTRON-ROBOTICS.md:62`: overhead third webcam for `vision/` and fallback to the side camera. Deck: the dataset must have exactly two streams `side` and `wrist`; the fixed side view "sees the whole task". The third webcam is fine as a separate device, not recorded. Camera ids can change on re-plug (`lerobot-find-cameras` every session), which affects `CAMERA_INDEX`. Opening one USB camera from both LeRobot and `vision/` at once usually fails (inferred), so the fallback "vision reads the side camera" means frames must come from one process.
+15. **Perception API.** Our task list and `docs/PERCEPTRON-ROBOTICS.md` assume a "Perceptron vision API"; the deck documents none (see section 3).
+16. **Gripper load.** Our task list wanted gripper "position and load", C6 `wait_for_pull` uses a "load jump". Deck/contract exposes only `gripper.pos`; load must come from LeRobot's Feetech bus directly (inferred; not via the model).
 
 ## 5. What this means for Scrub
 
@@ -498,7 +498,7 @@ Anish (arm and fine-tuning)
 - Gripper load: pull it from the Feetech bus (not from the policy); the model only returns positions.
 
 Brandon (vision)
-- Nothing in the deck about a perception endpoint. Look at `https://robotics.perceptron.inc/docs` and `/openapi.json` for any perception route; otherwise ask staff or fall back per `team/LEFT.md` backups (line 117). Check `docs/PERCEPTRON-ROBOTICS.md` stays unfilled until you confirm.
+- Nothing in the deck about a perception endpoint. Look at `https://robotics.perceptron.inc/docs` and `/openapi.json` for any perception route; otherwise ask staff or fall back to the backup plan. Check `docs/PERCEPTRON-ROBOTICS.md` stays unfilled until you confirm.
 - Keep the overhead camera a separate USB device from the arm's `side`/`wrist` cameras; never move the arm's side camera during dataset recording; re-check `CAMERA_INDEX` after every re-plug/reboot (`lerobot-find-cameras opencv`). The side camera view must be fixed and show the whole tray, so calibrate your homography against the same fixed mount (B6).
 - Don't hold the LeRobot cameras open from `vision/`.
 

@@ -67,7 +67,7 @@ if args.sim_arm:
 
 ## Limits
 
-The scripted pick stands in for the fine-tuned Isaac 0.5 policy; nothing here says anything about how the real policy or the real arm will behave. No sim-to-real claims. Servo gains and gravity are approximate (gravity is compensated in the sim).
+The scripted pick stands in for the real arm's picks; nothing here says anything about how the real arm will behave. No sim-to-real claims. Servo gains and gravity are approximate (gravity is compensated in the sim).
 
 ## Attribution
 

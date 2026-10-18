@@ -1,6 +1,6 @@
 # Contracts
 
-> **Demo scope (Oct 18 morning):** the demo uses three instruments (scalpel handle, hemostat, Mayo scissors), has no sharps safe spot and no hand tracking (the arm slows as it nears the handoff point), and the arm goes home after each handoff. Return on the real arm is manual. The safe-spot, hand and other-setting fields below still exist in the code; they are not part of the demo and we don't claim them.
+> **Demo scope (Oct 18 morning):** the demo uses three instruments (scalpel handle, hemostat, Mayo scissors), and the arm goes home after each handoff. Return on the real arm is manual. The sharps set-down zone (cut), hand and other-setting fields below still exist in the code; they are not part of the demo and we don't claim them.
 
 Every part codes against these. Build against fake inputs that match them, and things connect on the first try.
 
@@ -220,7 +220,7 @@ controller event stream. It does not move the arm. Body fields are `type`
 - Smart pick fields (optional, on `picked`, `missed`, `handed`, `set_down`, `returned` of a `--skills smart` handover): `locate_method` (`"local"`, `"perceptron"`, `"gemini"`, `"slot"`, `"none"` or `null` when vision didn't answer), `locate_confidence` (0..1 or `null`), `grasp_check` (`"gripper"`, `"gripper+wrist"`, `"wrist"` or `"none"`: what judged the grip), `retry` (0 for the first method, 1 for the next one after a miss), `wrist_disagrees` (`true` when the jaw says held and the wrist camera says no; still a pick). The first miss is a `missed` with `retries: 1` and the retry line; two misses end with the "couldn't pick" `missed`.
 - Sharps (`sharp: true` items) never go to a hand in any mode. `set_down` of a sharp carries `zone_check` (`"clear"`, `"cleared_after_wait"` after "Clear the safe spot.", or `"no_camera"`) and `zone_confirm` (`true`/`false`: the overhead camera sees it in the zone; `null`: no camera). A zone that stays blocked puts it back in its slot: a `missed` with `zone_check: "timeout_to_slot"`. On the real arm a sharp with no valid safe zone is refused before moving: a `missed` with `reason` "safe zone: ...". A hand inside 20 cm of the tip or the zone while a sharp is held: "Hand back, I'm holding a sharp.", then a `stopped` with `reason` `hand_keepout` if it stays during a move.
 - `release` (optional) on `released` events: why the gripper opened: `"pull"` (load change over `PULL_LOAD_DELTA`), `"collapse"` (grip load fell toward zero) or `"got_it"`.
-- An `error` event from an arm thermal stop (`ArmFault`, below) has the arm's message as `say`, e.g. "Too hot: shoulder_lift 71 C. Cooling down.", and holds the arm like any error.
+- An `error` event from an arm thermal stop (`ArmFault`, below) has the arm's message as `say`, e.g. "Too hot: shoulder_lift 61 C. Cooling down." (trip at 60 C, resume at 50 C), and holds the arm like any error.
 
 ## Vision endpoints (port 8001)
 

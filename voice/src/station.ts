@@ -89,13 +89,24 @@ export async function stationPhrase(heard: string, p: Post = post): Promise<{ sa
 
 // On when STATION_URL is set, or (unset) whenever a station answers on this Mac: checked every 2 s, so a
 // rewritten .env or a station started later never leaves voice talking only to the sim controller.
+// Calls and texts (the Photon line) drive the station's real arm only while its page has the Photon tab open
+// (photon_tab in /status, a heartbeat from that tab). Otherwise they go to the controller as before.
 let reachable = false;
 async function probe() {
-  try { reachable = (await fetch(STATION_URL + "/status", { signal: AbortSignal.timeout(400) })).ok; }
-  catch { reachable = false; }
+  try {
+    const r = await fetch(STATION_URL + "/status", { signal: AbortSignal.timeout(600) });
+    reachable = r.ok && Boolean((await r.json()).photon_tab);
+  } catch { reachable = false; }
 }
 if (STATION_SETTING !== "off" && !process.env.VOICE_NO_KEYS) { void probe(); setInterval(probe, 2000).unref(); }
-export const stationOn = () => STATION_SETTING !== "off" && (Boolean(STATION_SETTING) || reachable);
+export const stationOn = () => STATION_SETTING !== "off" && reachable;
+
+// One line of the conversation to the Photon tab's feed (fire and forget, never throws).
+export function photonLog(who: string, text: string | null | undefined): void {
+  if (!text || !stationOn()) return;
+  fetch(STATION_URL + "/control", { method: "POST", headers: { "content-type": "application/json" },
+    body: JSON.stringify({ action: "photon_log", who, text }), signal: AbortSignal.timeout(1500) }).catch(() => {});
+}
 export const STATION_ACTIONS = new Set(["handover", "got_it", "let_go", "stop"]);
 
 export function stationSay(c: Command): string {

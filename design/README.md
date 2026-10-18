@@ -1,8 +1,7 @@
 # Scrub interface system
 
 Swiss status board on paper. Medical device HMI on monitor. The reference is
-Caiden's `team/status-board/`, especially the ruled masthead, instrument
-sheet and wall display. Use semantic colors, square controls, Archivo labels
+a ruled masthead, an instrument sheet and a wall display. Use semantic colors, square controls, Archivo labels
 and IBM Plex Mono readouts. There are no decorative accent colors.
 
 ## Use it
@@ -36,14 +35,13 @@ python -m unittest design.test_ui -v
 python design/check_http.py --controller http://localhost:8400 --ledger http://localhost:8403 --sim http://localhost:8402
 ```
 
-`migrate_console.py` is the one-time, guarded extraction tool for the two
-approved consoles. Do not rerun it after migration. The shared link falls back
-to `../dashboard/style.css` when a console is opened from disk or a root static
-server. The normal controller route uses `/style.css` directly.
-
 Do not hand-edit those three generated files. Include regenerated copies in
-any commit that changes the source. The consoles use the controller's
-`/style.css`, with their original rules isolated under `data-page`.
+any commit that changes the source.
+
+Every page links `/design/scrub.css` first. If that fails (opened from disk or a
+root static server), the consoles fall back to `../design/scrub.css` and the
+dashboard pages to their local `style.css`. Console rules are scoped under
+`data-page`.
 
 ## Components
 
@@ -69,5 +67,4 @@ themes and every component. Static example values are labeled as samples.
 
 Browser review and screenshots are pending: the installed Tabbit launcher
 returns routing error 69 without a browser connection. Do not treat planned
-screenshot names as captured evidence. Exact page coverage and any remaining
-test issues are recorded in `docs/media/ui/README.md`.
+screenshot names as captured evidence.

@@ -6,13 +6,13 @@ This repo is vibe coded: agents write the code, people test it on the hardware a
 
 The person will tell you their name (Anish, Caiden, Brandon or Evan). Then:
 
-1. Read `docs/OVERVIEW.md` (every idea and decision in one place), `README.md` (the system), `docs/CONTRACTS.md` (the messages every part uses) and `team/STATE.md` (what exists and works).
-2. Run `git pull --rebase`. Open `team/LEFT.md`. Your person's next task is their first item there, by deadline.
+1. Read `README.md` (the system), `docs/CONTRACTS.md` (the messages every part uses) and `devpost/FACTS-0718.md` (what ran on the real arm, with sources).
+2. Run `git pull --rebase`. Your person tells you the task.
 3. Read the README in the folder that task lives in, and the files already there.
 4. Build it. You have full permission inside your person's files: install packages, create files, run commands and servers, commit and push. Don't ask for approval or plans. Only stop for something only a human can do (a key, plugging in a device, testing on the arm, the camera or a phone).
 5. Finish it. Test against the task's "done when" with fake inputs (the controller's `--fake-arm`, fake events, saved images) and fix it until it passes. For anything only a human can check, tell the person exactly what to run and what they should see.
-6. When it passes, commit only your person's files, `git pull --rebase`, `git push`. Remove the item from `team/LEFT.md` and add one line to `team/STATE.md` on what works and how to run it. Push that too.
-7. Go straight to the next unchecked task. Keep going until your person's tasks are done or they stop you.
+6. When it passes, commit only your person's files, `git pull --rebase`, `git push`. Add one line on what works and how to run it to that folder's README. Push that too.
+7. Ask your person for the next task. Keep going until their tasks are done or they stop you.
 
 If you're stuck for more than about 20 minutes on one problem, stop and tell the person what you tried. They may hand it to Caiden, who has the largest agent budget.
 
@@ -24,11 +24,10 @@ Scrub: an SO-101 robot arm that passes instruments by voice. Built Oct 17 to 18,
 
 | Folder or file | Owner |
 | --- | --- |
-| `controller/`, `voice/`, `explore/`, `team/SLIDES.md`, `docs/CONTRACTS.md`, `.env.example`, `.gitignore` | Caiden |
-| `arm/`, `docs/ARM.md`, `team/PITCH.md` | Anish |
+| `controller/`, `voice/`, `explore/`, `docs/CONTRACTS.md`, `.env.example`, `.gitignore` | Caiden |
+| `arm/`, `docs/ARM.md` | Anish |
 | `vision/`, `docs/PERCEPTRON-ROBOTICS.md` (Part 2) | Brandon |
-| `dashboard/`, `ledger/`, `settings/`, `docs/DATA-LOG.md`, `team/DEVPOST.md` | Evan |
-| `team/LEFT.md`, `team/STATE.md` | everyone, own items only |
+| `dashboard/`, `ledger/`, `settings/`, `docs/DATA-LOG.md` | Evan |
 
 - Only edit files your person owns. If a change elsewhere is needed, stop and write the exact change so your person can send it to the owner.
 - Never change `docs/CONTRACTS.md` unless you're working for Caiden. Adding an optional field there is fine; renaming or removing one needs the whole team.
@@ -56,7 +55,6 @@ Scrub: an SO-101 robot arm that passes instruments by voice. Built Oct 17 to 18,
 | Photon + ElevenLabs voice guide | https://photon.codes/docs/beta/cookbooks/voice/elevenlabs |
 | ElevenLabs agents | https://elevenlabs.io/docs |
 | Gemini structured output | https://ai.google.dev/gemini-api/docs/structured-output |
-| MediaPipe hand landmarker (use the Tasks API) | https://ai.google.dev/edge/mediapipe/solutions/vision/hand_landmarker |
 | Perceptron vision API and fine-tuning | from the workshop; Brandon writes what works into `docs/PERCEPTRON-ROBOTICS.md` (Part 2) |
 
 If a doc page and these files disagree, the doc page wins for the API and these files win for our design.

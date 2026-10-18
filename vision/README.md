@@ -1,8 +1,8 @@
 # vision
 
-Owner: Brandon. Tasks B1 to B8 in `team/LEFT.md`.
+Owner: Brandon.
 
-One process owns the overhead camera (locked exposure and white balance). It runs the MediaPipe hand tracker (POST a Hand to the controller about 10 times a second) and the Perceptron tray perception (POST a TrayState about once a second). It serves an MJPEG stream with boxes and the palm dot at `http://localhost:8001/stream`. `calibrate.py` fits the camera-to-arm mapping into `calibration.json`.
+One process owns the overhead camera (locked exposure and white balance). It runs the MediaPipe hand tracker (POST a Hand to the controller about 10 times a second) and the Perceptron tray perception (POST a TrayState about once a second). It serves an MJPEG stream with boxes and the palm dot at `http://localhost:8001/stream`. `calibrate.py` fits the camera-to-arm mapping into `calibration.json`. The hand loop feeds the controller's sim and fake-arm handover; the real-arm demo (`explore/station`) did not use hand tracking.
 
 It binds 127.0.0.1, so the camera stream is not reachable from the venue network. The dashboard and nurse page on the same laptop work as is. To open the stream to another device (a dashboard opened at `http://<laptop LAN IP>:8000/` reads the camera at `<that IP>:8001`), run with `--host 0.0.0.0` or set `VISION_HOST=0.0.0.0` in `.env`.
 
@@ -211,7 +211,7 @@ python -m vision --source sim
 
 ## Tray on the towel
 
-There are no printed markers. Each frame, vision looks for the blue towel and the light rectangle on it (the same corner idea as `docs/VIDEO-TOOL.md`). The slot boxes are laid along that rectangle, and the return spot sits just outside the bottom edge. Those boxes stay in memory for that frame. `settings/*.json` is not rewritten. If the towel is not in the picture, the boxes already in the setting are used.
+There are no printed markers. Each frame, vision looks for the blue towel and the light rectangle on it (the same corner finder idea as `video/geometry.py`). The slot boxes are laid along that rectangle, and the return spot sits just outside the bottom edge. Those boxes stay in memory for that frame. `settings/*.json` is not rewritten. If the towel is not in the picture, the boxes already in the setting are used.
 
 ## Local slot check
 
@@ -272,7 +272,7 @@ What failed or still needs a person:
 - That port 8001 process is an older `python -m vision`. `GET /tray_check` and `GET /clips` returned 404 there. Restart it (`python -m vision`) to load this build. The camera was not unplugged for real; the unplug case above is the fake capture.
 - Gloves: not a controlled test. MediaPipe's hand landmarker has no glove model. During the soak `/vision/hand` answered, including one `seen: true` read, but nobody held a gloved hand up for it.
 - B5 is not done. Slot boxes in the settings files are still null. With the overhead camera mounted, run `python -m vision.mark_slots --setting surgical --live`, then the same for `bench`. Click two corners per item, then the return spot. It writes `vision/marked/<id>.json` for Evan. Do not pass `--write-settings`.
-- B8 is not done. The three lamp rows are not in `team/LEFT.md`. Run `python -m vision.lighting --test --label bright --seconds 10 --csv vision/lighting_tests.csv`, then `normal`, then `dim`, changing the lamp between them. Do not commit the CSV.
+- B8 is not done. The three lamp rows have not been recorded. Run `python -m vision.lighting --test --label bright --seconds 10 --csv vision/lighting_tests.csv`, then `normal`, then `dim`, changing the lamp between them. Do not commit the CSV.
 
 Sim source, towel tray, local detector, and gripper-tip fit, Oct 18, 2026. `python -m vision.test_vision`: 59 tests OK. `python -m unittest deploy.test_check_env`: 8 tests OK.
 

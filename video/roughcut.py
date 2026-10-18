@@ -1,4 +1,4 @@
-"""Rough cut of the demo video, in the order of team/VIDEO-SCRIPT.md (the shot list is team/HANDOFF-7AM.md).
+"""Rough cut of the demo video, beat by beat in the order of the video script.
 
 Each beat uses the real take if one is in data/video/kit/real/V<n>.mp4 (or .mov), else a labeled sim clip from
 data/video/kit/sim/ if that beat has one, else a plain "TO FILM" card. Every spoken line is burned in as a caption.

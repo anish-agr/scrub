@@ -1,6 +1,6 @@
 # How to train Scrub (one page to share)
 
-> **Demo scope (Oct 18 morning):** the demo uses three instruments (scalpel handle, hemostat, Mayo scissors), has no sharps safe spot and no hand tracking (the arm slows as it nears the handoff point), and the arm goes home after each handoff. Return on the real arm is manual. The safe-spot ending for the scalpel below is out of scope; record the scalpel like the other picks, ending at the handoff point.
+> **Demo scope (Oct 18 morning):** the demo uses three instruments (scalpel handle, hemostat, Mayo scissors), and the arm goes home after each handoff. Return on the real arm is manual. This page is the plan. What happened: 29 episodes recorded (24 usable; scalpel handle, scalpel, hemostat, tweezers, spatula), none of the bench items below, lighting not logged per episode, and one Perceptron fine-tuning job: `job_629682f9575271b687e2c734`, submitted 08:49 Oct 18 on a 14-episode "pick the scalpel" dataset (expert_only, 1000 steps; training at step 411 of 1000 at 09:08, 0 deployments). Nothing is deployed, so real picks replay our recorded demonstrations (`explore/station/README.md`). Record the scalpel like the other picks, ending at the handoff point.
 
 This is the plain version. Every command with every flag is in `docs/BRINGUP.md` sections 6 to 8. Run all of this on **the laptop the arm is plugged into** (the Mac), from the repo root, after `source .venv/bin/activate` (plain `python` is not on the Mac's PATH without it).
 
@@ -15,7 +15,7 @@ The checklist for the operator (the person or agent helping at the arm) is the s
 
 ## Rules that matter
 
-- **5 successful training jobs per team** (the live API reported this at 2:05 AM Oct 18; 0 used). Run 1 is the hemostat, pick and return, 30 to 40 episodes. Run 2 is all surgical items, started as soon as its data passes `python -m arm.train preflight`. A run 3 only to fix something runs 1 or 2 showed. Record with `explore/station/station.py` into `~/scrub-surgical` (not `~/scrub-dataset`, which holds spatula episodes), episodes under 20 s. Don't start a run until the dataset check passes.
+- **5 successful training jobs per team** (the live API reported this at 2:05 AM Oct 18; 1 submitted, `job_629682f9575271b687e2c734`, training at 09:08). Run 1 is the hemostat, pick and return, 30 to 40 episodes. Run 2 is all surgical items, started as soon as its data passes `python -m arm.train preflight`. A run 3 only to fix something runs 1 or 2 showed. Record with `explore/station/station.py` into `~/scrub-surgical` (not `~/scrub-dataset`, which holds spatula episodes), episodes under 20 s. Don't start a run until the dataset check passes.
 - **One dataset for everything.** Same repo, same calibration, cameras never moved. Later batches add to it with `--resume=true`.
 - **Use the exact instruction text** from `settings/surgical.json` and `settings/bench.json`: `pick the hemostat`, `return the hemostat`, and so on. The model is told the same words later.
 - **Each episode is about 10 to 20 seconds.** "Pick" ends with the arm holding the item still at the carry pose. "Return" ends with the item in its slot and the arm back home.
@@ -116,7 +116,7 @@ Exact instruction text (from `settings/*.json`; aliases like "kelly" are for voi
 | wire_cutters | `pick the wire cutters` | `return the wire cutters` |
 | hex_key | `pick the hex key` | `return the hex key` |
 
-A non-sharp pick ends held, still, at the carry pose. A return starts from the return spot, places the item in its slot and ends at home. The scalpel pick ends at the safe spot; do not mix other endings under `pick the scalpel`.
+A non-sharp pick ends held, still, at the carry pose. A return starts from the return spot, places the item in its slot and ends at home. The scalpel pick ends at the handoff point like the other picks.
 
 ### One batch
 

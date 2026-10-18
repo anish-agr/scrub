@@ -1,6 +1,6 @@
 # ledger
 
-Owner: Evan. Task E3 in `team/LEFT.md`.
+Owner: Evan.
 
 `log(event)`, `log_test(...)` and `stats()` per `docs/CONTRACTS.md`. The controller should return `stats()` from `GET /stats` unchanged.
 
@@ -35,7 +35,7 @@ python -m ledger
 
 That prints the current tables. Never raises.
 
-Folder contents: `__init__.py` (log, stats), `cases.py` (case replay), `serve.py` and `public/` (the public page), `memory.py` (Backboard track), `tiger.py` (Tiger Data track), `qr.py`, `logbook.py` (data log), `shots.py` (Devpost screenshots), `push_public.sh` and `install_public.sh` (server install), `test_ledger.py`.
+Folder contents: `__init__.py` (log, stats), `cases.py` (case replay), `serve.py` and `public/` (the public page), `memory.py` (optional notes service), `tiger.py` (optional Postgres time series), `qr.py`, `logbook.py` (data log), `shots.py` (Devpost screenshots), `push_public.sh` and `install_public.sh` (server install), `test_ledger.py`.
 
 The public read-only page (the count and the tables, no arm controls):
 
@@ -65,7 +65,7 @@ python -m ledger log --setting surgical --item hemostat --direction hand-out --l
 
 ## Public page on a server
 
-One official path: `deploy/setup_public.sh`. The page is `python -m ledger serve` on 127.0.0.1:8080 (systemd `scrub-public`), nginx answers on port 80, and certbot adds HTTPS. The page does not ship the MongoDB URI to the browser. The Vultr and GoDaddy clicks are in `deploy/README.md`.
+One official path: `deploy/setup_public.sh`. The page is `python -m ledger serve` on 127.0.0.1:8080 (systemd `scrub-public`), nginx answers on port 80, and certbot adds HTTPS. The page does not ship the MongoDB URI to the browser. The Vultr clicks are in `deploy/README.md`.
 
 From a laptop that can SSH to the server:
 
@@ -83,7 +83,7 @@ The `/api/*` routes send `Access-Control-Allow-Origin: *` and answer `OPTIONS`. 
 
 Each results row also has `wilson_low` and `wilson_high`. `next_likely` is a suggestion only.
 
-The series page and the memory page turn two prototypes into running pages. Series is the OR timeline (`team/prototypes/29-or-timeline.html`) on the Tiger Data track. Memory is "the arm remembers" (`team/prototypes/16-robot-memory.html`) on the Backboard track. Both run with no key. A key only changes where the rows are stored.
+Two extra pages are served but not linked from the public page's nav (the dashboard links them). Series is a timeline of handoffs. Memory answers "what usually comes next" from accepted asks. Both run with no key. A key only changes where the rows are stored.
 
 ```
 python -m ledger serve
@@ -99,7 +99,7 @@ BACKBOARD_API_KEY=
 BACKBOARD_ASSISTANT_ID=
 ```
 
-`TIGER_DATABASE_URL` writes each handoff into a `scrub_handoff` hypertable and the series page reads it back. The two Backboard names store each accepted ask and answer questions with memory on. Until they are set, both pages use the local ledger. Add `psycopg` (`pip install -r ledger/requirements.txt`) before using the Tiger URL.
+`TIGER_DATABASE_URL` writes each handoff into a `scrub_handoff` hypertable and the series page reads it back. The two `BACKBOARD_*` names store each accepted ask in a hosted notes service and answer questions from it. Until they are set, both pages use the local ledger. Add `psycopg` (`pip install -r ledger/requirements.txt`) before using the Postgres URL.
 
 ## Tested
 
