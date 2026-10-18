@@ -43,6 +43,22 @@ def parser():
     top.add_argument("--plate")
     top.add_argument("--plate-alignment")
     top.add_argument("--start-time", type=float, help="explicit epoch sync to the real clip, not inferred")
+    cl = sub.add_parser("clean", help="optional logged cleanup; idle changes require reviewed analysis")
+    cl.add_argument("--input", required=True)
+    cl.add_argument("--output", default="clean/clip.mp4")
+    cl.add_argument("--stabilize", action="store_true")
+    cl.add_argument("--reference", help="image for exposure/white-balance matching")
+    cl.add_argument("--deflicker", action="store_true")
+    cl.add_argument("--denoise", action="store_true")
+    cl.add_argument("--faces", action="store_true", help="MediaPipe blur-all by default; review privacy manually")
+    cl.add_argument("--keep-team", action="store_true", help="click known team faces on first frame; new faces blur")
+    idle = cl.add_mutually_exclusive_group()
+    idle.add_argument("--idle-speed", type=int, choices=[2,4])
+    idle.add_argument("--cut-idle", action="store_true")
+    cl.add_argument("--idle-confirmed", action="store_true")
+    cl.add_argument("--analyze-only", action="store_true")
+    cl.add_argument("--audio", action="store_true", help="afftdn denoise + -16 LUFS target")
+    cl.add_argument("--upscale", action="store_true", help="optional GPU path; unavailable models explicitly skipped")
     return p
 
 
@@ -80,6 +96,10 @@ def main(argv=None):
                 result = render_joints(ws, ws.source(args.input), ws.out(args.output), args.width, args.height,
                     args.episode, ws.source(args.plate) if args.plate else None, args.start_time,
                     ws.source(args.plate_alignment) if args.plate_alignment else None)
+        elif args.command == "clean":
+            from .clean import clean
+            result = clean(ws,args.input,args.output,args.stabilize,args.reference,args.deflicker,args.denoise,
+                args.faces,args.keep_team,args.idle_speed,args.cut_idle,args.idle_confirmed,args.analyze_only,args.audio,args.upscale)
         else:
             raise ValueError("Unknown command")
         print(json.dumps(result, indent=2, allow_nan=False))
