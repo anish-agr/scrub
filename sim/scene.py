@@ -69,8 +69,13 @@ def _patched_arm():
 
 def tray_slot(layout, item):
     """The (x, y) tray slot of an item in the active setting, or None."""
-    items = layout["setting_items"][layout["setting"]]
-    return layout["slots"][items.index(item)] if item in items else None
+    items = layout.get("setting_items", {}).get(layout.get("setting", "surgical"), [])
+    if item in items:
+        return layout["slots"][items.index(item)]
+    for s_name, s_items in layout.get("setting_items", {}).items():
+        if item in s_items:
+            return layout["slots"][s_items.index(item)]
+    return None
 
 
 def slot_position(layout, item):

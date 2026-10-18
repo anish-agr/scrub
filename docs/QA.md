@@ -26,6 +26,10 @@ Stack under test:
 | QA-10 | Dashboard sample mode does not reconnect if opened before controller starts | `dashboard/` | Evan | Low | Fixed |
 | QA-11 | Pressing Spacebar while focused on command buttons triggers emergency stop | `dashboard/` | Evan | Low | Fixed |
 | QA-12 | Scalpel command response announces "Scalpel coming" instead of safe spot | `controller/` | Caiden | Medium | Fixed |
+| QA-13 | `voice` test script uses POSIX environment assignment syntax failing on Windows | `voice/` | Caiden | Medium | Fixed |
+| QA-14 | `SimArm.run_skill` fails on hyphenated instrument names (`needle-nose pliers`) | `sim/` | Caiden | High | Fixed |
+| QA-15 | Controller setting switch does not notify sim arm, parking bench items under table | `controller/`, `sim/` | Caiden | High | Fixed |
+| QA-16 | `FakeDetector` return-spot desync overwrites controller return spot | `vision/` | Brandon | Medium | Fixed |
 
 ---
 
@@ -240,3 +244,81 @@ Stack under test:
   In `controller/core.py` line 169, `_check()` returns `lines.coming(it["name"])` without checking `it.get("sharp")`. It should return a line reflecting safe spot delivery (e.g. "Scalpel to safe spot.").
 - **Expected behavior**:
   The initial command response should reflect the sharp status of the instrument.
+- **Status**: Fixed. `controller/core.py` returns `lines.safe_spot(it["name"])` ("Scalpel to the safe spot.") when `it.get("sharp")` is true. Verified in live voice test.
+
+---
+
+### QA-13: `voice` test script uses POSIX environment assignment syntax failing on Windows
+- **Component**: `voice/`
+- **Owner**: Caiden
+- **Severity**: Medium
+- **Status**: Fixed.
+- **Steps to reproduce**:
+  1. Open a PowerShell terminal in `voice/`.
+  2. Run `npm test`.
+  3. The command fails with: `'VOICE_NO_KEYS' is not recognized as an internal or external command, operable program or batch file.`
+- **Root cause**:
+  In `voice/package.json`, `"test": "VOICE_NO_KEYS=1 tsx scripts/test.ts"`. Windows command shells (`cmd.exe`) do not support POSIX prefix environment variable syntax.
+- **Expected behavior**:
+  `npm test` should execute cross-platform across macOS, Linux, and Windows.
+- **Resolution**:
+  Set `process.env.VOICE_NO_KEYS = "1"` directly at the top of `voice/scripts/test.ts` and simplified `voice/package.json` test script to `"tsx scripts/test.ts"`. Verified `npm test` runs and passes on Windows.
+
+---
+
+### QA-14: `SimArm.run_skill` fails on hyphenated instrument names (`needle-nose pliers`)
+- **Component**: `sim/`
+- **Owner**: Caiden
+- **Severity**: High
+- **Status**: Fixed.
+- **Steps to reproduce**:
+  1. Start `python -m controller --sim-arm --setting bench`.
+  2. Request `needle-nose pliers` via voice or `/command`: `{"action": "handover", "item": "needle_nose_pliers"}`.
+  3. The controller instructs `run_skill("pick the needle-nose pliers")`.
+  4. The pick attempt immediately returns `False`, causing the controller to announce: "Missed the needle-nose pliers, trying again."
+- **Root cause**:
+  In `sim/sim_arm.py` line 189:
+  `verb, item = m.group(1), m.group(2).replace(" ", "_")`
+  Only spaces were replaced with underscores, leaving hyphens intact (`needle-nose_pliers`). Because the item id in `settings/bench.json` and `sim/layout.json` is `needle_nose_pliers`, `slot_position()` returned `None`.
+- **Expected behavior**:
+  `run_skill()` should normalize hyphens to underscores as well as spaces (`.replace("-", "_").replace(" ", "_")`).
+- **Resolution**:
+  Added `.replace("-", "_")` to item name parsing in `sim/sim_arm.py`. Handover of `needle_nose_pliers` now picks cleanly on the first attempt in simulation.
+
+---
+
+### QA-15: Controller setting switch does not notify sim arm, parking bench items under table
+- **Component**: `controller/`, `sim/`
+- **Owner**: Caiden
+- **Severity**: High
+- **Status**: Fixed.
+- **Steps to reproduce**:
+  1. Start `python -m controller --sim-arm`.
+  2. Switch to bench tray: `POST /setting {"setting": "bench"}`.
+  3. Request any bench instrument (`needle_nose_pliers`, `wire_cutters`, `hex_key`).
+  4. The arm cannot locate or pick the instrument.
+- **Root cause**:
+  `controller/core.py:set_setting()` only updated the controller's internal setting structure; it never notified the connected `arm` instance of the setting change. In `sim/layout.json`, `setting` remained `"surgical"`, which kept all non-surgical items parked below the table (`PARK = (0.0, 0.0, -1.0)`).
+- **Expected behavior**:
+  Switching settings should inform the arm of the new setting so relevant mocap bodies and slot positions are loaded into the active scene.
+- **Resolution**:
+  Added `SimArm.set_setting(setting_id)` to update `layout["setting"]` and reload the scene. Updated `controller/core.py:set_setting()` to invoke `self.arm.set_setting(setting_id)` if supported. Also made `sim/scene.py:slot_position()` fall back across all configured setting item lists.
+
+---
+
+### QA-16: `FakeDetector` return-spot desync overwrites controller return spot
+- **Component**: `vision/`
+- **Owner**: Brandon
+- **Severity**: Medium
+- **Status**: Fixed.
+- **Steps to reproduce**:
+  1. Start `python -m controller --sim-arm` and `python -m vision --fake`.
+  2. Place an item into the return spot (e.g. `POST /sim/return_spot {"item": "hemostat"}`).
+  3. Wait 2 seconds for auto-return.
+  4. Auto-return never triggers because the return spot is repeatedly wiped out.
+- **Root cause**:
+  `SimVision` (in the controller process) detected the return spot and posted `return_spot: {"item": "hemostat"}`. However, `FakeDetector` (in `vision --fake`) polled `/state`, did not track the return spot, and posted `return_spot: {"item": null}` every 1 second, resetting the controller's `_spot_since` timer. Additionally, returned items were still reported as present in their tray slots.
+- **Expected behavior**:
+  `FakeDetector` should synchronize return spot occupancy with the controller's `/vision` feed and exclude items currently in the return spot from tray slot detections.
+- **Resolution**:
+  Updated `FakeDetector._sync_with_controller()` in `vision/tray.py` to check `/vision` for existing return spot items when not overridden locally, and excluded return-spot items from tray slot detections. Auto-return now triggers reliably in 2 seconds.

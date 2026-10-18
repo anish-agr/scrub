@@ -211,6 +211,17 @@ class FakeDetector:
                     empty.discard(item)
         except Exception:
             pass
+        if ret_item is None:
+            try:
+                resp = self._client.get(f"{self.controller_url}/vision")
+                if resp.status_code == 200:
+                    vis = resp.json()
+                    tray_data = vis.get("tray") or {}
+                    spot_item = (tray_data.get("return_spot") or {}).get("item")
+                    if spot_item:
+                        ret_item = spot_item
+            except Exception:
+                pass
         try:
             resp = self._client.get(f"{self.controller_url}/setting")
             if resp.status_code == 200:
@@ -221,6 +232,8 @@ class FakeDetector:
             pass
         for f in self._filled_items:
             empty.discard(f)
+        if ret_item:
+            empty.add(ret_item)
         return empty, ret_item, setting_doc
 
     def detect(self, frame, categories: list[str]) -> list[dict]:
