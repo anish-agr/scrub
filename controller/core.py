@@ -32,6 +32,7 @@ APPROACH_BACK_M = 0.08      # stop this far short at normal speed, then creep in
 SPEED_NORMAL, SPEED_NEAR = 0.3, 0.1
 MAX_QUEUE = 3
 DEFAULT_SPOT = [0.22, -0.10, 0.18]  # clinician's saved spot when no hand tracking
+AUTO_RETURN_S = 2.0         # an item in the return spot this long with the arm idle goes back on its own
 
 
 def _saved_spot() -> list:
@@ -68,6 +69,9 @@ class Controller:
         self.hand_at = 0.0
         self.tray: dict | None = None
         self.tray_at = 0.0
+        self._spot_item = None          # item the return spot has shown since _spot_since
+        self._spot_since = 0.0
+        self._auto_done = None          # auto-returned already; not again until it leaves the spot
         self.history: deque = deque(maxlen=500)
         self.listeners: list = []       # (loop, asyncio.Queue)
         self.cmd = None                 # command being run
@@ -247,7 +251,30 @@ class Controller:
 
     def post_tray(self, tray: dict) -> None:
         with self.lock:
-            self.tray, self.tray_at = tray, time.time()
+            now = time.time()
+            gap = now - self.tray_at
+            self.tray, self.tray_at = tray, now
+            if tray.get("stale"):
+                self._spot_item = None  # breaks "continuously", but isn't proof the item left
+                return
+            spot = (tray.get("return_spot") or {}).get("item")
+            if spot != self._auto_done:
+                self._auto_done = None  # it left the return spot
+            if spot != self._spot_item or gap > TRAY_STALE_S:
+                self._spot_item, self._spot_since = spot, now
+            if (spot and spot != self._auto_done and now - self._spot_since >= AUTO_RETURN_S
+                    and self.step == "idle" and not self.jobs and self.cmd is None
+                    and settings.item(self.setting, spot)):
+                self._auto_done = spot
+                self._auto_return(spot, now)
+
+    def _auto_return(self, item_id: str, now: float) -> None:
+        """F1: an item sat in the return spot with the arm idle. Queue a return. Called with the lock held."""
+        cmd = {"id": uuid.uuid4().hex, "action": "return", "item": item_id, "heard": None,
+               "source": "auto", "t": now, "received": now}
+        self._emit_command(cmd, True, None, lines.auto_return(settings.item(self.setting, item_id)["name"]))
+        self.jobs.append(cmd)
+        self.jobs_cv.notify()
 
     # ---------- vision helpers ----------
     def _hand_fresh(self) -> dict | None:

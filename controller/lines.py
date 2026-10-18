@@ -32,6 +32,7 @@ def set_down(name): return f"Setting the {name} down."
 def no_hand(name): return f"No hand. {cap(name)} is at the safe spot."
 def returned(name): return f"{cap(name)} back in its slot."
 def couldnt_return(name): return f"I couldn't put the {name} back."
+def auto_return(name): return f"Returning the {name}."
 
 
 def count(names):
