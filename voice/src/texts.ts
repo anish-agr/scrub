@@ -7,6 +7,7 @@ import { GEMINI_API_KEY, GEMINI_MODEL, VOICE_DIR } from "./config.js";
 import { getState, getStats, makeCommand, postCommand, postRestock, postStop, type Command, type CommandReply, type State } from "./controller.js";
 import { isEndCase, isStop, isTrayCheck, localParse, parse, parseAlias, readAction, type Parsed, type ParseResult } from "./parse.js";
 import { dialogue } from "./dialogue.js";
+import { TextQueues } from "./text-queue.js";
 import { handlePhoto, READ_ACTIONS, textRead, type Photo, type ReadAction } from "./reads.js";
 import { currentSetting, teach, type Setting } from "./settings.js";
 import type { AliasReply } from "./controller.js";
@@ -256,29 +257,33 @@ export function partsOf(c: InContent): { text: string; image: Photo | null } {
 }
 
 export async function runTexts(stream: AsyncIterable<[InSpace, InMessage]>, deps: Partial<TextDeps> = {}) {
-  let ordinary = Promise.resolve();
+  const ordinary = new TextQueues();
   const urgent = new Set<Promise<void>>();
   for await (const [space, msg] of stream) {
     if (msg.direction !== "inbound" || !msg.content) continue;
     const { text, image } = partsOf(msg.content);
     if (!text && !image) continue;
     const from = msg.sender?.id ?? null;
+    const thread = space.id || from || "anonymous"; // same key as handleText's dialogue context
+    const receivedVersion = dialogue.version();
     const photo = deps.photo ?? DEFAULTS.photo;
     const stop = isStop(text);
     const reply = async () => {
+      // A reset cannot resurrect words received before a stop, even if their handler never started.
+      if (!stop && receivedVersion !== dialogue.version()) return;
       try {
         const result = image && !stop ? photo(image, text, from) : handleText(text, from, { ...deps,
-          notify: (line) => { void space.send(line).catch(() => {}); } }, space.id || from || "anonymous");
+          notify: (line) => { void space.send(line).catch(() => {}); } }, thread);
         await withTimeout(result.then((r) => space.send(r)), image && !stop ? 45_000 : 30_000, "text reply");
       } catch (e) { console.log(`[text] reply failed: ${(e as Error).message}`); }
     };
-    // Keep consuming the Photon stream while ordinary work runs. Stop never queues behind a photo or summary.
+    // Threads progress independently; stop bypasses even its own thread's photo or summary.
     if (stop) {
       const task = reply(); urgent.add(task);
       void task.finally(() => urgent.delete(task));
-    } else ordinary = ordinary.then(reply);
+    } else void ordinary.enqueue(thread, reply);
   }
-  await Promise.all([ordinary, ...urgent]);
+  await Promise.all([ordinary.drain(), ...urgent]);
 }
 
 // Listen on the Photon line, only with credentials. Reconnects if the stream ends or throws.

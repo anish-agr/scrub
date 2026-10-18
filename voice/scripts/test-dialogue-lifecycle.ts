@@ -213,3 +213,4 @@ try {
 console.log("voice clarification lifecycle tests passed");
 
 await import("./test-command-transport.js");
+await import("./test-text-queues.js");
