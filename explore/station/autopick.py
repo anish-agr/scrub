@@ -1007,7 +1007,7 @@ class AutoPick:
 
 
 # ---- calibrate: the arm maps the side camera to the table by itself (no network, no person)
-CAL_XS = (0.16, 0.22, 0.28)        # 3 x 4 grid inside the arm's comfortable reach (not tied to any table):
+CAL_XS = (0.22, 0.31, 0.40)        # 3 x 4 grid over where the instruments lie (the arm reaches past 0.44):
 CAL_YS = (-0.12, -0.04, 0.04, 0.12)  # ~1.5 min and ~45% of the old 4 x 5 grid's jaw work
 CAL_Z = (0.08, 0.045)      # jaw tip heights (m), extrapolated down to the grasp height. The jaw tape hides magnets:
                            # at 0.0 (2.5 cm over the table) it pulled an instrument up, so stay ~6+ cm above
