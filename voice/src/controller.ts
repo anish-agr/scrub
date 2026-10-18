@@ -80,10 +80,26 @@ export const postAlias = (item: string, alias: string): Promise<AliasReply> => c
 export const controllerUp = (): Promise<boolean> =>
   fetch(CONTROLLER_URL + "/state", { signal: AbortSignal.timeout(1000) }).then((r) => r.ok, () => false);
 
+export const getRecent = (n = 500): Promise<ScrubEvent[]> => call("GET", `/events/recent?n=${n}`);
+
 // Follow WS /events forever, reconnecting every second if the controller is down.
-export function followEvents(onEvent: (e: ScrubEvent) => void): void {
+// After a reconnect, onMissed gets the controller's GET /events/recent from the newest event seen before the drop
+// (oldest first), so the case summary counts passes made while the socket was down. Those lines are never spoken.
+// onMissed may see an event onEvent already had: recordEvent drops repeats by event key.
+export function followEvents(onEvent: (e: ScrubEvent) => void, onMissed?: (e: ScrubEvent) => void,
+    recent: () => Promise<ScrubEvent[]> = () => getRecent()): void {
   const url = CONTROLLER_URL.replace(/^http/, "ws") + "/events";
   let warned = false;
+  let opened = false;
+  let since = Date.now() / 1000;  // controller time of the newest event seen (local time until the first one)
+  const backfill = async () => {
+    const from = since;
+    const evs = await recent().catch(() => null);
+    if (!evs) return console.log("[events] can't backfill: GET /events/recent failed");
+    const missed = evs.filter((e) => typeof e.t === "number" && e.t >= from);
+    for (const e of missed) { since = Math.max(since, e.t); onMissed?.(e); }
+    console.log(`[events] backfill checked ${missed.length} events since the drop`);
+  };
   const connect = () => {
     const ws = new WebSocket(url);
     // A controller that vanished without closing (laptop asleep, cable pulled) leaves a socket that never errors:
@@ -95,9 +111,16 @@ export function followEvents(onEvent: (e: ScrubEvent) => void): void {
       try { ws.ping(); } catch { /* still connecting: the next beat ends it */ }
     }, 5000);
     ws.on("pong", () => { alive = true; });
-    ws.on("open", () => { warned = false; alive = true; console.log(`[events] connected ${url}`); });
+    ws.on("open", () => {
+      warned = false; alive = true; console.log(`[events] connected ${url}`);
+      if (opened && onMissed) backfill();
+      opened = true;
+    });
     ws.on("message", (data) => {
-      try { onEvent(JSON.parse(data.toString())); } catch { /* not JSON, skip */ }
+      let e: ScrubEvent;
+      try { e = JSON.parse(data.toString()); } catch { return; /* not JSON, skip */ }
+      if (typeof e.t === "number" && e.t > since) since = e.t;
+      try { onEvent(e); } catch (err) { console.log(`[events] ${(err as Error).message}`); }
     });
     ws.on("error", () => { if (!warned) console.log(`[events] can't reach ${url}, retrying`); warned = true; });
     ws.on("close", () => { clearInterval(beat); setTimeout(connect, 1000); });
