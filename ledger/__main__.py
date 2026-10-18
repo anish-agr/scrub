@@ -6,6 +6,10 @@ if __name__ == "__main__":
         from ledger.serve import serve
 
         serve()
+    elif len(sys.argv) > 1 and sys.argv[1] == "log":
+        from ledger.logbook import log_cli
+
+        log_cli(sys.argv[2:])
     else:
         from ledger import stats
 

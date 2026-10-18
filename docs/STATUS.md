@@ -73,10 +73,15 @@ Agents: the first unchecked box in your person's section is the next task. Tick 
 - [x] E2 dashboard live on the controller
   - Open http://localhost:8000/ after `python -m controller --fake-arm`. A handover updates the step, the log, what's out, and the handoff time. If the controller is down, the page shows a sample handover.
 - [ ] E3 ledger in MongoDB Atlas
-- [ ] E4 data log kept during recording
+  - A fake-arm handover (`python -m controller --fake-arm`) writes every event, and `GET /stats` shows the median handoff time and what is out. There is no `.env` and no `MONGODB_URI` on this machine, and Atlas is signed out, so the events are in `ledger/buffer.jsonl` (git-ignored) until that URI is set. They upload on the next successful connection.
+- [x] E4 data log kept during recording
+  - `python -m ledger log --setting surgical --item hemostat --direction hand-out --lighting bright --demos 5 --dataset local --notes "cadence ok"` appends one row to `docs/DATA-LOG.md` in the same shape `arm/record.py` should append. The table is empty until the first real batch.
 - [ ] E5 Devpost draft submitted by 10:00 PM
+  - Paste-ready text is in `docs/DEVPOST.md` (plain words, measured numbers left blank). Evan submits it on Devpost.
 - [ ] E6 tables on the dashboard, public page on Vultr and the domain
+  - The dashboard shows the success tables, handoff times, the current lighting, and a "Vision stale" warning. Public page: `python -m ledger serve` then http://127.0.0.1:8080/. Vultr and the GoDaddy domain still need Evan's accounts. The clicks and `bash ledger/push_public.sh root@SERVER_IP` are in `ledger/install_public.sh`.
 - [ ] E7 demo video and final Devpost
+  - Shot-list checklist is at the bottom of `docs/DEVPOST.md`. The edit and the upload are Sunday.
 
 ## Checkpoints
 

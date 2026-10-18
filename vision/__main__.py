@@ -12,6 +12,7 @@ from dotenv import load_dotenv
 from vision.app import create_app
 from vision.camera import FakeCapture, lock_controls, open_capture
 from vision.hand import synthetic_landmarks
+from vision.calibrate import fake_calibration
 from vision.service import ROOT, build_runtime, start_loops
 
 logger = logging.getLogger("vision")
@@ -25,19 +26,49 @@ def _env_float(name: str):
 
 
 class _ScriptedDetector:
-    """Fake tray: a hemostat sits in the first slot until something else replaces this detector."""
+    """Fake tray: every instrument category is present until the controller is past the pick.
+
+    Once the step is checking or later, the current item drops out of the
+    detections so the grasp check sees an empty slot.
+    """
+
+    _HIDE_STEPS = {
+        "checking",
+        "moving_to_hand",
+        "waiting_for_pull",
+        "releasing",
+        "homing",
+        "setting_down",
+        "returning",
+    }
 
     def __init__(self):
         self.calls = 0
+        self.runtime = None
 
     def detect(self, frame, categories):
         self.calls += 1
-        return [
-            {
-                "mention": "hemostat",
-                "point_box": {"top_left": {"x": 120, "y": 80}, "bottom_right": {"x": 260, "y": 140}},
-            }
-        ]
+        hidden = ""
+        runtime = self.runtime
+        if runtime is not None:
+            state = runtime.poster.get_json("/state") or {}
+            if state.get("step") in self._HIDE_STEPS and state.get("item"):
+                hidden = str(state["item"]).replace("_", " ")
+        detections = []
+        x = 40
+        for name in categories:
+            if name in ("robot arm", "gripper"):
+                continue
+            if hidden and name.replace("_", " ") == hidden:
+                continue
+            detections.append(
+                {
+                    "mention": name,
+                    "point_box": {"top_left": {"x": x, "y": 80}, "bottom_right": {"x": x + 100, "y": 140}},
+                }
+            )
+            x += 120
+        return detections
 
 
 def main(argv: list[str] | None = None) -> None:
@@ -52,12 +83,17 @@ def main(argv: list[str] | None = None) -> None:
     if fake:
         capture = FakeCapture()
         controls = lock_controls(capture, exposure=-6, white_balance=4500)
+        detector = _ScriptedDetector()
         runtime = build_runtime(
             capture,
             controls=controls,
             fake_hands=lambda _frame: [synthetic_landmarks(True)],
-            detector=_ScriptedDetector(),
+            detector=detector,
         )
+        detector.runtime = runtime
+        if runtime.calibration is None:
+            runtime.calibration = fake_calibration()
+            logger.info("no calibration.json; using a fake handoff target")
         logger.info("fake camera, exposure locked=%s", controls)
     else:
         index = int(os.environ.get("CAMERA_INDEX", "0"))

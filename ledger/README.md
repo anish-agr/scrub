@@ -40,3 +40,27 @@ python -m ledger serve
 ```
 
 Open http://127.0.0.1:8080/. `PORT` changes the port. On Vultr, run that command and point the GoDaddy domain at the server. The page reads Mongo through this process, so the URI never goes to the browser.
+
+Log one recorded batch (appends a row to `docs/DATA-LOG.md`):
+
+```
+python -m ledger log --setting surgical --item hemostat --direction hand-out --lighting bright --demos 5 --dataset local --notes "cadence ok"
+```
+
+## Public page on a server
+
+The page is this process. It does not ship the MongoDB URI to the browser.
+
+On the Ubuntu server, from a checkout at `/opt/scrub` that contains `ledger/` and a root `.env` with `MONGODB_URI`:
+
+```
+sudo bash ledger/install_public.sh
+```
+
+That writes a systemd service, binds port 80, and restarts on failure. From a laptop that can SSH to the server:
+
+```
+bash ledger/push_public.sh root@THE_SERVER_IP
+```
+
+The exact Vultr and GoDaddy clicks are in the comments at the top of `ledger/install_public.sh`.

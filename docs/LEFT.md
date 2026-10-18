@@ -7,9 +7,9 @@ Evan's tasks (E1 to E7) aren't listed here; he's on them. As of 5 PM he has push
 | Agent | Works on | May edit |
 | --- | --- | --- |
 | Caiden, session 1 (orchestrator) | L1 to L10 below | `controller/` (except `trials.py`), `voice/`, `arm/check_setup.py`, `arm/record.py`, `controller/run_all.py`, `README.md` "Running it", `docs/SLIDES.md`, `explore/` |
-| Evan, Cursor (Grok only) | E3 to E7, his QA bugs | `dashboard/`, `ledger/`, `settings/`, `docs/DATA-LOG.md`, `docs/DEVPOST.md` |
+| Evan, Cursor (Grok only) | E3 to E7 and the dashboard QA bugs. This pass landed the log command, the Devpost draft, the tables page, and V1 to V3. Still needs Evan: Atlas URI, Vultr, GoDaddy, Devpost submit | `dashboard/`, `ledger/`, `settings/`, `docs/DATA-LOG.md`, `docs/DEVPOST.md` |
 | Anish, Codex | R1 to R4, Q1, Q2 below | `arm/` except `check_setup.py` and `record.py`; `docs/BRINGUP.md`; `controller/trials.py` (new file only) |
-| Anish, Antigravity | V1 to V3, F5, F6, the vision QA bugs, then G3 and G4 | `vision/`, `docs/PERCEPTRON.md`, `docs/QA.md`, `docs/NEXT.md`, `docs/DEV-POST.md` |
+| Anish, Antigravity | F5, F6, the vision QA bugs, then G3 and G4. V1 to V3 already landed (Evan's Cursor) | `vision/`, `docs/PERCEPTRON.md`, `docs/QA.md`, `docs/NEXT.md`, `docs/DEV-POST.md` |
 | Caiden, phase 2 (after session 1 ends) | F1 to F4, QA-12 | `controller/`, `voice/` |
 
 ## More work (Q, R, G)
@@ -19,9 +19,6 @@ Evan's tasks (E1 to E7) aren't listed here; he's on them. As of 5 PM he has push
 | Q3 | `docs/AUDIT.md`: read every part against `docs/CONTRACTS.md` and list mismatches and likely bugs, by owner. Done in the final verification pass | Caiden, final pass |
 | Q4 | A sim backup: a recorded full run on the MuJoCo sim arm with voice and the dashboard, in case the real arm fails at judging | Caiden, final pass |
 | R4 | Live bring-up with Anish once the arm is plugged in and the team key is in: capabilities, `real_arm --dry-run` against the real joints, the five-point `move_to` check, gripper load sign | Codex |
-| V1 | B5 tooling: `vision/mark_slots.py` works on a live frame or a saved image, writes boxes for all three trays in the settings format, and is tested with `--fake` | Antigravity (for Brandon) |
-| V2 | B6 tooling: `vision/calibrate.py` accepts both guided gripper points and `--pairs` from `explore` page 42, reports the fit error in cm, and the controller gets `target` once `vision/calibration.json` exists. Test with synthetic pairs | Antigravity (for Brandon) |
-| V3 | B8 tooling: a lighting test mode that records detection rate, hand-tracking rate and stale rate per lighting tag to a CSV. Also confirm live `/v1/detect` works with `PERCEPTRON_API_KEY` | Antigravity (for Brandon) |
 
 ## After everyone finishes: the final pass
 
