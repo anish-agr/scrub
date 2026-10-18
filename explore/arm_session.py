@@ -21,53 +21,91 @@ exists), never pushes to the Hub. Each saved episode's wall-clock loop rate and 
 import argparse
 import faulthandler
 import sys
+import threading
 import time
 from pathlib import Path
 
 FOLLOWER = "/dev/tty.usbmodem5C821089781"
 LEADER = "/dev/tty.usbmodem5C821067211"
 CAM_STALL_MS = 2000  # LeRobot stops the whole session if a camera frame is over 500 ms old;
-                     # we accept up to this, then reconnect the camera once before giving up
+                     # we accept up to this, then mark the camera down and keep reconnecting
 GRIP_STALL_S = 0.3   # closing but not moving this long: something is in the jaws
 GRIP_MOVE = 1.0      # gripper units (0 closed .. 100 open) that count as still moving
 GRIP_SQUEEZE = 3.0   # how far past the contact point to keep pressing, for a firm grip
 
 
 def tolerate_camera_stalls() -> None:
-    """A flaky camera that misses one frame shouldn't end the session. Accept frames up to
-    CAM_STALL_MS old, count each stall (the page says to re-record that episode), raise beyond."""
-    from lerobot.cameras.opencv.camera_opencv import OpenCVCamera
-    read_latest = OpenCVCamera.read_latest
+    """A camera problem never ends the session.
 
-    def report(cam, what):
-        print(f"camera {cam.config.index_or_path} {what}", flush=True)
+    - frame up to CAM_STALL_MS old: use it, count a stall (the page says to re-record)
+    - older: the camera is marked down; a background thread keeps reopening it every 2 s
+    - while down: reads return the last good frame (black if none), teleop keeps working, and in a
+      recording any episode is thrown away and re-recorded (arm_ui.camera_down), so no bad data is saved
+    """
+    import numpy as np
+    from lerobot.cameras.opencv.camera_opencv import OpenCVCamera
+    read_latest, disconnect = OpenCVCamera.read_latest, OpenCVCamera.disconnect
+
+    def ui(fn, *args):
         try:
             import arm_ui
-            arm_ui.camera_stall(cam.config.index_or_path)
+            getattr(arm_ui, fn)(*args)
         except ImportError:
             pass
 
+    def placeholder(cam):
+        last = getattr(cam, "_scrub_last", None)
+        if last is not None:
+            return last
+        c = cam.config
+        return np.zeros((c.height or 480, c.width or 640, 3), dtype=np.uint8)
+
+    def reconnect_loop(cam):
+        while getattr(cam, "_scrub_down", False):
+            time.sleep(2)
+            try:
+                try:
+                    disconnect(cam)
+                except Exception:  # noqa: BLE001 - already closed
+                    pass
+                cam.connect(warmup=True)
+                read_latest(cam, CAM_STALL_MS)
+            except Exception as e:  # noqa: BLE001 - still gone, try again
+                print(f"camera {cam.config.index_or_path} still down: {type(e).__name__}", flush=True)
+                continue
+            cam._scrub_down = False
+            print(f"camera {cam.config.index_or_path} back", flush=True)
+            ui("camera_down", cam.config.index_or_path, False)
+
     def tolerant(self, max_age_ms: int = 500):
+        if getattr(self, "_scrub_down", False):
+            ui("camera_down", self.config.index_or_path, True)  # keeps discarding episodes while down
+            return placeholder(self)
         try:
-            return read_latest(self, max_age_ms)
+            frame = read_latest(self, max_age_ms)
         except TimeoutError:
-            pass
+            try:
+                frame = read_latest(self, CAM_STALL_MS)
+                print(f"camera {self.config.index_or_path} stalled (frame over {max_age_ms} ms old)", flush=True)
+                ui("camera_stall", self.config.index_or_path)
+            except Exception:  # noqa: BLE001 - silent too long, or the device errored
+                self._scrub_down = True
+                print(f"camera {self.config.index_or_path} stopped sending frames: down, reconnecting", flush=True)
+                ui("camera_down", self.config.index_or_path, True)
+                threading.Thread(target=reconnect_loop, args=(self,), daemon=True).start()
+                return placeholder(self)
+        self._scrub_last = frame
+        return frame
+
+    def quiet_disconnect(self):
+        self._scrub_down = False  # stop the reconnect thread
         try:
-            frame = read_latest(self, CAM_STALL_MS)
-            report(self, f"stalled (frame over {max_age_ms} ms old)")
-            return frame
-        except TimeoutError:
+            disconnect(self)
+        except Exception:  # noqa: BLE001 - a dead camera must not block shutdown
             pass
-        # Silent past CAM_STALL_MS (a wrist cable flexing with the arm can do this): reopen it once.
-        report(self, "stopped sending frames: reconnecting")
-        try:
-            self.disconnect()
-        except Exception:  # noqa: BLE001 - already half-closed
-            pass
-        self.connect(warmup=True)  # raises if the camera is really gone, which ends the session
-        report(self, "reconnected")
-        return read_latest(self, CAM_STALL_MS)
+
     OpenCVCamera.read_latest = tolerant
+    OpenCVCamera.disconnect = quiet_disconnect
 
 
 def _guard_ui(holding: bool, at) -> None:
