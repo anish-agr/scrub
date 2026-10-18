@@ -3,6 +3,7 @@
 python -m controller.trials --plan-only
 python -m controller.trials --self-test
 python -m controller.trials --settings surgical --items hemostat --lighting normal --actions handover --tries 2
+python -m controller.trials --settings surgical --actions handover --lighting normal --tries 10 --methods taught_adjusted,ik
 
 Real trials require physical confirmation and call this checkout's ledger.log_test.
 --practice requires a fake/sim controller and never writes measured ledger trials.
@@ -34,14 +35,17 @@ class Trial:
     action: str
     attempt: int
     sharp: bool = False
+    method: str | None = None  # --skills smart: force this grasp method (model, taught_adjusted, ik, taught)
 
 
-def build_plan(catalog, *, settings=None, items=None, lighting=None, actions=None, tries=None):
+def build_plan(catalog, *, settings=None, items=None, lighting=None, actions=None, tries=None, methods=None):
     settings, actions = settings or list(SETTINGS), actions or ["handover", "return"]
     if set(settings) - set(SETTINGS) or set(actions) - {"handover", "return"}:
         raise ValueError("Unknown setting or action")
     if lighting and set(lighting) - set(LIGHTS):
         raise ValueError("Lighting must be bright, normal or dim")
+    if methods and set(methods) - {"model", "taught", "taught_adjusted", "ik"}:
+        raise ValueError("Methods must be model, taught, taught_adjusted or ik")
     if tries is not None and tries < 1:
         raise ValueError("--tries must be positive")
     known = {item["id"] for setting in settings for item in catalog[setting]["items"]}
@@ -58,8 +62,8 @@ def build_plan(catalog, *, settings=None, items=None, lighting=None, actions=Non
             for label in labels:
                 for item in catalog[setting]["items"]:
                     if not items or item["id"] in items:
-                        result.extend(Trial(setting, item["id"], label, action, n, bool(item.get("sharp")))
-                                      for n in range(1, count + 1))
+                        result.extend(Trial(setting, item["id"], label, action, n, bool(item.get("sharp")), method)
+                                      for method in (methods or [None]) for n in range(1, count + 1))
     if not result:
         raise ValueError("Filters select no trials")
     return result
@@ -116,8 +120,10 @@ def run_one(client, trial, *, practice, timeout=90, interval=.1, clock=time.mono
     result = {**asdict(trial), "command_id": command_id, "success": False,
               "retries": 0, "seconds": None, "elapsed_s": 0., "aborted": False}
     try:
-        reply = request(client, "POST", "/command", {"id": command_id, "action": trial.action,
-                        "item": trial.item, "source": "keyboard", "t": time.time()})
+        body = {"id": command_id, "action": trial.action, "item": trial.item, "source": "keyboard", "t": time.time()}
+        if trial.method:
+            body["method"] = trial.method
+        reply = request(client, "POST", "/command", body)
         if reply.get("accepted") is not True:
             result["reason"] = "rejected: " + str(reply.get("reason"))
             return result
@@ -175,7 +181,8 @@ def execute(client, plan, *, practice=False, automatic=False, timeout=90, interv
         from ledger import log_test
     results, adoption_recorded = [], False
     for number, trial in enumerate(plan, 1):
-        write(f"[{number}/{len(plan)}] {trial.setting} {trial.lighting} {trial.action} {trial.item} #{trial.attempt}")
+        how = f" via {trial.method}" if trial.method else ""
+        write(f"[{number}/{len(plan)}] {trial.setting} {trial.lighting} {trial.action} {trial.item}{how} #{trial.attempt}")
         try:
             if not automatic:
                 prompt = ("Place item in RETURN SPOT" if trial.action == "return" else "Restore item to its tray slot")
@@ -239,6 +246,7 @@ def main(argv=None):
     parser.add_argument("--lighting", help="comma-separated bright,normal,dim")
     parser.add_argument("--actions", help="comma-separated handover,return")
     parser.add_argument("--tries", type=int, help="override N for selected rows")
+    parser.add_argument("--methods", help="comma-separated model,taught_adjusted,ik,taught: N tries per method (controller in --skills smart)")
     parser.add_argument("--timeout", type=float, default=90)
     parser.add_argument("--interval", type=float, default=.1)
     parser.add_argument("--journal", type=Path, help="new local JSONL file; never overwritten")
@@ -258,7 +266,8 @@ def main(argv=None):
     try:
         catalog = {setting: load(setting) for setting in SETTINGS}
         plan = build_plan(catalog, settings=split(args.settings), items=split(args.items),
-                          lighting=split(args.lighting), actions=split(args.actions), tries=args.tries)
+                          lighting=split(args.lighting), actions=split(args.actions), tries=args.tries,
+                          methods=split(args.methods))
         print(json.dumps({"trials": len(plan), "by_setting_action": dict(Counter(f"{t.setting}/{t.action}" for t in plan))}, indent=2))
         if args.plan_only:
             return 0
@@ -348,7 +357,10 @@ def self_test():
 
         def test_filters_and_validation(self):
             self.assertEqual(len(build_plan(catalog, settings=["surgical"], items=["surgical_1"], lighting=["dim"], actions=["handover"], tries=2)), 2)
-            for kwargs in ({"tries": 0}, {"items": ["missing"]}, {"lighting": ["night"]}):
+            plan = build_plan(catalog, settings=["surgical"], items=["surgical_1"], lighting=["dim"], actions=["handover"],
+                              tries=2, methods=["taught_adjusted", "ik"])
+            self.assertEqual([t.method for t in plan], ["taught_adjusted", "taught_adjusted", "ik", "ik"])
+            for kwargs in ({"tries": 0}, {"items": ["missing"]}, {"lighting": ["night"]}, {"methods": ["magic"]}):
                 with self.assertRaises(ValueError):
                     build_plan(catalog, **kwargs)
 
