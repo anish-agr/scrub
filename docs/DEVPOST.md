@@ -2,7 +2,7 @@
 
 Owner: Evan (tasks E5, E7). Draft from `docs/PROPOSAL.md` and what is actually in the repo (`docs/STATUS.md`). Anish reviews before it is submitted. Plain words. No buzzwords. No em dashes.
 
-This file is ready to paste. Evan submits the draft on Devpost by **Sat 10:00 PM** (DubHacks deadline 10:30 PM). Final text, with measured numbers filled in, is due **Sun 9:30 AM** (locks at 10:00).
+This file is ready to paste by **Sat 9:30 PM**. Final text, with measured numbers filled in, is due **Sun 9:30 AM** (locks at 10:00).
 
 Do not invent a success rate. Leave the `[measured]` slots until the arm tests are logged.
 
@@ -34,10 +34,9 @@ A scalpel never goes hand to hand. Scrub sets it in a fixed safe spot and says "
 
 When an instrument is done, it goes in the return spot. Scrub puts it back in its slot. Say "count" and Scrub reads back what is still out, so a tool is not left behind at the end of a case.
 
-One system runs three trays. Switching trays is a different settings file, not new code.
+This weekend the demo is the operating room tray first. A second tray, the robotics bench, uses the same code and a different settings file. A dental tray file is in the repo and is not part of the demo.
 
 - Operating room: scalpel handle, hemostat, Mayo scissors
-- Dental office: mouth mirror, explorer, cotton pliers
 - Robotics bench: needle-nose pliers, wire cutters, hex key
 
 Plain names work. So do the names clinicians and techs actually say. "Kelly" is the hemostat. "Mayo" is the scissors. "Allen key" is the hex key.
@@ -64,7 +63,7 @@ The phone number, the overhead camera, and the arm setup are the parts that stil
 
 Working in the repo as of Saturday evening:
 
-- Three tray files, with the names people actually say. Only the scalpel is marked sharp.
+- Two trays in the demo: the operating room, then the robotics bench. Only the scalpel is marked sharp. The dental tray file stays in the repo and is not on the picker.
 - A live dashboard on the controller. A handover on the fake arm updates the step, the log, what is out, and the seconds from request to hand. The page also shows the current lighting, the success tables, and a warning when the tray reading is stale. Stop and reset are on the page. Spacebar stops the arm.
 - A ledger that records every controller event. Success rates come from measured trials. The median handoff time comes from the events. The same numbers are on a public read-only page.
 - The controller runs the full handover on the fake arm, including the miss, the retry, the wait for a pull, and the freeze when the hand is lost.
@@ -85,7 +84,7 @@ The useful version of this job is small. Pass the instrument, put it back, keep 
 
 ## What's next
 
-Dental offices come first, as a monthly fee per chair. The sterile setup is simpler than an operating room, and the staffing gap is already measured. A medical-grade arm is the later version of this weekend's arm. After that, Scrub can hand over the next instrument before it is asked for, using the step of the procedure.
+Later, dental offices are the first clinics to sell this to, as a monthly fee per chair. We do not have those tools on the table this weekend. The sterile setup is simpler than an operating room, and the staffing gap is already measured. A medical-grade arm is the later version of this weekend's arm. After that, Scrub can hand over the next instrument before it is asked for, using the step of the procedure.
 
 ## Built with
 
@@ -100,7 +99,7 @@ Edit a 2 to 3 minute video from these shots. Record each one a few times and kee
 - [ ] 3. "Scalpel." The scalpel goes to the safe spot. Scrub says "scalpel down." It does not go to the hand.
 - [ ] 4. Return. Hemostat goes in the return spot. Scrub says "returning the hemostat" and puts it back in its slot.
 - [ ] 5. Evan turns the lamp on. Glare shows on the steel. A handoff still succeeds. Cut to the lighting table on the dashboard.
-- [ ] 6. Swap to the dental tray and ask for the mouth mirror. Swap to the bench tray and ask for the pliers.
+- [ ] 6. Swap to the robotics bench tray and ask for the pliers. Same arm, no new code. Do this after the operating room shots work.
 - [ ] 7. "Count." The voice reads back what is out. Then the summary text arrives on the phone.
 - [ ] 8. Dashboard: the live camera, what is out, and the success tables. Hold long enough to read the numbers.
 - [ ] 9. Close on the team and the arm.

@@ -27,6 +27,7 @@ body { margin: 0; min-height: 100vh; padding: 20px; }
 
 .mark { font-size: 28px; font-weight: 700; letter-spacing: -0.04em; }
 .top a { color: #efe6d4; }
+.trays { margin: 12px 0 0; color: var(--muted); }
 
 .pill {
   font-size: 13px;
