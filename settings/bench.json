@@ -28,6 +28,28 @@
       "slot": null,
       "pick_instruction": "pick the hex key",
       "return_instruction": "return the hex key"
+    },
+    {
+      "id": "flathead_screwdriver",
+      "name": "flathead screwdriver",
+      "aliases": ["flathead", "flat head", "slotted screwdriver"],
+      "group": "screwdriver",
+      "variant": "flathead",
+      "sharp": false,
+      "slot": null,
+      "pick_instruction": "pick the flathead screwdriver",
+      "return_instruction": "return the flathead screwdriver"
+    },
+    {
+      "id": "phillips_screwdriver",
+      "name": "Phillips screwdriver",
+      "aliases": ["phillips", "crosshead", "cross head"],
+      "group": "screwdriver",
+      "variant": "Phillips",
+      "sharp": false,
+      "slot": null,
+      "pick_instruction": "pick the phillips screwdriver",
+      "return_instruction": "return the phillips screwdriver"
     }
   ],
   "return_spot": null

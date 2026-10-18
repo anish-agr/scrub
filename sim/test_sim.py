@@ -159,6 +159,22 @@ def test_run_skill_accepts_hyphenated_names(arm):
         arm.reload()
 
 
+def test_bench_has_two_distinct_screwdrivers_and_picks_phillips(arm):
+    from sim import scene
+    arm.setting_override = "bench"
+    try:
+        arm.reload()
+        assert scene.tray_slot(arm.layout, "flathead_screwdriver") != scene.tray_slot(arm.layout, "phillips_screwdriver")
+        assert {"flathead_screwdriver", "phillips_screwdriver"} <= arm.state()["items"].keys()
+        arm.go_home()
+        assert arm.run_skill("pick the phillips screwdriver")
+        assert arm.state()["holding"] == "phillips_screwdriver"
+        assert arm.set_down_safe_spot()
+    finally:
+        arm.setting_override = None
+        arm.reload()
+
+
 def test_rig_json_degree_poses_do_not_move_the_sim_home(arm):
     arm.rig = {"home": [2.8, -102.2, 97.7, 72.3, -9.3, 4.8]}  # real-arm degrees, as arm/rig.json
     assert list(arm._pose("home")) == arm.layout["poses"]["home"]
