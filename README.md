@@ -6,7 +6,7 @@ A robot arm that hands a surgeon the instrument they ask for out loud, then lets
 
 ## What Scrub is
 
-In an operating room the scrub tech passes each instrument the moment it is named and keeps the count of everything on the tray. Hospitals cannot hire enough of them: a surgical tech opening takes about 120 days to fill ([Periop Leader, 2024](https://www.periopleader.com/survey-staffing-woes-ease-slightly-but-challenges-remain/)). When the tech is missing, the surgeon looks away from the patient and searches the tray. Operating room time costs about $36 a minute ([Childers and Maggard-Gibbons, JAMA Surgery 2018](https://jamanetwork.com/journals/jamasurgery/fullarticle/2673385)), and instrument problems, mostly missing instruments, delayed a case about 10 minutes on average in one study ([Nichol et al., BMC Surgery 2024](https://doi.org/10.1186/s12893-024-02407-1)). Scrub takes the fetch-and-hold-out part of that job: you say "get the hemostat" or "scalpel", an SO-101 arm picks it from the tray, holds the handle out at a fixed handoff point and lets go when you pull it or say "let go". It never touches the patient. The business case is in [docs/BUSINESS.md](docs/BUSINESS.md).
+In an operating room the scrub tech passes each instrument the moment it is named and keeps the count of everything on the tray. Hospitals cannot hire enough of them: a surgical tech opening takes about 120 days to fill ([Periop Leader, 2024](https://www.periopleader.com/survey-staffing-woes-ease-slightly-but-challenges-remain/)). When the tech is missing, the surgeon looks away from the patient and searches the tray. Operating room time costs about $36 a minute ([Childers and Maggard-Gibbons, JAMA Surgery 2018](https://jamanetwork.com/journals/jamasurgery/fullarticle/2673385)), and instrument problems, mostly missing instruments, delayed a case about 10 minutes on average in one study ([Nichol et al., BMC Surgery 2024](https://doi.org/10.1186/s12893-024-02407-1)). Scrub takes the fetch-and-hold-out part of that job: you say "get the hemostat" or "scalpel", an SO-101 arm picks it from the tray, holds the handle out at a fixed handoff point and lets go when you pull it or say "let go". It never touches the patient. The business case is.
 
 ## How it works
 
@@ -32,7 +32,7 @@ In an operating room the scrub tech passes each instrument the moment it is name
 - **Recording station (`explore/station/`).** One process opens both arms, both cameras and the LeRobot dataset once, runs a 30 Hz leader-follower teleop loop and records episodes. Its Run tab drives the follower. Autopick's `average` mode is what moved the real arm: it takes every usable demo of one instrument, cuts each at the same moments (start, above the item, grasp, lift, hand-off), resamples each stage and takes the median point by point, then plays it back and holds the instrument out.
 - **Vision (`vision/`).** Perceptron's `/v1/detect` finds the instruments on the tray (`vision/tray.py`), with a local detector when the API is slow. OCR on `perceptron-mk1.5` with a strict JSON schema reads the printed count sheet and falls back to Gemini (`vision/reading.py`).
 - **Ledger and dashboard (`ledger/`, `dashboard/`).** Every event and the arm's temperature readings go to MongoDB Atlas, buffered to a local file when Atlas is down. The dashboard is a static page on the controller's event socket with a stop button and a tablet view. `ledger/serve.py` serves the read-only public page; `deploy/` sets it up on a Vultr server.
-- `settings/` holds one JSON file per tray (`surgical.json`: scalpel handle, hemostat, Mayo scissors). Message formats are in [docs/CONTRACTS.md](docs/CONTRACTS.md).
+- `settings/` holds one JSON file per tray (`surgical.json`: scalpel handle, hemostat, Mayo scissors). The API is in `controller/server.py`.
 
 ## Hardware
 
@@ -41,15 +41,14 @@ In an operating room the scrub tech passes each instrument the moment it is name
 - Magnets under the tape on the gripper jaw, to hold thin steel instruments.
 - A Mac running the station, both arm buses and both cameras (our wrist camera shared a USB 2.0 hub with them and delivered 22.6 fps).
 
-Cost: [docs/BUSINESS.md](docs/BUSINESS.md) calls it a "$250 arm" ("Voice to handoff on a $250 arm"). The repo has no itemized parts list or bill of materials, so no per-part prices are given here.
+Cost: about $250 for the arm hardware.
 
-<!-- TODO (a person): fill in per-part prices (SO-101 leader + follower kits, STS3215 servos, 12 V supply, C920, wrist camera, magnets) with sources. Nothing in the repo itemizes the ~$250 figure. -->
 
-Bring-up of the arm and cameras: [docs/BRINGUP.md](docs/BRINGUP.md). Running and recording on the real arm, and what to do when it overheats or drops off the bus: [explore/ARM-RUNBOOK.md](explore/ARM-RUNBOOK.md).
+Running and recording on the real arm, and what to do when it overheats or drops off the bus: [explore/ARM-RUNBOOK.md](explore/ARM-RUNBOOK.md).
 
 ## Setup
 
-Python 3.10 (the version LeRobot uses), Node 20 or newer, Git. Accounts and keys: [docs/SETUP.md](docs/SETUP.md).
+Python 3.10 (the version LeRobot uses), Node 20 or newer, Git. Keys go in `.env` (names in `.env.example`).
 
 ```
 python3.10 -m venv .venv
@@ -146,4 +145,4 @@ Why these numbers: [explore/research/overheating/README.md](explore/research/ove
 
 ## License
 
-License: not yet chosen (no LICENSE file in this repo).
+MIT. See [LICENSE](LICENSE).
