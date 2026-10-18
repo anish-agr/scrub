@@ -33,7 +33,7 @@ websocat ws://localhost:8000/events      # or open http://localhost:8000/
 | `lines.py` | every line Scrub says (`say`). Change wording here only |
 | `fake_arm.py` | the arm interface with sleeps, plus forced failures |
 | `traycheck.py` | `GET /tray_check`: asks vision's `/tray_check`, words the answer with `lines.py` |
-| `settings.py` | loads `settings/<id>.json`, built-in defaults until those files exist |
+| `settings.py` | loads `settings/<id>.json` (built-in defaults until those files exist) with the clinic overlay `settings/<id>.local.json` merged in |
 
 ## Behaviour other parts should know
 
@@ -60,6 +60,7 @@ websocat ws://localhost:8000/events      # or open http://localhost:8000/
 
 - `GET /setting`: the current setting file (the voice server can read item ids and aliases here).
 - `GET /events/recent?n=50`: the last events, for a page that loads mid-run.
+- `POST /alias` with `{"item": "hemostat", "alias": "clamp"}` (X6 clinic words): teaches a word for an item on the current tray. Always 200 with `{"ok", "say", "reason"}`: "Got it: clamp means the hemostat.", or `ok: false` with "Crile already means the X." (the word names another item on this tray), "That's not on this tray." or "I didn't catch the word." The word is lowercased, articles dropped ("The Clamp" -> "clamp"). Saved to `settings/<id>.local.json` (temp file + rename), then the current setting is reloaded in memory, so `GET /setting` (voice's Gemini list and alias match) has it at once. Works mid-handover; never touches the arm, `out` or the case.
 - `POST /restock` with `{"item", "qty", "setting", "from", "heard"}`: a restock texted to the Photon thread (voice F3), logged to the ledger with the `case_id`. Returns `{"ok": false}` when the ledger isn't loaded (voice then keeps it in `voice/restocks.jsonl`).
 - `POST /fake/pull`: simulate the clinician tugging the item (sim arm), otherwise the same as `got_it`.
 - `GET /demo`: the judging console (P4). Keys 1/2/3 load the surgical, dental and bench trays, R resets and clears the count, Space or Esc stops (latched), C sends the current cue's request, G is got it. A 3:00 clock with the PITCH.md beats and who does what, and a rehearsal log for P5. `demo.html` is a copy of `explore/prototypes/48-judge-run.html`.
@@ -71,9 +72,13 @@ websocat ws://localhost:8000/events      # or open http://localhost:8000/
   Missing fields are fine (`ok` defaults to "nothing missing or in the wrong slot"; a non-empty `missing` or `wrong_slot` always means not ok), extra fields are passed through. `say` is "Tray's ready: scalpel, hemostat, Mayo scissors." / "Missing the scalpel." / "The hemostat is in the Mayo scissors' slot." (plus "Extra on the tray: ..." when `extra` is set). Vision down, 404, timeout, not JSON or `stale: true`: `ok` false, "I can't check the tray right now." (`available` false unless it was just stale). A different `setting` from vision: `ok` false, "The camera is checking the dental tray, not the surgical tray."
 - `POST /fake/force` with `{"miss_grasp": 1, "out_of_region": 1, "skill_fail": 1, "no_pull": 1, "no_load": 1}`: the next fake-arm calls fail that way (testing C6).
 
+## Clinic words overlay (X6)
+
+`settings/<id>.local.json` is `{"aliases": {"hemostat": ["clamp", "snap"]}}`: words a clinic taught through `POST /alias` ("call the hemostat a clamp" on the call or by text). `settings.load()` merges it over Evan's `settings/<id>.json` (or the built-in default): aliases are added to the matching item lowercased and deduped, unknown item ids are ignored, a missing overlay is fine and a broken one is ignored (logged once). The merged setting has `_overlay` set to the file it used. The controller never writes `settings/<id>.json`. The overlay files are clinic config and stay tracked in git. An unknown command now answers "Which instrument? You can say: call the hemostat a kelly." (the first non-sharp item and its first alias on the current tray).
+
 ## Tests
 
-`.venv/bin/python -m controller.test_flows` forces every failure case on the fake arm (grasp miss and retry, tray grasp check, stale tray, empty slot, no pull, no load reading, load drop, `got_it`, no hand, hand lost and path blocked holding until reset, failed set-down, arm exception, out of region, stop mid-pick, mid-move and while holding out, sharp set-down, return checked against the tray, count, auto return, count against the camera, case_id, rejects). Also the tray check against a fake vision (ready, missing, wrong slot, 404, timeout, vision down). About 50 s, prints `40/40 passed`.
+`.venv/bin/python -m controller.test_flows` forces every failure case on the fake arm (grasp miss and retry, tray grasp check, stale tray, empty slot, no pull, no load reading, load drop, `got_it`, no hand, hand lost and path blocked holding until reset, failed set-down, arm exception, out of region, stop mid-pick, mid-move and while holding out, sharp set-down, return checked against the tray, count, auto return, count against the camera, case_id, rejects, the tray check against a fake vision, the clinic-words overlay and `POST /alias` on a temp settings folder). About 50 s, prints `45/45 passed`.
 
 ## Full runs (Checkpoint 1, C8)
 

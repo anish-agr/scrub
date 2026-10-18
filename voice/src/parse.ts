@@ -70,6 +70,36 @@ Clinician said: "${heard}"`;
 // Lowercase, punctuation to spaces ("needle-nose" -> "needle nose"), single spaces.
 const norm = (x: string) => x.toLowerCase().replace(/[^a-z0-9 ]/g, " ").replace(/\s+/g, " ").trim();
 
+// X6 clinic words: "call the hemostat a clamp", "clamp means the hemostat", "when I say clamp I mean the hemostat".
+// The item side must name an item on this tray (name, id or alias); the other side is the new word.
+// Each pattern gives [item side, word side], or for "call X Y" the whole "X Y" to split where X names an item.
+const TEACH: { re: RegExp; order: "call" | "word_item" }[] = [
+  { re: /^(?:please )?(?:let s |lets |we ll |we )?call (.+?)(?: from now on| please)?$/, order: "call" },
+  { re: /^(?:when|if) (?:i|we) say (.+?) (?:i|we) mean (.+?)(?: from now on)?$/, order: "word_item" },
+  // "means" only: "Y is the X" would teach "next up" from "next up is the hemostat".
+  { re: /^(.+?) means (.+?)(?: from now on)?$/, order: "word_item" },
+];
+const NOT_WORDS = new Set(["it", "this", "that", "what", "which", "who", "here", "there", "everything", "nothing", "something"]);
+const bare = (w: string) => w.replace(/^(the|a|an|my|our) /, "").trim();
+
+export function parseAlias(heard: string, setting: Setting): { item: string; alias: string } | null {
+  const s = norm(heard);
+  const named = (w: string) => setting.items.find((it) =>
+    [it.name, it.id.replace(/_/g, " "), ...it.aliases].map(norm).some((p) => p === w || `${p}s` === w));
+  const ok = (item: string, word: string) => {
+    const it = named(bare(item)), w = bare(word);
+    return it && w && w.length <= 40 && !NOT_WORDS.has(w.split(" ")[0]) ? { item: it.id, alias: w } : null;
+  };
+  for (const { re, order } of TEACH) {
+    const m = s.match(re);
+    if (!m) continue;
+    if (order === "word_item") { const r = ok(m[2], m[1]); if (r) return r; continue; }
+    const parts = m[1].split(" ");  // "the mayo scissors shears": the longest item name on the left wins
+    for (let i = parts.length - 1; i >= 1; i--) { const r = ok(parts.slice(0, i).join(" "), parts.slice(i).join(" ")); if (r) return r; }
+  }
+  return null;
+}
+
 export function localParse(heard: string, setting: Setting): { action: Action; item: string | null } {
   const s = ` ${norm(heard)} `;
   if (/\b(put (it|that|this) back|return|put back)\b/.test(s)) return { action: "return", item: null };

@@ -10,7 +10,7 @@ import http from "node:http";
 import type { AddressInfo } from "node:net";
 import { WebSocketServer } from "ws";
 import { callerFrom, heardFrom } from "../src/chat.js";
-import { isStop, isTrayCheck, localParse } from "../src/parse.js";
+import { isStop, isTrayCheck, localParse, parseAlias } from "../src/parse.js";
 import { caseFacts, caseLink, clock, closeCaseWithLink, endCase, newCase, recordEvent, setCaller, templateSummary, textCaller } from "../src/summary.js";
 import type { Setting } from "../src/settings.js";
 import { CANT_CHECK, textTrayCheck, trayReadyText, voiceTrayCheck } from "../src/tray.js";
@@ -67,6 +67,29 @@ assert.equal(localText("what's out?", surgical).kind, "count");
 assert.equal(localText("end of case", surgical).kind, "summary");
 assert.equal(localText("Summary please", surgical).kind, "summary");
 assert.equal(localText("hello", surgical).kind, "help");
+
+// X6 clinic words: local pattern, spoken or texted.
+const mayo = { item: "mayo_scissors" };
+assert.deepEqual(parseAlias("call the hemostat a clamp", surgical), { item: "hemostat", alias: "clamp" });
+assert.deepEqual(parseAlias("Call the hemostat a snap.", surgical), { item: "hemostat", alias: "snap" });
+assert.deepEqual(parseAlias("the crile means the hemostat", surgical), { item: "hemostat", alias: "crile" });
+assert.deepEqual(parseAlias("When I say crile, I mean the hemostat", surgical), { item: "hemostat", alias: "crile" });
+assert.deepEqual(parseAlias("crile means kelly", surgical), { item: "hemostat", alias: "crile" });
+assert.deepEqual(parseAlias("let's call the mayo scissors shears", surgical), { ...mayo, alias: "shears" });
+assert.deepEqual(parseAlias("call the mayo scissors the big scissors", surgical), { ...mayo, alias: "big scissors" });
+for (const no of ["grab me the kelly", "the kelly is ready", "next up is the hemostat", "my next one is the scalpel", "the crile is the hemostat", "what is the hemostat", "that is the hemostat", "call it", "call the bovie a pen", "stop"])
+  assert.equal(parseAlias(no, surgical), null, no);
+assert.deepEqual(localText("call the hemostat a clamp", surgical), { kind: "alias", item: "hemostat", qty: 1, setting: null, alias: "clamp" });
+const taught: string[] = [];
+const teachDeps = {
+  state: async (): Promise<State> => ({ step: "idle", out: [], setting: "surgical", t: 1 }),
+  setting: async () => surgical, parse: async (s: string, st: Setting) => localText(s, st),
+  teach: async (item: string, alias: string) => { taught.push(`${alias}=${item}`); return { ok: true, say: `Got it: ${alias} means the ${item}.` }; },
+};
+assert.equal(await handleText("when I say crile I mean the hemostat", null, teachDeps), "Got it: crile means the hemostat.");
+assert.deepEqual(taught, ["crile=hemostat"]);
+assert.equal(await handleText("call the hemostat a crile", null, { ...teachDeps, teach: async () => { throw new Error("down"); } }), "I can't reach the arm controller.");
+assert.match(await handleText("x", null, { ...teachDeps, parse: async () => ({ kind: "alias" as const, item: null, qty: 1, setting: null }) }), /^Say it like: call the scalpel a clamp/);
 
 const restocks: Restock[] = [];
 const sent: string[] = [];
@@ -215,6 +238,7 @@ assert.equal(heardFrom([sys("x"), { role: "user", content: "kelly" }, { role: "a
 
 // The real server against a fake controller: SSE chunk shape, stop skips Gemini and /command, caller id.
 const hits: string[] = [];
+const clinic: string[] = [];  // aliases taught through the fake controller's POST /alias
 const ctl = http.createServer((req, res) => {
   hits.push(`${req.method} ${req.url}`);
   let raw = "";
@@ -223,8 +247,14 @@ const ctl = http.createServer((req, res) => {
     res.setHeader("content-type", "application/json");
     if (req.method === "POST" && req.url === "/setting") return res.end(JSON.stringify(dentalFile));
     if (req.url === "/setting") return res.end(JSON.stringify({ id: "surgical", label: "Operating room",
-      items: [{ id: "hemostat", name: "hemostat", aliases: ["kelly"] }, { id: "scalpel", name: "scalpel", aliases: ["knife"], sharp: true }] }));
+      items: [{ id: "hemostat", name: "hemostat", aliases: ["kelly", ...clinic] }, { id: "scalpel", name: "scalpel", aliases: ["knife"], sharp: true }] }));
     if (req.url === "/tray_check") return res.end(JSON.stringify(trayAnswer));
+    if (req.url === "/alias") {
+      const a = JSON.parse(raw);
+      if (a.alias === "knife") return res.end(JSON.stringify({ ok: false, say: "Knife already means the scalpel.", reason: "already scalpel" }));
+      clinic.push(a.alias);
+      return res.end(JSON.stringify({ ok: true, say: `Got it: ${a.alias} means the ${a.item}.`, reason: null }));
+    }
     if (req.url === "/stop") { emit({ type: "stopped", say: "Stopped." }); return res.end('{"accepted":true}'); }
     if (req.url === "/command") {
       const c = JSON.parse(raw);
@@ -289,6 +319,19 @@ try {
   assert.ok(out.join("").includes("[photon] not sent"), out.join(""));  // the "tray ready" text was tried (no keys: not sent)
   trayAnswer = MISSING;
   assert.equal(await turn("is the tray ready"), "Missing the scalpel.");
+
+  // X6: teach a word on the call, before Gemini, and the next turn sees it (the 30 s setting cache is dropped).
+  hits.length = 0;
+  assert.equal(await turn("grab me the crile"), "");  // not a word yet: unknown (the fake controller says nothing)
+  hits.length = 0;  // the tray switch above dropped the cache; this turn refilled it
+  assert.equal(await turn("call the hemostat a knife"), "Knife already means the scalpel.");  // refused: cache kept
+  assert.equal(await turn("call the hemostat a crile"), "Got it: crile means the hemostat.");
+  assert.ok(hits.includes("POST /alias") && !hits.includes("GET /setting"), hits.join());
+  hits.length = 0;
+  const before = out.join("").length;
+  assert.equal(await turn("grab me the crile"), "Hemostat coming.");
+  assert.equal(hits[0], "GET /setting");
+  assert.match(out.join("").slice(before), /\[command\] handover hemostat/);
 
   const health = await (await fetch(`${base}/health`)).json();
   assert.deepEqual(health, { ok: true, keys: { gemini: false, photon: false, llm_secret: false }, controller: true });
