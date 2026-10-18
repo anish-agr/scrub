@@ -24,7 +24,7 @@ function paint(report) {
     fill.style.width = `${Math.round(((Number(row.n) || 0) / max) * 100)}%`;
     track.appendChild(fill);
     const count = document.createElement("span");
-    const median = row.median_s == null ? "" : `, ${Number(row.median_s).toFixed(1)}s`;
+    const median = row.median_s == null ? "" : `, ${Number(row.median_s).toFixed(1)} s`;
     count.textContent = `${row.n} (${row.real} real${median})`;
     line.append(label, track, count);
     bars.appendChild(line);
