@@ -11,7 +11,7 @@ import type { AddressInfo } from "node:net";
 import { WebSocketServer } from "ws";
 import { callerFrom, heardFrom } from "../src/chat.js";
 import { isStop, isTrayCheck, localParse } from "../src/parse.js";
-import { caseFacts, clock, endCase, newCase, recordEvent, setCaller, templateSummary, textCaller } from "../src/summary.js";
+import { caseFacts, caseLink, clock, closeCaseWithLink, endCase, newCase, recordEvent, setCaller, templateSummary, textCaller } from "../src/summary.js";
 import type { Setting } from "../src/settings.js";
 import { CANT_CHECK, textTrayCheck, trayReadyText, voiceTrayCheck } from "../src/tray.js";
 import { BUSY, settingAsked, switchSetting } from "../src/cases.js";
@@ -153,12 +153,27 @@ assert.equal(lines[2], "Used: hemostat");
 assert.match(templateSummary(g), /Median request to hand: 4\.0 s/);
 setCaller("+15555550123");
 const texted: [string, string][] = [];
-const r = await endCase(async (to, text) => { texted.push([to, text]); return true; }, async () => templateSummary(caseFacts()));
+const r = await endCase(async (to, text) => { texted.push([to, text]); return true; }, async () => templateSummary(caseFacts()), "");
 assert.equal(r.sent, true);
-assert.equal(texted.length, 1);
+assert.equal(texted.length, 1);  // no SCRUB_PUBLIC_URL: no case link text
 assert.equal(texted[0][0], "+15555550123");
 assert.match(texted[0][1], /^Still out: hemostat\. Check the count\.\nScrub case: surgical, started /);
 assert.deepEqual(caseFacts().passed, {});  // a new case after the text
+// Case link (X5): a second short text only when SCRUB_PUBLIC_URL is set and the case has a case_id.
+const linked: [string, string][] = [];
+const r2 = await endCase(async (to, text) => { linked.push([to, text]); return true; }, async () => "Count: everything is back on the tray.", "https://scrub.example/");
+assert.equal(linked.length, 2);
+assert.deepEqual(linked[1], ["+15555550123", `Case replay: https://scrub.example/?case=surgical-${start}`]);
+assert.equal(r2.link, linked[1][1]);
+assert.equal(caseLink(null, "https://scrub.example"), null);
+assert.equal(caseLink(`surgical-${start}`, ""), null);
+const notSent: string[] = [];
+await endCase(async (_to, text) => { notSent.push(text); throw new Error("photon down"); }, async () => "x", "https://scrub.example");
+assert.deepEqual(notSent, ["x"]);  // the summary failed: no link text after it
+// A "summary" text gets the link on its own line after the summary.
+assert.equal(await closeCaseWithLink(async () => "Count: everything is back on the tray.", "https://scrub.example"),
+  `Count: everything is back on the tray.\n\nCase replay: https://scrub.example/?case=surgical-${start}`);
+assert.equal(await closeCaseWithLink(async () => "Count: everything is back on the tray.", ""), "Count: everything is back on the tray.");
 // No case_id on events: the current behaviour, one case until "end of case".
 newCase();
 ev("released", { command_id: "x", item: "hemostat" });
