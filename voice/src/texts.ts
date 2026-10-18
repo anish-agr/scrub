@@ -7,14 +7,15 @@ import { GEMINI_API_KEY, GEMINI_MODEL, VOICE_DIR } from "./config.js";
 import { getState, postRestock, type State } from "./controller.js";
 import { isEndCase } from "./parse.js";
 import { currentSetting, type Setting } from "./settings.js";
-import { closeCase, getPhoton, photonConfigured } from "./summary.js";
+import { closeCase, closeCaseWithLink, getPhoton, photonConfigured } from "./summary.js";
 import { isTrayCheck } from "./parse.js";
 import { textTrayCheck } from "./tray.js";
+import { settingAsked, switchSetting } from "./cases.js";
 
 const ai = GEMINI_API_KEY ? new GoogleGenAI({ apiKey: GEMINI_API_KEY }) : null;
 
 export const SETTINGS = ["surgical", "dental", "bench"];
-const KINDS = ["restock", "count", "summary", "help"] as const;
+const KINDS = ["restock", "count", "summary", "setting", "help"] as const;
 type Kind = typeof KINDS[number];
 export interface TextIntent { kind: Kind; item: string | null; qty: number; setting: string | null }
 
@@ -40,6 +41,7 @@ Kinds:
 - restock: they added instruments to a tray ("add a second hemostat to the surgical tray"). qty is how many were added (a second one = 1).
 - count: they want to know what's out
 - summary: they want the end-of-case summary, or say the case is over
+- setting: they want to start a case on, or switch to, a tray ("start a dental case", "switch to the bench tray"). setting is that tray.
 - help: anything else
 Instruments on the current tray:
 ${list}
@@ -80,6 +82,8 @@ export function localText(text: string, setting: Setting): TextIntent {
   const named = SETTINGS.find((id) => s.includes(` ${id} `)) || null;
   if (isEndCase(text) || /\b(summary|recap|wrap up)\b/.test(s)) return { kind: "summary", item: null, qty: 1, setting: named };
   if (/\b(what s out|whats out|what is out|count|how many|anything out)\b/.test(s)) return { kind: "count", item: null, qty: 1, setting: named };
+  const asked = settingAsked(text);
+  if (asked) return { kind: "setting", item: null, qty: 1, setting: asked };
   if (/\b(add|added|restock|restocked|refill|another|extra|more|put|new)\b/.test(s)) {
     let best: { id: string; len: number } | null = null;
     for (const it of setting.items) {
@@ -121,9 +125,10 @@ export interface TextDeps {
   log: (r: Restock) => void | Promise<void>;
   summary: () => Promise<string>;
   trayCheck: () => Promise<string>;
+  switchTo: (id: string) => Promise<string>;
 }
-const DEFAULTS: TextDeps = { state: getState, setting: currentSetting, parse: parseText, log: logRestock, summary: () => closeCase(),
-  trayCheck: () => textTrayCheck() };
+const DEFAULTS: TextDeps = { state: getState, setting: currentSetting, parse: parseText, log: logRestock,
+  summary: () => closeCaseWithLink(), trayCheck: () => textTrayCheck(), switchTo: (id) => switchSetting(id) };
 
 // One text in -> the reply text.
 export async function handleText(text: string, from: string | null, deps: Partial<TextDeps> = {}): Promise<string> {
@@ -135,6 +140,7 @@ export async function handleText(text: string, from: string | null, deps: Partia
   console.log(`[text] ${from ?? "?"}: ${text} -> ${p.kind}${p.item ? ` ${p.qty} ${p.item}` : ""}`);
   if (p.kind === "count") return st ? countReply(st) : "I can't reach the arm controller.";
   if (p.kind === "summary") return d.summary();
+  if (p.kind === "setting") return p.setting ? d.switchTo(p.setting) : `Which tray? ${SETTINGS.join(", ")}.`;
   if (p.kind === "restock") {
     if (!p.item) return `Which instrument? On this tray: ${setting.items.map((i) => i.name).join(", ")}.`;
     const tray = p.setting || setting.id;

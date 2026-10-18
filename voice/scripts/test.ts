@@ -11,9 +11,10 @@ import type { AddressInfo } from "node:net";
 import { WebSocketServer } from "ws";
 import { callerFrom, heardFrom } from "../src/chat.js";
 import { isStop, isTrayCheck, localParse } from "../src/parse.js";
-import { caseFacts, clock, endCase, newCase, recordEvent, setCaller, templateSummary, textCaller } from "../src/summary.js";
+import { caseFacts, caseLink, clock, closeCaseWithLink, endCase, newCase, recordEvent, setCaller, templateSummary, textCaller } from "../src/summary.js";
 import type { Setting } from "../src/settings.js";
 import { CANT_CHECK, textTrayCheck, trayReadyText, voiceTrayCheck } from "../src/tray.js";
+import { BUSY, settingAsked, switchSetting } from "../src/cases.js";
 import { HELP, countReply, handleText, localText, logRestock, runTexts, type InMessage, type InSpace, type Restock } from "../src/texts.js";
 
 const bench: Setting = { id: "bench", label: "Robotics bench", items: [
@@ -107,6 +108,30 @@ assert.equal(JSON.parse(readFileSync(tmp, "utf8").trim()).item, "hemostat");
 await logRestock(restocks[0], tmp, async () => ({ ok: true }));  // the ledger took it: nothing more in the file
 assert.equal(readFileSync(tmp, "utf8").trim().split("\n").length, 1);
 
+// Switching trays by text (X5): local match, fake POST /setting (ok, 409 busy, 404 unknown, down).
+assert.deepEqual(localText("start a dental case", surgical), { kind: "setting", item: null, qty: 1, setting: "dental" });
+assert.equal(localText("Switch to the bench tray", surgical).setting, "bench");
+assert.equal(localText("surgical case", surgical).kind, "setting");
+assert.equal(localText("add a second hemostat to the surgical tray", surgical).kind, "restock");  // not a switch
+assert.equal(settingAsked("grab me the kelly"), null);
+assert.equal(settingAsked("the dental mirror"), null);
+const dentalFile = { id: "dental", label: "Dental office", items: [{ id: "mouth_mirror", name: "mouth mirror" },
+  { id: "explorer", name: "explorer" }, { id: "cotton_pliers", name: "cotton pliers" }] };
+const posted: string[] = [];
+const fakePost = (status: number) => async (id: string) => { posted.push(id); return { status, setting: status === 200 ? dentalFile : null }; };
+assert.equal(await switchSetting("dental", fakePost(200)), "Dental case started: mouth mirror, explorer, cotton pliers.");
+assert.equal(await switchSetting("dental", fakePost(409)), BUSY);
+assert.equal(await switchSetting("dental", fakePost(404)), "I don't have a dental tray.");
+assert.equal(await switchSetting("dental", async () => { throw new Error("down"); }), "I can't reach the arm controller.");
+assert.deepEqual(posted, ["dental", "dental", "dental"]);
+const switched: string[] = [];
+const switchDeps = { ...deps, switchTo: async (id: string) => { switched.push(id); return switchSetting(id, fakePost(200)); } };
+summaries = 0;
+assert.equal(await handleText("start a dental case", "+15555550123", switchDeps), "Dental case started: mouth mirror, explorer, cotton pliers.");
+assert.deepEqual(switched, ["dental"]);
+assert.equal(summaries, 0);  // the previous case's summary is not sent on a switch
+assert.equal(await handleText("switch to the bench tray", null, { ...deps, switchTo: (id: string) => switchSetting(id, fakePost(409)) }), BUSY);
+
 // Call-to-text memory (F4): events grouped by case_id, the text names the case, goes to the caller. Fake sender, no Gemini.
 const start = Math.floor(Date.now() / 1000) - 600;
 ev("released", { command_id: "z", item: "scalpel", case_id: `surgical-${start - 900}`, setting: "surgical" });  // an older case
@@ -128,12 +153,27 @@ assert.equal(lines[2], "Used: hemostat");
 assert.match(templateSummary(g), /Median request to hand: 4\.0 s/);
 setCaller("+15555550123");
 const texted: [string, string][] = [];
-const r = await endCase(async (to, text) => { texted.push([to, text]); return true; }, async () => templateSummary(caseFacts()));
+const r = await endCase(async (to, text) => { texted.push([to, text]); return true; }, async () => templateSummary(caseFacts()), "");
 assert.equal(r.sent, true);
-assert.equal(texted.length, 1);
+assert.equal(texted.length, 1);  // no SCRUB_PUBLIC_URL: no case link text
 assert.equal(texted[0][0], "+15555550123");
 assert.match(texted[0][1], /^Still out: hemostat\. Check the count\.\nScrub case: surgical, started /);
 assert.deepEqual(caseFacts().passed, {});  // a new case after the text
+// Case link (X5): a second short text only when SCRUB_PUBLIC_URL is set and the case has a case_id.
+const linked: [string, string][] = [];
+const r2 = await endCase(async (to, text) => { linked.push([to, text]); return true; }, async () => "Count: everything is back on the tray.", "https://scrub.example/");
+assert.equal(linked.length, 2);
+assert.deepEqual(linked[1], ["+15555550123", `Case replay: https://scrub.example/case.html?id=surgical-${start}`]);
+assert.equal(r2.link, linked[1][1]);
+assert.equal(caseLink(null, "https://scrub.example"), null);
+assert.equal(caseLink(`surgical-${start}`, ""), null);
+const notSent: string[] = [];
+await endCase(async (_to, text) => { notSent.push(text); throw new Error("photon down"); }, async () => "x", "https://scrub.example");
+assert.deepEqual(notSent, ["x"]);  // the summary failed: no link text after it
+// A "summary" text gets the link on its own line after the summary.
+assert.equal(await closeCaseWithLink(async () => "Count: everything is back on the tray.", "https://scrub.example"),
+  `Count: everything is back on the tray.\n\nCase replay: https://scrub.example/case.html?id=surgical-${start}`);
+assert.equal(await closeCaseWithLink(async () => "Count: everything is back on the tray.", ""), "Count: everything is back on the tray.");
 // No case_id on events: the current behaviour, one case until "end of case".
 newCase();
 ev("released", { command_id: "x", item: "hemostat" });
@@ -181,6 +221,7 @@ const ctl = http.createServer((req, res) => {
   req.on("data", (d) => (raw += d));
   req.on("end", () => {
     res.setHeader("content-type", "application/json");
+    if (req.method === "POST" && req.url === "/setting") return res.end(JSON.stringify(dentalFile));
     if (req.url === "/setting") return res.end(JSON.stringify({ id: "surgical", label: "Operating room",
       items: [{ id: "hemostat", name: "hemostat", aliases: ["kelly"] }, { id: "scalpel", name: "scalpel", aliases: ["knife"], sharp: true }] }));
     if (req.url === "/tray_check") return res.end(JSON.stringify(trayAnswer));
@@ -237,6 +278,9 @@ try {
   assert.equal(await turn("stop"), "Stopped.");
   assert.deepEqual(hits, ["POST /stop"]);  // no GET /setting, no Gemini, no /command
   assert.ok(!out.join("").includes("[gemini]"));
+  hits.length = 0;
+  assert.equal(await turn("start a dental case"), "Dental case started: mouth mirror, explorer, cotton pliers.");
+  assert.deepEqual(hits, ["POST /setting"]);  // a phrase match: no Gemini, no /command
 
   hits.length = 0;
   assert.equal(await turn("check the tray"), READY.say);
