@@ -461,7 +461,7 @@ async function probeVision(){
   setStamp();render();pollTray();
 }
 async function pollTray(){
-  try{const c=new AbortController();setTimeout(()=>c.abort(),900);const r=await fetch(`${VISION}/vision/tray`,{signal:c.signal});const j=await r.json();liveTray=j&&j.slots?j:null;liveTrayOk=true;}
+  try{const c=new AbortController();setTimeout(()=>c.abort(),900);let j=null;try{const r=await fetch(`${VISION}/vision/tray`,{signal:c.signal});j=await r.json();}catch(e){const r=await fetch(`${API}/vision`,{signal:AbortSignal.timeout(900)});j=((await r.json())||{}).tray;}liveTray=j&&j.slots?j:null;liveTrayOk=true;}
   catch(e){liveTrayOk=false;liveTray=null;}
   render();if(liveTrayOk)setTimeout(pollTray,1000);
 }

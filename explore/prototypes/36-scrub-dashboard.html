@@ -250,8 +250,8 @@ td.rate.lo{color:var(--red)}
 <script>
 /* ============ BACKEND HOOKS: the only part Evan changes ============ */
 const BACKEND = {
-  mock: !/[?&]live=1/.test(location.search),   // set false to use the real controller
-  base: location.origin.startsWith('http') ? location.origin : 'http://localhost:8000',
+  mock: /[?&]mock=1/.test(location.search),     // live by default when the controller answers (see boot below)
+  base: location.port === '8000' ? location.origin : 'http://localhost:8000',
   streamUrl: 'http://localhost:8001/stream'
 };
 let ws = null;
@@ -620,7 +620,15 @@ function mockApi(method, path, body){
 /* boot */
 renderPickers(); S.t0 = Date.now()/1000; resetTray();
 if (!BACKEND.mock){ const img=document.createElement('img'); img.src=BACKEND.streamUrl; img.alt='Live camera'; $('camBox').replaceChild(img,cv); $('camTag').textContent='LIVE 8001'; $('camTag').className='tag live'; }
-renderAll(); connect(); draw();
+renderAll();
+(async () => {  // live if the controller answers, else mock; ?live=1 / ?mock=1 force it
+  if (!/[?&](live|mock)=1/.test(location.search)) {
+    try { await fetch(BACKEND.base + '/state', {signal: AbortSignal.timeout(800)}); BACKEND.mock = false; }
+    catch (e) { BACKEND.mock = true; }
+  } else if (/[?&]live=1/.test(location.search)) BACKEND.mock = false;
+  connect();
+})();
+draw();
 </script>
 </body>
 </html>

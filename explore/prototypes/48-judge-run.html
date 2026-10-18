@@ -292,7 +292,7 @@ footer a{color:var(--dim)}
 "use strict";
 const Q=new URLSearchParams(location.search);
 // Served by the controller at /demo: same origin. Opened from disk: localhost:8000.
-let API=(Q.get("api")||(location.protocol.startsWith("http")?location.origin:"http://localhost:8000")).replace(/\/$/,"");
+let API=(Q.get("api")||(location.port==="8000"?location.origin:"http://localhost:8000")).replace(/\/$/,"");
 const $=id=>document.getElementById(id);
 $("api").value=API; $("mockapi").textContent=API;
 
