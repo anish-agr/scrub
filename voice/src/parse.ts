@@ -64,15 +64,18 @@ Clinician said: "${heard}"`;
 }
 
 // No key or Gemini down: match names and aliases. Longest phrase wins ("needle nose" over "pliers").
+// Lowercase, punctuation to spaces ("needle-nose" -> "needle nose"), single spaces.
+const norm = (x: string) => x.toLowerCase().replace(/[^a-z0-9 ]/g, " ").replace(/\s+/g, " ").trim();
+
 export function localParse(heard: string, setting: Setting): { action: Action; item: string | null } {
-  const s = ` ${heard.toLowerCase().replace(/[^a-z0-9 ]/g, " ")} `;
+  const s = ` ${norm(heard)} `;
   if (/\b(put (it|that|this) back|return|put back)\b/.test(s)) return { action: "return", item: null };
   if (/\b(count|what s out|whats out|what is out|how many)\b/.test(s)) return { action: "count", item: null };
   let best: { id: string; len: number } | null = null;
   for (const it of setting.items) {
     for (const phrase of [it.name, it.id.replace(/_/g, " "), ...it.aliases]) {
-      const p = phrase.toLowerCase();
-      if (s.includes(` ${p} `) || s.includes(` ${p}s `)) {
+      const p = norm(phrase);
+      if (p && s.includes(` ${p} `) || s.includes(` ${p}s `)) {
         if (!best || p.length > best.len) best = { id: it.id, len: p.length };
       }
     }

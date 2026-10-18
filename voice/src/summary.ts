@@ -14,40 +14,71 @@ let caller = "";
 export const recordEvent = (e: ScrubEvent) => { caseEvents.push(e); };
 export const setCaller = (phone: string) => { if (phone && phone !== caller) { caller = phone; console.log(`[case] caller ${phone}`); } };
 
+// Starts a new case: forget the events so far.
+export function newCase() { caseEvents = []; caseStart = Date.now() / 1000; }
+
 // What happened this case, counted from the events. Also the fallback text if Gemini is down.
+// Per command: a missed before the pick is a retry if the pick then worked, else a failed request;
+// a missed after the pick (out of reach) is a failed request. "Passed" means released into a hand, or a
+// planned sharp set-down (it carries request_to_hand_s). An unplanned set-down (no pull, no hand) is counted apart.
 export function caseFacts() {
-  const handed: Record<string, number> = {};
-  let missed = 0, returned = 0, stops = 0;
+  const passed: Record<string, number> = {};
+  const setDown: Record<string, number> = {};
+  const cmds = new Map<string, { ok: boolean; pre: number; post: number }>();
+  let returned = 0, stops = 0, failed = 0, retried = 0;
   const times: number[] = [];
-  let out: string[] = [];
+  let reported: string[] | null = null;  // the controller's own out list, on every event
+  let derived: string[] = [];
+  const add = (id: string) => { derived = [...derived.filter((i) => i !== id), id]; };
   for (const e of caseEvents) {
-    if ((e.type === "handed" || e.type === "set_down") && e.item) {
-      handed[e.item] = (handed[e.item] || 0) + 1;
-      if (e.request_to_hand_s != null) times.push(e.request_to_hand_s);
-      out = [...out.filter((i) => i !== e.item), e.item];
+    if (Array.isArray(e.out)) reported = e.out;
+    const c = cmds.get(e.command_id || "") || { ok: false, pre: 0, post: 0 };
+    cmds.set(e.command_id || "", c);
+    if (e.type === "picked" || e.type === "returned") c.ok = true;
+    if (e.type === "missed") { if (c.ok) c.post++; else c.pre++; }
+    if (e.type === "handed" && e.request_to_hand_s != null) times.push(e.request_to_hand_s);
+    if (e.type === "released" && e.item) { passed[e.item] = (passed[e.item] || 0) + 1; add(e.item); }
+    if (e.type === "set_down" && e.item) {
+      add(e.item);
+      if (e.request_to_hand_s != null) { passed[e.item] = (passed[e.item] || 0) + 1; times.push(e.request_to_hand_s); }
+      else setDown[e.item] = (setDown[e.item] || 0) + 1;
     }
-    if (e.type === "returned" && e.item) { returned++; out = out.filter((i) => i !== e.item); }
-    if (e.type === "missed") missed++;
+    if (e.type === "returned") { returned++; if (e.item) derived = derived.filter((i) => i !== e.item); }
     if (e.type === "stopped") stops++;
   }
+  for (const c of cmds.values()) {
+    if (c.pre && c.ok) retried++;
+    if ((c.pre && !c.ok) || c.post) failed++;
+  }
   times.sort((a, b) => a - b);
-  const median = times.length ? times[Math.floor(times.length / 2)] : null;
-  return { minutes: Math.round((Date.now() / 1000 - caseStart) / 60), handed, returned, missed, stops, still_out: out, median_request_to_hand_s: median };
+  const mid = Math.floor(times.length / 2);
+  const median = !times.length ? null : times.length % 2 ? times[mid] : (times[mid - 1] + times[mid]) / 2;
+  return {
+    minutes: Math.round((Date.now() / 1000 - caseStart) / 60), still_out: reported ?? derived, passed,
+    set_down_at_safe_spot: setDown, returned, failed_requests: failed, picks_retried: retried, stops,
+    median_request_to_hand_s: median,
+  };
 }
 
 const name = (id: string) => id.replace(/_/g, " ");
+const list = (r: Record<string, number>) => Object.entries(r).map(([i, n]) => `${name(i)} x${n}`).join(", ");
 
-function templateSummary(f: ReturnType<typeof caseFacts>): string {
-  const passes = Object.entries(f.handed).map(([i, n]) => `${name(i)} x${n}`).join(", ") || "none";
+export function templateSummary(f: ReturnType<typeof caseFacts>): string {
   const lines = [
-    `Scrub case summary (${f.minutes} min)`,
-    `Passed: ${passes}`,
-    `Returned: ${f.returned}. Missed picks: ${f.missed}. Stops: ${f.stops}.`,
     f.still_out.length ? `Still out: ${f.still_out.map(name).join(", ")}. Check the count.` : "Count: everything is back on the tray.",
+    `Scrub case summary (${f.minutes} min)`,
+    `Passed: ${list(f.passed) || "none"}`,
   ];
+  if (Object.keys(f.set_down_at_safe_spot).length) lines.push(`Set at the safe spot: ${list(f.set_down_at_safe_spot)}`);
+  lines.push(`Returned: ${f.returned}. Failed requests: ${f.failed_requests}. Retried picks: ${f.picks_retried}. Stops: ${f.stops}.`);
   if (f.median_request_to_hand_s != null) lines.push(`Median request to hand: ${f.median_request_to_hand_s.toFixed(1)} s`);
   return lines.join("\n");
 }
+
+// Item names instead of ids, so the text says "mayo scissors", not "mayo_scissors".
+const renamed = (r: Record<string, number>) => Object.fromEntries(Object.entries(r).map(([i, n]) => [name(i), n]));
+const readable = (f: ReturnType<typeof caseFacts>) =>
+  ({ ...f, still_out: f.still_out.map(name), passed: renamed(f.passed), set_down_at_safe_spot: renamed(f.set_down_at_safe_spot) });
 
 export async function writeSummary(): Promise<string> {
   const facts = caseFacts();
@@ -57,9 +88,10 @@ export async function writeSummary(): Promise<string> {
     const res = await ai.models.generateContent({
       model: GEMINI_MODEL,
       contents: `Write the end-of-case text message from Scrub, a robot arm that passed instruments to a clinician.
-Plain text, no markdown, under 400 characters, short lines. Say what was passed, what's still out (the count must be clear;
-if something is still out, say so first), misses or stops, and the median request-to-hand time if known. No greetings or sign-off.
-This case: ${JSON.stringify(facts)}
+Plain text, no markdown, under 400 characters, short lines. Start with the count: name every item still out, or say everything is back on the tray.
+Then what was passed, anything set at the safe spot, failed requests and stops, and the median request-to-hand time if known.
+Use only the numbers below. No greetings or sign-off.
+This case: ${JSON.stringify(readable(facts))}
 All-time ledger stats (may be null): ${JSON.stringify(stats)}`,
       config: { temperature: 0.2 },
     });
@@ -92,7 +124,6 @@ export async function endCase(): Promise<{ text: string; to: string; sent: boole
     try { sent = await sendText(to, text); } catch (e) { error = (e as Error).message; }
   }
   console.log(sent ? `[photon] texted ${to}` : `[photon] not sent: ${error ?? "no credentials"}`);
-  caseEvents = [];
-  caseStart = Date.now() / 1000;
+  newCase();
   return { text, to, sent, error };
 }
