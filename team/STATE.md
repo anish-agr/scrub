@@ -11,6 +11,9 @@ What works today, true only. What's left is in `team/LEFT.md`. Tool-by-tool proo
 - The arm holds at the handoff point, lets go on a pull or "let go"/"got it", checks the jaw closed on nothing, and goes home.
 - Voice to the real arm: with the station up, voice finds it on localhost:8090 and sends handover, let go, stop, continue, return to home and kill to it (commits 774e2da, 5bd0b37, 380b970).
 - Stop: "stop" freezes the arm where it is; "continue" resumes; the controller needs `POST /reset` after a stop.
+- Talk on the station page: the Talk tab (and the rail's Voice button) listens all the time once on, sends commands straight to the station, replies in the browser's voice with the word used ("Getting the tweezers."), says "Ready for the next one." when home, and has a transcript, a text box and Let go / Stop / Return to home buttons. One listener: `station_voice.py` stays quiet while it listens.
+- Station keeps itself up: run it with `explore/station/run_station.sh`; a hung camera or the page's Reconnect saves, exits and the supervisor starts it again (~15 s).
+- Hemostat words: hemostat, kelly, kelly clamp, clamp, snap, hemo, tweezers (the last two in `settings/surgical.local.json`, local to the station Mac).
 - Gemini: `gemini-3.8-flash` at thinking low parses a request with no tool name in 2.8 s and asks back when it's unclear; known names skip Gemini. The four Gemini lines are in `.env`.
 - Thermal: the station's guard reads motor temperatures every 2 s while it drives the arm (`explore/station/station.py`, `explore/arm_session.py`) and cools it with torque off when hot; `explore/thermal_plot.py` draws the heat graphs.
 - Training data: 29 episodes in the station dataset by the 06:49 refresh, 24 usable.

@@ -9,8 +9,9 @@ the linked READMEs. Every command runs from the repo root with `.venv/bin/python
 1. Nothing else may hold the arm: `pgrep -fl "arm_session|station/station.py|lerobot-"` prints nothing.
 2. Start the recording station once and leave it running (arms, cameras and dataset open once; no timers, no episode limit):
    ```
-   .venv/bin/python explore/station/station.py --task "pick the hemostat" --root ~/scrub-surgical
+   explore/station/run_station.sh --task "pick the hemostat"
    ```
+   `run_station.sh` keeps it running: a hung camera or the page's **Reconnect** makes the station save and exit, and the supervisor starts it again (~15 s). Ctrl-C stops it for good.
    `--task` must be an exact instruction from `settings/*.json` (pick/return the hemostat, mayo scissors, scalpel, bench items). Free text needs `--any-task` and is marked NOT FOR TRAINING. Change the task between episodes with the task buttons or the task box.
 3. Page http://localhost:8090. It starts with **motors off**: press **Motors on**, then **Start episode** (Space), do the demo, **Save episode** (Space) or **Discard** (Backspace). **KILL** (Escape) turns torque off at once and discards the open episode; a raised arm drops. **Home + motors off** glides to the saved home, then torque off.
 4. Watch temperatures on http://localhost:8093 (its buttons go through the station while it runs).
@@ -19,11 +20,25 @@ the linked READMEs. Every command runs from the repo root with `.venv/bin/python
 
 The older per-batch recorder `explore/arm_session.py` still works and holds the shared guards the station imports.
 
+## Pick and hand over by itself (today's way)
+
+1. Record 5+ demos per instrument with the station (instrument in the same spot each time; grip the middle, lift, bring it to the hand-off spot, open, home). Each save also writes `~/scrub-logs/episodes/ep-NNNN.json`.
+2. Put the instrument back where the demos had it. Page **Run** tab: **Motors on**, then **Replay: <item>**, which averages that item's demos into one smooth path, or the **Talk** tab: **Start listening** and say "get the hemostat".
+3. It holds the instrument out until "let go" (or the Let go button, or a pull), opens, checks the jaw is empty and goes home. "Ready for the next one." means the next command can follow.
+4. Voice words: an instrument name ("kelly", "tweezers", "knife" ...), "stop" (freeze), "continue", "return to home", "kill", "let go". The page's Talk tab is the one listener; `explore/station_voice.py` (spoken station updates) stays quiet while it listens.
+5. New room or moved camera: **Calibrate camera** (two clicks, ~45 s, claw shut), then **Check detection**. Only needed for the camera-based modes; the demo replays don't use the camera.
+
+Details: `explore/station/README.md` (Run mode, AutoPick modes, Talk tab and voice).
+
 ## What is where
 
 | Path | What |
 | --- | --- |
 | `explore/station/` | The recording station (single process, page on :8090). Flags and controls in its README |
+| `explore/station/run_station.sh` | Supervisor: restarts the station when it asks (hung camera, Reconnect) |
+| `explore/station/autopick.py`, `autopick_calib.json` | The autonomous pick/hand-off driver (averaged demo replay, camera detection, calibration, wrist line-up) and its table map |
+| `explore/station_voice.py` | Speaks station updates (ElevenLabs, Mac voice offline); quiet while the page's Talk listens |
+| `voice/src/station.ts` | The voice server's bridge to the station (finds it on localhost:8090 by itself) |
 | `explore/arm_session.py`, `arm_ui.*` | The shared safety layer (guards, park, cool-down, gentle mode) and the older recorder |
 | `explore/home_pose.py`, `home_pose.json` | Save / show / test the folded home pose; `home`, `on`, `off` |
 | `explore/calibrate_follower.py` | Recalibrate the follower safely (pre-checks, forced calibration, range check) |
@@ -60,7 +75,7 @@ The older per-batch recorder `explore/arm_session.py` still works and holds the 
 | --- | --- |
 | Elbow range ends 4 steps short of its folded stop | Tolerated in code; recalibrate and sweep the elbow fully into the fold to remove the flag |
 | Wrist roll counts past one turn after hand-turning or a fast move | Don't turn the claw by hand with torque off; recover by turning back and power-cycling the 12 V (USB alone is not enough) |
-| Wrist camera 13-23 fps (needs 30) | Own USB port, check the cable, more light |
+| Wrist camera 13-23 fps (needs 30), and it hangs | Own USB port straight into the Mac, check the cable, more light. A hang now restarts the station by itself (run it with `run_station.sh`), or press Reconnect |
 | USB / power drops (all motors silent at once) | Arm and cameras on separate ports or a powered hub; seat the 12 V and motor cables |
 | `arm/real_arm.py` rest()/wake() and rig home | Being added by the full-pass session; home raw values `[2063, 849, 3041, 2825, 1942, 1511]` |
 | Controller asks "pick the scalpel" | Matches settings; train on exact settings instructions so run time and training agree |

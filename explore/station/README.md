@@ -2,11 +2,14 @@
 
 One long-running process for recording SO-101 episodes. The arms, cameras and dataset open once and stay open. Teleop is always live, and you start, save or discard an episode whenever you want, with no timers and no episode limit.
 
-Run 1 (hemostat), the recommended command:
+Recommended: run it under the supervisor, which starts it again by itself when it asks to restart (a hung
+camera, or the page's Reconnect). Ctrl-C stops it for good.
 
 ```
-.venv/bin/python explore/station/station.py --task "pick the hemostat" --root ~/scrub-surgical --port 8090
+explore/station/run_station.sh --task "pick the hemostat"
 ```
+
+(or the station alone: `.venv/bin/python explore/station/station.py --task "pick the hemostat" --port 8090`)
 
 Switch between `pick the hemostat` and `return the hemostat` with the task buttons on the page; keep the same `--root` for the mayo scissors and scalpel later.
 
@@ -36,7 +39,8 @@ Page: http://localhost:8090. Teammates can watch on `http://<this Mac>:8090`, bu
 | KILL | Escape (even while typing) | Turns follower torque off immediately, stops sending actions and discards any open episode. **A raised arm drops.** |
 | Home + motors off | | Glides home at 30 deg/s, then turns torque off (state parked). Refused while recording. |
 | Motors on | | From parked: follows the leader again. From killed: sets Goal = Present, turns torque on, then follows; the guard catches up big gaps slowly. |
-| Reconnect arms | shown only in the error state | Reopens both motor buses without restarting the process or the cameras. |
+| Reconnect | always shown (amber when a camera is down or the arms errored) | Parks first if the motors are on or a run is active, saves the dataset, and restarts the station fresh, which reopens both cameras and both arms (~15 s). Refused while recording or saving. Needs `run_station.sh` to come back by itself. |
+| Voice | rail button | Turns on always-listening voice control (same microphone as the Talk tab, below). |
 | Task buttons | | One click sets the task for the next episode: pick/return the hemostat, mayo scissors, scalpel first, then the bench items. Refused while recording. |
 | Set task | Enter in the box | Only with `--any-task`: free text for the next episode. |
 | Noted | shown with a RE-RECORD banner | Hides the RE-RECORD banners already checked (the episodes stay listed as FAIL). |
@@ -46,6 +50,11 @@ States: `idle` (teleop) -> `recording` -> save/discard -> `idle`; `homing` -> `p
 Cool-down: when any motor reaches 60 C, the open episode is discarded (reason `cooldown`) and the arm goes home with motors off. Start stays locked until the hottest motor is at or below 50 C, or until it has stopped cooling for 3 minutes at or below 55 C. Then the state is parked, and Motors on resumes.
 
 Ctrl-C: discards an open episode (reason `exit`), parks, finalizes the dataset, then disconnects with torque off at home.
+
+Hung camera: a camera that stays down 15 s while the arm is parked or off (nothing recording, running or saving, and
+still plugged in) makes the station save, write `~/scrub-logs/station-restart` and exit 75; `run_station.sh` starts
+it again (a hung macOS camera only reopens in a fresh process). With the motors on it asks for Home first; an
+unplugged camera gets "plug it back in" instead of a restart loop.
 
 ## How it differs from arm_session.py
 
@@ -77,6 +86,11 @@ A driver produces the follower's action instead of the leader. It never writes t
 | --- | --- |
 | `{"action": "run", "driver": "replay", "args": {"episode": 7, "speed": 0.5}}` | State `running`. Refused unless idle, or if the driver or args are bad (the arm doesn't move). |
 | `{"action": "stop"}` | Ends the run, goes home, motors off. |
+| `{"action": "pause"}` / `{"action": "resume"}` | Voice "stop" / "continue": freezes the run where it is (motors on, holding; its clock stops) / carries on from the same point. |
+| `{"action": "release"}` | Voice "let go" / the Let go button: opens the jaw while autopick holds the item out. |
+| `{"action": "restart"}` | The page's Reconnect (see Controls). |
+| `{"action": "page_voice", "on": true}` | Heartbeat from the page while its voice is listening; `/status` `page_voice` is true for 12 s after, and `explore/station_voice.py` stays quiet then (one voice). |
+| any control with `"heard": "<words>"` | The page's voice adds what it heard; the station log shows `voice: '<words>' -> <action>`. |
 | `kill` / `home` / `reconnect`, cool-down, bus error, Ctrl-C | Abort the driver first, then do what they always do. |
 | `{"action": "mark", "result": "grabbed"}` or `"missed"` | Marks the last finished run. |
 
@@ -100,6 +114,46 @@ class Driver:
 From the station, a driver can use `st.joints`, `st.gripper`, `st.temps()` (per motor, C), `st.fps`, `st.jpeg("side")`, `st.note(msg)` and `st.root`. A driver that raises in `tick` ends the run and the arm goes home.
 
 `replay` eases from the current pose to the episode's first frame (at most 30 deg/s, at least 1.5 s), then plays its actions at `speed` (0.1 to 1). It only grabs the object if the object is where it was in that demo. Episodes in the file LeRobot is still writing can't be replayed until the station restarts.
+
+### AutoPick modes (args `{"mode": ...}`)
+
+| Mode | What it does |
+| --- | --- |
+| `average` (Run-tab **Replay: <item>** buttons, **Pick & hand over**, voice) | Averages the demos of the task (`args.task`, default the station's current task): each usable demo (a grasp found away from the start pose, and a hand-off after the lift) is cut at the same moments (start, above, grasp, lift, hand-off), each stage resampled and the median taken point by point, stage times averaged; demos whose grasp is >25 deg from the median are left out (the log says which). Played smoothly (80% of demo speed, never over 45 deg/s), a 0.6 s clamp before the lift, a squeeze 6 past the demos' jaw stop, then the hand-off below. |
+| `replay_demo` | The same, but plays the single most typical demo instead of the average. |
+| `handoff` | Detects the item in the side camera (`detector`: `local`, default, no network; or `gemini`), picks it by the table map (`autopick_calib.json`), optional wrist-camera line-up (`align`), then the hand-off. |
+| `hold` | Like handoff, but brings it home holding it, torque off. |
+| `calibrate` (**Calibrate camera**, two clicks) | The arm visits a 3x4 grid over the tray at two heights (claw shut, waits for the arm to stop), finds its black fingertip tape between the high and low frames, fits the pixel -> table map, and keeps the old map unless 6+ spots agree. ~45 s. Frames are saved to `~/scrub-logs/autopick-frames/calibrate-<time>/`. Keep it clear of the instruments: the jaw tape hides magnets. |
+| `look` (**Check detection**) | Reports where it sees the item; no pick (parks at home after). |
+
+Hand-off (after the lift): holds the item at the demos' hand-off spot and waits for **"let go"** (voice, the Let go
+button, `release`), a pull (gripper load or jaw moving, or the arm pushed off its hold), then opens, closes to check
+the jaw is empty and goes home, motors off. Nobody within 45 s: home holding it, torque off.
+
+Demos come from `~/scrub-logs/episodes/ep-NNNN.json`, the joint data `explore/dataset/to_mongo.py` writes locally
+for every saved episode (the station keeps the dataset parquet open). `min_episode` (default 18) skips episodes
+recorded before the current camera setup. Every pick attempt is saved for training/review in
+`~/scrub-logs/autopick-frames/attempts/<time>/` (frames at detect/grip/hand, target, outcome).
+
+### Talk tab and voice
+
+The page's **Talk** tab (and the rail's **Voice** button, same microphone) is always listening once switched on
+(one click: microphone permission and the browser's voice). Commands go straight to `/control`, fired on the
+first words that make them clear; chatter is ignored; the same command within 4 s counts once.
+
+| Say | Does |
+| --- | --- |
+| an instrument after a request ("get the hemostat", "can I have the knife") or alone ("kelly") | wakes the arm if needed and runs that item's `average` mode; replies with the word used ("Getting the tweezers.") |
+| "stop" / "freeze" / "hold on" | `pause` (frozen where it is) |
+| "continue" / "resume" | `resume` |
+| "return to home" / "go home" / "home" | `home` (finished phrases only) |
+| "kill" | `kill` (torque off now; a raised arm drops) |
+| "let go" / "got it" | `release` |
+
+Instrument words are each item's name, aliases and clinic words from `settings/*.json` and `settings/*.local.json`
+(`/status` `voice_items`); common mishears are mapped ("email set", "hemoglobin" -> hemostat). After a run, once the
+arm is home, it says "Ready for the next one."; the next command wakes it and runs. The tab also has a transcript, a
+box to type commands, and Let go / Stop / Return to home buttons. Use one listening page at a time.
 
 ### AutoPick: which one?
 
