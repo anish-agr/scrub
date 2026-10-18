@@ -91,6 +91,11 @@ def find_grasp_moment(state_series, gripper_threshold=30.0):
     return None
 
 
+# Frames past the URDF limits that were still plotted (up to 5 deg over). Today this is the
+# shoulder_lift rest pose at about -103.7 deg vs the -100 deg limit: a rig.json offset is missing.
+OVER_LIMIT = {"frames": 0}
+
+
 def compute_forward_kinematics(kin, state):
     """Compute forward kinematics. Returns xyz or None if out of bounds."""
     try:
@@ -104,6 +109,7 @@ def compute_forward_kinematics(kin, state):
             # Check with 5 degree tolerance
             tolerance_rad = np.deg2rad(5)
             if (rad_angles >= kin.lower - tolerance_rad).all() and (rad_angles <= kin.upper + tolerance_rad).all():
+                OVER_LIMIT["frames"] += 1
                 t, _, _ = kin._chain(rad_angles)
                 xyz = (np.linalg.inv(kin.base_to_urdf) @ t)[:3, 3]
                 return xyz
@@ -762,6 +768,8 @@ def main():
     print("\nAnalyzing grasp variety...")
     grasp_points, grasp_frames, episode_paths = analyze_variety(episodes, rig_config)
     print(f"Found grasp points in {len(grasp_points)} frames")
+    if OVER_LIMIT["frames"]:
+        print(f"WARNING: {OVER_LIMIT['frames']} frames were past the URDF joint limits (plotted with up to 5 deg slack); check arm/rig.json offsets")
 
     # Compute coverage
     print("Computing coverage grid...")

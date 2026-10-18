@@ -1,0 +1,66 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Replay: real vs sim</title>
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;600&family=IBM+Plex+Sans:wght@400;600&display=swap" rel="stylesheet">
+<style>
+:root{--bg:#f2f2ee;--panel:#fff;--ink:#16181a;--mute:#5d6368;--line:#c9ccc8;--warn:#a4400b;--ok:#1f6b3a}
+@media (prefers-color-scheme:dark){:root{--bg:#141618;--panel:#1c1f22;--ink:#e6e8e6;--mute:#9aa1a6;--line:#363b3f;--warn:#e0894d;--ok:#6cc58a}}
+*{box-sizing:border-box;border-radius:0}
+body{margin:0;background:var(--bg);color:var(--ink);font:14px/1.4 "IBM Plex Sans",sans-serif;padding:16px}
+h1{font-size:15px;font-weight:600;margin:0 0 12px}
+.mono{font-family:"IBM Plex Mono",monospace}
+.grid{display:grid;grid-template-columns:repeat(3,1fr);gap:12px}
+.cell{background:var(--panel);border:1px solid var(--line)}
+.cell h2{margin:0;padding:6px 10px;font-size:12px;font-weight:600;border-bottom:1px solid var(--line);text-transform:uppercase;letter-spacing:.04em}
+.cell img{display:block;width:100%;aspect-ratio:4/3;object-fit:contain;background:#000}
+.bar{display:flex;gap:12px;align-items:center;margin:12px 0;background:var(--panel);border:1px solid var(--line);padding:8px 10px}
+.bar input[type=range]{flex:1}
+button,select{font:inherit;border:1px solid var(--ink);background:var(--panel);color:var(--ink);padding:4px 12px;cursor:pointer}
+table{border-collapse:collapse;width:100%;background:var(--panel);border:1px solid var(--line)}
+th,td{padding:5px 10px;border-bottom:1px solid var(--line);text-align:right;font-family:"IBM Plex Mono",monospace;font-size:13px}
+th:first-child,td:first-child{text-align:left}th{font-family:"IBM Plex Sans";font-weight:600;color:var(--mute);font-size:12px}
+.row2{display:grid;grid-template-columns:2fr 1fr;gap:12px}
+.warn{color:var(--warn)}.ok{color:var(--ok)}
+@media (max-width:800px){.grid,.row2{grid-template-columns:1fr}}
+</style></head><body>
+<h1>Replay: real SO-101 vs MuJoCo sim <span id="sub" class="mono" style="font-weight:400;color:var(--mute)"></span></h1>
+<div class="grid">
+ <div class="cell"><h2>Real side camera</h2><img id="side" alt="side"></div>
+ <div class="cell"><h2>Sim, recorded joints</h2><img id="sim" alt="sim"></div>
+ <div class="cell"><h2>Real wrist camera</h2><img id="wrist" alt="wrist"></div>
+</div>
+<div class="bar">
+ <button id="play">Play</button>
+ <input id="scrub" type="range" min="0" max="0" value="0">
+ <span id="pos" class="mono"></span>
+ <select id="speed"><option value="1">1x</option><option value="0.5">0.5x</option><option value="2">2x</option></select>
+</div>
+<div class="row2">
+ <table><thead><tr><th>Joint</th><th>State (deg / 0-100)</th><th>Action</th><th>Overshoot past URDF limit</th></tr></thead><tbody id="joints"></tbody></table>
+ <table><thead><tr><th>Tip (m)</th><th>x</th><th>y</th><th>z</th></tr></thead><tbody>
+  <tr><td>kinematics.py</td><td id="kx"></td><td id="ky"></td><td id="kz"></td></tr>
+  <tr><td>sim site</td><td id="sx"></td><td id="sy"></td><td id="sz"></td></tr>
+  <tr><td>limits</td><td colspan="3" id="lim"></td></tr></tbody></table>
+</div>
+<script>
+const $=id=>document.getElementById(id);let M,i=0,timer=null,busy=false,want=null;
+const f=(v,d=1)=>v==null?"":v.toFixed(d);
+async function show(n){
+  i=n;$("scrub").value=n;
+  if(busy){want=n;return}busy=true;
+  const [s]=await Promise.all([fetch("/api/state/"+n).then(r=>r.json()),
+    Promise.all([["sim","/sim/"+n+".jpg"],["side","/video/side/"+n+".jpg"],["wrist","/video/wrist/"+n+".jpg"]].map(([k,u])=>new Promise(res=>{const im=$(k);im.onload=im.onerror=res;im.src=u})))]);
+  $("pos").textContent=`${n+1}/${M.frames}  t=${s.t.toFixed(2)}s`;
+  $("joints").innerHTML=M.names.map((nm,j)=>`<tr><td>${nm}</td><td>${f(s.state[j])}</td><td>${f(s.action[j])}</td><td class="${j<5&&s.overshoot_deg[j]?"warn":""}">${j<5?f(s.overshoot_deg[j]):""}</td></tr>`).join("");
+  ["x","y","z"].forEach((a,k)=>{$("k"+a).textContent=f(s.tip[k],3);$("s"+a).textContent=f(s.sim_tip[k],3)});
+  $("lim").innerHTML=s.in_limits?'<span class="ok">inside URDF limits</span>':'<span class="warn">outside URDF limits (tip uses clamped joints)</span>';
+  busy=false;if(want!=null){const w=want;want=null;show(w)}
+}
+function tick(){if(i>=M.frames-1){stop();return}show(i+1)}
+function start(){$("play").textContent="Pause";timer=setInterval(tick,1000/M.fps/parseFloat($("speed").value))}
+function stop(){clearInterval(timer);timer=null;$("play").textContent="Play"}
+$("play").onclick=()=>timer?stop():start();
+$("speed").onchange=()=>{if(timer){stop();start()}};
+$("scrub").oninput=e=>show(+e.target.value);
+fetch("/api/meta").then(r=>r.json()).then(m=>{M=m;$("scrub").max=m.frames-1;$("sub").textContent=`episode ${m.episode}, ${m.fps} fps, ${m.task}`;show(0)});
+</script></body></html>
