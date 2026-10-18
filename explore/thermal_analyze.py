@@ -54,6 +54,57 @@ def slope_per_min(t, y):
     return float(np.polyfit(np.asarray(t) - t[0], np.asarray(y, float), 1)[0] * 60)
 
 
+LIFECYCLE = {"phase", "control", "episode_start", "episode_end", "episode_saved", "episode_discarded",
+             "grasp_start", "grasp_end", "claw_closed_empty", "session_end"}
+
+
+def episodes_section(rows: list[dict], motors: list) -> list[str]:
+    """Per episode: duration, grasps, gripper load during grasps, temperature rise per motor."""
+    ev = lambda name: [r for r in rows if r.get("kind") == "event" and r.get("event") == name]  # noqa: E731
+    starts, ends, saved = ev("episode_start"), ev("episode_end"), ev("episode_saved")
+    grasps, empties = ev("grasp_start"), ev("claw_closed_empty")
+    if not (starts or grasps or empties):
+        return []
+    samples = [r for r in rows if r.get("kind") == "sample"]
+    out = ["", "## Episodes and grasps", "", f"Total grasps: {len(grasps)}; claw closed on nothing: {len(empties)}", ""]
+    if starts:
+        out += ["| session | episode | outcome | duration s | grasps | mean grip load in grasps | peak grip load | "
+                + " | ".join(f"{m} rise C" for m in motors) + " |", "|" + "---|" * (7 + len(motors))]
+    for st in starts:
+        sess = st.get("session")
+        en = next((e for e in ends if e.get("session") == sess and e["t"] >= st["t"]), None)
+        t_end = en["t"] if en else (samples[-1]["t"] if samples else st["t"])
+        nxt = [s["t"] for s in starts if s.get("session") == sess and s["t"] > st["t"]]
+        t_end = min(t_end, nxt[0]) if nxt else t_end
+        sv = next((e for e in saved if e.get("session") == sess and st["t"] <= e["t"] <= t_end + 120
+                   and e.get("episode") == st.get("episode")), None)
+        outcome = ("saved" if sv else f"discarded ({en.get('reason')})" if en and en.get("reason") not in ("done", "stop", None)
+                   else en.get("reason") if en else "open")
+        gs = [g for g in grasps if g.get("session") == sess and st["t"] <= g["t"] <= t_end]
+        ge = [g for g in ev("grasp_end") if g.get("session") == sess and st["t"] <= g["t"] <= t_end + 5]
+        loads = []
+        for g in gs:  # gripper samples between a grasp's start and its end
+            e = next((x for x in ge if x["t"] >= g["t"]), None)
+            loads += [abs((r["motors"].get("gripper") or {}).get("load") or 0) for r in samples
+                      if r.get("session") == sess and g["t"] <= r["t"] <= (e["t"] if e else t_end)]
+        peak = max([x.get("peak_load") or 0 for x in ge] + loads or [0])
+        win = [r for r in samples if r.get("session") == sess and st["t"] <= r["t"] <= t_end]
+        rises = []
+        for m in motors:
+            temps = [(r["motors"].get(m) or {}).get("temp") for r in win]
+            temps = [x for x in temps if x is not None]
+            rises.append(f"{temps[-1] - temps[0]:+d}" if len(temps) >= 2 else "-")
+        dur = (en or {}).get("duration_s")
+        out.append(f"| {sess} | {st.get('episode')} | {outcome} | {dur if dur is not None else '-'} | "
+                   f"{(en or {}).get('grasps', len(gs))} | {f'{np.mean(loads):.0f}' if loads else '-'} | "
+                   f"{peak if (loads or ge) else '-'} | " + " | ".join(rises) + " |")
+    if grasps:
+        durs = [g.get("duration_s") for g in ev("grasp_end") if g.get("duration_s") is not None]
+        if durs:
+            out += ["", f"Grasp duration: mean {np.mean(durs):.1f} s, longest {max(durs):.1f} s over {len(durs)} released grasps."]
+    return out
+
+
 def analyze(rows: list[dict]) -> str:
     samples = [r for r in rows if r.get("kind") == "sample"]
     out = [f"# Arm thermal report", "",
@@ -135,7 +186,9 @@ def analyze(rows: list[dict]) -> str:
                 rate = slope_per_min(tt, vals)
                 out.append(f"- motor {key}: {vals[0]} to {vals[-1]} C, {rate:.2f} C/min" if rate is not None else f"- {key}: -")
 
-    events = [r for r in rows if r.get("kind") == "event"]
+    out += episodes_section(rows, motors)
+
+    events = [r for r in rows if r.get("kind") == "event" and r.get("event") not in LIFECYCLE]
     if events:
         counts = defaultdict(int)
         for e in events:

@@ -255,15 +255,22 @@ TEMP_WARN, TEMP_RELAX = 55, 62  # deg C: warn on the page; stop pushing with tha
 ARM_JOINTS = ("shoulder_pan", "shoulder_lift", "elbow_flex", "wrist_flex", "wrist_roll")
 
 
+THERMAL_META: dict = {}  # task, dataset root, mode: set in main(), goes in the `session` row
+
+
+def _tlog():
+    import thermal_log
+    return thermal_log.get({"source": "arm_session", "pid": os.getpid(), **THERMAL_META,
+                            "settings": {"COOL_TRIP": COOL_TRIP, "COOL_RESUME": COOL_RESUME, "GENTLE_ACCEL": GENTLE_ACCEL,
+                                         "GENTLE_SPEED": GENTLE_SPEED, "DEADBAND_DEG": DEADBAND_DEG,
+                                         "JOINT_LOAD_MAX": JOINT_LOAD_MAX, "GAP_DEG": GAP_DEG,
+                                         "EASE_DEG_S": EASE_DEG_S, "GRIP_SQUEEZE": GRIP_SQUEEZE}})
+
+
 def _thermal_row(row: dict) -> None:
     """One telemetry row to ~/scrub-logs/thermal and MongoDB (explore/thermal_log.py). Never raises."""
     try:
-        import thermal_log
-        thermal_log.get({"source": "arm_session", "pid": os.getpid(),
-                         "settings": {"COOL_TRIP": COOL_TRIP, "COOL_RESUME": COOL_RESUME, "GENTLE_ACCEL": GENTLE_ACCEL,
-                                      "GENTLE_SPEED": GENTLE_SPEED, "DEADBAND_DEG": DEADBAND_DEG,
-                                      "JOINT_LOAD_MAX": JOINT_LOAD_MAX, "GAP_DEG": GAP_DEG,
-                                      "EASE_DEG_S": EASE_DEG_S, "GRIP_SQUEEZE": GRIP_SQUEEZE}}).write(row)
+        _tlog().write(row)
     except Exception:  # noqa: BLE001 - telemetry must never stop the arm
         pass
 
@@ -284,6 +291,11 @@ def _start_cooldown(temps: dict) -> None:
     COOLDOWN.parent.mkdir(parents=True, exist_ok=True)
     COOLDOWN.write_text(json.dumps({"t": time.time(), "temps": temps, "hot": hot}))
     _thermal_row({"kind": "event", "event": "cooldown_trip", "temps": temps, "hot": hot})
+    try:
+        import arm_ui
+        arm_ui.ep["why"] = "cooldown"
+    except Exception:  # noqa: BLE001
+        pass
     print(f"COOL-DOWN: {', '.join(f'{m} {t} C' for m, t in hot.items())}: folding to rest, torque off, "
           f"resuming at {COOL_RESUME} C", flush=True)
     _say("My motors are hot. I'm folding up to cool down.")
@@ -419,6 +431,11 @@ def guard_joints() -> None:
                 ph, hz = arm_ui.S.get("phase"), arm_ui._rate(arm_ui.loop_ticks)
             except Exception:  # noqa: BLE001
                 ph, hz = None, None
+            try:
+                import thermal_log
+                thermal_log.track_temps(st["temp"])  # peak temperature per motor for the episode_end row
+            except Exception:  # noqa: BLE001
+                pass
             _thermal_row({"kind": "sample", "phase": ph, "loop_hz": hz, "motors": {
                 m: {"temp": st["temp"].get(m), "load": int(loads.get(m, 0)), "pos": round(float(pos.get(m, 0)), 1),
                     "goal": round(float(action.get(m + ".pos", 0)), 1) if (m + ".pos") in action else None,
@@ -516,7 +533,7 @@ def guard_gripper() -> None:
     """Patch SOFollower.send_action so a blocked claw times out to a gentle hold."""
     from lerobot.robots.so_follower.so_follower import SOFollower
     send = SOFollower.send_action
-    st = {"hold": None, "ref": None, "since": 0.0}
+    st = {"hold": None, "ref": None, "since": 0.0, "grasp": None, "empty": True}
 
     def guarded(self, action):
         goal = action.get("gripper.pos")
@@ -538,6 +555,8 @@ def guard_gripper() -> None:
         st["pos"] = pos
         now = time.perf_counter()
         load, temp = _grip_health(self.bus, st, now)
+        if st["grasp"] is not None and load is not None:
+            st["grasp"]["peak"] = max(st["grasp"]["peak"], load)
         if (load is not None and load > GRIP_LOAD_MAX) or (temp is not None and temp >= GRIP_TEMP_EASE):
             st["strain"] = st.get("strain") or now
             if now - st["strain"] > GRIP_LOAD_S or (temp is not None and temp >= GRIP_TEMP_EASE):
@@ -554,6 +573,7 @@ def guard_gripper() -> None:
             if goal >= st["hold"] + GRIP_SQUEEZE:  # leader opened past the contact point: let go
                 st["hold"], st["ref"] = None, None
                 print("gripper guard: released", flush=True)
+                _grasp_end(st, pos, goal, load, temp, now)
                 _guard_ui(False, None)
             else:
                 action = {**action, "gripper.pos": max(goal, st["hold"])}
@@ -565,12 +585,55 @@ def guard_gripper() -> None:
                 action = {**action, "gripper.pos": st["hold"]}
                 print(f"gripper guard: blocked at {pos:.0f}, holding at {st['hold']:.0f}", flush=True)
                 _guard_ui(True, round(st["hold"]))
+                _grasp_start(st, pos, goal, load, temp, now)
         else:
             st["ref"] = None
+        _grip_empty(st, pos, goal, load, temp)
         _grip_torque(self.bus, st, pos, action["gripper.pos"], now)
         return send(self, action)
 
     SOFollower.send_action = guarded
+
+
+def _grasp_start(st: dict, pos, goal, load, temp, now: float) -> None:
+    """The claw closed on an object (the guard's blocked detection). Never raises."""
+    try:
+        import thermal_log
+        st["grasp"] = {"t0": now, "peak": load or 0}
+        thermal_log.EP["grasps"] += 1
+        thermal_log.event("grasp_start", pos=round(pos, 1), goal=round(goal, 1), load=load, temp=temp,
+                          torque_limit=GRIP_TORQUE_HOLD, n_in_episode=thermal_log.EP["grasps"])
+    except Exception:  # noqa: BLE001
+        pass
+
+
+def _grasp_end(st: dict, pos, goal, load, temp, now: float) -> None:
+    """The leader opened past the contact point: the object was let go. Never raises."""
+    try:
+        import thermal_log
+        g, st["grasp"] = st["grasp"], None
+        if g:
+            thermal_log.event("grasp_end", duration_s=round(now - g["t0"], 2), peak_load=g["peak"],
+                              pos=round(pos, 1), goal=round(goal, 1), load=load, temp=temp)
+    except Exception:  # noqa: BLE001
+        pass
+
+
+def _grip_empty(st: dict, pos, goal, load, temp) -> None:
+    """Fully closed on nothing (once per close; re-armed when the claw opens). Never raises."""
+    try:
+        if st["hold"] is not None:
+            return
+        if pos <= GRIP_CLOSED_POS and goal <= pos + 1.0:
+            if not st["empty"]:
+                import thermal_log
+                st["empty"] = True
+                thermal_log.EP["empty_closes"] += 1
+                thermal_log.event("claw_closed_empty", pos=round(pos, 1), goal=round(goal, 1), load=load, temp=temp)
+        elif pos > GRIP_CLOSED_POS + 2:
+            st["empty"] = False
+    except Exception:  # noqa: BLE001
+        pass
 
 
 def _grip_torque(bus, st: dict, pos: float, goal: float, now: float) -> None:
@@ -828,6 +891,8 @@ def supervise(a, argv: list) -> None:
                     return
                 if live["proc"] is not None and not START.exists():
                     START.touch()
+                    _thermal_row({"kind": "event", "event": "control", "action": "enter_start", "accepted": True,
+                                  "phase": "preview"})
                     live["proc"].send_signal(2)  # SIGINT: the preview ends, recording starts
                     continue
                 try:
@@ -1012,6 +1077,13 @@ def main() -> None:
     start_log()
     if not os.environ.get("SCRUB_CHILD"):
         return supervise(a, sys.argv[1:])
+    THERMAL_META.update(task=a.task, root=str(a.root) if a.task else None,
+                        mode="record" if a.task and os.environ.get("SCRUB_PREVIEW") != "1" else
+                        "preview" if a.task else "teleop")
+    try:
+        _tlog()  # opens the log now: the session row carries task, root and mode
+    except Exception:  # noqa: BLE001
+        pass
 
     # keep holding on exit: LeRobot's default drops torque and a raised arm falls
     robot = [f"--robot.type=so101_follower", f"--robot.port={a.follower}", "--robot.id=scrub_follower",
@@ -1074,12 +1146,36 @@ def main() -> None:
     else:
         from lerobot.scripts.lerobot_teleoperate import main as run
     sys.argv = cmd  # same arguments as the CLI, run in this process so the guard applies
+    reason = "completed"
     try:
         run()
     except BaseException as e:
         if not isinstance(e, (KeyboardInterrupt, SystemExit)):
             LAST_ERROR.write_text(f"{type(e).__name__}: {str(e).strip().splitlines()[0][:160] if str(e).strip() else ''}")
+            reason = f"error: {type(e).__name__}"
+        else:
+            reason = "interrupted" if isinstance(e, KeyboardInterrupt) else "exit"
         raise
+    finally:
+        _session_end(reason)
+
+
+def _session_end(reason: str) -> None:
+    """Last row of a session, then wait briefly for MongoDB. Never raises."""
+    try:
+        import thermal_log
+        saved = None
+        try:
+            import arm_ui
+            saved = arm_ui.S.get("session_done")
+        except Exception:  # noqa: BLE001
+            pass
+        if os.path.exists(str(COOLDOWN)):
+            reason = f"{reason} (cooldown)"
+        _thermal_row({"kind": "event", "event": "session_end", "reason": reason, "episodes_saved": saved})
+        thermal_log.flush()
+    except Exception:  # noqa: BLE001
+        pass
 
 
 if __name__ == "__main__":
