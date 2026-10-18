@@ -383,7 +383,14 @@ class VideoTests(unittest.TestCase):
         from unittest import mock
         import ledger
         from video import __main__ as cli
+        import os
         from video.common import default_events, events, export_ledger
+        isolated = mock.patch.dict(os.environ, {"LEDGER_BUFFER": str(self.root / "no-buffer.jsonl")})
+        isolated.start()
+        self.addCleanup(isolated.stop)
+        no_atlas = mock.patch.object(ledger, "_uri", return_value="")
+        no_atlas.start()
+        self.addCleanup(no_atlas.stop)
         with self.assertRaises(ValueError):
             default_events(self.ws)
         with mock.patch.object(ledger, "warm"), mock.patch.object(ledger, "stored_rows", return_value=([], [])):
@@ -400,6 +407,147 @@ class VideoTests(unittest.TestCase):
                 mock.patch.object(cli, "DEFAULT_DATASET", self.root / "scrub-dataset"):
             self.assertEqual(cli.main(["--root", str(self.root), "topdown", "--mode", "reconstruction", "--output", "x.mp4"]), 0)
         self.assertEqual(seen["source"], self.root / "scrub-dataset")
+
+    def test_events_default_to_the_ledger_buffer_then_atlas(self):
+        import os
+        from unittest import mock
+        import ledger
+        from video import __main__ as cli
+        from video.common import resolve_events
+        buffer = self.root / "buffer.jsonl"
+        with mock.patch.dict(os.environ, {"LEDGER_BUFFER": str(buffer)}), mock.patch.object(ledger, "_uri", return_value=""):
+            with self.assertRaises(ValueError):
+                resolve_events(self.ws)
+            buffer.write_text('{"kind":"event","doc":{"type":"count","t":2}}\n{"kind":"event","doc":{"type":"st')
+            path, how = resolve_events(self.ws)
+            self.assertEqual(path, buffer)
+            self.assertIn("LEDGER_BUFFER", how)
+            self.assertEqual(resolve_events(self.ws, "x.jsonl")[0], self.root / "x.jsonl")
+            from video.common import events
+            self.assertEqual(len(events(path)), 1)  # a half-written last line is skipped
+            seen = {}
+            with mock.patch("video.takes.find", lambda ws, ledger, *a, **k: seen.setdefault("ledger", ledger) and {}):
+                self.assertEqual(cli.main(["--root", str(self.root), "find"]), 0)
+            self.assertEqual(seen["ledger"], buffer)
+        rows = ([{"type": "count", "t": 2.0}], [])
+        with mock.patch.dict(os.environ, {"LEDGER_BUFFER": str(self.root / "missing.jsonl")}), \
+                mock.patch.object(ledger, "_uri", return_value="set"), mock.patch.object(ledger, "warm"), \
+                mock.patch.object(ledger, "stored_rows", return_value=rows):
+            path, how = resolve_events(self.ws)
+            self.assertEqual(path, self.root / "events.jsonl")
+            self.assertIn("Atlas", how)
+
+    def test_arm_kind_old_and_new_sim_shapes(self):
+        from video.common import arm_kind, legacy_sim, select_arm
+        self.assertEqual(arm_kind({"fake_arm": False}), "real")
+        self.assertEqual(arm_kind({"type": "handed"}), "unknown")  # untagged events are never real-arm evidence
+        self.assertEqual(arm_kind({"success": True}), "real")  # ledger test rows carry no arm tag
+        self.assertEqual(arm_kind({"fake_arm": True}), "fake")
+        self.assertEqual(arm_kind({"fake_arm": True, "sim_arm": True}), "simulation")
+        self.assertEqual(arm_kind({"fake_arm": False, "sim": True}), "simulation")
+        self.assertEqual(arm_kind({"arm": "sim"}), "simulation")
+        self.assertEqual(arm_kind({"synthetic": True, "sim_arm": True}), "synthetic")
+        self.assertTrue(legacy_sim([{"fake_arm": True}]))
+        self.assertFalse(legacy_sim([{"fake_arm": True, "sim_arm": False}]))
+        rows = [{"fake_arm": False, "t": 1}, {"fake_arm": True, "t": 2}, {"sim_arm": True, "t": 3}]
+        self.assertEqual([r["t"] for r in select_arm(rows, "real")], [1])
+        self.assertEqual(len(select_arm(rows, "all")), 3)
+
+    def write_case(self, name, **extra):
+        import json
+        path = self.ws.out(name)
+        rows = [{"type": "command", "action": "handover", "item": "hemostat", "heard": None, "say": "Hemostat coming.",
+                 "command_id": "a", "case_id": "c", "t": 100.2, "out": [], **extra},
+                {"type": "handed", "item": "hemostat", "command_id": "a", "case_id": "c", "t": 100.6,
+                 "request_to_hand_s": 0.4, "retries": 0, "skill_source": "model", "out": [], **extra},
+                {"type": "released", "item": "hemostat", "command_id": "a", "case_id": "c", "t": 100.8,
+                 "skill_source": "model", "out": ["hemostat"], **extra}]
+        path.write_text("".join(json.dumps({"kind": "event", "doc": r}) + "\n" for r in rows))
+        return path
+
+    def sim_clip(self, kind="simulation"):
+        from video.common import encode, save_provenance
+        path = self.ws.out("sim.mp4")
+        encode(self.ws, path, (np.full((240, 320, 3), 90, np.uint8) for _ in range(30)))
+        save_provenance(path, kind=kind, start_time=100.0)
+        return path
+
+    def test_sim_events_overlay_without_allow_synthetic_and_caption_falls_back_to_say(self):
+        from video.overlay import display_state, overlay
+        self.sim_clip()
+        old = self.write_case("old.jsonl", fake_arm=True)  # the sim before the controller change
+        new = self.write_case("new.jsonl", fake_arm=False, sim_arm=True)
+        for ledger in (old, new):
+            result = overlay(self.ws, "sim.mp4", ledger, f"overlays/{ledger.stem}.mp4")
+            self.assertEqual(result["kind"], "simulation")
+            self.assertEqual(result["ledger_arm"], "simulation")
+            self.assertFalse(result.get("synthetic"))
+        fake = self.write_case("fake.jsonl", fake_arm=True, sim_arm=False)  # the fake arm in the new shape
+        with self.assertRaises(ValueError):
+            overlay(self.ws, "sim.mp4", fake, "overlays/fake.mp4")
+        self.assertEqual(overlay(self.ws, "sim.mp4", fake, "overlays/fake.mp4", allow_synthetic=True)["ledger_arm"], "fake")
+        from video.common import events
+        self.assertEqual(display_state(events(old), 100.7)["caption"], "Hemostat coming.")
+        self.assertEqual(display_state(events(old), 100.7)["seconds"], 0.4)
+
+    def test_sim_events_never_caption_real_footage(self):
+        from video.overlay import overlay
+        self.sim_clip(kind="real")
+        for name, extra in (("new.jsonl", {"sim_arm": True}), ("old.jsonl", {"fake_arm": True})):
+            with self.assertRaises(ValueError):
+                overlay(self.ws, "sim.mp4", self.write_case(name, **extra), "overlays/x.mp4", allow_synthetic=True)
+
+    def test_find_filters_real_model_tries_without_footage(self):
+        import json
+        from video.takes import find
+        real = self.write_case("real.jsonl", fake_arm=False)
+        sim = self.write_case("sim.jsonl", sim_arm=True)
+        mixed = self.ws.out("mixed.jsonl")
+        mixed.write_text(real.read_text() + sim.read_text().replace('"a"', '"b"'))
+        report = find(self.ws, mixed, arm="real", skill_source="model")
+        self.assertEqual(report["trials"], 1)
+        self.assertEqual(report["ledger_trials"][0]["arm"], "real")
+        self.assertEqual(find(self.ws, mixed, arm="real", skill_source="taught")["trials"], 0)
+        self.assertEqual(find(self.ws, mixed)["trials"], 2)
+
+    def test_cards_timeout_is_reported_and_arm_render_names_missing_cards(self):
+        from unittest import mock
+        from video import __main__ as cli
+        from video.common import encode, save_provenance, write_json
+        ledger = self.write_case("real.jsonl", fake_arm=False)
+        with mock.patch("video.cards.cards", side_effect=TimeoutError("Chromium took over 120 s")):
+            self.assertEqual(cli.main(["--root", str(self.root), "cards", "--events", str(ledger)]), 1)
+        roll = self.ws.out("roll.mp4")
+        encode(self.ws, roll, (np.zeros((120, 160, 3), np.uint8) for _ in range(15)))
+        save_provenance(roll, kind="real")
+        write_json(self.ws.out("edit.json"), {"ARM_ROLL": {"source": "roll.mp4"}})
+        with self.assertRaisesRegex(ValueError, "cards"):
+            from video.edit import check
+            check(self.ws, "video/edl/perceptron-arm.yaml", "edit.json")
+        card = self.ws.out("cards/end.png")
+        cv2.imwrite(str(card), np.zeros((1080, 1920, 3), np.uint8))
+        save_provenance(card, kind="card")
+        write_json(self.ws.out("cards/index.json"), {"cards": [str(card)]})
+        from video.edit import check
+        plan = check(self.ws, "video/edl/perceptron-arm.yaml", "edit.json")
+        self.assertEqual([s["slot"] for s in plan["shots"]], ["ARM_ROLL", "end"])
+        save_provenance(card, kind="simulation")  # sim-arm cards never end the real-arm video
+        with self.assertRaises(ValueError):
+            check(self.ws, "video/edl/perceptron-arm.yaml", "edit.json")
+
+    def test_sim_backup_picks_only_a_whole_clean_case_inside_the_window(self):
+        from video.sim_backup import clean_cases
+        def case(cid, t0, bad=False):
+            rows = []
+            for n, item in enumerate(("hemostat", "scalpel", "mayo_scissors")):
+                rows += [{"type": "command", "action": "handover", "accepted": True, "item": item, "command_id": cid + item, "case_id": cid, "t": t0 + n},
+                         {"type": "error" if bad and n == 1 else "handed", "command_id": cid + item, "case_id": cid, "t": t0 + n + .5,
+                          "request_to_hand_s": .5}]
+            return rows + [{"type": "returned", "case_id": cid, "t": t0 + 4}, {"type": "command", "action": "count", "accepted": True, "case_id": cid, "t": t0 + 5}]
+        rows = case("early", 0) + case("good", 10) + case("bad", 20, bad=True) + case("late", 30)
+        found = clean_cases(rows, 5, 32)
+        self.assertEqual([c["case_id"] for c in found], ["good"])
+        self.assertEqual(found[0]["handovers"][1], ("scalpel", .5))
 
     def test_every_command_on_markerless_synthetic_assets(self):
         import yaml

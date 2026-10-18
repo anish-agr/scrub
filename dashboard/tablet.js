@@ -47,7 +47,16 @@ function paint(state) {
   document.getElementById("item").textContent = state.item ? nameOf(state.item) + (label ? ` · ${label}` : "") : "";
   const held = Array.isArray(state.out) ? state.out : [];
   document.getElementById("out").textContent = held.length ? held.map(nameOf).join(", ") : "Nothing out";
-  if (Date.now() >= noticeUntil) document.getElementById("link").textContent = "live";
+  if (Date.now() >= noticeUntil) {
+    const link = document.getElementById("link");
+    link.textContent = "live";
+    link.className = "link live";
+  }
+  const halted = state.step === "stopped" || state.step === "error";
+  document.getElementById("reset").hidden = !halted;
+  const banner = document.getElementById("stopped-banner");
+  banner.hidden = !halted;
+  banner.textContent = state.step === "error" ? "ARM FROZEN. A person must reset." : "STOPPED. A person must reset the arm.";
 }
 
 function notice(text) {
@@ -74,7 +83,9 @@ async function refresh() {
     if (state.item && !state.skill_source) state.skill_source = await recentSource();
     paint(state);
   } catch (error) {
-    document.getElementById("link").textContent = "not connected";
+    const link = document.getElementById("link");
+    link.textContent = "not connected";
+    link.className = "link bad";
   }
 }
 

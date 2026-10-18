@@ -7,7 +7,7 @@ import cv2
 import numpy as np
 from PIL import Image, ImageDraw
 
-from .common import INK, PAPER, digest, encode, epoch_at, events, finite, font, frames, info, provenance, save_provenance, stamp, write_json
+from .common import INK, PAPER, arm_kind, digest, encode, epoch_at, events, finite, font, frames, info, legacy_sim, provenance, save_provenance, stamp, write_json
 from .style import ensure_fonts
 
 STEPS=['FIND','PICK','CHECK','HAND','WAIT','RELEASE','HOME']
@@ -26,7 +26,7 @@ def display_state(rows, now):
     seconds=finite(metrics[-1]['request_to_hand_s']) if metrics else None
     if seconds is not None and seconds<0:
         raise ValueError("Negative request-to-hand time in ledger")
-    return {'caption':command.get('heard') if command else None,'item':latest.get('item') or (command or {}).get('item'),
+    return {'caption':(command.get('heard') or command.get('say')) if command else None,'item':latest.get('item') or (command or {}).get('item'),
         'lighting':latest.get('lighting'),'step':latest.get('step'),'out':count,'seconds':seconds,'event_t':latest['t']}
 
 
@@ -50,7 +50,7 @@ def decorate(frame, state):
     if state['lighting']:
         status.append(str(state['lighting']).upper())
     if state['out'] is not None:
-        status.append(f"OUT {len(state['out'])}: "+', '.join(str(i).replace('_',' ') for i in state['out']))
+        status.append(f"OUT {len(state['out'])}"+(': '+', '.join(str(i).replace('_',' ') for i in state['out']) if state['out'] else ''))
     if status:
         lines.append(' | '.join(status))
     row_h=size+10
@@ -75,6 +75,22 @@ def decorate(frame, state):
     return cv2.cvtColor(np.asarray(image),cv2.COLOR_RGB2BGR)
 
 
+def ledger_arm(rows,meta):
+    """The weakest arm kind in the rows: synthetic, fake, simulation or real.
+
+    Old controller shape: the sim reported fake_arm: true and no sim marker. Such rows over an ingested
+    simulation capture (not a fixture) are the sim run that was filmed, so they count as simulation.
+    """
+    kinds={row.get('_arm') or arm_kind(row) for row in rows}
+    if kinds=={'fake'} or kinds=={'fake','simulation'}:
+        if meta.get('kind')=='simulation' and not meta.get('synthetic') and legacy_sim(rows):
+            return 'simulation'
+    for kind in ('synthetic','fake','simulation'):
+        if kind in kinds:
+            return kind
+    return 'real'
+
+
 def overlay(ws,source,ledger,output,case_id=None,allow_synthetic=False):
     ensure_fonts()
     source,ledger,output=ws.source(source),ws.source(ledger),ws.out(output)
@@ -88,8 +104,10 @@ def overlay(ws,source,ledger,output,case_id=None,allow_synthetic=False):
         raise ValueError("Select --case-id for a multi-case ledger")
     if not rows:
         raise ValueError("No events for overlay")
-    synthetic=any(row.get('synthetic') or row.get('fake_arm') for row in rows)
-    if synthetic and (not allow_synthetic or meta['kind']=='real'):
+    arm=ledger_arm(rows,meta)
+    if arm=='simulation' and meta['kind']=='real':
+        raise ValueError("Sim-arm ledger rows cannot caption real footage")
+    if arm in {'fake','synthetic'} and (not allow_synthetic or meta['kind']=='real'):
         raise ValueError("Synthetic/fake ledger requires --allow-synthetic and non-real footage")
     if meta.get('synthetic') and not allow_synthetic:
         raise ValueError("Synthetic clip requires --allow-synthetic")
@@ -107,4 +125,4 @@ def overlay(ws,source,ledger,output,case_id=None,allow_synthetic=False):
     encoded=encode(ws,output,images(),details['fps'],audio=source)
     write_json(ws.out('overlays/'+output.stem+'-sources.json'),{'ledger':str(ledger),'sha256':digest(ledger),'changes':audit})
     return save_provenance(output,source,**encoded,ledger_source=str(ledger),ledger_sha256=digest(ledger),
-        operations=meta.get('operations',[])+[{'command':'overlay','case_id':case_id,'measurements':'time-correlated ledger only'}])
+        ledger_arm=arm,operations=meta.get('operations',[])+[{'command':'overlay','case_id':case_id,'ledger_arm':arm,'measurements':'time-correlated ledger only'}])

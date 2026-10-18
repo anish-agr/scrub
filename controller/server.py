@@ -133,6 +133,11 @@ def make_app(ctl: Controller, extra=None) -> FastAPI:
         ctl.post_hand(body)
         return {"ok": True}
 
+    @app.post("/vision/caption")
+    async def vision_caption(body: dict):
+        """A clip caption from vision (vision/clips.py auto-caption). Logged to the ledger as type caption, not an Event."""
+        return {"ok": ctl.log_caption(body)}
+
     @app.get("/vision")
     async def vision():
         """The last TrayState and Hand as posted, with their age in seconds (for the nurse console)."""

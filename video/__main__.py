@@ -5,7 +5,7 @@ import argparse
 import json
 import sys
 
-from .common import BASE, DEFAULT_DATASET, Workspace, default_events
+from .common import BASE, DEFAULT_DATASET, Workspace, dataset_source, resolve_events
 
 
 def parser():
@@ -31,7 +31,7 @@ def parser():
     ingest.add_argument("--clap-second", type=float, help="omit for isolated audio-peak detection in first minute")
     top = sub.add_parser("topdown", help="plane warp, static photo plate or exact recorded-joint replay")
     top.add_argument("--mode", choices=["warp", "plate", "reconstruction"], required=True)
-    top.add_argument("--input", help="clip/image for warp; dataset directory or six-joint JSON for reconstruction (default ~/scrub-dataset, where arm.record writes)")
+    top.add_argument("--input", help="clip/image for warp; dataset directory or six-joint JSON for reconstruction (default SCRUB_DATASET, else ~/scrub-dataset, where arm.record and explore/station write)")
     top.add_argument("--camera", default="side")
     top.add_argument("--output", required=True)
     top.add_argument("--no-track", action="store_true", help="locked tripod only")
@@ -61,7 +61,9 @@ def parser():
     cl.add_argument("--audio", action="store_true", help="afftdn denoise + -16 LUFS target")
     cl.add_argument("--upscale", action="store_true", help="optional GPU path; unavailable models explicitly skipped")
     fi = sub.add_parser("find", help="rank/cut original takes correlated by ledger command_id")
-    fi.add_argument("--events", help="ledger JSONL; default <root>/events.jsonl from export-ledger")
+    fi.add_argument("--events", help="ledger JSONL; default the ledger: LEDGER_BUFFER or ledger/buffer.jsonl, else Atlas through ledger/ when MONGODB_URI is set, else <root>/events.jsonl")
+    fi.add_argument("--arm", choices=["real", "simulation", "fake", "synthetic", "unknown", "all"], help="only rows from this arm (default all)")
+    fi.add_argument("--skill-source", choices=["model", "taught"], help="only handovers whose events carry this skill_source")
     fi.add_argument("--manifest", default="manifest.json")
     fi.add_argument("--cut", action="store_true")
     fi.add_argument("--gemini", action="store_true", help="report optional scorer availability; never uploads by default")
@@ -71,18 +73,20 @@ def parser():
     fi.add_argument("--qa", help="explore.dataset.qa_video JSON report; matched by the ledger rows' episode number")
     ov=sub.add_parser('overlay',help='burn ledger-backed request, timing, steps, lighting and count')
     ov.add_argument('--input',required=True)
-    ov.add_argument('--events',help='ledger JSONL; default <root>/events.jsonl from export-ledger')
+    ov.add_argument('--events',help='ledger JSONL; default the ledger: LEDGER_BUFFER or ledger/buffer.jsonl, else Atlas through ledger/ when MONGODB_URI is set, else <root>/events.jsonl')
     ov.add_argument('--output',required=True)
     ov.add_argument('--case-id')
     ov.add_argument('--allow-synthetic',action='store_true')
     ca=sub.add_parser('cards',help='render Scrub HTML cards through headless Chromium at 1080p')
-    ca.add_argument('--events',help='ledger JSONL; default <root>/events.jsonl from export-ledger. Rates require kind=test rows')
+    ca.add_argument('--events',help='ledger JSONL; default the ledger: LEDGER_BUFFER or ledger/buffer.jsonl, else Atlas through ledger/ when MONGODB_URI is set, else <root>/events.jsonl. Rates require kind=test rows')
+    ca.add_argument('--arm',choices=['real','simulation','fake','synthetic','unknown','all'],help='only rows from this arm; --arm real for the Perceptron arm video')
     ca.add_argument('--allow-synthetic',action='store_true')
     re=sub.add_parser('render',help='strict 1080p/30 H.264/AAC EDL assembly; no missing-shot substitutions')
     re.add_argument('--edl',required=True,help='repository YAML path, not workspace-relative')
     re.add_argument('--bindings',required=True,help='workspace JSON mapping slot names to source/in_s/treatment inputs')
     re.add_argument('--output',default='renders/final.mp4')
     re.add_argument('--demo',action='store_true',help='synthetic tests only: permanently labeled, may loop fixture footage')
+    re.add_argument('--check',action='store_true',help='dry run: every gate, nothing encoded')
     pr=sub.add_parser('preview',help='same EDL/timing/honesty gates at 640x360/15 for a fast review')
     pr.add_argument('--edl',required=True)
     pr.add_argument('--bindings',required=True)
@@ -91,8 +95,20 @@ def parser():
     return p
 
 
+SOURCES = {}
+
+
+def said_events(ws, explicit):
+    """Resolve --events and say where the rows come from (stderr and the result's "sources")."""
+    path, how = resolve_events(ws, explicit)
+    SOURCES["events"] = how
+    print(f"video: events from {how}", file=sys.stderr)
+    return path
+
+
 def main(argv=None):
     args = parser().parse_args(argv)
+    SOURCES.clear()
     ws = Workspace(args.root)
     try:
         if args.command == "demo-assets":
@@ -123,7 +139,9 @@ def main(argv=None):
                 result = photo_plate(ws, args.reference, args.photos, args.camera, args.output, args.empty_scene)
             else:
                 from .reconstruction import render_joints
-                source = ws.source(args.input) if args.input else DEFAULT_DATASET
+                source, how = (ws.source(args.input), "--input") if args.input else (DEFAULT_DATASET, dataset_source()[1])
+                SOURCES["dataset"] = f"{source} ({how})"
+                print(f"video: dataset {source} ({how})", file=sys.stderr)
                 result = render_joints(ws, source, ws.out(args.output), args.width, args.height,
                     args.episode, ws.source(args.plate) if args.plate else None, args.start_time,
                     ws.source(args.plate_alignment) if args.plate_alignment else None)
@@ -133,24 +151,27 @@ def main(argv=None):
                 args.faces,args.keep_team,args.idle_speed,args.cut_idle,args.idle_confirmed,args.analyze_only,args.audio,args.upscale)
         elif args.command == "find":
             from .takes import find
-            result = find(ws,args.events or default_events(ws),args.manifest,args.cut,args.gemini,not args.no_captions,args.clips_dir,args.vision_url,args.qa)
+            result = find(ws,said_events(ws,args.events),args.manifest,args.cut,args.gemini,not args.no_captions,args.clips_dir,
+                args.vision_url,args.qa,arm=args.arm,skill_source=args.skill_source)
         elif args.command == 'overlay':
             from .overlay import overlay
-            result=overlay(ws,args.input,args.events or default_events(ws),args.output,args.case_id,args.allow_synthetic)
+            result=overlay(ws,args.input,said_events(ws,args.events),args.output,args.case_id,args.allow_synthetic)
         elif args.command == 'cards':
             from .cards import cards
-            result=cards(ws,args.events or default_events(ws),args.allow_synthetic)
+            result=cards(ws,said_events(ws,args.events),args.allow_synthetic,args.arm)
         elif args.command == 'render':
-            from .edit import render
-            result=render(ws,args.edl,args.bindings,args.output,args.demo)
+            from .edit import check, render
+            result=check(ws,args.edl,args.bindings,args.demo) if args.check else render(ws,args.edl,args.bindings,args.output,args.demo)
         elif args.command == 'preview':
             from .edit import render
             result=render(ws,args.edl,args.bindings,args.output,args.demo,preview=True)
         else:
             raise ValueError("Unknown command")
+        if isinstance(result, dict) and SOURCES:
+            result = {"sources": dict(SOURCES), **result}
         print(json.dumps(result, indent=2, allow_nan=False))
         return 0
-    except (ValueError, OSError, RuntimeError, KeyError, ImportError) as error:
+    except (ValueError, OSError, RuntimeError, KeyError, ImportError, TimeoutError) as error:
         # No keys are read. Avoid printing external SDK/network exception bodies.
         print(f"video: {type(error).__name__}: {error}", file=sys.stderr)
         return 1

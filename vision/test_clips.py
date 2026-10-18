@@ -46,7 +46,7 @@ def reply(content: str, status: int = 200):
 
 def recorded(event: dict) -> tuple[ClipManager, dict]:
     """A manager with 30 synthetic frames (a bright square moving across) and one recorded clip."""
-    mgr = ClipManager(clips_dir=Path(tempfile.mkdtemp()))
+    mgr = ClipManager(clips_dir=Path(tempfile.mkdtemp()), auto_caption=False)
     t0 = float(event["t"]) - 1.5
     for i in range(30):
         f = np.zeros((120, 160, 3), dtype=np.uint8)
@@ -213,6 +213,78 @@ class LabelSourceTests(unittest.TestCase):
         for field in ("caption_latency_ms", "caption_item", "caption_action"):
             self.assertIn(field, listed)
         self.assertIs(listed["agrees"], True)
+
+
+class AutoCaptionTests(unittest.TestCase):
+    """After a clip is recorded, caption it on a thread and post it to the controller. No network: a local fake."""
+
+    def controller(self):
+        import threading
+        from http.server import BaseHTTPRequestHandler, HTTPServer
+        got = []
+
+        class Ctl(BaseHTTPRequestHandler):
+            def do_POST(self):
+                n = int(self.headers.get("content-length") or 0)
+                got.append((self.path, json.loads(self.rfile.read(n))))
+                self.send_response(200)
+                self.send_header("content-type", "application/json")
+                self.end_headers()
+                self.wfile.write(b'{"ok": true}')
+
+            def log_message(self, *a):
+                pass
+        srv = HTTPServer(("127.0.0.1", 0), Ctl)
+        threading.Thread(target=srv.serve_forever, daemon=True).start()
+        self.addCleanup(srv.server_close)
+        self.addCleanup(srv.shutdown)
+        return f"http://127.0.0.1:{srv.server_port}", got
+
+    def test_default_follows_the_key_and_the_env_overrides(self):
+        from vision.clips import auto_caption_on
+        with patch.dict("os.environ", {"PERCEPTRON_API_KEY": "", "VISION_AUTO_CAPTION": ""}):
+            self.assertFalse(auto_caption_on())
+        with patch.dict("os.environ", {"PERCEPTRON_API_KEY": "k", "VISION_AUTO_CAPTION": ""}):
+            self.assertTrue(auto_caption_on())
+        with patch.dict("os.environ", {"PERCEPTRON_API_KEY": "k", "VISION_AUTO_CAPTION": "0"}):
+            self.assertFalse(auto_caption_on())
+        with patch.dict("os.environ", {"PERCEPTRON_API_KEY": "", "VISION_AUTO_CAPTION": "1"}):
+            self.assertTrue(auto_caption_on())
+
+    def test_recorded_clip_is_captioned_and_posted(self):
+        url, got = self.controller()
+        mgr = ClipManager(clips_dir=Path(tempfile.mkdtemp()), auto_caption=True, controller_url=url)
+        ev = handed(case_id="surgical-1792297259", setting="surgical")
+        for i in range(20):
+            mgr.add_frame(np.zeros((120, 160, 3), dtype=np.uint8), timestamp=ev["t"] - 1.0 + i * 0.1)
+        with patch.dict("os.environ", {"PERCEPTRON_API_KEY": ""}):  # no key: the fallback label, no API call
+            t0 = time.time()
+            clip = mgr.record_event(ev)
+            self.assertLess(time.time() - t0, 1.0)
+            end = time.time() + 5
+            while not got and time.time() < end:
+                time.sleep(0.02)
+        self.assertEqual(len(got), 1)
+        path, body = got[0]
+        self.assertEqual(path, "/vision/caption")
+        self.assertEqual(body["case_id"], "surgical-1792297259")
+        self.assertEqual(body["event_type"], "handed")
+        self.assertEqual(body["item"], "hemostat")
+        self.assertEqual(body["filename"], clip["filename"])
+        self.assertEqual(body["label_source"], "fallback")
+        self.assertTrue(body["label"].startswith("hemostat presented to clinician"))
+        for k in ("t", "agrees", "caption_item", "caption_action", "caption_latency_ms"):
+            self.assertIn(k, body)
+
+    def test_failures_never_raise(self):
+        from vision.clips import post_caption
+        _, clip = recorded(handed())
+        self.assertFalse(post_caption(clip, "http://127.0.0.1:9"))  # nothing listens there
+        mgr = ClipManager(clips_dir=Path(tempfile.mkdtemp()), auto_caption=False, controller_url="http://127.0.0.1:9")
+        with patch.object(mgr, "label_clip", side_effect=RuntimeError("boom")):
+            self.assertFalse(mgr.caption_and_post(clip))
+        with patch("httpx.post", side_effect=OSError("down")):
+            self.assertFalse(post_caption(clip))
 
 
 if __name__ == "__main__":

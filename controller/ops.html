@@ -85,6 +85,15 @@
 </section>
 
 <section>
+  <p class="kicker">Reads</p>
+  <p class="note mono" id="rdsheet">count sheet: none read this case</p>
+  <table><thead><tr><th>Item</th><th>Expected</th><th>Initial</th><th>Closing</th><th>Mismatch</th></tr></thead><tbody id="sheet"></tbody></table>
+  <p class="note mono" id="rdtag">tray tag: none read</p>
+  <p class="note mono" id="rdpack">pack labels: none read this case</p>
+  <table><thead><tr><th>Item</th><th>Lot</th><th>Expires</th></tr></thead><tbody id="packs"></tbody></table>
+</section>
+
+<section>
   <p class="kicker">Last errors</p>
   <ul class="event-log err" id="errs"></ul>
 </section>
@@ -247,6 +256,30 @@ function renderEvents(ev) {
     : '<li class="empty">No errors in recent events.</li>';
 }
 
+const reads = {};                               // kind -> last read event (kept after it leaves /events/recent)
+const how = r => `${r.method ?? 'no method'} · ${r.latency_ms != null ? num(+r.latency_ms) + ' ms' : 'no latency'}`;
+function renderReads(s, events) {
+  for (const e of events) if (e.type === 'read' && e.read && (!reads[e.read.kind] || reads[e.read.kind].t <= e.t)) reads[e.read.kind] = e;
+  const sh = s && s.sheet, cs = reads.count_sheet, case_ = s && s.case_id;
+  const mine = cs && cs.case_id === case_ ? cs : null;   // a read from this case
+  const mism = {};
+  for (const m of (mine && mine.read.mismatch) || []) mism[m.item] = m.scrub != null ? `sheet ${m.sheet}, Scrub ${m.scrub}` : `initial ${m.sheet}, expected ${m.expected}`;
+  $('rdsheet').textContent = sh ? `count sheet: tray ${sh.tray ?? 'unknown'} · ${mine ? how(mine.read) : sh.method ?? ''} · ${agoText(sh.t)} · compare ${mine?.read.compare ?? 'none'}`
+    : mine ? `count sheet: not read · ${how(mine.read)} · ${mine.say}` : 'count sheet: none read this case';
+  const items = sh ? Object.entries(sh.items || {}) : [];
+  const n = v => v ?? '--';
+  $('sheet').innerHTML = items.length ? items.map(([id, r]) => `<tr><td>${esc(id)}</td><td>${n(r.expected)}</td><td>${n(r.initial)}</td><td>${n(r.closing)}</td>` +
+      `<td class="${mism[id] ? 'bad' : ''}">${esc(mism[id] || 'none')}</td></tr>`).join('')
+    : '<tr><td colspan="5" class="empty">No count sheet read this case.</td></tr>';
+  const tg = reads.tray_tag;
+  $('rdtag').textContent = tg ? `tray tag: ${tg.read.ok ? tg.read.tray ?? 'unknown' : 'not read'}${tg.read.switched ? ' (switched)' : ''} · ${how(tg.read)} · ${agoText(tg.t)}` : 'tray tag: none read';
+  const packs = (s && s.packs) || [], pk = reads.pack_label;
+  $('rdpack').textContent = pk ? `pack labels: ${packs.length} this case · last read ${how(pk.read)} · ${agoText(pk.t)}` : 'pack labels: none read this case';
+  $('packs').innerHTML = packs.length ? packs.map(p => `<tr class="${p.expired ? 'bad' : ''}"><td>${esc(p.item ?? 'unknown item')}</td><td>${esc(p.lot ?? '--')}</td>` +
+      `<td>${esc(p.expires ?? '--')}${p.expired ? ' EXPIRED' : ''}</td></tr>`).join('')
+    : '<tr><td colspan="3" class="empty">No pack labels read this case.</td></tr>';
+}
+
 let busy = false, thermalAt = 0;
 async function tick() {
   if (busy) return; busy = true;
@@ -262,7 +295,7 @@ async function tick() {
       th = cached('thermal', '/api/data?minutes=120');
     }
     const events = (ev || cached('controller', '/events/recent') || []);
-    renderState(s); renderSkills(s, events); renderEvents(events);
+    renderState(s); renderSkills(s, events); renderEvents(events); renderReads(s, events);
     renderTemps(s, th); renderVision(h, hand, tray); renderVoice(vo); renderLat(s, h, vo);
   } finally { busy = false; renderSvc(); }
 }
