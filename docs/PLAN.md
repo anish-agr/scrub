@@ -47,7 +47,7 @@ What each one needs from us:
 | **10:00** | Evan submits the Devpost draft | | | |
 | 10:00 to 10:30 | First real handoff (A8) | A8 with Anish | A8 with Anish | Dashboard during A8 |
 | **10:30 PM** | **Checkpoint 2:** Devpost draft in. First real handoff by voice | | | |
-| 10:30 to 2:00 | Dental and bench demos (A9), run 2 (A10) | Summary text, sharps call-outs (C7) | `path_clear`, saved hand spots (B7) | Tables, Vultr, domain (E6) |
+| 10:30 to 2:00 | Bench demos and extra operating room demos (A9), run 2 (A10) | Summary text, sharps call-outs (C7) | `path_clear`, saved hand spots (B7) | Tables, Vultr, domain (E6) |
 | **2:00 AM** | **Checkpoint 3:** all three settings, put-back and the count working | | | |
 
 ## Overnight and sleep
@@ -75,7 +75,7 @@ Decide at Checkpoint 2 who goes home and who stays, so at least two people are a
 | Test | Tries | Record |
 | --- | --- | --- |
 | Operating room items in bright, normal, dim | 10 per item per setup (90) | success, retries, request-to-hand time |
-| Dental and bench items in normal and bright | 5 per item per setup (60) | success, retries |
+| Bench items in normal and bright | 5 per item per setup (30) | success, retries |
 | Put-back for every item | 5 per item (45) | success |
 | Adding the bench setting | once | minutes from the first bench demo to the first working bench handoff |
 
@@ -91,7 +91,7 @@ If time is short, run the operating room row first. It's the one the pitch point
 | 1:05 | "Try it." | The judge asks for the scissors and gets them |
 | 1:20 | The return line | The hemostat goes in the return spot. "Returning the hemostat," back to its slot |
 | 1:40 | The lighting line | Lamp on, glare on the steel, another request works. Point at the lighting table |
-| 2:00 | Three settings | Dental tray, ask for the mirror. Bench tray, ask for the pliers |
+| 2:00 | A second setting | Swap to the robotics bench tray, ask for the pliers. Same model, no new code |
 | 2:30 | The close | "Count." Scrub reads what's out, and the summary text arrives |
 
 Short version for a rushed judge: 0:30, 1:05, 2:30. The judge asking for an instrument is what sells it, so rehearse that step most. Anish speaks; Caiden runs the dashboard and stop key; Brandon is the clinician; Evan swaps trays and the lamp.
@@ -102,7 +102,7 @@ Short version for a rushed judge: 0:30, 1:05, 2:30. The judge asking for an inst
 - Order:
     1. Now: setup, calibration, both cameras fixed and taped, operating room set (75).
     2. Run 1 on the operating room set as soon as it's recorded (about 1 hour including export). Target: started by 5 PM.
-    3. While run 1 trains: dental and bench sets go into the same dataset with `--resume`.
+    3. While run 1 trains: the bench set and extra operating room demos go into the same dataset with `--resume`.
     4. Test run 1, add 10 more demos for any weak item.
     5. Run 2 on everything by about 11 PM. That leaves the night for the real handoff, put-back, tests and the success tables.
 - We only get 2 successful training runs (see `docs/PERCEPTRON-ROBOTICS.md`), so check each dataset before training on it.

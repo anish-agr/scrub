@@ -140,12 +140,12 @@ Perceptron's arms come assembled, so skip `lerobot-setup-motors` unless they say
 | Order | Setting | Items | Demos | Arm time |
 | --- | --- | --- | --- | --- |
 | 1 | Operating room | scalpel handle, hemostat, Mayo scissors | 75 | about 1 h 15 min |
-| 2 | Dental | mouth mirror, explorer, cotton pliers | 75 | about 1 h 15 min |
+| 2 | ~~Dental~~ dropped: more operating room demos instead (another 10 per item, mostly bright light and new slot positions) | | 30 | about 30 min |
 | 3 | Bench | needle-nose pliers, wire cutters, hex key | 75 | about 1 h 15 min |
 
 Per item: 15 hand-out and 10 put-back. Two people: one on the leader arm, one resetting and logging in `docs/DATA-LOG.md`.
 
-If arm time turns out short, cut in this order: bench put-back, dental put-back, then dim light for dental and bench. Never cut the operating room set.
+If arm time turns out short, cut in this order: bench put-back, then dim light for bench (dental is dropped). Was: dental put-back, then dim light for dental and bench. Never cut the operating room set.
 
 ## Fine-tuning runs
 

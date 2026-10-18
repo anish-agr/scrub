@@ -2,6 +2,8 @@
 
 Evan's tasks (E1 to E7) aren't listed here; he's on them. As of 5 PM he has pushed settings, the dashboard, the ledger, the tables page and a Devpost draft, and `controller.test_flows` (28/28) and `vision.test_vision` still pass with them in. `docs/STATUS.md` stays the checklist; this file is the gap list. Whoever finishes an item deletes it here in the same commit.
 
+> **Scope change (Sat 6:30 PM): no dental tools, so the dental setting is dropped.** Scrub is surgical first. The demo runs the operating room tray, plus the robotics bench tray to show a second setting with no new code. `settings/dental.json` stays in the code but isn't recorded or demoed. The arm time saved goes into more operating room demos.
+
 ## Agents running now (stay in your scope)
 
 | Agent | Works on | May edit |
