@@ -9,6 +9,7 @@ import { currentSetting, forgetSetting, teach } from "./settings.js";
 import { canText, endCase, recordEvent } from "./summary.js";
 import { voiceTrayCheck } from "./tray.js";
 import { blankTiming, recordTiming, type TurnTiming } from "./timing.js";
+import { dialogue } from "./dialogue.js";
 
 type Say = (line: string) => void;
 type Hold = (types: string[], holdS: number, commandId?: string) => void;
@@ -16,8 +17,8 @@ type Hold = (types: string[], holdS: number, commandId?: string) => void;
 // The network and parse calls a turn makes; tests swap them (in-process, never the real controller or Gemini).
 export const io = { parse, postStop, postCommand, currentSetting, judgeMode, switchSetting, teach };
 
-let open: { say: Say; onEvent: (e: ScrubEvent) => void } | null = null;
-let pending: { line: string; t: number }[] = [];
+let open: { say: Say; onEvent: (e: ScrubEvent) => void; context: string } | null = null;
+let pending: { line: string; t: number; context?: string }[] = [];
 const PENDING_MS = 10_000;  // a line nobody heard within 10 s is stale: drop it
 const PENDING_MAX = 2;
 let settingId = "surgical";
@@ -25,7 +26,7 @@ let lastLine: { text: string; t: number; cmd?: string | null } = { text: "", t: 
 
 // Ends the hold for an action once one of these arrives.
 const DONE: Record<string, string[]> = {
-  handover: ["handed", "released", "set_down", "missed", "stopped", "error"],
+  handover: ["handed", "released", "set_down", "missed", "stopped", "error", "clarify"],
   got_it: ["released", "stopped", "error"],
   return: ["returned", "missed", "stopped", "error"],
   count: ["count", "error"],
@@ -42,16 +43,15 @@ const HOLD_FOR: Record<string, number> = { read_sheet: 25, read_tray: 25, read_p
 // fromEvent: skip an event line said in the last 3 s for the same command (the controller repeating itself).
 // A new command that gets the same answer ("I'm stopped. Reset me first." twice) is said again: keyed on the
 // text alone, the second ask got silence. Our own replies (judge mode, busy, a tray switch) are always said.
-export function speak(line: string | null | undefined, fromEvent = false, cmd?: string | null) {
+export function speak(line: string | null | undefined, fromEvent = false, cmd?: string | null, context?: string) {
   if (!line) return;
   const now = Date.now();
   if (fromEvent && line === lastLine.text && now - lastLine.t < 3000 && (cmd ?? null) === (lastLine.cmd ?? null)) return;
   lastLine = { text: line, t: now, cmd };
-  if (open) open.say(line); else pending.push({ line, t: now });
+  if (open && (!context || open.context === context)) open.say(line); else pending.push({ line, t: now, context });
 }
 
-export function startEvents() {
-  followEvents((e) => {
+export function receiveEvent(e: ScrubEvent) {
     recordEvent(e);
     if (typeof e.judge === "boolean") noteJudge(e.judge);
     if (e.setting && e.setting !== settingId) {
@@ -59,17 +59,22 @@ export function startEvents() {
       forgetSetting();
       currentSetting(settingId).catch(() => {});  // warm the cache before the next turn
     }
-    let line = e.say;
+    const origin = dialogue.event(e);
+    let line = origin?.line || e.say;
     // "Scalpel down" call-out, if the controller didn't word one.
     if (!line && e.type === "set_down" && e.item) line = `${e.item.replace(/_/g, " ")} down`;
     if (line) console.log(`[say] ${line}  (${e.type}${e.skill_source === "taught" ? ", taught skill" : ""})`);
-    speak(line, true, e.command_id);
-    open?.onEvent(e);
-  }, recordEvent);  // missed while reconnecting: counted in the summary, never spoken
+    if (origin?.notify) { if (line) origin.notify(line); }
+    else if (e.type !== "clarify" || origin) speak(line, true, e.command_id, origin?.context);
+    if (!origin || origin.context === open?.context) open?.onEvent(e);
+}
+
+export function startEvents() {
+  followEvents(receiveEvent, recordEvent);  // missed while reconnecting: counted in the summary, never spoken
 }
 
 // t0: when the request arrived (the server passes it, so the timings include reading the body).
-export async function handleTurn(heard: string, sayTo: Say, signal?: AbortSignal, t0 = Date.now()): Promise<void> {
+export async function handleTurn(heard: string, sayTo: Say, signal?: AbortSignal, t0 = Date.now(), context = "local"): Promise<void> {
   countTurn();
   console.log(`[heard] ${heard}`);
   const tm = blankTiming();
@@ -100,13 +105,13 @@ export async function handleTurn(heard: string, sayTo: Say, signal?: AbortSignal
       resolve();
     };
     signal?.addEventListener("abort", finish);
-    open = { say, onEvent: (e) => { seen.push(e); if (ends(e)) setTimeout(finish, 300); } };
+    open = { say, context, onEvent: (e) => { seen.push(e); if (ends(e)) setTimeout(finish, 300); } };
     run(heard, { tm, t0 }, (types, holdS, id) => {
       waitFor = types;
       cmdId = id;
       timer = setTimeout(finish, holdS * 1000);
       if (seen.some(ends)) setTimeout(finish, 300);
-    }).catch((err) => {
+    }, context).catch((err) => {
       console.log(`[turn] ${(err as Error).message}`);
       say("I can't reach the arm controller.");
       finish();
@@ -117,6 +122,7 @@ export async function handleTurn(heard: string, sayTo: Say, signal?: AbortSignal
 
 // POST /stop: skips the controller's queue and is always accepted. Nothing awaits Gemini, settings or state first.
 async function stopNow(hold: Hold, clock: Clock) {
+  dialogue.clear();
   const sent = posting(clock);
   await io.postStop().catch(() => io.postStop());
   clock.tm.controller_ms = Date.now() - sent;  // one retry: a dropped connection must not lose a stop
@@ -129,11 +135,12 @@ async function stopNow(hold: Hold, clock: Clock) {
 type Clock = { tm: TurnTiming; t0: number };
 const posting = ({ tm, t0 }: Clock) => { const now = Date.now(); tm.heard_to_command_ms = now - t0; return now; };
 
-async function run(heard: string, clock: Clock, hold: Hold) {
+async function run(heard: string, clock: Clock, hold: Hold, context: string) {
   // Stop first, before Gemini or anything else that takes time.
   if (isStop(heard)) { clock.tm.parser = "local"; return stopNow(hold, clock); }
   flushPending();
   if (isEndCase(heard)) {
+    dialogue.clear(context);
     // Only promise a text that can be sent; with no Photon keys or no number the summary is just logged.
     speak(canText() ? "Closing the case. The summary is on its way to your phone." : "Closing the case.");
     hold([], 0.5);
@@ -149,6 +156,7 @@ async function run(heard: string, clock: Clock, hold: Hold) {
   // Judge mode (from a short-lived cache of GET /state): no POST /setting.
   const asked = settingAsked(heard);
   if (asked) {
+    dialogue.clear(context);
     // A tray voice doesn't offer (dental) gets its "not set up" line without asking for judge mode.
     speak(SETTING_IDS.includes(asked) && await io.judgeMode() ? JUDGE_LINE : await io.switchSetting(asked));
     hold([], 0.5);
@@ -168,24 +176,35 @@ async function run(heard: string, clock: Clock, hold: Hold) {
     return;
   }
   const parsed = Date.now();
-  const p = await io.parse(heard, setting);
+  const answer = dialogue.answer(context, heard, setting);
+  if (answer && "say" in answer) { speak(answer.say); hold([], 0.05); return; }
+  const p = answer && "parsed" in answer ? { ...answer.parsed, via: "local" as const } : await io.parse(heard, setting);
   clock.tm.parser = p.via;
   if (p.via === "gemini") clock.tm.gemini_ms = Date.now() - parsed;
   // Gemini heard a stop the local words missed ("hold on, freeze it up"): the POST /stop fast path, not the queue.
   if (p.action === "stop") { console.log(`[command] stop  (${p.via})`); return stopNow(hold, clock); }
+  const question = dialogue.askParsed(context, p, setting);
+  if (question) { speak(question); hold([], 0.05); return; }
   const cmd = makeCommand(p.action, p.item, heard);
+  if (p.instance) cmd.instance = p.instance;
+  dialogue.track(context, cmd, setting);
   console.log(`[command] ${cmd.action}${cmd.item ? " " + cmd.item : ""}  (${p.via})`);
   const sent = posting(clock);
   const reply = await io.postCommand(cmd);
   clock.tm.controller_ms = Date.now() - sent;
-  // Lines come from the events only; the reply's `say` repeats the event's.
+  if (reply.clarify) {
+    speak(dialogue.ask(context, reply.clarify, setting, cmd.action, false, false), true, cmd.id, context);
+    hold([], 0.05, cmd.id); return;
+  }
+  // HTTP-only refusals (for example "already out") must also reach the caller. Event duplicates are suppressed.
+  speak(reply.say, true, cmd.id, context);
   if (!reply.accepted) console.log(`[command] rejected: ${reply.reason}`);
   hold(reply.accepted ? DONE[cmd.action] : [], reply.accepted && DONE[cmd.action].length ? HOLD_FOR[cmd.action] ?? HOLD_S : 1, cmd.id);
 }
 
 function flushPending() {
   const now = Date.now();
-  const lines = pending.filter((p) => now - p.t < PENDING_MS).slice(-PENDING_MAX);
-  pending = [];
+  const lines = pending.filter((p) => now - p.t < PENDING_MS && (!p.context || p.context === open?.context)).slice(-PENDING_MAX);
+  pending = pending.filter((p) => now - p.t < PENDING_MS && p.context && p.context !== open?.context);
   for (const p of lines) open?.say(p.line);
 }

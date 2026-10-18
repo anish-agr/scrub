@@ -1,7 +1,7 @@
 // Words heard on the call -> one Command. "stop" and "got it" skip Gemini; everything else goes through it.
 import { GoogleGenAI, Type } from "@google/genai";
 import { GEMINI_API_KEY, GEMINI_MODEL, GEMINI_TIMEOUT_MS } from "./config.js";
-import { ACTIONS, type Action } from "./controller.js";
+import { ACTIONS, type Action, type Candidate, type Clarification, type Instance } from "./controller.js";
 import type { Setting } from "./settings.js";
 
 const ai = GEMINI_API_KEY ? new GoogleGenAI({ apiKey: GEMINI_API_KEY }) : null;
@@ -26,7 +26,8 @@ export function readAction(heard: string): Action | null {
 }
 export const isEndCase = (s: string) => /\b(end (of )?(the )?case|case (is )?(over|done|closed|complete)|close (out )?(the )?case|wrap (it )?up)\b/i.test(s);
 
-export interface Parsed { action: Action; item: string | null; via: "local" | "gemini" }
+export interface ParseResult { action: Action; item: string | null; instance?: Instance; clarify?: Clarification; confidence?: number; confirm?: boolean }
+export interface Parsed extends ParseResult { via: "local" | "gemini" }
 
 // Caller turns handled and the last 50 Gemini parse times, for GET /health.
 const geminiTimes: number[] = [];
@@ -46,6 +47,9 @@ export async function parse(heard: string, setting: Setting): Promise<Parsed> {
   if (isGotIt(heard)) return { action: "got_it", item: null, via: "local" };
   const read = readAction(heard);
   if (read) return { action: read, item: null, via: "local" };
+  // Resolve known names and shared group words before a model can guess one of them.
+  const local = localParse(heard, setting);
+  if (local.action !== "unknown") return { ...local, via: "local" };
   if (ai) {
     const t0 = Date.now();
     try {
@@ -64,12 +68,15 @@ export const commandSchema = (ids: string[]) => ({
   properties: {
     action: { type: Type.STRING, enum: ACTIONS },
     item: { type: Type.STRING, enum: [...ids, "none"] },
+    candidates: { type: Type.ARRAY, items: { type: Type.STRING, enum: ids } },
+    confidence: { type: Type.NUMBER },
+    confirm: { type: Type.BOOLEAN },
   },
   required: ["action", "item"],
   propertyOrdering: ["action", "item"],
 });
 
-async function geminiParse(heard: string, setting: Setting): Promise<{ action: Action; item: string | null }> {
+async function geminiParse(heard: string, setting: Setting): Promise<ParseResult> {
   const ids = setting.items.map((i) => i.id);
   const list = setting.items.map((i) => `- ${i.id}: ${i.name}${i.aliases.length ? ` (also: ${i.aliases.join(", ")})` : ""}`).join("\n");
   const prompt = `You are the ears of Scrub, a robot arm that passes instruments in a ${setting.label.toLowerCase()}.
@@ -83,10 +90,12 @@ Actions:
 - read_sheet: read the paper count sheet in view ("read the count sheet", "check the count sheet")
 - read_tray: read the tray tag or label to tell which tray this is ("what tray is this", "read the tray tag")
 - read_pack: read a sterile pack label, lot or expiry date ("read the pack", "is this pack expired")
-- unknown: anything else, or you can't tell which instrument
+- unknown: anything else
 Instruments on this tray:
 ${list}
 item is the instrument id for handover, and for return when they name one, otherwise "none". If they ask for an instrument not on this tray, use unknown.
+Never choose between plausible instruments. For ambiguity return candidates (ids from this tray only), item "none", action handover.
+confidence is 0 to 1. Set confirm true for an uncertain single interpretation; no movement occurs until the clinician says yes.
 Clinician said: "${heard}"`;
   const res = await ai!.models.generateContent({
     model: GEMINI_MODEL,
@@ -98,13 +107,29 @@ Clinician said: "${heard}"`;
       abortSignal: AbortSignal.timeout(GEMINI_TIMEOUT_MS),
     },
   });
-  const out = JSON.parse(res.text || "{}");
-  const action: Action = ACTIONS.includes(out.action) ? out.action : "unknown";
-  // A return keeps a named item ("put the hemostat back"), else null: the controller takes the return spot or last out.
-  const item = (action === "handover" || action === "return") && ids.includes(out.item) ? out.item : null;
-  // Never send an item that isn't in the current setting.
-  return action === "handover" && !item ? { action: "unknown", item: null } : { action, item };
+  return validateGemini(JSON.parse(res.text || "{}"), setting);
 }
+
+// Validate again at the trust boundary; even a malformed model response cannot introduce a tray item.
+export function validateGemini(out: any, setting: Setting): ParseResult {
+  const ids = setting.items.map((i) => i.id);
+  const action: Action = ACTIONS.includes(out.action) ? out.action : "unknown";
+  const candidates = Array.isArray(out.candidates) ? [...new Set<string>(out.candidates.filter((id: unknown) => typeof id === "string" && ids.includes(id)))] : [];
+  if (action === "handover" && candidates.length > 1) return { action, item: null, clarify: whichOne(candidates.map((id) => candidateFor(setting, id))) };
+  const item = ["handover", "return"].includes(action) && ids.includes(out.item) ? out.item : null;
+  // Never send an item that isn't in the current setting.
+  if (action === "handover" && !item) return { action: "unknown", item: null };
+  const uncertain = item && (out.confirm === true || (typeof out.confidence === "number" && out.confidence < 0.8));
+  return { action, item, ...(uncertain ? { confirm: true } : {}) };
+}
+
+export function candidateFor(setting: Setting, id: string): Candidate {
+  const it = setting.items.find((i) => i.id === id)!;
+  return { item: id, label: it.name, ...(it.variant ? { variant: it.variant } : {}) };
+}
+export const whichOne = (candidates: Candidate[]): Clarification => ({
+  say: `Which one: ${candidates.map((c) => c.label || c.variant || c.item || c.id).join(" or ")}?`, candidates,
+});
 
 // No key or Gemini down: match names and aliases. Longest phrase wins ("needle nose" over "pliers").
 // Lowercase, punctuation to spaces ("needle-nose" -> "needle nose"), single spaces.
@@ -140,23 +165,33 @@ export function parseAlias(heard: string, setting: Setting): { item: string; ali
   return null;
 }
 
-export function localParse(heard: string, setting: Setting): { action: Action; item: string | null } {
+export function localParse(heard: string, setting: Setting): ParseResult {
+  if (isStop(heard)) return { action: "stop", item: null };
+  if (isGotIt(heard)) return { action: "got_it", item: null };
   const s = ` ${norm(heard)} `;
   const read = readAction(heard);
   if (read) return { action: read, item: null };
   // "take back the mayo scissors" is a return of the scissors (item named), not a handover; "put it back": item null.
   const isReturn = /\b(put( [a-z ]+)? back|return|take( [a-z ]+)? back)\b/.test(s);
   if (!isReturn && /\b(count|what s out|whats out|what is out|how many)\b/.test(s)) return { action: "count", item: null };
-  let best: { id: string; len: number } | null = null;
+  const action: Action = isReturn ? "return" : "handover";
+  const matches: { id: string; len: number }[] = [];
   for (const it of setting.items) {
-    for (const phrase of [it.name, it.id.replace(/_/g, " "), ...it.aliases]) {
+    let len = 0;
+    for (const phrase of [it.name, it.id.replace(/_/g, " "), ...it.aliases, it.group || ""]) {
       const p = norm(phrase);
       // Grouped: an empty alias used to match any " s " ("let's go" -> "let s go") through the plural test.
       if (p && (s.includes(` ${p} `) || s.includes(` ${p}s `))) {
-        if (!best || p.length > best.len) best = { id: it.id, len: p.length };
+        len = Math.max(len, p.length);
       }
     }
+    if (len) matches.push({ id: it.id, len });
   }
-  if (isReturn) return { action: "return", item: best?.id ?? null };
-  return best ? { action: "handover", item: best.id } : { action: "unknown", item: null };
+  const max = Math.max(...matches.map((m) => m.len));
+  let best = matches.filter((m) => /\bor\b/.test(s) || m.len === max);
+  const variants = best.filter((m) => { const v = setting.items.find((i) => i.id === m.id)?.variant; return v && s.includes(` ${norm(v)} `); });
+  if (variants.length) best = variants;
+  if (best.length > 1) return { action, item: null, clarify: whichOne(best.map((m) => candidateFor(setting, m.id))) };
+  const side = s.match(/\b(left|right|closest)\b/)?.[1] as Instance["side"];
+  return best.length ? { action, item: best[0].id, ...(side ? { instance: { side } } : {}) } : { action: isReturn ? "return" : "unknown", item: null };
 }

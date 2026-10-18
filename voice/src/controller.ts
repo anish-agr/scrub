@@ -9,8 +9,12 @@ export const ACTIONS: Action[] = ["handover", "return", "count", "stop", "got_it
 
 export interface Command {
   id: string; action: Action; item: string | null; heard: string; source: "voice"; t: number;
+  instance?: Instance;
 }
-export interface CommandReply { accepted: boolean; reason: string | null; say: string | null }
+export interface Instance { variant?: string; side?: "left" | "right" | "closest"; slot?: number }
+export interface Candidate { item?: string; id?: string; label?: string; variant?: string; side?: string; slot?: number; instance?: Instance }
+export interface Clarification { say: string; item?: string | null; candidates: Candidate[]; question_id?: string }
+export interface CommandReply { accepted: boolean; reason: string | null; say: string | null; clarify?: Clarification }
 export interface ScrubEvent {
   type: string; t: number; item?: string | null; step?: string | null; say?: string | null;
   command_id?: string | null; setting?: string | null; lighting?: string | null;
@@ -21,6 +25,7 @@ export interface ScrubEvent {
   skill_source?: "model" | "taught" | null;  // on pick and return events (optional)
   read?: { kind: "count_sheet" | "tray_tag" | "pack_label"; ok: boolean; method?: string | null; latency_ms?: number | null; [k: string]: unknown } | null;  // on `read` events (optional)
   sheet_mismatch?: { item: string; sheet: number | null; scrub: number | null }[] | null;  // on `count` events (optional)
+  candidates?: Candidate[]; question_id?: string; instance?: Instance;
 }
 export interface State {
   step: string; out: string[]; setting: string; t: number;
@@ -51,6 +56,11 @@ async function call(method: string, path: string, body?: unknown, ms = 3000): Pr
 }
 
 export const postCommand = (c: Command): Promise<CommandReply> => call("POST", "/command", c);
+export interface ClarifyLog {
+  type: "clarify" | "clarify_answer"; say?: string; item?: string | null; candidates?: Candidate[];
+  question_id?: string; answer?: string; answer_ms?: number; context?: string;
+}
+export const postClarify = (body: ClarifyLog): Promise<unknown> => call("POST", "/clarify", body);
 export const postStop = (): Promise<{ accepted: boolean }> => call("POST", "/stop");
 export const getSetting = (): Promise<any> => call("GET", "/setting");
 export const getState = (): Promise<State> => call("GET", "/state");
