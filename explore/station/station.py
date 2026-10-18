@@ -93,6 +93,38 @@ def tolerate_status_errors() -> None:
                       flush=True)
     MotorsBus.write = tolerant
 
+    _read = MotorsBus._read
+
+    def read_tolerant(self, address, length, motor_id, *, num_retry=0, raise_on_error=True, err_msg=""):
+        """Reads too (LeRobot's start-up firmware check refused the flagged elbow): a reply that arrived
+        with a status flag still has a valid value; a missing reply still raises ConnectionError."""
+        value, comm, error = _read(self, address, length, motor_id, num_retry=max(num_retry, 2),
+                                   raise_on_error=False, err_msg=err_msg)
+        if raise_on_error and not self._is_comm_success(comm):
+            raise ConnectionError(f"{err_msg} {self.packet_handler.getTxRxResult(comm)}")
+        return value, comm, error
+    MotorsBus._read = read_tolerant
+
+
+def hold_off(port: str) -> None:
+    """Before LeRobot connects: every goal = where the motor is, torque off. LeRobot's configure() then
+    turns torque on holding exactly here (no jump) and the station turns it off again right away."""
+    import scservo_sdk as scs
+    ph = scs.PortHandler(port)
+    if not ph.openPort():
+        raise ConnectionError(f"can't open {port}")
+    try:
+        ph.setBaudRate(1_000_000)
+        pk = scs.PacketHandler(0)
+        for i in range(1, 7):
+            pos, comm, _ = pk.read2ByteTxRx(ph, i, 56)
+            if comm != scs.COMM_SUCCESS:
+                raise ConnectionError(f"motor {i} not answering")
+            pk.write2ByteTxRx(ph, i, 42, pos)
+        pk.write1ByteTxOnly(ph, 254, 40, 0)  # broadcast torque off
+    finally:
+        ph.closePort()
+
 
 def broadcast_torque_off(bus) -> None:
     """Torque off on every motor in one broadcast packet (ID 254, no reply), so no flag can block it."""
@@ -345,7 +377,7 @@ class Station:
 
     def _start(self):
         if self.state != "idle":
-            return False, f"start: not while {self.state}" + (" (press Motors on)" if self.state == "parked" else "")
+            return False, f"start: not while {self.state}" + (" (press Motors on)" if self.state in ("parked", "off") else "")
         if self.saving:
             return False, "start: still saving the last episode"
         if self.down:
@@ -861,7 +893,7 @@ def main() -> None:
     while True:  # a port just released by another recorder, or a motor blip: wait and try again
         wait_for_devices(a)
         try:
-            A.ease(a.follower, a.leader, a.ease_s)
+            hold_off(a.follower)  # start OFF: no ease, nothing moves until Motors on
             break
         except (ConnectionError, RuntimeError, OSError) as e:
             print(f"arm not ready ({type(e).__name__}: {str(e).strip().splitlines()[0][:120] if str(e).strip() else ''}): "
@@ -872,7 +904,12 @@ def main() -> None:
     A.guard_joints()       # outermost: safety, park, temperatures, telemetry
     A.tolerate_camera_stalls()
     robot, teleop = make_hardware(a.follower, a.leader, a.side, a.wrist)
-    robot.connect()
+    robot.connect()          # configure() re-enables torque holding the goal hold_off set: no jump
+    broadcast_torque_off(robot.bus)
+    try:
+        robot.bus.disable_torque()
+    except Exception:  # noqa: BLE001
+        broadcast_torque_off(robot.bus)
     teleop.connect()
     try:
         ds = open_dataset(a.root, robot, repo=a.repo)
@@ -881,6 +918,7 @@ def main() -> None:
         teleop.disconnect()
         raise
     st = Station(robot, teleop, ds, a.task, a.root)
+    st.killed, st.state = True, "off"  # motors start off; Motors on wakes in place and follows the leader
     srv = serve(st, a.port)
     st.note(f"station ready: http://localhost:{a.port}  task {a.task!r}  dataset {a.root} "
             f"({ds.meta.total_episodes} episodes). Enter = start/save, Ctrl-C = exit")

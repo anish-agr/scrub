@@ -3,8 +3,9 @@ import WebSocket from "ws";
 import { randomUUID } from "node:crypto";
 import { CONTROLLER_URL, JUDGE_TTL_MS } from "./config.js";
 
-export type Action = "handover" | "return" | "count" | "stop" | "got_it" | "unknown";
-export const ACTIONS: Action[] = ["handover", "return", "count", "stop", "got_it", "unknown"];
+// read_sheet, read_tray, read_pack (optional, the OCR pass): item is null; the answer comes as a `read` event.
+export type Action = "handover" | "return" | "count" | "stop" | "got_it" | "unknown" | "read_sheet" | "read_tray" | "read_pack";
+export const ACTIONS: Action[] = ["handover", "return", "count", "stop", "got_it", "unknown", "read_sheet", "read_tray", "read_pack"];
 
 export interface Command {
   id: string; action: Action; item: string | null; heard: string; source: "voice"; t: number;
@@ -18,6 +19,8 @@ export interface ScrubEvent {
   error?: string | null; code?: number | null;  // on `error` events: the arm model's status (401, 409, 503), optional
   reason?: string | null; judge?: boolean | null;  // every event carries judge (optional)
   skill_source?: "model" | "taught" | null;  // on pick and return events (optional)
+  read?: { kind: "count_sheet" | "tray_tag" | "pack_label"; ok: boolean; method?: string | null; latency_ms?: number | null; [k: string]: unknown } | null;  // on `read` events (optional)
+  sheet_mismatch?: { item: string; sheet: number | null; scrub: number | null }[] | null;  // on `count` events (optional)
 }
 export interface State {
   step: string; out: string[]; setting: string; t: number;

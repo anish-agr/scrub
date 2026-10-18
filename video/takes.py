@@ -5,6 +5,7 @@ from collections import defaultdict
 
 import cv2
 
+from .captions import assess, load_captions, load_qa
 from .common import digest, encode, events, frame_at, frames, provenance, read_json, save_provenance, stamp, write_json
 
 
@@ -25,13 +26,21 @@ def successful_trials(rows):
             continue
         accepted.append({'command_id':command,'item':request.get('item'),'case_id':request.get('case_id'),
             'start':request['t'],'end':released['t'],'handed':handed['t'],
-            'request_to_hand_s':handed.get('request_to_hand_s'),'synthetic':any(row.get('synthetic') or row.get('fake_arm') for row in group)})
+            'request_to_hand_s':handed.get('request_to_hand_s'),
+            'episode':next((r['episode'] for r in group if isinstance(r.get('episode'),int)),None),'synthetic':any(row.get('synthetic') or row.get('fake_arm') for row in group)})
     return accepted,excluded
 
 
-def find(ws, ledger, manifest='manifest.json', cut=False, gemini=False):
+def rank(takes):
+    """Caption score first (0 when absent or switched off), then sharpness. Every take here already passed the ledger check."""
+    return sorted(takes,key=lambda row:(row.get('caption_score',0),row['framing_score_laplacian']),reverse=True)
+
+
+def find(ws, ledger, manifest='manifest.json', cut=False, gemini=False, captions=True, clips_dir=None, vision_url=None, qa=None):
     ledger=ws.source(ledger)
     trials,excluded=successful_trials(events(ledger))
+    caption_rows=load_captions(trials,ledger,clips_dir,vision_url) if captions else []
+    qa_rows=load_qa(qa) if captions and qa else {}
     assets=read_json(ws.source(manifest))['assets']
     ranked=[]
     for trial in trials:
@@ -53,6 +62,7 @@ def find(ws, ledger, manifest='manifest.json', cut=False, gemini=False):
                 'framing_score_laplacian':sharpness,'success_evidence':'ledger handed + released, zero retries, no failure',
                 'framing_warning':'Sharpness is not proof the handoff is visible; review contact sheet.',
                 'ledger_source':str(ledger),'ledger_sha256':digest(ledger),'kind':meta['kind']}
+            item.update(assess(trial,caption_rows,qa_rows) if captions else {'caption_score':0,'caption_reasons':[],'captions':[]})
             if cut:
                 safe_id=''.join(c for c in trial['command_id'] if c.isalnum() or c in '-_')[:80]
                 output=ws.out('takes/'+asset['id']+'-'+safe_id+'.mp4')
@@ -63,9 +73,10 @@ def find(ws, ledger, manifest='manifest.json', cut=False, gemini=False):
                     ledger_source=str(ledger),ledger_sha256=digest(ledger))
                 item['cut']=str(output)
             ranked.append(item)
-    ranked.sort(key=lambda row:row['framing_score_laplacian'],reverse=True)
+    ranked=rank(ranked)
     report={'takes':ranked,'excluded':excluded,'unmatched_trials':[t['command_id'] for t in trials if not any(r['command_id']==t['command_id'] for r in ranked)],
         'gemini':'not used; local ledger and sharpness only' if not gemini else 'SKIPPED: optional remote framing scorer not configured; no footage uploaded',
+        'captions_used':captions,
         'note':'Editorial selection only, not a measured success-rate denominator. Failures remain in the ledger.'}
     write_json(ws.out('ranked.json'),report)
     return report
