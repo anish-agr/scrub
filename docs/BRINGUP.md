@@ -20,7 +20,10 @@ python -m arm --dry-run --self-test
 python -m controller --fake-arm --motion-s 0.2
 ```
 
-In a second terminal:
+In a second terminal, run the state check first. **Require `fake_arm: true`
+before the smoke command**; if port 8000 belongs to an existing real controller,
+do not run this smoke invocation. Without `--human`, smoke can send simulated
+release commands.
 
 ```powershell
 Invoke-RestMethod http://localhost:8000/state
@@ -309,6 +312,79 @@ Use PLAN.md's trial matrix: surgical 10/item/light (bright/normal/dim), dental
 and bench 5/item/light (normal/bright), and put-back 5/item. A human confirms
 physical success and restores the tray between attempts; failed attempts count.
 Simulation/fake results stay separate from measured hardware success tables.
+
+### Trial runner (Q2)
+
+These commands perform no hardware work:
+
+```powershell
+python -m controller.trials --plan-only
+python -m controller.trials --self-test
+```
+
+**Expect:** default plan is 195 instrument trials: 90 surgical handovers, 60
+dental/bench handovers, 45 returns. Embedded offline tests include the actual
+fake-controller FastAPI routes, with ledger writes mocked/disabled.
+**If not:** fix that before running a measured batch. Tests and plan-only do
+not require the Robotics key, LeRobot, cameras or MongoDB.
+
+After physical bring-up, start small against the real controller:
+
+```powershell
+python -m controller.trials --settings surgical --items hemostat --lighting normal --actions handover --tries 2
+```
+
+Omit filters/`--tries` to run the full PLAN matrix. Return trials use normal
+lighting by default; if filtered to other lights, they use the first selected
+label once, not an extra return matrix. Before every attempt, Enter confirms
+the correct physical item placement, lamp setting and safe clearance; `q` quits
+without inventing an attempt. Switching settings clears the controller count,
+so first reconcile the physical inventory. The runner never resets/rearms or
+clears the same-setting count automatically. Do not use it during a live case.
+
+**Expect:** release occurs via the recipient's pull/voice/dashboard `got_it`,
+not an automatic real-arm release. The runner correlates events to its own
+command id and waits for idle/completion. After a software-successful run,
+operator `s` confirms correct physical delivery, sharp set-down or put-back;
+`f` records failure. A fallback safe set-down of a non-sharp item is not a
+successful handoff. Successful retries count as successes with retries recorded.
+**If not:** error/stop, timeout or uncertain network submission aborts the batch;
+timeouts/network uncertainty request `/stop` but cannot prove it reached the arm.
+Inspect the arm and use the existing manual reset workflow before restarting.
+There is no automatic retry after an uncertain submission.
+
+Every attempted measured trial calls **local** `ledger.log_test` with item,
+setting, lighting, success, handoff/zone time and retries. Ensure this checkout's
+MongoDB environment matches the intended ledger when `--url` targets another
+host. The ledger buffers when offline; the runner cannot certify Mongo delivery.
+The full result, action, physical confirmation and duration are also saved in a
+new ignored `.env.trials-<id>.jsonl` journal (`--journal` selects another new
+file; existing files are never overwritten). No camera images or keys are logged.
+
+The ledger interface has no action field, so its aggregate item/lighting tables
+combine handover and return trials. Use the journal's `action` field for separate
+rates, or capture handover-only dashboard tables before running returns. Returns
+have ledger `seconds: null`; their duration is only `elapsed_s` in the journal,
+not falsely labeled request-to-hand time. Sharp timing is request-to-neutral-zone.
+
+For PLAN.md's bench-adoption row, add
+`--bench-start <FIRST_BENCH_DEMO_ISO_WITH_TIMEZONE>` using the actual recorded
+first-demo time. The first physically confirmed bench handover writes a separate
+`bench_adoption` journal entry in minutes; it is not another instrument trial
+or ledger success. Without that timestamp, adoption minutes are unmeasured.
+This is the first success observed in this batch, not proof of the first-ever
+working bench handoff. Run it at initial bench bring-up, or label a later batch's
+timing as a later observation rather than the original adoption time.
+
+Practice against an explicitly fake/sim controller only:
+
+```powershell
+python -m controller.trials --practice --yes --settings surgical --items hemostat --lighting normal --actions handover --tries 2
+```
+
+`--practice` never calls `ledger.log_test`, labels every journal row as practice,
+and permits simulated `got_it`. It refuses a real controller. Conversely,
+measured mode refuses a fake/sim controller. `--yes` is prohibited for real trials.
 
 Protect the submission: Devpost draft by Sat 10:30 PM (internal 10:00 PM),
 feature freeze Sun 6 AM, public repo + required video and final Devpost by Sun

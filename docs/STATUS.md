@@ -26,6 +26,7 @@ Agents: the first unchecked box in your person's section is the next task. Tick 
 - [x] R3 optional `Arm.prepare(instructions)`: instruction-bound session cache, reuse/cleanup/expiry/context handling, freeze-safe transactional preparation. `python -m unittest arm.test_prepare -v` passes 11 offline tests, including reuse by the real playback loop with fake joints. Base contract and Caiden's files unchanged.
   - Full owned arm suite: 55/55 offline tests pass; `python -m arm --dry-run --self-test` still succeeds. R4 waits for Anish to confirm the arm is plugged in and the Robotics team key is in `.env`.
 - [x] Q1 `docs/BRINGUP.md`: PowerShell commands, expected results and recovery gates from ports/calibration through recording, training, overhead calibration and first voice handoff. Checked against current CLIs/routes; physical acceptance and team-key calls remain R4, not claimed as tested.
+- [x] Q2 `controller/trials.py`: default 195-trial PLAN matrix, filters/N override, operator confirmation, command-correlated outcomes, local ledger calls and action-separated JSONL evidence; practice never logs measured trials. `python -m controller.trials --self-test` passes 19 offline tests including real fake-controller routes; `--plan-only` verifies counts. No other controller files edited.
 
 ## Caiden
 
