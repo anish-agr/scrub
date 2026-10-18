@@ -211,6 +211,8 @@ def clamp_follower() -> None:
     SOFollower.send_action = clamped
 
 
+EASE_DEG_S = 45.0     # catch-up speed for a big gap, about 20% of the STS3215's ~270 deg/s
+GAP_DEG = 25.0        # a joint further than this from its goal catches up at EASE_DEG_S, not full speed
 JOINT_LOAD_MAX = 250  # |Present_Load| (0.1% of max torque) a joint may push without moving
 JOINT_STALL_S = 1.0   # pushing this long while stuck: hold where it is instead of pushing
 TEMP_WARN, TEMP_RELAX = 55, 62  # deg C: warn on the page; stop pushing with that motor
@@ -225,7 +227,7 @@ def guard_joints() -> None:
     moves it back the other way."""
     from lerobot.robots.so_follower.so_follower import SOFollower
     send = SOFollower.send_action
-    st = {"since": {}, "hold": {}, "dir": {}, "temp": {}, "temp_t": 0.0, "limp": set()}
+    st = {"since": {}, "hold": {}, "dir": {}, "temp": {}, "temp_t": 0.0, "limp": set(), "slew": {}}
 
     def guarded(self, action):
         now = time.perf_counter()
@@ -252,13 +254,34 @@ def guard_joints() -> None:
                 # gets clamped back to the limit and it keeps pushing into the stop. Torque off.
                 lim = getattr(self, "_scrub_limits", None) or joint_limits(self.bus)
                 self._scrub_limits = lim
-                if m in st["limp"] or not lim[m][0] - 10 <= here <= lim[m][1] + 10:
+                inside = lim[m][0] <= here <= lim[m][1]
+                if m in st["limp"] and inside:
+                    # Moved back into its range by hand: hold where it is, then torque on again.
+                    raw = self.bus.sync_read("Present_Position", m, normalize=False)
+                    self.bus.sync_write("Goal_Position", raw, normalize=False)
+                    self.bus.write("Torque_Enable", m, 1)
+                    st["limp"].discard(m)
+                    st["slew"][m] = here
+                    print(f"joint guard: {m} back in range at {here:.0f}: torque on", flush=True)
+                elif m in st["limp"] or not lim[m][0] - 10 <= here <= lim[m][1] + 10:
                     if m not in st["limp"]:
                         self.bus.write("Torque_Enable", m, 0)
                         st["limp"].add(m)
                         print(f"joint guard: {m} reads {here:.0f}, outside its calibrated range: torque off, "
                               f"recalibrate", flush=True)
                     continue
+            if abs(goal - here) > GAP_DEG or m in st["slew"]:
+                # A big jump (a restart, a joint coming back on, a wrapped reading): step toward the
+                # leader at EASE_DEG_S instead of the servo's full speed, until it has caught up.
+                prev = st["slew"].get(m, here)
+                step = EASE_DEG_S / 30.0
+                goal = action[k] = prev + max(-step, min(step, goal - prev))
+                if m not in st["slew"]:
+                    print(f"joint guard: {m} {abs(push):.0f} deg behind, catching up at {EASE_DEG_S:.0f} deg/s", flush=True)
+                st["slew"][m] = goal
+                if abs(action[k] - here) < 3.0 and abs(push) < GAP_DEG:
+                    st["slew"].pop(m, None)
+                push = goal - here
             if m in st["hold"]:
                 # Released when the leader comes back to where the follower is or moves the other way.
                 if abs(goal - st["hold"][m]) < 2.0 or push * st["dir"][m] < 0:
@@ -428,10 +451,14 @@ def ease(follower_port: str, leader_port: str, seconds: float) -> None:
             lo, hi = ((r - mid) * 360 / 4095 for r in (c.range_min, c.range_max))
             goal[m] = min(hi - 1, max(lo + 1, goal[m]))
         worst = max(abs(goal[m] - start[m]) for m in start)
+        seconds = max(seconds, worst / EASE_DEG_S)
         print(f"easing follower to the leader's pose (largest gap {worst:.0f}) over {seconds:.0f} s", flush=True)
-        if not f.sync_read("Torque_Enable", normalize=False)["shoulder_lift"]:
-            print("follower torque is off: skipping the ease (LeRobot will enable it)")
-            return
+        if not all(f.sync_read("Torque_Enable", normalize=False).values()):
+            # Torque off (a cool-down exit or a power cycle): hold the present pose first, then ease.
+            # Skipping the ease let LeRobot snap a 345 deg gap at full speed (Oct 17).
+            f.sync_write("Goal_Position", f.sync_read("Present_Position", normalize=False), normalize=False)
+            f.enable_torque()
+            print("follower torque was off: holding the present pose, then easing", flush=True)
         n = max(1, int(seconds * 30))
         for i in range(1, n + 1):
             s = i / n
