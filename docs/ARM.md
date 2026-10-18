@@ -156,3 +156,13 @@ If arm time turns out short, cut in this order: bench put-back, dental put-back,
 ## Item placement
 
 Instruments lie flat, spaced apart, in the same taped slot every time. If a thin instrument is hard to grip flat, a folded strip of towel under the handle lifts it so the gripper can close around it.
+
+## Capabilities with our team key (Sat 5:45 PM)
+
+`python -m arm.train capabilities` works. Limits:
+- backends: `standard` (`expert_only`, `backbone_lora`, `full`), `shared` (`expert_only`)
+- horizon 30, 30 fps, stride 15, max prefix 12, deadline 400 ms, RTC on or off
+- steps: 1000 only
+- **2 successful jobs per team**
+- max dataset 20 GiB, job timeout 6 h
+- ready for training: yes
