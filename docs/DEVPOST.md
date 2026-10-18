@@ -22,6 +22,8 @@ A robot arm that passes instruments when you ask out loud.
 - **Photon (including best voice agent).** The whole case runs over a call to the Photon number. Texts in (restock, what's out) and the end-of-case summary out use the same thread.
 - **DubHacks NEXT.** The business case in `docs/NEXT.md`: surgery centers first, a monthly fee per operating room, with the break-even worked out.
 - **MLH Gemini API.** Turns what was said into one command from the current tray, with structured output. It cannot invent an instrument that is not on the tray. It also writes the end-of-case summary and reads texts.
+- **MLH Tiger Data.** Each handoff is a point on a time series. With `TIGER_DATABASE_URL` set, those points go into a Tiger Data hypertable, and the public series page reads them back. Without it, the same page counts the local ledger.
+- **MLH Backboard.** Notes of what was asked, and an answer for what usually comes next. With `BACKBOARD_API_KEY` and `BACKBOARD_ASSISTANT_ID` set, the notes are stored in Backboard and the question is answered there. Until then the answer comes from the local ledger.
 - **MLH MongoDB Atlas.** Stores every event and every measured trial. The success tables are read from there.
 - **MLH Vultr.** The public judge page runs on a Vultr server.
 - **MLH GoDaddy Registry.** Our domain points at that page. It is on the QR code at the table.
@@ -111,7 +113,7 @@ Surgery centers are the first customers, as a monthly fee per operating room. At
 
 ## Built with
 
-Python, FastAPI, HTML, JavaScript, MongoDB Atlas, Gemini, ElevenLabs, Photon, Perceptron (Isaac 0.5 and the vision API), MediaPipe, LeRobot, SO-101, Vultr, GoDaddy
+Python, FastAPI, HTML, JavaScript, MongoDB Atlas, Tiger Data, Backboard, Gemini, ElevenLabs, Photon, Perceptron (Isaac 0.5 and the vision API), MediaPipe, LeRobot, SO-101, Vultr, GoDaddy
 
 ## Video shot list (after the arm works, not pasted into the Devpost form)
 

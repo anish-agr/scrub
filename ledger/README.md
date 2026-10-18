@@ -77,6 +77,24 @@ The `/api/*` routes send `Access-Control-Allow-Origin: *` and answer `OPTIONS`. 
 
 Each results row also has `wilson_low` and `wilson_high`. `next_likely` is a suggestion only.
 
+The series page and the memory page turn two prototypes into running pages. Series is the OR timeline (`explore/prototypes/29-or-timeline.html`) on the Tiger Data track. Memory is "the arm remembers" (`explore/prototypes/16-robot-memory.html`) on the Backboard track. Both run with no key. A key only changes where the rows are stored.
+
+```
+python -m ledger serve
+```
+
+Open http://127.0.0.1:8080/series.html and http://127.0.0.1:8080/memory.html.
+
+Optional, in the repo-root `.env` (names only; Caiden owns `.env.example`):
+
+```
+TIGER_DATABASE_URL=postgresql://USER:PASSWORD@HOST:PORT/DB?sslmode=require
+BACKBOARD_API_KEY=
+BACKBOARD_ASSISTANT_ID=
+```
+
+`TIGER_DATABASE_URL` writes each handoff into a `scrub_handoff` hypertable and the series page reads it back. The two Backboard names store each accepted ask and answer questions with memory on. Until they are set, both pages use the local ledger. Add `psycopg` (`pip install -r ledger/requirements.txt`) before using the Tiger URL.
+
 ## Tested
 
 Saturday Oct 17.
