@@ -252,8 +252,8 @@ Project ID: `gen-lang-client-0121141463` (the Google Cloud project behind the vo
 1. Paste every text field from this file. Submit before 9:30 AM (the form locks at 10:00).
 2. Video: upload unlisted to YouTube, paste the URL in the Devpost video field, and open it once logged out to check it plays.
 3. Thumbnail: upload `media/scrub-logo.png`.
-4. Tracks: tick Community Kitchen, Perceptron Robotics, Perceptron Perception, DubHacks NEXT, MLH Gemini, MLH MongoDB Atlas, MLH Vultr, MLH Commit Fellowship. Tick Photon only if a call is confirmed in call history. No more than 3 sponsored tracks.
-5. Fill the Gemini Project Number (steps above). Leave the domain field as "None".
+4. Tracks: tick Community Kitchen, Perceptron Robotics, Perceptron Perception, DubHacks NEXT, MLH Gemini, MLH MongoDB Atlas, MLH Vultr, MLH Commit Fellowship. Third sponsored track: SideShift, or Photon in its place only if a call is confirmed in call history. No more than 3 sponsored tracks (see devpost/TRACKS.md).
+5. Gemini Project Number: paste `gen-lang-client-0121141463` (or the digits-only number, see the note above). Leave the domain field as "None".
 6. Tick the AI tools listed above.
 7. Add all four team members on Devpost (Anish, Caiden, Brandon, Evan) and have each accept the invite.
 8. Add the public GitHub repo link.
