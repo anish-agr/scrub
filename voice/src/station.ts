@@ -3,7 +3,7 @@
 // The controller still gets every command as before; if it is not running, the station alone answers.
 import { readFileSync, readdirSync } from "node:fs";
 import path from "node:path";
-import { REPO_DIR, STATION_URL } from "./config.js";
+import { REPO_DIR, STATION_SETTING, STATION_URL } from "./config.js";
 import type { Command } from "./controller.js";
 
 type Post = (action: string, extra?: Record<string, unknown>) => Promise<any>;
@@ -87,7 +87,15 @@ export async function stationPhrase(heard: string, p: Post = post): Promise<{ sa
   return { say, msg };
 }
 
-export const stationOn = () => Boolean(STATION_URL);
+// On when STATION_URL is set, or (unset) whenever a station answers on this Mac: checked every 2 s, so a
+// rewritten .env or a station started later never leaves voice talking only to the sim controller.
+let reachable = false;
+async function probe() {
+  try { reachable = (await fetch(STATION_URL + "/status", { signal: AbortSignal.timeout(400) })).ok; }
+  catch { reachable = false; }
+}
+if (STATION_SETTING !== "off" && !process.env.VOICE_NO_KEYS) { void probe(); setInterval(probe, 2000).unref(); }
+export const stationOn = () => STATION_SETTING !== "off" && (Boolean(STATION_SETTING) || reachable);
 export const STATION_ACTIONS = new Set(["handover", "got_it", "let_go", "stop"]);
 
 export function stationSay(c: Command): string {
