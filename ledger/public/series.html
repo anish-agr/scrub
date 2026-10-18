@@ -1,28 +1,35 @@
 <!DOCTYPE html>
-<html lang="en">
+<!-- STYLE: Swiss nurse-station timing sheet, minute-by-minute handoffs. -->
+<html lang="en" data-theme="paper">
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>Scrub series</title>
   <link rel="stylesheet" href="style.css">
+  <style>
+    .bars{max-width:1100px}.bars .bar{padding:10px 0;border-bottom:1px solid var(--hair)}
+    @media(max-width:600px){.bars .bar{grid-template-columns:56px minmax(0,1fr)}.bars .bar>:last-child{grid-column:2;font-size:12px}}
+  </style>
 </head>
-<body>
+<body class="scrub-ui" data-page="series">
   <header class="top">
-    <span class="mark">Scrub</span>
+    <div><span class="mark">Scrub</span><span class="subtitle">Handoff timing record</span></div>
     <nav>
       <a href="/">Count</a>
       <a href="memory.html">Memory</a>
     </nav>
   </header>
-  <p id="status" class="banner" hidden></p>
+  <p id="status" class="banner warning" role="status" hidden></p>
   <main class="has-rows">
     <section>
       <p class="kicker">Handoffs over time</p>
+      <h1>Handoffs by minute</h1>
       <p id="source" class="note"></p>
       <div id="bars" class="bars"></div>
-      <p id="empty" class="empty-note" hidden>No handoffs yet.</p>
+      <p id="empty" class="note" hidden>No handoffs yet.</p>
     </section>
   </main>
+  <footer>Team Scrub · DubHacks '26 <a href="#">Terms</a><a href="#">Privacy</a></footer>
   <script src="series.js"></script>
 </body>
 </html>
