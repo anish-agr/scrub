@@ -1,0 +1,92 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Tray identifier</title>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;600&family=IBM+Plex+Sans:wght@400;600&display=swap">
+<style>
+:root{--bg:#f2f1ee;--panel:#fff;--ink:#1b1d1f;--mute:#62676c;--line:#c9c8c3;--ok:#1f7a3a;--bad:#b3261e;--acc:#0b57a4}
+@media (prefers-color-scheme:dark){:root{--bg:#161718;--panel:#202224;--ink:#e8e8e6;--mute:#9a9fa4;--line:#3a3d40;--ok:#58b873;--bad:#ef7b72;--acc:#6aa9e8}}
+*{box-sizing:border-box;border-radius:0}
+body{margin:0;background:var(--bg);color:var(--ink);font:14px/1.4 "IBM Plex Sans",sans-serif}
+header{padding:10px 16px;border-bottom:1px solid var(--line);display:flex;gap:16px;align-items:baseline;flex-wrap:wrap}
+h1{font:600 15px "IBM Plex Mono",monospace;margin:0;letter-spacing:.04em;text-transform:uppercase}
+.mono{font-family:"IBM Plex Mono",monospace;font-size:12px}.mute{color:var(--mute)}
+main{display:grid;grid-template-columns:minmax(0,3fr) minmax(0,2fr);gap:16px;padding:16px}
+@media (max-width:900px){main{grid-template-columns:1fr}}
+section{background:var(--panel);border:1px solid var(--line);padding:12px}
+h2{font:600 12px "IBM Plex Mono",monospace;text-transform:uppercase;letter-spacing:.06em;margin:0 0 8px;color:var(--mute)}
+#wrap{position:relative;line-height:0}#frame{width:100%;display:block;border:1px solid var(--line);cursor:crosshair}
+#sel,#roibox{position:absolute;border:2px solid var(--acc);pointer-events:none;display:none}
+#roibox{border-style:dashed}
+button,select{font:12px "IBM Plex Mono",monospace;padding:5px 9px;border:1px solid var(--ink);background:var(--panel);color:var(--ink);cursor:pointer}
+button:hover{background:var(--ink);color:var(--bg)}button.on{background:var(--acc);color:#fff;border-color:var(--acc)}
+.row{display:flex;gap:8px;flex-wrap:wrap;margin-top:8px;align-items:center}
+table{width:100%;border-collapse:collapse;font-size:13px}th,td{text-align:left;padding:4px 6px;border-bottom:1px solid var(--line)}
+th{font:600 11px "IBM Plex Mono",monospace;color:var(--mute);text-transform:uppercase}
+.yes{color:var(--ok);font-weight:600}.no{color:var(--bad)}
+pre{margin:0;max-height:200px;overflow:auto;font:11px/1.4 "IBM Plex Mono",monospace;background:var(--bg);padding:8px;border:1px solid var(--line)}
+#msg{min-height:18px}
+</style></head><body>
+<header><h1>Tray identifier</h1><span class="mono mute" id="meta">waiting</span></header>
+<main>
+<section>
+  <h2>Live frame</h2>
+  <div id="wrap"><img id="frame" alt="annotated frame"><div id="sel"></div><div id="roibox"></div></div>
+  <div class="row">
+    <button id="mSel" class="on">Select blob</button><button id="mRoi">Draw ROI</button><button id="roiReset">Reset ROI</button>
+    <span class="mono mute" id="selInfo">no blob selected</span>
+  </div>
+  <div class="row">
+    <button id="empty">Save empty tray</button><button id="emptyClear">Clear empty tray</button>
+    <select id="settingSel"><option>bench</option><option>surgical</option></select>
+  </div>
+  <div class="row">
+    <select id="itemSel"></select><button id="enroll">Enroll selected blob</button><button id="delRefs">Delete refs for item</button>
+  </div>
+  <div id="msg" class="mono mute"></div>
+</section>
+<section>
+  <h2>Items</h2>
+  <table><thead><tr><th>Item</th><th>Present</th><th>Conf</th><th>By</th><th>Centre px</th><th>Arm xy</th><th>Refs</th></tr></thead><tbody id="items"></tbody></table>
+  <h2 style="margin-top:14px">Unknown blobs</h2><div class="mono" id="unk">none</div>
+  <h2 style="margin-top:14px">Timings (ms)</h2><div class="mono" id="tim"></div>
+  <h2 style="margin-top:14px">OCR text</h2><div class="mono" id="ocr"></div>
+  <h2 style="margin-top:14px">TrayState</h2><pre id="ts"></pre>
+</section>
+</main>
+<script>
+const $=id=>document.getElementById(id);let S=null,sel=null,mode='sel',drag=null;
+const msg=t=>$('msg').textContent=t;
+const post=(u,b)=>fetch(u,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(b||{})}).then(async r=>{const j=await r.json().catch(()=>({}));if(!r.ok)throw new Error(j.detail||r.status);return j});
+function scale(){const im=$('frame');return S&&S.frame?im.clientWidth/S.frame[0]:1}
+function place(el,box){const k=scale();Object.assign(el.style,{display:'block',left:box[0]*k+'px',top:box[1]*k+'px',width:(box[2]-box[0])*k+'px',height:(box[3]-box[1])*k+'px'})}
+function render(){
+  if(!S||!S.t)return;
+  $('meta').textContent=`${S.source} | ${S.setting} | ${S.segmentation} | empty ref ${S.has_empty_ref?'yes':'no'} | calibrated ${S.calibrated?'yes':'no'} | ${new Date(S.t*1000).toLocaleTimeString()}`;
+  $('items').innerHTML=S.items.map(i=>`<tr><td>${i.name}<div class="mute mono">${i.id}</div></td><td class="${i.present?'yes':'no'}">${i.present?'yes':'no'}</td><td class="mono">${i.present?i.confidence.toFixed(2):''}</td><td class="mono">${i.by||''}</td><td class="mono">${i.center_px?i.center_px.map(Math.round).join(', '):''}</td><td class="mono">${i.arm_xy?i.arm_xy.join(', '):'null'}</td><td class="mono">${i.refs}</td></tr>`).join('');
+  $('unk').textContent=S.unknown.length?S.unknown.map(u=>`#${u.index} [${u.box.join(', ')}]`).join('  '):'none';
+  $('tim').textContent=Object.entries(S.timings_ms).map(([k,v])=>`${k} ${v}`).join('  |  ');
+  $('ocr').textContent=S.ocr_text.length?S.ocr_text.map(o=>`"${o.text}" ${o.conf}`).join('  '):'none';
+  $('ts').textContent=JSON.stringify(S.tray_state,null,1);
+  if(sel!=null&&S.blobs[sel])place($('sel'),S.blobs[sel].box);else $('sel').style.display='none';
+  if(S.roi)place($('roibox'),S.roi);else $('roibox').style.display='none';
+  const cur=$('itemSel').value;
+}
+async function poll(){try{S=await (await fetch('/api/state')).json();render();$('frame').src='/api/frame.jpg?'+Date.now()}catch(e){}setTimeout(poll,1000)}
+async function init(){const it=await (await fetch('/api/items')).json();$('itemSel').innerHTML=it.items.map(i=>`<option value="${i.id}">${i.name} (${i.id})</option>`).join('');$('settingSel').value=it.setting;poll()}
+function pt(e){const r=$('frame').getBoundingClientRect(),k=scale();return[(e.clientX-r.left)/k,(e.clientY-r.top)/k]}
+$('frame').addEventListener('mousedown',e=>{e.preventDefault();drag=pt(e)});
+window.addEventListener('mouseup',async e=>{if(!drag||!S)return;const a=drag,b=pt(e);drag=null;
+  if(mode==='roi'){const r=[Math.min(a[0],b[0]),Math.min(a[1],b[1]),Math.max(a[0],b[0]),Math.max(a[1],b[1])].map(Math.round);
+    try{await post('/api/roi',{roi:r});msg('ROI set')}catch(x){msg(x.message)}}
+  else{let best=null;for(const bl of S.blobs){const[x1,y1,x2,y2]=bl.box;if(b[0]>=x1&&b[0]<=x2&&b[1]>=y1&&b[1]<=y2){const ar=(x2-x1)*(y2-y1);if(!best||ar<best.ar)best={i:bl.index,ar}}}
+    sel=best?best.i:null;$('selInfo').textContent=best?`blob ${sel} selected`:'no blob selected';render()}});
+$('mSel').onclick=()=>{mode='sel';$('mSel').classList.add('on');$('mRoi').classList.remove('on')};
+$('mRoi').onclick=()=>{mode='roi';$('mRoi').classList.add('on');$('mSel').classList.remove('on')};
+$('roiReset').onclick=()=>post('/api/roi',{roi:null}).then(()=>msg('ROI cleared'));
+$('empty').onclick=()=>post('/api/empty').then(()=>msg('empty tray saved')).catch(e=>msg(e.message));
+$('emptyClear').onclick=()=>post('/api/empty',{clear:true}).then(()=>msg('empty tray cleared'));
+$('settingSel').onchange=()=>post('/api/setting',{setting:$('settingSel').value}).then(init).catch(e=>msg(e.message));
+$('enroll').onclick=()=>{if(sel==null)return msg('click a blob first');post('/api/enroll',{blob_index:sel,item_id:$('itemSel').value}).then(r=>msg('saved '+r.saved)).catch(e=>msg(e.message))};
+$('delRefs').onclick=()=>{const id=$('itemSel').value;if(confirm('Delete all reference crops for '+id+'?'))post('/api/refs/delete',{item_id:id}).then(r=>msg('deleted '+r.deleted)).catch(e=>msg(e.message))};
+init();
+</script></body></html>
