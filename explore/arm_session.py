@@ -26,7 +26,8 @@ from pathlib import Path
 
 FOLLOWER = "/dev/tty.usbmodem5C821089781"
 LEADER = "/dev/tty.usbmodem5C821067211"
-CAM_STALL_MS = 2000  # LeRobot stops the whole session if a camera frame is over 500 ms old
+CAM_STALL_MS = 2000  # LeRobot stops the whole session if a camera frame is over 500 ms old;
+                     # we accept up to this, then reconnect the camera once before giving up
 GRIP_STALL_S = 0.3   # closing but not moving this long: something is in the jaws
 GRIP_MOVE = 1.0      # gripper units (0 closed .. 100 open) that count as still moving
 GRIP_SQUEEZE = 3.0   # how far past the contact point to keep pressing, for a firm grip
@@ -38,18 +39,34 @@ def tolerate_camera_stalls() -> None:
     from lerobot.cameras.opencv.camera_opencv import OpenCVCamera
     read_latest = OpenCVCamera.read_latest
 
+    def report(cam, what):
+        print(f"camera {cam.config.index_or_path} {what}", flush=True)
+        try:
+            import arm_ui
+            arm_ui.camera_stall(cam.config.index_or_path)
+        except ImportError:
+            pass
+
     def tolerant(self, max_age_ms: int = 500):
         try:
             return read_latest(self, max_age_ms)
         except TimeoutError:
-            frame = read_latest(self, CAM_STALL_MS)  # still raises if the camera is really gone
-            print(f"camera {self.config.index_or_path} stalled (frame over {max_age_ms} ms old)", flush=True)
-            try:
-                import arm_ui
-                arm_ui.camera_stall(self.config.index_or_path)
-            except ImportError:
-                pass
+            pass
+        try:
+            frame = read_latest(self, CAM_STALL_MS)
+            report(self, f"stalled (frame over {max_age_ms} ms old)")
             return frame
+        except TimeoutError:
+            pass
+        # Silent past CAM_STALL_MS (a wrist cable flexing with the arm can do this): reopen it once.
+        report(self, "stopped sending frames: reconnecting")
+        try:
+            self.disconnect()
+        except Exception:  # noqa: BLE001 - already half-closed
+            pass
+        self.connect(warmup=True)  # raises if the camera is really gone, which ends the session
+        report(self, "reconnected")
+        return read_latest(self, CAM_STALL_MS)
     OpenCVCamera.read_latest = tolerant
 
 
