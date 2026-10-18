@@ -1,6 +1,6 @@
 # explore/ (Caiden)
 
-Tools built on the recording Mac while we brought up the SO-101, plus the prototypes and research from
+Start with [ARM-RUNBOOK.md](ARM-RUNBOOK.md) (how to record, safety, heat, data, open items). Tools built on the recording Mac while we brought up the SO-101, plus the prototypes and research from
 Saturday. The product is `controller/`, `arm/`, `vision/`, `voice/`, `dashboard/` and `ledger/`; nothing there
 imports this folder. `arm/record.py` runs `explore/arm_session.py` as its default recorder, `arm/check_setup.py`
 reads that file's port names, and `controller/doctor.py` looks for its process.
@@ -20,7 +20,7 @@ are marked "hardware".
 | `thermal_log.py` | Telemetry rows to `~/scrub-logs/thermal` and MongoDB. `thermal_log.py {watch,upload,snapshot,idle}`; `snapshot` and `idle` need free ports |
 | `thermal_analyze.py`, `test_thermal_analyze.py` | Report on what made the arm hot, from those rows |
 | `thermal_web.py` | Live temperature page on :8093 |
-| `station/` | A single-process recording station (in progress in another session) |
+| `station/` | The recording station: one process, arms/cameras/dataset open once, start/save/discard, KILL, home. See `ARM-RUNBOOK.md` and `station/README.md` |
 | `test_arm_session.py` | Offline tests: busy-port refusal, explicit `use_degrees`, `--help` of the port tools |
 
 ## Dataset, bench and recognition
