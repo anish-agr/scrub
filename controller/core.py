@@ -12,6 +12,7 @@ from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 
 from . import lines, picker, reads, settings
+from .sharpness import camera_says_sharp
 from vision import instances  # pure candidate validation; no camera or arm imports
 
 try:
@@ -45,7 +46,7 @@ REST_AFTER_S = 2.0          # home and nothing queued this long: arm.rest() (tor
 AUTO_RETURN_S = 2.0         # an item in the return spot this long with the arm idle goes back on its own
 PREPARE_TRIES = 3           # pre-opening the robot model's sessions (L2): tries per setting change
 PREPARE_RETRY_S = 5.0
-JUDGE_ACTIONS = ("handover", "count", "stop", "got_it")  # all a judge may ask for (L3)
+JUDGE_ACTIONS = ("handover", "count", "stop", "got_it", "let_go")  # all a judge may ask for (L3)
 STATE_MAX_AGE_S = 6 * 3600  # a saved count older than this is from another day: start a fresh case
 SKILL_MODES = ("model", "taught", "auto", "smart")
 TRIES_FILE = Path(os.environ.get("SCRUB_TRIES_FILE") or Path.home() / "scrub-logs" / "skill-tries.json")
@@ -419,6 +420,8 @@ class Controller:
             return {"accepted": True, "reason": None, "say": say}
         if action in reads.KINDS:
             return self._start_read(cmd)
+        if action == "let_go":
+            return self.let_go(cmd)
         with self.lock:
             ok, reason, say = self._check(cmd)
             gen, sid = self.gen, self.setting["id"]
@@ -772,6 +775,57 @@ class Controller:
         if not any(r["item"] == item_id for r in self.out_instances) and item_id in self.out:
             self.out.remove(item_id)
         return chosen
+
+    def let_go(self, cmd: dict) -> dict:
+        """Open the clasp now and drop whatever is held. At the hand this is the pull release."""
+        with self.lock:
+            step, held = self.step, self.held
+        if step == "waiting_for_pull":
+            self.got_it.set()
+            self._emit_command(cmd, True, None, lines.LET_GO)
+            return {"accepted": True, "reason": None, "say": lines.LET_GO}
+        gripping = False
+        try:
+            gripping = float(self.arm.gripper_position()) >= 0.2
+        except Exception:  # noqa: BLE001 - no gripper reading: trust `held` only
+            gripping = False
+        if not held and not gripping:
+            self._emit_command(cmd, False, "not holding", lines.NOT_HOLDING)
+            return {"accepted": False, "reason": "not holding", "say": lines.NOT_HOLDING}
+        item = held
+        stay_stopped = step in ("stopped", "error")
+        with self.lock:
+            self.gen += 1  # the handover in progress stops; the jaw opens below
+            self.jobs.clear()
+            if item:
+                self._mark_out(item)
+            self.held = None
+            if not stay_stopped:
+                self.step, self.item = "idle", None
+        self._open_clasp(refreeze=stay_stopped)
+        self._emit_command(cmd, True, None, lines.LET_GO)
+        self.emit("released", item=item, command_id=cmd["id"])
+        return {"accepted": True, "reason": None, "say": lines.LET_GO}
+
+    def _open_clasp(self, refreeze: bool = False) -> None:
+        """Open the gripper. A frozen arm is rearmed only long enough to open, then frozen again."""
+        frozen = getattr(self.arm, "_frozen", None)
+        was_frozen = bool(frozen is not None and frozen.is_set())
+        resume = getattr(self.arm, "resume", None)
+        if was_frozen and resume:
+            try:
+                resume()
+            except Exception:  # noqa: BLE001 - still try to open
+                pass
+        try:
+            self.arm.open_gripper()
+        except Exception:  # noqa: BLE001 - the spoken line already happened; the jaw may already be open
+            pass
+        if was_frozen or refreeze:
+            try:
+                self.arm.freeze()
+            except Exception:  # noqa: BLE001
+                pass
 
     def _held_out(self) -> None:
         """An item off the tray when the arm stops is out (in the gripper or a hand) until it comes back.
@@ -1352,6 +1406,17 @@ class Controller:
         self.skill_source = src
         return True
 
+    def _warn_if_sharp(self, it: dict) -> None:
+        """Camera crop through Gemini, before the arm hands the instrument out.
+
+        A picture that shows a sharp end always warns. No picture falls back to the
+        tray file, so a known scalpel is still called out. A clear 'not sharp' from
+        the camera does not invent a warning.
+        """
+        seen = camera_says_sharp(it["id"])
+        if seen is True or (seen is None and it.get("sharp")):
+            self.emit("step", say=lines.sharp_seen(it["name"]))
+
     def _handover(self, cmd: dict, gen: int) -> None:
         it = settings.item(self.setting, cmd["item"])
         if not self._use_source(it, "pick", cmd.get("method")):
@@ -1389,6 +1454,7 @@ class Controller:
             self.emit("missed", say=lines.not_on_tray(it["name"]))
             self.set_step("idle", item=None)
             return
+        self._warn_if_sharp(it)
         if self.skills == "smart":
             ok, retries = self._pick_smart(gen, it)
             if self.arm_kind == "real":

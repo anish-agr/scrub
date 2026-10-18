@@ -15,6 +15,7 @@ from fastapi.responses import HTMLResponse, JSONResponse, Response, StreamingRes
 
 from vision import locate, reading
 from vision.service import Runtime, controls_locked, remember_clinician, setting_document
+from vision.sharp import crop_jpeg, fake_sharp, gemini_sharp
 from vision.tray import load_setting
 from vision.tray_check import check_tray
 
@@ -72,6 +73,25 @@ def create_app(runtime: Runtime) -> FastAPI:
     @app.get("/snapshot")
     def snapshot():
         return Response(content=runtime.preview_jpeg(), media_type="image/jpeg")
+
+    @app.get("/sharp")
+    def sharp(item: str = ""):
+        """Gemini looks at the camera crop and says whether this instrument has a sharp end."""
+        name = item.strip()
+        if not name:
+            return {"item": "", "sharp": None, "source": "unavailable"}
+        if runtime.fake:
+            return {"item": name, "sharp": fake_sharp(name), "source": "fake"}
+        latest = runtime.grabber.latest()
+        if latest is None:
+            return {"item": name, "sharp": None, "source": "unavailable"}
+        with runtime.lock:
+            detections = list(runtime.detections)
+        jpeg = crop_jpeg(latest[0], detections, name)
+        seen = gemini_sharp(jpeg, name.replace("_", " "))
+        if seen is None:
+            return {"item": name, "sharp": None, "source": "unavailable"}
+        return {"item": name, "sharp": seen, "source": "gemini"}
 
     @app.get("/stream")
     def stream(frames: int | None = None):

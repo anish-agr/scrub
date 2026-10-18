@@ -166,6 +166,8 @@ Notes:
   The still-arm clip now disagrees, as it should. The first two disagree on the item: the recording's task says "spatula" but the tool on the tray looks like a scalpel. A person's hand is in frame during the grasp, which is likely why the model called it `handed`.
 - Tests: `python -m vision.test_clips` (fake HTTP, synthetic frames).
 
+`GET /sharp?item=<id>` crops that instrument from the latest camera frame and asks Gemini whether it has a sharp end. No key, no frame, or a failed call returns `sharp: null`. `--fake` does not call Gemini and treats only the scalpel as sharp.
+
 ## Lamp check (B1)
 
 Open `http://localhost:8001/` and turn a lamp on. The picture should brighten and stay there. It should not flash and settle back, which is what auto exposure does. Optional numbers: `python -m vision.lighting --label bright` (and `normal`, `dim`).

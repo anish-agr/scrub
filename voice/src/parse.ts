@@ -6,7 +6,11 @@ import type { Setting } from "./settings.js";
 
 const ai = GEMINI_API_KEY ? new GoogleGenAI({ apiKey: GEMINI_API_KEY }) : null;
 
-export const isStop = (s: string) => /\b(stop|freeze|halt|hold it|abort)\b/i.test(s);
+export const isStop = (s: string) =>
+  /\b(stop|freeze|halt|hold it|hold still|hold on|hang on|abort|pause|whoa|don'?t move|do not move|don'?t go|do not go|stay there|stay put|stay still|quit|that'?s enough|that is enough)\b/i.test(s);
+// Open the clasp now. "release" alone stays got_it, the word for a finished handoff.
+export const isLetGo = (s: string) =>
+  /\b(let go|let it go|drop it|release it|open (the |your )?(claw|clasp|gripper))\b/i.test(s);
 // "thanks got it", "okay, got it": an ok/thanks lead-in is allowed before the release words.
 export const isGotIt = (s: string) =>
   /^\W*((ok(ay)?|thanks?( you)?)\W+)?(got it|i('ve)? got it|thanks?( you)?|release)\W*$/i.test(s.trim());
@@ -44,6 +48,7 @@ export function parseStats() {
 
 export async function parse(heard: string, setting: Setting): Promise<Parsed> {
   if (isStop(heard)) return { action: "stop", item: null, via: "local" };
+  if (isLetGo(heard)) return { action: "let_go", item: null, via: "local" };
   if (isGotIt(heard)) return { action: "got_it", item: null, via: "local" };
   const read = readAction(heard);
   if (read) return { action: read, item: null, via: "local" };
@@ -85,8 +90,9 @@ Actions:
 - handover: they want an instrument brought to them
 - return: put the instrument in the return spot back in its slot ("put it back", "return that")
 - count: they want to know what's out or the count
-- got_it: they have the instrument, release it
-- stop: stop moving now
+- got_it: they have the instrument at their hand, release it
+- let_go: open the gripper now and drop whatever is held ("let go", "drop it", "open the clasp"), even if it is not at the hand yet. ask is not used; this is never a clarifying question
+- stop: stop moving now and stay where it is. Not go home and not finish the motion. This includes "stop", "freeze", "don't move", "stay there", "hold still", "pause", "whoa", and the same idea in other words. A stop is never a clarifying question
 - read_sheet: read the paper count sheet in view ("read the count sheet", "check the count sheet")
 - read_tray: read the tray tag or label to tell which tray this is ("what tray is this", "read the tray tag")
 - read_pack: read a sterile pack label, lot or expiry date ("read the pack", "is this pack expired")
