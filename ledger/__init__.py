@@ -14,7 +14,7 @@ import time
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
-BUFFER = Path(__file__).resolve().parent / "buffer.jsonl"
+BUFFER = Path(os.environ.get("LEDGER_BUFFER") or Path(__file__).resolve().parent / "buffer.jsonl")  # tests use a scratch file
 DB_NAME = "scrub"
 
 try:

@@ -30,15 +30,17 @@
       { id: 'scalpel', name: 'scalpel handle', aliases: ['scalpel', 'knife', 'blade', 'ten blade'], sharp: true, color: '#8c3b2e' },
       { id: 'hemostat', name: 'hemostat', aliases: ['kelly', 'clamp', 'hemo'], sharp: false, color: '#46607a' },
       { id: 'mayo_scissors', name: 'Mayo scissors', aliases: ['scissors', 'mayo'], sharp: true, color: '#6b5a2e' } ] },
-    dental: { label: 'Dental office', items: [
-      { id: 'mouth_mirror', name: 'mouth mirror', aliases: ['mirror'], sharp: false, color: '#46607a' },
-      { id: 'explorer', name: 'explorer', aliases: ['probe', 'pick'], sharp: true, color: '#8c3b2e' },
-      { id: 'cotton_pliers', name: 'cotton pliers', aliases: ['cotton tweezers', 'pickups'], sharp: false, color: '#5a6b3a' } ] },
     bench: { label: 'Robotics bench', items: [
       { id: 'needle_nose_pliers', name: 'needle-nose pliers', aliases: ['needle nose', 'pliers'], sharp: false, color: '#46607a' },
       { id: 'wire_cutters', name: 'wire cutters', aliases: ['cutters', 'snips', 'dikes'], sharp: true, color: '#8c3b2e' },
-      { id: 'hex_key', name: 'hex key', aliases: ['allen key', 'allen wrench', 'hex'], sharp: false, color: '#5a6b3a' } ] }
+      { id: 'hex_key', name: 'hex key', aliases: ['allen key', 'allen wrench', 'hex'], sharp: false, color: '#5a6b3a' } ] },
+    dental: { label: 'Dental office', items: [
+      { id: 'mouth_mirror', name: 'mouth mirror', aliases: ['mirror'], sharp: false, color: '#46607a' },
+      { id: 'explorer', name: 'explorer', aliases: ['probe', 'pick'], sharp: true, color: '#8c3b2e' },
+      { id: 'cotton_pliers', name: 'cotton pliers', aliases: ['cotton tweezers', 'pickups'], sharp: false, color: '#5a6b3a' } ] }
   };
+  /* Trays the pages offer, in order. Other CATALOG keys (dental) still load from a saved layout. */
+  S.SHOWN_SETTINGS = ['surgical', 'bench'];
   S.itemInfo = function (id) {
     for (const s in S.CATALOG) for (const it of S.CATALOG[s].items) if (it.id === id) return it;
     return { id, name: id.replace(/_/g, ' '), aliases: [], sharp: false, color: '#555', custom: true };
@@ -54,14 +56,14 @@
       { id: 'basic', name: 'Basic dissection', tray: ['scalpel', 'hemostat', 'mayo_scissors'], extras: ['forceps, toothed', 'needle driver'], spares: ['spare #10 blade'], consumables: ['gauze 4x4', 'suture 3-0', 'drape towels'] },
       { id: 'suture_removal', name: 'Suture removal', tray: ['hemostat', 'mayo_scissors'], extras: ['suture removal scissors'], spares: [], consumables: ['gauze 4x4', 'antiseptic swab', 'adhesive strips'] },
       { id: 'laceration', name: 'Laceration repair', tray: ['scalpel', 'hemostat', 'mayo_scissors'], extras: ['needle driver', 'forceps, toothed'], spares: ['spare #15 blade'], consumables: ['suture 4-0', 'lidocaine 1%', 'saline irrigation', 'gauze 4x4'] } ],
-    dental: [
-      { id: 'cleaning', name: 'Dental cleaning', tray: ['mouth_mirror', 'explorer'], extras: ['scaler', 'curette'], spares: ['spare mirror head'], consumables: ['prophy paste', 'floss', 'cotton rolls', 'gauze 2x2'] },
-      { id: 'filling', name: 'Filling (composite)', tray: ['mouth_mirror', 'explorer', 'cotton_pliers'], extras: ['spoon excavator', 'plastic filling instrument'], spares: [], consumables: ['etchant', 'bonding agent', 'composite', 'cotton rolls', 'articulating paper'] },
-      { id: 'exam', name: 'Exam and charting', tray: ['mouth_mirror', 'explorer', 'cotton_pliers'], extras: ['periodontal probe'], spares: [], consumables: ['bib', 'gauze 2x2'] } ],
     bench: [
       { id: 'solder_header', name: 'Solder a header', tray: ['needle_nose_pliers', 'wire_cutters'], extras: ['soldering iron', 'tip cleaner'], spares: ['spare tip'], consumables: ['solder 0.8 mm', 'flux', 'desolder braid', 'headers'] },
       { id: 'servo_swap', name: 'Servo swap', tray: ['hex_key', 'needle_nose_pliers', 'wire_cutters'], extras: ['screwdriver, Phillips'], spares: ['spare servo horn', 'spare M2 screws'], consumables: ['zip ties', 'servo cable'] },
-      { id: 'assembly', name: 'Frame assembly', tray: ['hex_key', 'needle_nose_pliers'], extras: ['screwdriver, Phillips'], spares: ['spare M3 screws'], consumables: ['thread locker', 'zip ties'] } ]
+      { id: 'assembly', name: 'Frame assembly', tray: ['hex_key', 'needle_nose_pliers'], extras: ['screwdriver, Phillips'], spares: ['spare M3 screws'], consumables: ['thread locker', 'zip ties'] } ],
+    dental: [
+      { id: 'cleaning', name: 'Dental cleaning', tray: ['mouth_mirror', 'explorer'], extras: ['scaler', 'curette'], spares: ['spare mirror head'], consumables: ['prophy paste', 'floss', 'cotton rolls', 'gauze 2x2'] },
+      { id: 'filling', name: 'Filling (composite)', tray: ['mouth_mirror', 'explorer', 'cotton_pliers'], extras: ['spoon excavator', 'plastic filling instrument'], spares: [], consumables: ['etchant', 'bonding agent', 'composite', 'cotton rolls', 'articulating paper'] },
+      { id: 'exam', name: 'Exam and charting', tray: ['mouth_mirror', 'explorer', 'cotton_pliers'], extras: ['periodontal probe'], spares: [], consumables: ['bib', 'gauze 2x2'] } ]
   };
 
   /* ---------- layout (meters, base frame) ----------
@@ -74,7 +76,7 @@
   S.defaultSim = function () {
     return { setting: 'surgical', table: { center: [0.25, 0.0], size: [0.9, 0.8] }, tray: { center: [0.24, 0.0], size: [0.1, 0.26] },
       slots: [[0.24, -0.08], [0.24, 0.0], [0.24, 0.08]],
-      setting_items: { surgical: ['hemostat', 'scalpel', 'mayo_scissors'], dental: ['mouth_mirror', 'explorer', 'cotton_pliers'], bench: ['needle_nose_pliers', 'wire_cutters', 'hex_key'] },
+      setting_items: { surgical: ['hemostat', 'scalpel', 'mayo_scissors'], bench: ['needle_nose_pliers', 'wire_cutters', 'hex_key'], dental: ['mouth_mirror', 'explorer', 'cotton_pliers'] },
       return_spot: [0.17, 0.17], safe_spot: [0.17, -0.18], hand_zone: [0.28, -0.14, 0.14],
       handoff_region: { min: [0.15, -0.25, 0.06], max: [0.4, 0.25, 0.3] },
       poses: { home: [0.0, -1.7, 1.55, 0.9, 0.0, 0.0], carry: [0.0, -0.9, 0.35, 1.48, 0.0, 0.0] }, overhead_cam: { pos: [0.24, 0.0, 0.75], fovy: 55 } };
