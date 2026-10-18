@@ -99,7 +99,84 @@ def draw_cards():
          "phone call, every handoff logged. Research and training prototype, not a medical device.")
     for slot, _, _, title, film in BEATS:
         card(out / f"todo-{slot}.png", f"To film: {slot}", title, film, color=AMBER)
+    how_cards(out)
     return out
+
+
+def how_cards(out):
+    """Three 'how it works' cards: the handoff pipeline, the safety layer, the training."""
+    from PIL import Image, ImageDraw
+
+    fo = _fonts()
+    small = fo["mono"]
+
+    def frame(label, title):
+        img = Image.new("RGB", (W, H), PAPER)
+        d = ImageDraw.Draw(img)
+        d.text((120, 100), label.upper(), font=small, fill=MUTE)
+        d.rectangle([120, 150, W - 120, 154], fill=INK)
+        d.text((120, 190), title, font=fo["head"], fill=INK)
+        d.rectangle([120, H - 130, W - 120, H - 128], fill=INK)
+        d.text((120, H - 110), "SCRUB  ·  DubHacks '26", font=small, fill=MUTE)
+        return img, d
+
+    # 1. the pipeline, left to right
+    img, d = frame("How it works", "From a spoken word to an instrument in your hand")
+    steps = [("ASK", "Phone call on speaker", "Photon + ElevenLabs"), ("UNDERSTAND", "One command from the tray's list", "Gemini"),
+             ("FIND", "Where the instrument lies", "Perceptron vision"), ("PICK", "Fine-tuned on our demos", "Perceptron Isaac"),
+             ("HAND", "Handle first to the open hand", "MediaPipe hand tracking"), ("LOG", "Every handoff timed", "MongoDB Atlas")]
+    from PIL import ImageFont
+    bold = next((ImageFont.truetype(n, 50) for n in ("C:/Windows/Fonts/arialbd.ttf", "/Library/Fonts/Arial Bold.ttf",
+                 "/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf") if Path(n).exists()), fo["head"])
+    w, h, gap = 544, 250, 24
+    for i, (k, what, how) in enumerate(steps):
+        x, y = 120 + (i % 3) * (w + gap), 330 + (i // 3) * (h + gap)
+        d.rectangle([x, y, x + w, y + h], outline=INK, width=2)
+        d.text((x + 24, y + 22), f"{i + 1:02d}", font=small, fill=MUTE)
+        d.text((x + 24, y + 62), k, font=bold, fill=INK)
+        d.text((x + 24, y + 134), what, font=_small_body(), fill=INK)
+        d.text((x + 24, y + h - 50), how, font=small, fill=MUTE)
+    img.save(out / "how-1.png")
+
+    # 2. the safety layer
+    img, d = frame("How it works", "The model picks. Our code keeps it safe.")
+    rows = [("Sharps", "The scalpel only ever goes to the safe spot, never to a hand."),
+            ("Stop", "\"Stop\" freezes the arm at once, without waiting on the language model."),
+            ("Grasp check", "The gripper and the camera check every pick; a miss is retried once, then said out loud."),
+            ("Hand", "The arm slows near the hand, and holds still if the hand leaves."),
+            ("Release", "It lets go when the person pulls, or says \"got it\"."),
+            ("Heat", "Motor temperatures are watched; the arm rests between requests.")]
+    y = 360
+    for k, v in rows:
+        d.rectangle([120, y - 14, W - 120, y - 13], fill=(185, 180, 164))
+        d.text((120, y), k.upper(), font=small, fill=RED if k in ("Sharps", "Stop") else INK)
+        d.text((480, y - 6), v, font=_small_body(), fill=INK)
+        y += 90
+    img.save(out / "how-2.png")
+
+    # 3. the training
+    img, d = frame("How it works", "Taught by demonstration")
+    rows = [("Record", "We move a leader arm by hand; the robot copies it while two cameras record at 30 fps."),
+            ("Check", "Every episode is checked for frame rate, lighting and a clean grasp before it can be used."),
+            ("Fine-tune", "Perceptron's Isaac model is fine-tuned on our demonstrations, one instruction per task."),
+            ("Run", "The arm runs the trained model live, a new prediction every half second, inside our safety layer."),
+            ("Measure", "Every try is logged. The numbers on our dashboard are real tries, with the range.")]
+    y = 360
+    for k, v in rows:
+        d.rectangle([120, y - 14, W - 120, y - 13], fill=(185, 180, 164))
+        d.text((120, y), k.upper(), font=small, fill=INK)
+        d.text((480, y - 6), v, font=_small_body(), fill=INK)
+        y += 100
+    img.save(out / "how-3.png")
+
+
+def _small_body():
+    from PIL import ImageFont
+
+    for n in ("C:/Windows/Fonts/arial.ttf", "/Library/Fonts/Arial.ttf", "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf"):
+        if Path(n).exists():
+            return ImageFont.truetype(n, 30)
+    return ImageFont.load_default()
 
 
 def ffmpeg():
@@ -138,6 +215,9 @@ def build(out):
     parts.append(_norm(cards / "title.png", tmp / "00-title.mp4", 3, still=True))
     for i, (slot, secs, sim, title, _) in enumerate(BEATS, start=1):
         real = KIT / "real" / f"{slot}.mp4"
+        if slot == "V10":  # how it works: the three cards, then a sim clip or real footage
+            for n in (1, 2, 3):
+                parts.append(_norm(cards / f"how-{n}.png", tmp / f"{i:02d}-{slot}-how{n}.mp4", 5, still=True))
         if real.exists():
             parts.append(_norm(real, tmp / f"{i:02d}-{slot}.mp4", secs * 1.5))
             report.append((slot, "REAL", real))
