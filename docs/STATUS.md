@@ -89,8 +89,8 @@ Agents: the first unchecked box in your person's section is the next task. Tick 
   - `settings/surgical.json`, `dental.json`, and `bench.json`. Only the scalpel is sharp. The dashboard picker shows the operating room and the robotics bench. `dental.json` stays on disk and is not in the picker.
 - [x] E2 dashboard live on the controller
   - Open http://localhost:8000/ after `python -m controller --fake-arm`. A handover updates the step, the log, what's out, and the handoff time. If the controller is down, the page shows a sample handover.
-- [ ] E3 ledger in MongoDB Atlas
-  - A fake-arm handover (`python -m controller --fake-arm`) writes every event, and `GET /stats` shows the median handoff time and what is out. There is no `.env` and no `MONGODB_URI` on this machine, and Atlas is signed out, so the events are in `ledger/buffer.jsonl` (git-ignored) until that URI is set. They upload on the next successful connection.
+- [x] E3 ledger in MongoDB Atlas
+  - `python -m controller --fake-arm`, then `POST /command` `{"action":"handover","item":"hemostat"}`. Eleven events landed in Atlas database `scrub`, collection `events`. `GET /stats` shows hemostat out. No open hand was posted, so the fake arm set it down and there is no handoff time yet. `ledger/buffer.jsonl` flushed.
 - [x] E4 data log kept during recording
   - `python -m ledger log --setting surgical --item hemostat --direction hand-out --lighting bright --demos 5 --dataset local --notes "cadence ok"` appends one row to `docs/DATA-LOG.md` in the same shape `arm/record.py` should append. The table is empty until the first real batch.
 - [ ] E5 Devpost draft submitted by 10:00 PM
