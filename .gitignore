@@ -49,3 +49,6 @@ sim/scenes/scrub_scene.xml
 explore/bench/refs/
 explore/dataset/refs/
 explore/recognition/out/
+
+# analysis charts and snapshot are committed (data/ above ignores every data dir)
+!docs/media/data/

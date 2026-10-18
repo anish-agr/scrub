@@ -372,16 +372,17 @@ class TestPhoneCall(unittest.TestCase):
         self.assertIn("[agent] updated: Custom LLM https://x.trycloudflare.com/v1", out.lines)
         st = R.Stack(Quiet())
         st.public_url = "https://x.trycloudflare.com"
-        with mock.patch.object(R, "agent_update", wraps=R.agent_update) as up:
-            R.sync_agent(a, st)
-            R.sync_agent(a, st)  # same URL: not again
+        with mock.patch.object(R, "run_agent", wraps=R.run_agent) as up:
+            chk = mock.Mock()
+            R.sync_agent(a, st, chk)
+            R.sync_agent(a, st, chk)  # same URL: not again
             st.public_url = "https://y.trycloudflare.com"
-            R.sync_agent(a, st)
-        self.assertEqual([c.args[1] for c in up.call_args_list], ["https://x.trycloudflare.com", "https://y.trycloudflare.com"])
+            R.sync_agent(a, st, chk)
+        self.assertEqual([c.args[0:2][1] for c in up.call_args_list], ["https://x.trycloudflare.com", "https://y.trycloudflare.com"])
         self.assertEqual(R.phone_number(a, st, {"PHOTON_LINE": ""}), "+15550001111")
         self.assertEqual(R.phone_number(a, st, {"PHOTON_LINE": "+12065550100"}), "+12065550100")
         st.public_url = "https://z.trycloudflare.com"
-        with mock.patch.object(R, "agent_update") as up:
+        with mock.patch.object(R, "run_agent") as up:
             R.sync_agent(R.parse(["--tunnel", "--no-agent"]), st)
         up.assert_not_called()
 
@@ -389,13 +390,15 @@ class TestPhoneCall(unittest.TestCase):
         out = Quiet()
         a = R.parse(["--agent-cmd", self.fake_agent("print('[agent] HTTP 401')\nraise SystemExit(1)\n")])
         self.assertEqual(R.agent_update(a, "https://x.trycloudflare.com", out), [])
-        self.assertTrue(any("agent update failed (exit 1)" in l and "https://x.trycloudflare.com/v1" in l for l in out.lines))
+        self.assertTrue(any("agent update FAILED (exit 1)" in l and "https://x.trycloudflare.com/v1" in l for l in out.lines))
 
     def test_phone_row_in_the_url_table(self):
         with mock.patch.object(R, "voice_skip_reason", return_value=None):
             t = dict(R.url_table(R.parse(["--tunnel"]), public_url="https://x.trycloudflare.com", phone="+15550001111"))
             self.assertEqual(t["phone (call it)"], "+15550001111")
-            self.assertIn("Call setup", dict(R.url_table(R.parse(["--tunnel"])))["phone (call it)"])
+            empty = dict(R.url_table(R.parse(["--tunnel"])))["phone (call it)"]
+            self.assertIn("no line yet", empty)
+            self.assertIn("npm run photon -- setup +1", empty)
             self.assertNotIn("phone (call it)", dict(R.url_table(R.parse([]))))
 
     def test_expired_tunnel_restarts_and_quick_death_does_not(self):
@@ -403,7 +406,8 @@ class TestPhoneCall(unittest.TestCase):
         st = R.Stack(out)
         ch = st.start(R.Child("tunnel", [sys.executable, "-u", "-c", "print('https://old-1.a.free.pinggy.link')"], R.ROOT, {}, None))
         ch.proc.wait()
-        self.assertIsNone(R.restart_tunnel(st, ch))  # died within 20 s of starting: a broken tunnel, not an expired one
+        st.tunnel_fails = R.TUNNEL_QUICK_DEATHS - 1
+        self.assertIsNone(R.restart_tunnel(st, ch, sleep=lambda s: None))  # dies right away over and over: give up
         ch.started -= 60
         st.public_url = "https://old-1.a.free.pinggy.link"
         new = R.restart_tunnel(st, ch)
@@ -414,6 +418,76 @@ class TestPhoneCall(unittest.TestCase):
             self.assertTrue(any("restarting the tunnel" in l for l in out.lines))
         finally:
             st.stop()
+
+    def test_quick_death_is_retried_then_given_up(self):
+        st = R.Stack(Quiet())
+        ch = R.Child("tunnel", ["x"], R.ROOT, {}, None)
+        ch.started = time.time()
+        pauses = []
+        with mock.patch.object(st, "start", side_effect=lambda c: c):
+            for n in range(1, R.TUNNEL_QUICK_DEATHS):
+                self.assertIsNotNone(R.restart_tunnel(st, ch, sleep=pauses.append), n)
+            self.assertIsNone(R.restart_tunnel(st, ch, sleep=pauses.append))
+            self.assertEqual(len(pauses), R.TUNNEL_QUICK_DEATHS - 1)
+            ch.started -= 60  # a long-lived tunnel dying resets the count
+            self.assertIsNotNone(R.restart_tunnel(st, ch, sleep=pauses.append))
+            self.assertEqual(st.tunnel_fails, 0)
+
+    def test_new_url_after_restart_repoints_agent_and_self_checks(self):
+        a, st, calls = R.parse(["--tunnel", "--agent-cmd", "x"]), R.Stack(Quiet()), []
+        with mock.patch.object(R, "run_agent", side_effect=lambda a_, u, say=print: (calls.append(u) or (True, ["+1555"]))):
+            chk = mock.Mock()
+            st.public_url = "https://a.trycloudflare.com"
+            R.sync_agent(a, st, chk)
+            st.public_url = None  # tunnel died; cloudflared restarted with a new URL
+            st.public_url = "https://b.trycloudflare.com"
+            R.sync_agent(a, st, chk)
+        self.assertEqual(calls, ["https://a.trycloudflare.com", "https://b.trycloudflare.com"])
+        self.assertEqual([c.args[0] for c in chk.call_args_list], calls)
+        self.assertEqual(st.phones, ["+1555"])
+
+    def test_failed_agent_update_is_retried_loudly_then_gives_up(self):
+        out = Quiet()
+        a, st = R.parse(["--tunnel", "--agent-cmd", "x"]), R.Stack(out)
+        st.public_url = "https://a.trycloudflare.com"
+        chk = mock.Mock()
+        with mock.patch.object(R, "run_agent", return_value=(False, [])) as ra:
+            for _ in range(R.AGENT_TRIES + 3):
+                st.agent_next = 0  # skip the backoff wait
+                R.sync_agent(a, st, chk)
+        self.assertEqual(ra.call_count, R.AGENT_TRIES)
+        chk.assert_not_called()  # no self-check claimed for an agent that wasn't updated
+        self.assertTrue(any("GAVE UP" in l and "npm run agent -- https://a.trycloudflare.com" in l for l in out.lines))
+        # backoff: a failure right now means no immediate retry
+        st2, calls = R.Stack(Quiet()), mock.Mock(return_value=(False, []))
+        st2.public_url = "https://c.trycloudflare.com"
+        with mock.patch.object(R, "run_agent", calls):
+            R.sync_agent(a, st2, chk)
+            R.sync_agent(a, st2, chk)
+        self.assertEqual(calls.call_count, 1)
+
+    def test_agent_nonzero_exit_says_so_loudly(self):
+        out = Quiet()
+        a = R.parse(["--agent-cmd", self.fake_agent("raise SystemExit(1)\n")])
+        ok, _ = R.run_agent(a, "https://x.trycloudflare.com", out)
+        self.assertFalse(ok)
+        self.assertTrue(any("!!" in l and "FAILED" in l for l in out.lines))
+
+    def test_public_check(self):
+        resp = lambda code: mock.Mock(status_code=code)
+        out = Quiet()
+        seq = iter([OSError("dns"), resp(502), resp(200)])
+        def get(url, timeout):
+            r = next(seq)
+            if isinstance(r, Exception):
+                raise r
+            self.assertEqual(url, "https://x.trycloudflare.com/health")
+            return r
+        self.assertTrue(R.public_check("https://x.trycloudflare.com", out, tries=5, delay=0, get=get))
+        self.assertTrue(any("self-check OK" in l and "200" in l for l in out.lines))
+        out = Quiet()
+        self.assertFalse(R.public_check("https://x.trycloudflare.com", out, tries=2, delay=0, get=lambda u, timeout: resp(530)))
+        self.assertTrue(any("self-check FAILED" in l and "530" in l for l in out.lines))
 
 
 class TestReset(unittest.TestCase):
