@@ -505,7 +505,7 @@ function rateText(row) {
 
 function ledgerOrigin() {
   const host = location.hostname || "127.0.0.1";
-  return `http://${host}:8080`;
+  return new URLSearchParams(location.search).get("ledger") || `http://${host}:8080`;
 }
 
 function percent(rate) {
@@ -661,7 +661,7 @@ async function changeLighting(lighting) {
 
 function visionOrigin() {
   const host = location.hostname || "127.0.0.1";
-  return `http://${host}:8001`;
+  return new URLSearchParams(location.search).get("vision") || `http://${host}:8001`;
 }
 
 function onCamera() {

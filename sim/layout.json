@@ -6,8 +6,8 @@
   "slots": [[0.24, -0.08], [0.24, 0.0], [0.24, 0.08]],
   "setting_items": {
     "surgical": ["hemostat", "scalpel", "mayo_scissors"],
-    "dental": ["mouth_mirror", "explorer", "cotton_pliers"],
-    "bench": ["needle_nose_pliers", "wire_cutters", "hex_key"]
+    "bench": ["needle_nose_pliers", "wire_cutters", "hex_key"],
+    "dental": ["mouth_mirror", "explorer", "cotton_pliers"]
   },
   "return_spot": [0.17, 0.17],
   "safe_spot": [0.17, -0.18],

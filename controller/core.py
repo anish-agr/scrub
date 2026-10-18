@@ -284,6 +284,12 @@ class Controller:
             self.case_id = self._new_case()
             self.step, self.item = "idle", None
             self._prep_said = False
+        sync = getattr(self.arm, "set_setting", None)  # the sim arm rebuilds its scene for the new tray
+        if sync:
+            try:
+                sync(setting_id)
+            except Exception as e:  # noqa: BLE001 - the tray switch itself already happened
+                print(f"[setting] arm scene not switched: {e!r}", flush=True)
         self.emit("step", item=None)
         self._prepare()
         return data
