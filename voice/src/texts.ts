@@ -4,7 +4,7 @@ import { appendFileSync } from "node:fs";
 import path from "node:path";
 import { GoogleGenAI, Type } from "@google/genai";
 import { GEMINI_API_KEY, GEMINI_MODEL, VOICE_DIR } from "./config.js";
-import { getState, makeCommand, postCommand, postRestock, postStop, type Command, type CommandReply, type State } from "./controller.js";
+import { getState, getStats, makeCommand, postCommand, postRestock, postStop, type Command, type CommandReply, type State } from "./controller.js";
 import { isEndCase, isStop, isTrayCheck, localParse, parse, parseAlias, readAction, type Parsed, type ParseResult } from "./parse.js";
 import { dialogue } from "./dialogue.js";
 import { handlePhoto, READ_ACTIONS, textRead, type Photo, type ReadAction } from "./reads.js";
@@ -149,12 +149,13 @@ export interface TextDeps {
   command: (command: Command) => Promise<CommandReply>;
   stop: () => Promise<{ accepted: boolean }>;
   parseCommand: (text: string, setting: Setting) => Promise<Parsed>;
+  stats: () => Promise<unknown>;
   notify?: (line: string) => void;
 }
 const DEFAULTS: TextDeps = { state: getState, setting: currentSetting, parse: parseText, log: logRestock,
   summary: () => closeCaseWithLink(), trayCheck: () => textTrayCheck(), switchTo: (id) => switchSetting(id), teach,
   read: (action, text) => textRead(action, text), photo: (p, text, from) => handlePhoto(p, text, from),
-  command: postCommand, stop: postStop, parseCommand: parse };
+  command: postCommand, stop: postStop, parseCommand: parse, stats: getStats };
 
 // One text in -> the reply text.
 export async function handleText(text: string, from: string | null, deps: Partial<TextDeps> = {}, thread = from || "anonymous"): Promise<string> {
@@ -162,15 +163,18 @@ export async function handleText(text: string, from: string | null, deps: Partia
   const context = `text:${thread}`;
   // Safety first: even an outstanding question or a slow setting fetch cannot delay a texted stop.
   if (isStop(text)) {
-    dialogue.clear();
-    return d.stop().catch(() => d.stop()).then(() => "Stopped.", () => "I can't reach the arm controller.");
+    const stopping = d.stop().catch(() => d.stop());
+    dialogue.clear(undefined, "stop");
+    return stopping.then(() => "Stopped.", () => "I can't reach the arm controller.");
   }
+  dialogue.bind(context, d.notify);
   const version = dialogue.version();
   if (isTrayCheck(text)) { console.log(`[text] ${from ?? "?"}: ${text} -> tray check`); return d.trayCheck(); }
   const st = await d.state().catch(() => null);
   const setting = await d.setting(st?.setting || "surgical");
   if (version !== dialogue.version()) return "That request was cancelled.";
-  const answer = dialogue.answer(context, text, setting);
+  const answer = await dialogue.answerAsync(context, text, setting, d.stats);
+  if (version !== dialogue.version()) return "That request was cancelled.";
   if (answer && "say" in answer) return answer.say;
   const local = localParse(text, setting);
   const restock = /\b(add|added|restock|restocked|refill|extra|new)\b/i.test(text);
@@ -213,6 +217,7 @@ async function sendTextCommand(p: ParseResult, text: string, context: string, se
   if (question) return question;
   const cmd = makeCommand(p.action, p.item, text);
   if (p.instance) cmd.instance = p.instance;
+  if (p.question_id) cmd.question_id = p.question_id;
   let waiting = true;
   const early: string[] = [];
   let last = "";
@@ -251,21 +256,29 @@ export function partsOf(c: InContent): { text: string; image: Photo | null } {
 }
 
 export async function runTexts(stream: AsyncIterable<[InSpace, InMessage]>, deps: Partial<TextDeps> = {}) {
+  let ordinary = Promise.resolve();
+  const urgent = new Set<Promise<void>>();
   for await (const [space, msg] of stream) {
     if (msg.direction !== "inbound" || !msg.content) continue;
     const { text, image } = partsOf(msg.content);
     if (!text && !image) continue;
     const from = msg.sender?.id ?? null;
     const photo = deps.photo ?? DEFAULTS.photo;
-    // One text at a time: a reply that hangs (Photon, or a slow summary) must not hold up every text after it.
-    // A photo gets longer: the download, then vision's read (up to 25 s).
-    try {
-      const reply = image ? photo(image, text, from) : handleText(text, from, { ...deps,
-        notify: (line) => { void space.send(line).catch(() => {}); } }, space.id || from || "anonymous");
-      await withTimeout(reply.then((r) => space.send(r)), image ? 45_000 : 30_000, "text reply");
-    }
-    catch (e) { console.log(`[text] reply failed: ${(e as Error).message}`); }
+    const stop = isStop(text);
+    const reply = async () => {
+      try {
+        const result = image && !stop ? photo(image, text, from) : handleText(text, from, { ...deps,
+          notify: (line) => { void space.send(line).catch(() => {}); } }, space.id || from || "anonymous");
+        await withTimeout(result.then((r) => space.send(r)), image && !stop ? 45_000 : 30_000, "text reply");
+      } catch (e) { console.log(`[text] reply failed: ${(e as Error).message}`); }
+    };
+    // Keep consuming the Photon stream while ordinary work runs. Stop never queues behind a photo or summary.
+    if (stop) {
+      const task = reply(); urgent.add(task);
+      void task.finally(() => urgent.delete(task));
+    } else ordinary = ordinary.then(reply);
   }
+  await Promise.all([ordinary, ...urgent]);
 }
 
 // Listen on the Photon line, only with credentials. Reconnects if the stream ends or throws.

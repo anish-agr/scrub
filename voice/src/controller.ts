@@ -9,14 +9,14 @@ export const ACTIONS: Action[] = ["handover", "return", "count", "stop", "got_it
 
 export interface Command {
   id: string; action: Action; item: string | null; heard: string; source: "voice"; t: number;
-  instance?: Instance;
+  instance?: Instance; question_id?: string;
 }
 export interface Instance { variant?: string; side?: "left" | "right" | "closest"; slot?: number }
 export interface Candidate {
   item?: string; id?: string; label?: string; group?: string; variant?: string; side?: string; slot?: number; instance?: Instance;
-  distance?: number; distance_m?: number; position?: number[]; center_px?: number[]; arm_xy?: number[];
+  distance?: number; distance_m?: number; position?: number[]; center_px?: number[]; arm_xy?: number[]; box?: number[];
 }
-export interface Clarification { say: string; item?: string | null; candidates: Candidate[]; question_id?: string }
+export interface Clarification { say: string; item?: string | null; candidates: Candidate[]; question_id?: string; confirm?: boolean }
 export interface CommandReply { accepted: boolean; reason: string | null; say: string | null; clarify?: Clarification }
 export interface ScrubEvent {
   type: string; t: number; item?: string | null; step?: string | null; say?: string | null;
@@ -28,11 +28,12 @@ export interface ScrubEvent {
   skill_source?: "model" | "taught" | null;  // on pick and return events (optional)
   read?: { kind: "count_sheet" | "tray_tag" | "pack_label"; ok: boolean; method?: string | null; latency_ms?: number | null; [k: string]: unknown } | null;  // on `read` events (optional)
   sheet_mismatch?: { item: string; sheet: number | null; scrub: number | null }[] | null;  // on `count` events (optional)
-  candidates?: Candidate[]; question_id?: string; instance?: Instance;
+  candidates?: Candidate[]; question_id?: string; instance?: Instance; confirm?: boolean; out_instances?: Candidate[];
 }
 export interface State {
   step: string; out: string[]; setting: string; t: number;
   out_camera?: string[] | null; case_id?: string | null;
+  out_instances?: Candidate[];
   judge?: boolean | null;  // judge mode: the controller only takes handover, count, stop, got_it; refuses /alias
   // The last count sheet read this case, and pack labels read this case (optional, the OCR pass).
   sheet?: SheetState | null;

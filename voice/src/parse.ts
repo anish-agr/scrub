@@ -26,7 +26,7 @@ export function readAction(heard: string): Action | null {
 }
 export const isEndCase = (s: string) => /\b(end (of )?(the )?case|case (is )?(over|done|closed|complete)|close (out )?(the )?case|wrap (it )?up)\b/i.test(s);
 
-export interface ParseResult { action: Action; item: string | null; instance?: Instance; clarify?: Clarification; confidence?: number; confirm?: boolean }
+export interface ParseResult { action: Action; item: string | null; instance?: Instance; clarify?: Clarification; confidence?: number; confirm?: boolean; question_id?: string }
 export interface Parsed extends ParseResult { via: "local" | "gemini" }
 
 // Caller turns handled and the last 50 Gemini parse times, for GET /health.
