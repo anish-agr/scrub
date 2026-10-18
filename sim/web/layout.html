@@ -1,12 +1,14 @@
 <!doctype html>
 <!-- Scrub layout designer and kit builder. Style: printed shop layout sheet (technical drafting, dimensions in mm).
      Plain HTML + JS, no build step. Works from file:// (reach falls back to an estimate; export falls back to copy). -->
-<html lang="en"><head>
+<!-- Shared presentation: Swiss Design on a ruled instrument-layout sheet. -->
+<html lang="en" data-theme="paper"><head>
 <meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
 <title>Scrub layout and kit</title>
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;600&family=IBM+Plex+Sans:wght@400;600&display=swap">
 <link rel="icon" href="data:,">
 <link rel="stylesheet" href="style.css">
+<link rel="stylesheet" href="page.css">
 <style>
 main{display:grid;grid-template-columns:minmax(0,1.15fr) minmax(0,1fr);gap:10px;padding:10px;align-items:start}
 .col{display:flex;flex-direction:column;gap:10px;min-width:0}
@@ -33,9 +35,9 @@ pre{margin:0;font:11px/1.4 var(--mono);background:var(--paper);border:1px solid 
 .two{display:grid;grid-template-columns:1fr 1fr;gap:8px}
 #status{font:11px var(--mono)}
 @media (max-width:900px){main{grid-template-columns:minmax(0,1fr)}.two{grid-template-columns:1fr}}
-</style></head><body>
+</style></head><body class="scrub-ui" data-page="sim-layout">
 <header class="top">
-  <div class="title"><h1>Layout designer and kit builder</h1><div class="sub">Workspace around the arm base. Drag any marked item. Units: mm, base frame (x forward, y left, z up).</div></div>
+  <div class="title"><b class="wordmark">Scrub</b><h1>Layout designer and kit builder</h1><div class="sub">Workspace around the arm base. Drag any marked item. Units: mm, base frame (x forward, y left, z up).</div></div>
   <nav><a href="viewer.html">Viewer</a><a class="on" href="layout.html">Layout and kit</a></nav>
   <div class="block">SHEET SC-02 REV A<br>SCALE 1:1 (mm)<br><span id="srcline">layout: default</span></div>
 </header>
