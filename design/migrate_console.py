@@ -10,6 +10,17 @@ import sys
 ROOT = Path(__file__).resolve().parent.parent
 
 
+def portable_html(html):
+    """Keep decoded text unchanged when the Windows server uses read_text()."""
+    parts = re.split(r"(<script\b[^>]*>.*?</script>)", html, flags=re.S)
+    for i, part in enumerate(parts):
+        if part.startswith("<script"):
+            parts[i] = re.sub(r"[^\x00-\x7f]", lambda m: f"\\u{ord(m[0]):04x}", part)
+        else:
+            parts[i] = re.sub(r"[^\x00-\x7f]", lambda m: f"&#x{ord(m[0]):x};", part)
+    return "".join(parts)
+
+
 def migrate(name):
     if name not in ("nurse", "demo"):
         raise ValueError("Only the two approved controller consoles may be migrated")
@@ -25,7 +36,8 @@ def migrate(name):
     shared = source.read_text(encoding="utf-8")
     shared += f'\n\n/* Approved {name} console: original appearance, isolated compatibility rules. */\n'
     shared += f'@scope (body[data-page="{name}"]) {{\n{css}\n}}\n'
-    new = html[:match.start()] + '<link rel="stylesheet" href="/style.css">' + html[match.end():]
+    link = '<link rel="stylesheet" href="/style.css" onerror="this.onerror=null;this.href=\'../dashboard/style.css\'">'
+    new = html[:match.start()] + link + html[match.end():]
     new = new.replace("<body>", f'<body class="scrub-console" data-page="{name}">', 1)
     if name == "nurse":
         # The original console had no footer. No other content is changed.
@@ -40,9 +52,16 @@ def migrate(name):
     assert scripts(html) == scripts(new), "JavaScript changed"
     assert ids(html) == ids(new), "Element IDs changed"
     source.write_text(shared, encoding="utf-8", newline="\n")
-    target.write_text(new, encoding="utf-8", newline="\n")
-    print(f"{name}: CSS moved without changing scripts, selectors, declarations or IDs")
+    target.write_text(portable_html(new), encoding="utf-8", newline="\n")
+    print(f"{name}: CSS moved; scripts, declarations and IDs preserved")
 
 
 if __name__ == "__main__":
-    migrate(sys.argv[1])
+    if len(sys.argv) == 3 and sys.argv[1] == "--portable":
+        if sys.argv[2] not in ("nurse", "demo"):
+            raise ValueError("Only the approved consoles may be converted")
+        path = ROOT / "controller" / f"{sys.argv[2]}.html"
+        path.write_text(portable_html(path.read_text(encoding="utf-8")), encoding="utf-8", newline="\n")
+        print(f"{sys.argv[2]}: HTML entities and equivalent JS unicode escapes written")
+    else:
+        migrate(sys.argv[1])
