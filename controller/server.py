@@ -10,6 +10,7 @@ from fastapi.responses import HTMLResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 
+from . import armview
 from .core import Controller
 
 DASHBOARD = Path(__file__).resolve().parent.parent / "dashboard"
@@ -159,6 +160,7 @@ def make_app(ctl: Controller, extra=None) -> FastAPI:
         """Nurse console: tray, requests, step track, handoff time per request, what's out, event log."""
         return NURSE.read_text()
 
+    armview.routes(app, ctl)
     if extra:
         extra(app)
     if (DASHBOARD / "index.html").exists():
