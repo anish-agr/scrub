@@ -56,13 +56,56 @@ Only edit your own folder. To change something in someone else's folder, ask the
 
 ## Running it
 
-Filled in as parts land. Target:
+Once, from the repo root (Python 3.10, Node 20):
 
 ```
-python -m controller --fake-arm     # port 8000, also serves the dashboard
-python -m vision                    # port 8001
-cd voice && npm run dev             # port 3000
+python3.10 -m venv .venv
+.venv/bin/pip install -r controller/requirements.txt -r vision/requirements.txt -r ledger/requirements.txt
+.venv/bin/pip install -r sim/requirements.txt        # only for the sim arm
+cd voice && npm install && cd ..
+cp .env.example .env                                  # fill in the keys; never commit .env
 ```
+
+One command starts the whole stack and prints every URL (Ctrl-C stops it all):
+
+```
+.venv/bin/python -m controller.run_all                          # fake arm, fake vision, voice
+.venv/bin/python -m controller.run_all --arm sim                # MuJoCo arm, viewer at :8002/web/viewer.html
+.venv/bin/python -m controller.run_all --arm real --vision real --tunnel   # the demo: real arm, camera, public voice URL
+```
+
+Add `--judge` for judge mode (only handover, count and stop), `--no-voice`, `--ledger` (public page on 8080), or `--base-port 8100` to run a second stack beside a live one.
+
+| URL | What |
+| --- | --- |
+| http://localhost:8000/ | dashboard |
+| http://localhost:8000/demo | judge console: 1 surgical, 2 bench, R reset, Space stop, J judge mode |
+| http://localhost:8000/nurse, /tablet.html | nurse console, tablet view |
+| http://localhost:8001/ | vision preview (`/stream` is the camera) |
+| http://localhost:3000/health | voice server (ElevenLabs uses `<tunnel>/v1`) |
+
+At the demo table (the full run order is in [docs/DEMO.md](docs/DEMO.md)):
+
+```
+.venv/bin/python -m controller.run_all reset     # between judges: clear the count, surgical tray, normal light
+.venv/bin/python -m controller.run_all backup    # the arm failed: the sim arm plays a full run
+.venv/bin/python -m controller.run_all check     # every part answers and connects
+```
+
+Each part also runs alone: `python -m controller --fake-arm` (8000), `python -m vision --fake` (8001), `cd voice && npm run dev` (3000), `python -m ledger serve` (8080).
+
+Tests:
+
+```
+.venv/bin/python -m controller.test_flows        # every flow and failure on the fake arm
+.venv/bin/python -m controller.test_run_all
+.venv/bin/python -m vision.test_vision
+.venv/bin/python -m unittest discover -s arm -t . -p "test_*.py"
+.venv/bin/python -m pytest -q sim/test_sim.py ledger/test_ledger.py
+cd voice && npm test
+```
+
+Recording demos for training: `python -m arm.check_setup`, then `python -m arm.record` ([docs/TRAINING.md](docs/TRAINING.md)).
 
 ## Team
 
