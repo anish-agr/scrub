@@ -4,72 +4,77 @@ Owner: Anish. Fill the [measured] numbers from the success tables on Sunday morn
 
 ## The pitch
 
-About 2 minutes 30 seconds of speaking, said while the demo runs so pitch and demo fit in 3 minutes. One person speaks; the others run the arm and the trays.
+About 2 minutes 30 seconds of speaking. The demo runs at the same time so both fit within 3 minutes. One person speaks. Teammates run the arm and the trays.
 
-> In a dental office or an operating room, the doctor works with an assistant who hands them instruments. Clinics can't hire enough of them. Two out of three dentists who are recruiting say finding one is very or extremely hard, and a surgical tech job stays open about four months.
+> In a dental office or an operating room, doctors work with an assistant who hands them instruments. Clinics cannot hire enough assistants. Two out of three dentists who are recruiting say finding one is very or extremely hard. A surgical tech job stays open about four months.
 >
-> When nobody is there, the doctor turns away from the patient, puts down what they're holding, and searches the tray.
+> When nobody is there, the doctor turns away from the patient. They put down what they are holding. They search the tray.
 >
-> This is Scrub. The doctor asks for what they need, and Scrub hands it over, handle first, and lets go when they take it. Scalpels go to a safe spot instead of hand to hand, the way operating rooms pass sharps. When an instrument is done, it goes back in its slot, and Scrub keeps the count so nothing gets left behind.
+> This is Scrub. The clinician asks for what they need out loud. Scrub picks the tool from the tray. It brings the tool to their open hand, handle first. It lets go when they take it.
 >
-> We taught it from our own demonstrations and fine-tuned Perceptron's Isaac model on them. Operating lights are extremely bright and steel throws glare, so we trained and tested under bright, normal and dim light. Here's the success rate for each.
+> Scalpels never pass hand to hand. Scrub places them in a fixed safe spot. That follows standard operating room safety rules for sharps.
 >
-> The same system works anywhere someone needs a second pair of hands. You've seen the operating room. Here's a dental office, and here's a robotics lab. Each one is a new tray and new demonstrations, with no new code.
+> When a doctor finishes with an instrument, they place it in the return spot. Scrub returns it to its slot. Scrub also tracks the count so nothing stays behind.
 >
-> Scrub runs on an open-source arm that costs a few hundred dollars, and the software is ready for a medical-grade arm. We're starting with dental offices.
+> We taught Scrub from our own demonstrations. We fine-tuned Perceptron's Isaac model on them. Clinic lights are bright. Shiny steel throws harsh glare. We trained and tested under bright, normal and dim light. Our success rate is [measured]% under normal light and [measured]% under bright glare. The median handoff takes [measured] seconds.
+>
+> The exact same system works across three settings. You see the operating room tray here. We also have a dental tray and a robotics bench tray. Each setting uses its own demonstrations. None of them needed new code. Adding the bench setting took [measured] minutes.
+>
+> Scrub runs on an open-source arm that costs a few hundred dollars. The software connects through one clean interface, so it is ready for a medical-grade arm. We are starting with dental offices.
 
 ## The demo
 
-The judge asking for an instrument themselves is the moment that sells it, so we practice that step the most.
+The judge asking for an instrument is the moment that sells it. We practice this step the most.
 
-**Setup:** the operating room tray on the blue towel, the lamp off, the dashboard facing the judge, a phone on speaker connected to Scrub's number.
+**Setup:** operating room tray on the blue towel. Desk lamp turned off. Dashboard facing the judge. Phone on speaker connected to Scrub's phone number.
 
-| Time | What's said | What happens |
+| Time | What is said | What happens |
 | --- | --- | --- |
-| 0:00 | The staffing numbers | A teammate stands as the clinician, hands busy |
-| 0:30 | "This is Scrub." | Teammate says "hemostat." Scrub answers on speaker, and the hemostat arrives handle first. Teammate takes it and the gripper lets go. The dashboard shows the time |
-| 0:50 | The sharps line | "Scalpel." Scrub places it in the safe spot and says "scalpel down" |
-| 1:05 | "Try it." | The judge asks for the scissors out loud. They get them |
-| 1:20 | The return line | The teammate sets the hemostat in the return spot. Scrub says "returning the hemostat" and puts it back in its slot |
-| 1:40 | The lighting line | Lamp on, aimed at the tray. Glare appears and another request works. Point at the lighting table |
-| 2:00 | The three-settings line | Swap to the dental tray, ask for the mirror. Swap to the bench tray, ask for the pliers |
-| 2:30 | The close | "Count." Scrub reads back what's out, and the summary text arrives |
-| 3:00 | Questions | Everyone |
+| 0:00 | Clinic staffing problem | Teammate stands as clinician with hands busy |
+| 0:30 | "This is Scrub." | Teammate says "hemostat" to the phone. Scrub answers on speaker. The arm delivers the hemostat handle first. Teammate pulls and the gripper opens. Dashboard shows [measured] seconds |
+| 0:50 | Sharps safe spot | Teammate says "scalpel." Scrub places it in the safe spot and announces "scalpel down" |
+| 1:05 | "Try it." | The judge asks for scissors out loud. Scrub delivers them to the judge's open hand |
+| 1:20 | Taking items back | Teammate sets the hemostat in the return spot. Scrub says "returning the hemostat" and returns it to its slot |
+| 1:40 | Harsh lighting test | Turn on the lamp right over the tray. Steel reflects glare. A request still succeeds. Point to the dashboard lighting table |
+| 2:00 | Three settings | Swap to the dental tray and ask for the mirror. Swap to the bench tray and ask for the pliers |
+| 2:30 | Count and summary | Say "count." Scrub reads back what is out. The case ends and a summary text arrives on the phone |
+| 3:00 | Questions | Entire team answers |
 
-For a judge with only a minute or two, run the 0:30, 1:05 and 2:30 steps.
+For a judge with only one minute, run the 0:30, 1:05 and 2:30 steps.
 
 ## Demo video (2 to 3 minutes, required)
 
-Shot list, in order. Record each shot several times and keep the best. Evan edits.
+Shot list in order. Record each shot several times and keep the cleanest take. Evan edits.
 
 1. Title card (slide 1), 5 seconds.
-2. A clinician with busy hands says "hemostat" to the phone. Close-up of the arm picking it, then the hand receiving it handle first, then the gripper letting go.
-3. "Scalpel." The scalpel goes to the safe spot, "scalpel down" audible.
-4. The return: hemostat in the return spot, back in its slot.
-5. Lamp on, glare on the steel, a request still works. Cut to the lighting table on the dashboard.
-6. The dental tray (mirror) and the bench tray (pliers).
-7. "Count." The readback, then the summary text arriving on the phone.
-8. The dashboard: the system diagram (slide 3) and the success tables.
+2. A clinician with busy hands says "hemostat" to the speakerphone. Close-up of the arm picking it, the hand receiving it handle first, and the gripper opening on pull.
+3. "Scalpel." The scalpel moves to the safe spot. Scrub says "scalpel down."
+4. The return: hemostat placed in the return spot, then returned to its slot.
+5. Lamp turns on. Glare shows on the steel. A handoff still succeeds. Cut to the lighting table on the dashboard.
+6. The dental tray (mouth mirror) and the bench tray (pliers).
+7. "Count." The voice readback, then the summary text arriving on the phone screen.
+8. The dashboard: system diagram and live success tables.
 9. Close on the team and the arm.
 
-Record the phone audio clearly: put a second phone or a laptop mic near the speakerphone.
+Record the phone audio clearly. Place a second phone or a laptop microphone right next to the speakerphone.
 
 ## Perceptron arm video
 
-A separate clip for the robotics track: the arm doing several picks and returns across items and lighting, unedited, with the success table shown at the end.
+A separate clip for the robotics track. The arm performs several picks and returns across items and lighting without edits. Show the dashboard success table at the end.
 
 ## Judge questions and answers
 
 | Question | Answer |
 | --- | --- |
-| Hasn't this been done? | Research labs have built robot scrub nurses, most recently RoboNurse-VLA in 2025. None is on the market. We run one system across three settings on a cheap arm, put instruments back, keep the count, handle sharps hands-free, and measured it under harsh light |
-| Would a hospital let this near a patient? | It never touches the patient. In a clinic it runs under a sterile drape on a medical-grade arm, like today's surgical robots. Dental offices come first because the sterile procedure is simpler |
-| What if it drops something or misses? | Every grasp is checked twice. On a miss it retries once, then says so |
-| Why voice? Operating rooms are loud | Voice is how clinicians already ask for instruments. A foot pedal backs it up |
-| How fast is it? | About [measured] seconds from request to hand, shown on the dashboard |
-| How much data did it need? | About 25 demos per item, 225 total. Adding the bench setting took [measured] |
-| Why Perceptron's model and not a script? | A scripted grasp breaks when an item sits at a new angle or the light changes. The fine-tuned model handles both, and the success table shows it |
-| Who pays? | Dental practices first, a monthly fee per chair, less than covering an unfilled assistant shift |
-| Does it replace assistants? | It covers instrument passing and counting, so the assistants a clinic has can cover more chairs |
-| What's next? | A medical-grade arm, and handing the next instrument before it's asked for, based on the step of the procedure |
-
+| Has this been done before? | Research labs have built robot scrub nurses, like RoboNurse-VLA in 2025. None is on the market. Scrub runs one model across three settings on a low-cost arm. It puts instruments back in their slots, tracks the count, passes sharps hands-free, and handles bright glare |
+| Would a clinic let this near a patient? | It never touches the patient. In a clinic it sits under a sterile drape on a medical-grade arm. Dental offices come first because sterile rules are simpler |
+| What if it drops something or misses? | Every grasp is checked twice. The arm checks gripper closure and the overhead camera checks the slot. If a grasp fails, it retries once. If it misses again, it reports it out loud. Grasp check accuracy is [measured]% |
+| What if the person moves their hand? | An overhead camera tracks the hand at 10 Hz. The arm updates its target to stay 8 cm short of the palm. If the hand leaves or an arm blocks the path, the robot freezes in place within [measured] ms |
+| Why voice? Operating rooms are loud | Clinicians already ask for tools out loud. Scrub runs on a phone call with noise cancellation. A spacebar or foot pedal acts as an instant backup stop |
+| How fast is it? | The median request-to-hand time is [measured] seconds. The dashboard displays the timer for each handoff |
+| How much data did it need? | We recorded 25 demos per item, for 225 total. Adding the bench setting took [measured] minutes of demonstration time |
+| Why use Perceptron's model instead of scripted paths? | Scripted motions fail when an item sits at an angle or lighting changes. The fine-tuned model handles shifts in angle, position, and glare. The success table shows [measured]% reliability |
+| How does safety work? | The arm slows down near the hand. It stops short of the skin. The spacebar, voice command, or dashboard button stops the arm instantly in [measured] ms. Stop latches until an operator resets it |
+| Who pays for this? | Dental practices first. They pay a monthly subscription per chair. It costs less than covering one unfilled assistant shift |
+| Does it replace assistants? | No. It handles passing and counting. That frees scarce assistants to support more chairs and focus on patient care |
+| What is next? | We plan to test on a medical-grade arm. We also plan to hand instruments before the doctor asks, based on the procedural step |
