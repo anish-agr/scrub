@@ -15,5 +15,9 @@
       Number.isFinite(e.t) && now >= e.t && now < (e.expires_at || e.t + 15)) || null;
   }
   root.scrubWaitingQuestion = waitingQuestion;
+  root.scrubOutItems = function (state) {
+    return (Array.isArray(state.out_instances) ? state.out_instances.map(row => row.item) : state.out || [])
+      .filter(item => typeof item === "string" && item);
+  };
   if (typeof module !== "undefined") module.exports = waitingQuestion;
 })(typeof window === "undefined" ? globalThis : window);

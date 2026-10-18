@@ -316,7 +316,7 @@ function applyState(state) {
   model.step = state.step || "idle";
   model.item = state.item || null;
   model.queue = Array.isArray(state.queue) ? state.queue : [];
-  model.out = Array.isArray(state.out) ? state.out : [];
+  model.out = scrubOutItems(state);
   if (state.setting && !model.settingPending) {
     model.setting = state.setting;
     if (model.serverCatalog && model.serverCatalog.id === state.setting) {
@@ -359,8 +359,8 @@ function pushEvent(event) {
     const seconds = Number(event.request_to_hand_s);
     if (!Number.isNaN(seconds)) model.handoff = seconds;
   }
-  if (Array.isArray(event.out)) {
-    model.out = event.out.filter((item) => item);
+  if (Array.isArray(event.out) || Array.isArray(event.out_instances)) {
+    model.out = scrubOutItems(event);
   } else if (event.type === "handed" || event.type === "set_down") {
     if (event.item && !model.out.includes(event.item)) model.out.push(event.item);
   } else if (event.type === "returned" && event.item) {

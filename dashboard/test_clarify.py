@@ -17,6 +17,9 @@ assert.equal(waiting([q, {type:'stopped',t:102}], 103), null);
 assert.equal(waiting([q, {type:'error',step:'error',t:102}], 103), null);
 assert.equal(waiting([q, {type:'error',step:'idle',t:102}], 103), q);
 assert.equal(waiting([{...q, say:'<script>unsafe</script>'}], 101).say, '<script>unsafe</script>');
+assert.deepEqual(globalThis.scrubOutItems({out:['hemostat'],out_instances:[{item:'hemostat',id:'a'},{item:'hemostat',id:'b'}]}), ['hemostat','hemostat']);
+assert.deepEqual(globalThis.scrubOutItems({out:['hemostat']}), ['hemostat']);
+assert.deepEqual(globalThis.scrubOutItems({out:[],out_instances:[]}), []);
 """], cwd=root, check=True)
     for page in ("dashboard/index.html", "controller/ops.html"):
         text = (root / page).read_text(encoding="utf-8")
