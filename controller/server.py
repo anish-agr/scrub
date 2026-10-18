@@ -1,5 +1,6 @@
 """FastAPI app: the endpoints in docs/CONTRACTS.md."""
 import asyncio
+import time
 from pathlib import Path
 from typing import Literal, Optional
 
@@ -13,6 +14,7 @@ from .core import Controller
 
 DASHBOARD = Path(__file__).resolve().parent.parent / "dashboard"
 DEMO = Path(__file__).resolve().parent / "demo.html"  # copy of explore/prototypes/48-judge-run.html
+NURSE = Path(__file__).resolve().parent / "nurse.html"  # live port of explore/prototypes/24-scrub-nurse.html
 
 
 class Command(BaseModel):
@@ -100,6 +102,13 @@ def make_app(ctl: Controller, extra=None) -> FastAPI:
         ctl.post_hand(body)
         return {"ok": True}
 
+    @app.get("/vision")
+    async def vision():
+        """The last TrayState and Hand as posted, with their age in seconds (for the nurse console)."""
+        now = time.time()
+        return {"tray": ctl.tray, "tray_age_s": now - ctl.tray_at if ctl.tray else None,
+                "hand": ctl.hand, "hand_age_s": now - ctl.hand_at if ctl.hand else None}
+
     @app.get("/stats")
     async def stats():
         return await asyncio.to_thread(ctl.stats)
@@ -144,6 +153,11 @@ def make_app(ctl: Controller, extra=None) -> FastAPI:
     async def demo():
         """P4 demo console: 1/2/3 settings, R reset that clears the count, Space stop, 3:00 cue cards."""
         return DEMO.read_text()
+
+    @app.get("/nurse", response_class=HTMLResponse)
+    async def nurse():
+        """Nurse console: tray, requests, step track, handoff time per request, what's out, event log."""
+        return NURSE.read_text()
 
     if extra:
         extra(app)
