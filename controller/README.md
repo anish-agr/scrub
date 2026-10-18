@@ -2,7 +2,7 @@
 
 Owner: Caiden.
 
-FastAPI on port 8000. Owns the arm and every safety rule. Endpoints and messages are in `docs/CONTRACTS.md`. Serves `dashboard/` at `/`.
+FastAPI on port 8000. Owns the arm and every safety rule. Endpoints and messages are in `controller/server.py`. Serves `dashboard/` at `/`.
 
 Scope: the controller drives the sim and the fake arm. The safe spot, hand tracking and the grasp check below are controller behavior and were tested there, not on the real arm. The real arm in the demo ran through `explore/station`, which replays our recorded demonstrations and lets go when you pull or say "let go".
 

@@ -6,7 +6,7 @@ What is here:
 
 | File | What |
 | --- | --- |
-| `sim_arm.py` | `SimArm`: the exact Arm interface from `docs/CONTRACTS.md`, physics in a background thread at real time |
+| `sim_arm.py` | `SimArm`: the exact Arm interface from `controller/server.py`, physics in a background thread at real time |
 | `ik.py` | standalone damped-least-squares IK and reachability (reference for Anish's A7 `move_to`; **Anish owns the real one**) |
 | `scene.py` | builds `scenes/scrub_scene.xml` (and `scenes/_arm.xml`, the camera model with a wrist `<camera>`) from `layout.json` |
 | `layout.json` | all positions, arm base frame, meters, x forward, y left, z up, table top at z=0 |

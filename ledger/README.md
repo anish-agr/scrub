@@ -2,7 +2,7 @@
 
 Owner: Evan.
 
-`log(event)`, `log_test(...)` and `stats()` per `docs/CONTRACTS.md`. The controller should return `stats()` from `GET /stats` unchanged.
+`log(event)`, `log_test(...)` and `stats()` per `controller/server.py`. The controller should return `stats()` from `GET /stats` unchanged.
 
 `MONGODB_URI` in the repo-root `.env` points at MongoDB Atlas, database name `scrub`, collections `events` and `tests`. If the URI is missing or Atlas is down, calls still succeed and append to `ledger/buffer.jsonl` (git-ignored). A later successful connection uploads that file in batches of 500 rows, without holding the lock, and puts back any rows Atlas refused.
 

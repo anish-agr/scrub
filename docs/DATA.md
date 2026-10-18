@@ -423,5 +423,5 @@ Error reasons:
 
 Captions: 11, agree with the label 0, median latency 833 ms.
 
-Offline bench (separate from live reads): docs/RECOGNITION.md (Oct 18, rendered props, not photos): count sheets correct (Perceptron, 1.8-2.3 s); tray tags correct (QR, 0.05 s); pack labels 4 of 4 (Perceptron, 2.4-2.5 s). Upper bound, not live accuracy.
+Offline bench (separate from live reads): (Oct 18, rendered props, not photos): count sheets correct (Perceptron, 1.8-2.3 s); tray tags correct (QR, 0.05 s); pack labels 4 of 4 (Perceptron, 2.4-2.5 s). Upper bound, not live accuracy.
 

@@ -33,14 +33,13 @@ are marked "hardware".
 | `bench/console.py`, `console.html` | Test bench console on :8098 against a controller started with `--sim-arm --setting bench` |
 | `bench/identify.py`, `identify.html` | On-device tray identifier on :8097 (Apple Vision OCR and torchvision). Reference crops go in `bench/refs/<item_id>/` (not committed) |
 | `analysis/` | `python -m explore.analysis`: read-only MongoDB report (training episodes, real-arm handoffs, heat, reading) into `docs/DATA.md`, `docs/media/data/` and `data/analysis.json`; `--fixture` runs on a JSON dump. Tests: `.venv/bin/python -m pytest -q explore/analysis` |
-| `recognition/bench.py`, `test_bench.py` | Perceptron detect and Gemini on saved tray images: `python -m explore.recognition.bench`. Results in `recognition/out/` (generated) and `docs/RECOGNITION.md` |
+| `recognition/bench.py`, `test_bench.py` | Perceptron detect and Gemini on saved tray images: `python -m explore.recognition.bench`. Results in `recognition/out/` (generated) |
 | `recognition/read_bench.py`, `capture.py`, `props.py`, `props/` | Reading (OCR) bench scored against `props/truth.json`, a labeled photo capture tool, and the printable props with their test images |
 
 ## Research
 
 | Path | What |
 | --- | --- |
-| `research/isaac-workshop-notes.md` | Perceptron workshop notes: training and inference facts for the arm. `docs/ARM.md` and `docs/PERCEPTRON-ROBOTICS.md` defer to them |
 | `research/overheating/README.md` | Why the follower overheats, the telemetry schema, and resting at home between commands |
 
 Tests: `.venv/bin/python -m pytest -q explore`.
