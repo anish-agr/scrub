@@ -62,6 +62,21 @@ class VideoTests(unittest.TestCase):
         with self.assertRaises(ValueError):
             detect_corners(np.zeros((480,640,3), np.uint8))
 
+    def test_ingest_does_not_invent_sync_or_downgrade_simulation(self):
+        from video.common import save_provenance, read_json
+        from video.ingest import ingest
+        folder = self.root/'photos'
+        folder.mkdir()
+        path = folder/'tray.png'
+        cv2.imwrite(str(path), np.full((240,320,3), 100, np.uint8))
+        ingest(self.ws, kind='real')
+        asset = read_json(self.root/'manifest.json')['assets'][0]
+        self.assertIsNone(asset['start_time'])
+        self.assertEqual(provenance(path)['kind'], 'real')
+        save_provenance(path, kind='simulation', synthetic=True)
+        with self.assertRaises(ValueError):
+            ingest(self.ws, kind='real')
+
 
 if __name__ == "__main__":
     unittest.main()
