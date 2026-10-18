@@ -22,7 +22,8 @@ def cap(s): return s[:1].upper() + s[1:]
 def coming(name): return f"{cap(name)} coming."
 def coming_sharp(name): return f"{cap(name)} to the safe spot."
 def queued(name): return f"{cap(name)} next."
-def _here(name): return "Here are" if name.lower().endswith(("scissors", "pliers", "cutters", "forceps")) else "Here's"
+def _plural(name): return name.lower().endswith(("scissors", "pliers", "cutters", "forceps"))
+def _here(name): return "Here are" if _plural(name) else "Here's"
 def handed(name): return f"{_here(name)} the {name}. Ready to grab."  # said as the arm reaches the hand
 def retry(name): return f"Missed the {name}, trying again."
 def couldnt_pick(name): return f"I couldn't pick the {name}."
@@ -30,8 +31,9 @@ def not_on_tray(name): return f"I don't see the {name} on the tray."
 def sharp_down(name): return f"{cap(name)} down, on the safe spot. Careful, it's sharp."  # the "Scalpel down" call-out
 def no_pull(name): return f"Setting the {name} down."
 def set_down(name): return f"Setting the {name} down."
-def no_hand(name): return f"No hand. {cap(name)} is at the safe spot."
-def returned(name): return f"{cap(name)} back in its slot."
+def no_hand(name): return f"No hand. {cap(name)} {'are' if _plural(name) else 'is'} at the safe spot."
+def path_blocked_down(name): return f"Something's in the way. {cap(name)} {'are' if _plural(name) else 'is'} at the safe spot."
+def returned(name): return f"{cap(name)} back in {'their' if _plural(name) else 'its'} slot."
 def couldnt_return(name): return f"I couldn't put the {name} back."
 def auto_return(name): return f"Returning the {name}."
 
@@ -42,7 +44,8 @@ def _a(word): return ("an " if word[:1] in "aeiou" else "a ") + word
 def unknown(name, word): return f"Which instrument? You can say: call the {name} {_a(word)}."  # teaching hint (X6)
 def alias_added(word, name): return f"Got it: {word} means the {name}."
 def alias_taken(word, name): return f"{cap(word)} already means the {name}."
-BAD_ALIAS = "I didn't catch the word. Say: call the hemostat a clamp."
+BAD_ALIAS = "I didn't catch the word. Say: call the hemostat a crile."
+HINT_WORDS = ("crile", "grabber", "nipper")  # teaching-hint examples: the first one this tray doesn't have yet
 
 
 def count(names):
