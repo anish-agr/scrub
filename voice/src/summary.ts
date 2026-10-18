@@ -164,3 +164,14 @@ export async function endCase(send: Send = sendText, write: () => Promise<string
   console.log(sent ? `[photon] texted ${to}` : `[photon] not sent: ${error ?? "no credentials"}`);
   return { text, to, sent, error };
 }
+
+// A short text to the caller's thread (the X3 "tray ready" text): same sender and thread as the summary.
+export async function textCaller(text: string, send: Send = sendText): Promise<boolean> {
+  const to = caller || SUMMARY_TO;
+  let sent = false, error = "no caller id and no PHOTON_SUMMARY_TO";
+  if (to) {
+    try { sent = await send(to, text); error = "no credentials"; } catch (e) { error = (e as Error).message; }
+  }
+  console.log(sent ? `[photon] texted ${to}: ${text}` : `[photon] not sent: ${error}`);
+  return sent;
+}
