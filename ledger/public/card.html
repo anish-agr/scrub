@@ -1,5 +1,6 @@
 <!DOCTYPE html>
-<html lang="en">
+<!-- STYLE: Swiss printed tray tag, square rules and a scannable QR plate. -->
+<html lang="en" data-theme="paper">
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
@@ -7,29 +8,28 @@
   <link rel="stylesheet" href="style.css">
   <style>
     .card {
-      max-width: 420px;
-      margin: 24px auto;
-      text-align: center;
-      background: white;
-      border: 1px solid var(--line);
-      border-radius: 16px;
-      padding: 28px 20px;
+      max-width: 520px;
+      margin: 32px auto;
+      border-top: 4px solid var(--ink);
+      border-bottom: 2px solid var(--ink);
+      padding: 16px 0 24px;
     }
-    .card img { width: 240px; height: 240px; }
-    .card h1 { margin: 8px 0 0; font-size: 40px; letter-spacing: -0.04em; }
-    .ask { font-size: 22px; line-height: 1.35; margin: 16px 0; }
-    .phone { font-size: 18px; margin: 0; }
-    .url { color: var(--muted); word-break: break-all; }
+    .card img { display:block; width:240px; height:240px; max-width:100%; margin:24px auto; image-rendering:pixelated; }
+    .card h1 { margin:8px 0 0; font-size:64px; text-transform:uppercase; }
+    .ask { font-size:26px; font-weight:700; line-height:1.25; margin:20px 0; }
+    .phone { font-size:16px; margin:0; }
+    .url { color:var(--mute); overflow-wrap:anywhere; font:13px var(--m); border-top:1px solid var(--hair); padding-top:12px; }
+    @media(max-width:600px){.card{margin:24px 16px}.card h1{font-size:52px}.ask{font-size:24px}}
     @media print {
-      body { background: white; padding: 0; }
-      .top, .banner { display: none; }
-      .card { border: 0; margin: 0 auto; }
+      .scrub-ui { background:white; color:#14130f; padding:0; }
+      .top, .banner, footer { display:none !important; }
+      .card { margin:0 auto; break-inside:avoid; }
     }
   </style>
 </head>
-<body>
+<body class="scrub-ui" data-page="card">
   <header class="top">
-    <span class="mark">Scrub</span>
+    <div><span class="mark">Scrub</span><span class="subtitle">Table card · Research prototype</span></div>
     <a href="/">Back</a>
   </header>
   <article class="card">
@@ -40,6 +40,7 @@
     <p id="url" class="url"></p>
     <p class="phone">Scan for the live count and results. Ask us for the number to call.</p>
   </article>
+  <footer>Team Scrub · DubHacks '26 <a href="#">Terms</a><a href="#">Privacy</a></footer>
   <script>
     fetch("/api/public", { cache: "no-store" })
       .then((response) => response.json())
