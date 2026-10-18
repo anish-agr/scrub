@@ -48,3 +48,4 @@ sim/scenes/scrub_scene.xml
 # per-rig reference photos for the bench identifier
 explore/bench/refs/
 explore/dataset/refs/
+explore/recognition/out/

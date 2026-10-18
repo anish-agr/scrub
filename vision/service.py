@@ -101,6 +101,7 @@ class Runtime:
     detections: list = field(default_factory=list)
     last_good_tray: dict | None = None
     tray_failing: bool = False
+    detect_ms: list = field(default_factory=list)  # last 50 Perceptron detect times
     other_hand_boxes: list = field(default_factory=list)
     lighting: dict | None = None
     last_posted_lighting: str | None = None
@@ -207,7 +208,9 @@ def publish_tray(runtime: Runtime) -> dict | None:
     setting = setting_document(runtime)
     categories = categories_for(setting, runtime.include_extra_categories)
     try:
+        t0 = time.perf_counter()
         detections = list(runtime.detector.detect(frame, categories))
+        runtime.detect_ms = (runtime.detect_ms + [round((time.perf_counter() - t0) * 1000)])[-50:]
         state = tray_from_detections(setting, detections, stale=False)
         with runtime.lock:
             if runtime.tray_failing:

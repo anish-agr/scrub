@@ -5,6 +5,7 @@ from __future__ import annotations
 import time
 
 from fastapi import FastAPI
+from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import HTMLResponse, Response, StreamingResponse
 
 from vision.service import Runtime, controls_locked, remember_clinician
@@ -34,6 +35,7 @@ PREVIEW = """<!DOCTYPE html>
 
 def create_app(runtime: Runtime) -> FastAPI:
     app = FastAPI(title="Scrub vision")
+    app.add_middleware(CORSMiddleware, allow_origins=["*"], allow_methods=["GET"])  # the ops page reads /health
 
     @app.get("/", response_class=HTMLResponse)
     def preview():
@@ -47,6 +49,9 @@ def create_app(runtime: Runtime) -> FastAPI:
             "camera": latest is not None and bool(getattr(runtime.grabber, "reads_ok", True)),
             "exposure_locked": controls_locked(runtime),
             "controls": runtime.controls,
+            "fps": {"overhead": round(getattr(runtime.grabber, "fps", 0.0), 1)},
+            "detect_ms": runtime.detect_ms[-1] if runtime.detect_ms else None,
+            "detect_p50_ms": sorted(runtime.detect_ms)[len(runtime.detect_ms) // 2] if runtime.detect_ms else None,
         }
 
     @app.get("/snapshot")

@@ -1,0 +1,282 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Scrub ops</title>
+<meta name="description" content="Operator page for judging night: controller step, events, skill source, arm temperatures, cameras, vision, voice, API latencies and errors.">
+<link rel="stylesheet" href="/design/scrub.css" onerror="this.onerror=null;this.href='../design/scrub.css'">
+<style>
+.ops-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(340px,1fr));gap:0 32px}
+.ops-grid section{min-width:0}
+.rd{display:flex;flex-wrap:wrap;gap:6px 28px}
+.rd div{min-width:96px}
+.rd .label{display:block}
+.rd .v{font:600 28px/1.2 var(--m)}
+.svc{display:flex;flex-wrap:wrap;gap:8px 24px;font:700 13px var(--m);text-transform:uppercase}
+.temps{display:grid;grid-template-columns:repeat(auto-fit,minmax(120px,1fr));gap:12px}
+.temps .v{font:600 34px/1.1 var(--m)}
+.temps small{font:12px var(--m);color:var(--mute)}
+#stopBtn{min-height:72px;font-size:26px;position:sticky;bottom:0;z-index:2}
+.stopbar{padding:12px 24px;background:var(--paper);border-top:var(--rule)}
+.event-log li{grid-template-columns:80px 90px 1fr}
+.err li{color:var(--red)}
+.note{font-size:13px}
+.event-log li.empty{display:block}
+</style>
+</head>
+<body class="scrub-ui" data-theme="monitor">
+<header class="masthead">
+  <div><span class="mark">Scrub ops</span><span class="subtitle">Operator page &middot; judging night</span></div>
+  <div class="svc" id="svc"></div>
+  <div class="clock mono" id="clock">--</div>
+</header>
+<div id="banner" class="banner" hidden></div>
+<main>
+<div class="ops-grid">
+
+<section>
+  <p class="kicker">Controller</p>
+  <div class="rd">
+    <div><span class="label">Step</span><span class="v" id="step">--</span></div>
+    <div><span class="label">Item</span><span class="v" id="item">--</span></div>
+    <div><span class="label">Queue</span><span class="v" id="queue">--</span></div>
+    <div><span class="label">Out</span><span class="v" id="out">--</span></div>
+  </div>
+  <p class="note mono" id="ctlmeta">no data</p>
+</section>
+
+<section>
+  <p class="kicker">Skill source per item</p>
+  <p class="note mono" id="skillmode">no data</p>
+  <table><thead><tr><th>Item</th><th>State source</th><th>Last event source</th></tr></thead><tbody id="skills"></tbody></table>
+</section>
+
+<section>
+  <p class="kicker">Arm temperatures and loads</p>
+  <div class="temps" id="temps"></div>
+  <p class="note mono" id="tempmeta">no data</p>
+</section>
+
+<section>
+  <p class="kicker">Cameras and vision</p>
+  <div class="rd">
+    <div><span class="label">Vision health</span><span class="v" id="vh">--</span></div>
+    <div><span class="label">Hand read age</span><span class="v" id="vhand">--</span></div>
+    <div><span class="label">Tray read age</span><span class="v" id="vtray">--</span></div>
+  </div>
+  <table><thead><tr><th>Camera</th><th>FPS</th></tr></thead><tbody id="fps"></tbody></table>
+  <p class="note mono" id="vmeta">no data</p>
+</section>
+
+<section>
+  <p class="kicker">Voice</p>
+  <div class="rd">
+    <div><span class="label">Service</span><span class="v" id="vo">--</span></div>
+    <div><span class="label">Turns</span><span class="v" id="vturns">--</span></div>
+    <div><span class="label">Gemini last</span><span class="v" id="vgem">--</span></div>
+  </div>
+  <p class="note mono" id="vometa">no data</p>
+</section>
+
+<section>
+  <p class="kicker">API latencies</p>
+  <table><thead><tr><th>API</th><th>Last</th><th>Median</th></tr></thead><tbody id="lat"></tbody></table>
+</section>
+
+<section>
+  <p class="kicker">Last errors</p>
+  <ul class="event-log err" id="errs"></ul>
+</section>
+
+<section>
+  <p class="kicker">Recent events</p>
+  <ul class="event-log" id="events"></ul>
+</section>
+
+</div>
+</main>
+<div class="stopbar"><button id="stopBtn" class="stop" type="button">Stop <kbd>Space</kbd></button></div>
+<footer><span>Scrub &middot; DubHacks '26</span><span>Terms</span><span>Privacy</span></footer>
+
+<script>
+const $ = id => document.getElementById(id);
+const Q = new URLSearchParams(location.search);
+const CTL = (Q.get('controller') || (location.pathname === '/ops' ? '' : 'http://localhost:8000')).replace(/\/$/, '');
+const URLS = {
+  controller: CTL,
+  vision: (Q.get('vision') || 'http://localhost:8001').replace(/\/$/, ''),
+  voice: (Q.get('voice') || 'http://localhost:3000').replace(/\/$/, ''),
+  thermal: (Q.get('thermal') || 'http://localhost:8093').replace(/\/$/, ''),
+};
+const TIMEOUT = 2500, FRESH = 8, DEAD = 20;   // seconds before a service reads stale, then down
+const last = {};                                // service -> last good fetch time (s)
+const data = {};                                // service/path -> last good JSON
+const esc = s => String(s ?? '').replace(/[&<>"]/g, c => ({'&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;'}[c]));
+const now = () => Date.now() / 1000;
+const num = (v, d = 0) => (typeof v === 'number' && isFinite(v)) ? v.toFixed(d) : null;
+
+async function get(svc, path) {
+  const ac = new AbortController(), timer = setTimeout(() => ac.abort(), TIMEOUT);
+  try {
+    const r = await fetch(URLS[svc] + path, {signal: ac.signal, cache: 'no-store'});
+    if (!r.ok) throw new Error(r.status);
+    const j = await r.json();
+    last[svc] = now(); data[svc + path] = j;
+    return j;
+  } catch (e) { return null; } finally { clearTimeout(timer); }
+}
+function status(svc) {
+  const age = last[svc] == null ? Infinity : now() - last[svc];
+  return age < FRESH ? 'live' : age < DEAD ? 'stale' : 'down';
+}
+const cached = (svc, path) => status(svc) === 'down' ? null : data[svc + path] || null;
+const agoText = t => t ? `${Math.max(0, now() - t).toFixed(1)} s ago` : 'no data';
+
+function renderSvc() {
+  const cls = {live: 'good', stale: 'warn', down: 'bad'};
+  $('svc').innerHTML = Object.keys(URLS).map(s => `<span class="${cls[status(s)]}">${s} ${status(s)}</span>`).join('');
+  $('clock').textContent = new Date().toLocaleTimeString();
+  const b = $('banner'), st = status('controller');
+  const stopped = cached('controller', '/state')?.step;
+  b.hidden = !(st !== 'live' || stopped === 'stopped' || stopped === 'error');
+  b.className = 'banner' + (st === 'live' ? '' : ' stale');
+  b.textContent = st !== 'live' ? `CONTROLLER ${st.toUpperCase()}. Values below may be old.` : stopped === 'stopped' ? 'STOPPED' : 'ARM FROZEN (error)';
+}
+
+function renderState(s) {
+  if (!s) { ['step', 'item', 'queue', 'out'].forEach(i => $(i).textContent = '--'); $('ctlmeta').textContent = 'controller down: no data'; return; }
+  $('step').textContent = s.step ?? '--';
+  $('item').textContent = s.item ?? 'none';
+  $('queue').textContent = (s.queue || []).length;
+  $('out').textContent = (s.out || []).length;
+  $('ctlmeta').textContent = `setting ${s.setting ?? '?'} · lighting ${s.lighting ?? '?'} · hand ${s.hand_seen ? 'seen' : 'not seen'} · ${s.fake_arm ? 'fake arm' : 'arm'} · case ${s.case_id ?? 'none'}`;
+}
+
+function renderSkills(s, events) {
+  const sk = s && s.skills;
+  const src = {};
+  for (const e of events) if (e.skill_source && e.item) src[e.item] = e.skill_source;
+  let per = {}, mode = null;
+  if (sk && typeof sk === 'object') {
+    mode = sk.mode ?? null;
+    const m = sk.items || sk.per_item || sk.sources || sk.by_item;
+    if (m && typeof m === 'object') per = m;
+    else for (const [k, v] of Object.entries(sk)) if (k !== 'mode' && typeof v === 'string') per[k] = v;
+  }
+  $('skillmode').textContent = sk ? `mode ${mode ?? 'unknown'}` : 'no data from /state skills (field missing)';
+  const names = [...new Set([...Object.keys(per), ...Object.keys(src)])];
+  $('skills').innerHTML = names.length
+    ? names.map(n => {
+        const v = per[n]; const sv = typeof v === 'object' ? (v.source ?? JSON.stringify(v)) : v;
+        return `<tr><td>${esc(n)}</td><td>${esc(sv ?? 'no data')}</td><td>${esc(src[n] ?? 'none yet')}</td></tr>`;
+      }).join('')
+    : '<tr><td colspan="3" class="empty">No skill source data yet.</td></tr>';
+}
+
+function tempCls(t) { return t == null ? '' : t >= 60 ? 'bad' : t >= 55 ? 'warn' : 'good'; }
+function renderTemps(s, th) {
+  const tel = s && s.arm_telemetry;
+  const live = tel && tel.temps && (tel.t == null || now() - tel.t < 10);
+  let temps, loads = {}, from, t, cooling;
+  if (live) { temps = tel.temps; loads = tel.loads || {}; from = 'controller arm_telemetry'; t = tel.t; cooling = tel.cooling; }
+  else if (th && th.latest && th.latest.temps) {
+    temps = th.latest.temps; from = 'thermal_web :8093'; t = th.latest.t;
+    cooling = Object.values(temps).some(v => v >= 60);
+    const age = th.now - t;
+    if (age > 30) from += ` (${Math.round(age)} s old, recorder stopped?)`;
+  } else {
+    $('temps').innerHTML = '<p class="empty">No temperature data. The controller has no arm_telemetry and thermal_web has no recent reading.</p>';
+    $('tempmeta').textContent = `no data · thermal_web ${status('thermal')}`; return;
+  }
+  $('temps').innerHTML = Object.entries(temps).map(([m, v]) =>
+    `<div><span class="label">${esc(m.replace(/_/g, ' '))}</span><div class="v ${tempCls(v)}">${v ?? '--'}<small> C</small></div>` +
+    `<small>${loads[m] != null ? 'load ' + esc(loads[m]) : 'load no data'}</small></div>`).join('');
+  const hot = Math.max(...Object.values(temps).filter(v => typeof v === 'number'));
+  $('tempmeta').textContent = `${from} · hottest ${isFinite(hot) ? hot + ' C' : '--'} · cooling ${cooling ? 'YES' : 'no'} · ${agoText(t)}`;
+}
+
+function renderVision(h, hand, tray) {
+  const st = status('vision');
+  $('vh').textContent = h ? (h.ok ? (h.camera ? 'ok' : 'no camera') : 'error') : st;
+  $('vh').className = 'v ' + (h && h.ok && h.camera ? 'good' : 'bad');
+  const fresh = (el, r, limit) => {
+    const t = r && r.t; $(el).textContent = t ? `${(now() - t).toFixed(1)} s` : (r ? 'no data' : '--');
+    $(el).className = 'v ' + (!t ? '' : now() - t > limit ? 'warn' : 'good');
+  };
+  fresh('vhand', hand, 2); fresh('vtray', tray, 5);
+  const f = h && (h.fps ?? h.camera_fps);
+  const rows = f == null ? [] : (typeof f === 'object' ? Object.entries(f) : [['camera', f]]);
+  $('fps').innerHTML = rows.length ? rows.map(([k, v]) => `<tr><td>${esc(k)}</td><td>${esc(num(+v, 1) ?? v)}</td></tr>`).join('')
+    : '<tr><td colspan="2" class="empty">no data (vision /health has no fps field)</td></tr>';
+  $('vmeta').textContent = h ? `exposure ${h.exposure_locked ? 'locked' : 'auto'} · tray ${tray && tray.stale ? 'STALE' : 'fresh'}` : `vision ${st}`;
+}
+
+function renderVoice(v) {
+  $('vo').textContent = v ? (v.ok ? 'ok' : 'error') : status('voice');
+  $('vo').className = 'v ' + (v && v.ok ? 'good' : 'bad');
+  const turns = v && (v.turns ?? v.turn_count), gem = v && (v.gemini_ms ?? v.last_gemini_ms);
+  $('vturns').textContent = turns ?? 'no data';
+  $('vgem').textContent = gem != null ? num(+gem) + ' ms' : 'no data';
+  $('vometa').textContent = v ? `gemini key ${v.keys?.gemini ? 'set' : 'missing'} · controller ${v.controller ? 'reachable' : 'unreachable'}` + (turns == null ? ' · voice /health has no turns or gemini_ms' : '') : 'voice down';
+}
+
+function renderLat(s, h, v) {
+  const L = (s && s.latency_ms) || {};
+  const gem = v && (v.gemini_ms ?? v.last_gemini_ms);
+  const det = h && (h.detect_ms ?? h.last_detect_ms);
+  const rows = [
+    ['predict (skill)', L.skill, L.skill_p50],
+    ['detect (vision)', det, h && h.detect_p50_ms],
+    ['gemini (voice)', gem, v && v.gemini_p50_ms],
+  ];
+  const f = x => x == null ? 'no data' : num(+x) + ' ms';
+  $('lat').innerHTML = rows.map(r => `<tr><td>${r[0]}</td><td>${f(r[1])}</td><td>${f(r[2])}</td></tr>`).join('');
+}
+
+const clock = t => new Date(t * 1000).toLocaleTimeString([], {hour12: false});
+function evLine(e) {
+  const bits = [e.item, e.say || e.reason || e.error, e.skill_source ? `[${e.skill_source}]` : ''].filter(Boolean).join(' · ');
+  return `<li><time>${clock(e.t)}</time><span>${esc(e.type)}</span><span>${esc(bits || e.step || '')}</span></li>`;
+}
+function renderEvents(ev) {
+  $('events').innerHTML = ev.length ? ev.slice(-14).reverse().map(evLine).join('') : '<li class="empty">No events.</li>';
+  const errs = ev.filter(e => e.type === 'error').slice(-5).reverse();
+  $('errs').innerHTML = errs.length ? errs.map(e => `<li><time>${clock(e.t)}</time><span>${esc(e.code ?? 'error')}</span><span>${esc(e.reason || e.error || e.say || 'error')}</span></li>`).join('')
+    : '<li class="empty">No errors in recent events.</li>';
+}
+
+let busy = false, thermalAt = 0;
+async function tick() {
+  if (busy) return; busy = true;
+  try {
+    const [s, ev, h, hand, tray, vo] = await Promise.all([
+      get('controller', '/state'), get('controller', '/events/recent'),
+      get('vision', '/health'), get('vision', '/vision/hand'), get('vision', '/vision/tray'),
+      get('voice', '/health')]);
+    const state = s || cached('controller', '/state');
+    let th = null;
+    if (!(state && state.arm_telemetry && state.arm_telemetry.temps)) {   // thermal_web payload is large: every 6 s
+      if (now() - thermalAt > 6) { thermalAt = now(); await get('thermal', '/api/data?minutes=120'); }
+      th = cached('thermal', '/api/data?minutes=120');
+    }
+    const events = (ev || cached('controller', '/events/recent') || []);
+    renderState(s); renderSkills(s, events); renderEvents(events);
+    renderTemps(s, th); renderVision(h, hand, tray); renderVoice(vo); renderLat(s, h, vo);
+  } finally { busy = false; renderSvc(); }
+}
+
+async function stop() {
+  $('stopBtn').textContent = 'Stopping';
+  try { await fetch(URLS.controller + '/stop', {method: 'POST', headers: {'content-type': 'application/json'}, body: '{}'}); } catch (e) {}
+  $('stopBtn').innerHTML = 'Stop <kbd>Space</kbd>';
+  tick();
+}
+$('stopBtn').onclick = stop;
+addEventListener('keydown', e => {
+  if (e.code === 'Space' && !/INPUT|TEXTAREA|SELECT/.test(e.target.tagName)) { e.preventDefault(); stop(); }
+});
+tick(); setInterval(tick, 1500); setInterval(renderSvc, 1000);
+</script>
+</body>
+</html>

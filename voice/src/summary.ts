@@ -55,8 +55,9 @@ export const clock = (t: number) =>
 export function caseFacts() {
   const passed: Record<string, number> = {};
   const setDown: Record<string, number> = {};
-  const cmds = new Map<string, { ok: boolean; pre: number; post: number }>();
+  const cmds = new Map<string, { ok: boolean; pre: number; post: number; passed: boolean; source?: string }>();
   let returned = 0, stops = 0, failed = 0, retried = 0;
+  let seenSource = false;  // the controller sent skill_source on at least one event
   const times: number[] = [];
   let reported: string[] | null = null;  // the controller's own out list, on every event
   let derived: string[] = [];
@@ -66,21 +67,24 @@ export function caseFacts() {
   for (const e of caseEvents) {
     if (Array.isArray(e.out)) reported = e.out;
     if (e.setting) setting = e.setting;
-    const c = cmds.get(e.command_id || "") || { ok: false, pre: 0, post: 0 };
+    const c = cmds.get(e.command_id || "") || { ok: false, pre: 0, post: 0, passed: false };
     cmds.set(e.command_id || "", c);
+    if (e.skill_source) { c.source = e.skill_source; seenSource = true; }
     if (e.type === "picked" || e.type === "returned") c.ok = true;
     if (e.type === "missed") { if (c.ok) c.post++; else c.pre++; }
     if (e.type === "handed" && e.request_to_hand_s != null) times.push(e.request_to_hand_s);
-    if (e.type === "released" && e.item) { passed[e.item] = (passed[e.item] || 0) + 1; add(e.item); }
+    if (e.type === "released" && e.item) { passed[e.item] = (passed[e.item] || 0) + 1; add(e.item); c.passed = true; }
     if (e.type === "set_down" && e.item) {
       add(e.item);
-      if (e.request_to_hand_s != null) { passed[e.item] = (passed[e.item] || 0) + 1; times.push(e.request_to_hand_s); }
+      if (e.request_to_hand_s != null) { passed[e.item] = (passed[e.item] || 0) + 1; times.push(e.request_to_hand_s); c.passed = true; }
       else setDown[e.item] = (setDown[e.item] || 0) + 1;
     }
     if (e.type === "returned") { returned++; if (e.item) derived = derived.filter((i) => i !== e.item); }
     if (e.type === "stopped") stops++;
   }
+  const by = { model: 0, taught: 0 };
   for (const c of cmds.values()) {
+    if (c.passed) by[c.source === "taught" ? "taught" : "model"]++;
     if (c.pre && c.ok) retried++;
     if ((c.pre && !c.ok) || c.post) failed++;
   }
@@ -92,6 +96,7 @@ export function caseFacts() {
     minutes: Math.round((Date.now() / 1000 - caseStart) / 60), still_out: reported ?? lastOut ?? derived, passed,
     set_down_at_safe_spot: setDown, returned, failed_requests: failed, picks_retried: retried, stops,
     median_request_to_hand_s: median,
+    handovers_by_source: seenSource ? by : null,
   };
 }
 
@@ -107,6 +112,11 @@ export function templateSummary(f: ReturnType<typeof caseFacts>): string {
   ];
   if (Object.keys(f.set_down_at_safe_spot).length) lines.push(`Set at the safe spot: ${list(f.set_down_at_safe_spot)}`);
   lines.push(`Returned: ${f.returned}. Failed requests: ${f.failed_requests}. Retried picks: ${f.picks_retried}. Stops: ${f.stops}.`);
+  const by = f.handovers_by_source;
+  if (by && by.model + by.taught) {
+    const n = by.model + by.taught;
+    lines.push(`${n} handover${n === 1 ? "" : "s"}: ${by.model} by the model, ${by.taught} by a taught skill`);
+  }
   if (f.median_request_to_hand_s != null) lines.push(`Median request to hand: ${f.median_request_to_hand_s.toFixed(1)} s`);
   return lines.join("\n");
 }

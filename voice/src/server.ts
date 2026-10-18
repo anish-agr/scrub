@@ -2,10 +2,11 @@
 // so every caller turn lands here and Scrub's reply is the controller's `say` lines.
 import http from "node:http";
 import { callerFrom, chunk, heardFrom, type Msg } from "./chat.js";
-import { GEMINI_API_KEY, LLM_SECRET, PHOTON_PROJECT_ID, PHOTON_SECRET, VOICE_PORT } from "./config.js";
+import { CONTROLLER_URL, GEMINI_API_KEY, LLM_SECRET, PHOTON_PROJECT_ID, PHOTON_SECRET, VOICE_PORT } from "./config.js";
 import { controllerUp } from "./controller.js";
 import { endCase, setCaller } from "./summary.js";
 import { startTexts } from "./texts.js";
+import { parseStats } from "./parse.js";
 import { handleTurn, startEvents } from "./turn.js";
 
 function readBody(req: http.IncomingMessage): Promise<any> {
@@ -27,7 +28,9 @@ function allowed(req: http.IncomingMessage): boolean {
 }
 
 function json(res: http.ServerResponse, code: number, body: unknown) {
-  res.writeHead(code, { "content-type": "application/json" });
+  // GET answers (/health) are read by the ops page from another origin.
+  const cors = res.req.method === "GET" ? { "access-control-allow-origin": "*" } : {};
+  res.writeHead(code, { "content-type": "application/json", ...cors });
   res.end(JSON.stringify(body));
 }
 
@@ -87,7 +90,7 @@ const server = http.createServer(async (req, res) => {
     // Which keys are set (booleans only, never values) and whether the controller answers.
     if (req.method === "GET" && url === "/health") return json(res, 200, { ok: true,
       keys: { gemini: !!GEMINI_API_KEY, photon: !!(PHOTON_PROJECT_ID && PHOTON_SECRET), llm_secret: !!LLM_SECRET },
-      controller: await controllerUp() });
+      controller: await controllerUp(), controller_url: CONTROLLER_URL, ...parseStats() });
     console.log(`[server] 404 ${req.method} ${url}`);  // a wrong Custom LLM URL shows up here
     json(res, 404, { error: "not found" });
   } catch (e) {

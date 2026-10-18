@@ -186,6 +186,14 @@ class StatsTests(unittest.TestCase):
         rows = list_cases(events)
         self.assertEqual(rows[0]["case_id"], "later")
 
+    def test_case_view_keeps_skill_source_when_present(self):
+        events = [
+            {"type": "picked", "item": "hemostat", "case_id": "s", "t": 1, "skill_source": "taught"},
+            {"type": "released", "item": "hemostat", "case_id": "s", "t": 2},
+        ]
+        view = case_view("s", events)
+        self.assertEqual([e["skill_source"] for e in view["events"]], ["taught", None])
+
 
 class TrackTests(unittest.TestCase):
     def test_series_buckets_one_minute(self):

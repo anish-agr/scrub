@@ -81,6 +81,7 @@ class FrameGrabber:
         self._t = 0.0
         self._misses = 0
         self.reads_ok = False
+        self.fps = 0.0  # frames read per second, averaged over about 1 s
         self._stop = threading.Event()
         self._thread = None
 
@@ -90,6 +91,7 @@ class FrameGrabber:
         return self
 
     def _loop(self):
+        n, t0 = 0, time.time()
         while not self._stop.is_set():
             ok, frame = self.capture.read()
             if not ok or frame is None:
@@ -103,6 +105,9 @@ class FrameGrabber:
                 self._t = time.time()
                 self._misses = 0
                 self.reads_ok = True
+            n += 1
+            if self._t - t0 >= 1.0:
+                self.fps, n, t0 = n / (self._t - t0), 0, self._t
 
     def latest(self):
         with self._lock:

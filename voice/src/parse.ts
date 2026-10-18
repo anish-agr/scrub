@@ -17,12 +17,30 @@ export const isEndCase = (s: string) => /\b(end (of )?(the )?case|case (is )?(ov
 
 export interface Parsed { action: Action; item: string | null; via: "local" | "gemini" }
 
+// Caller turns handled and the last 50 Gemini parse times, for GET /health.
+const geminiTimes: number[] = [];
+let turnCount = 0;
+export const countTurn = () => { turnCount++; };
+export function parseStats() {
+  const sorted = [...geminiTimes].sort((a, b) => a - b);
+  return {
+    turns: turnCount,
+    gemini_ms: geminiTimes.length ? geminiTimes[geminiTimes.length - 1] : null,
+    gemini_p50_ms: sorted.length ? sorted[Math.floor((sorted.length - 1) / 2)] : null,
+  };
+}
+
 export async function parse(heard: string, setting: Setting): Promise<Parsed> {
   if (isStop(heard)) return { action: "stop", item: null, via: "local" };
   if (isGotIt(heard)) return { action: "got_it", item: null, via: "local" };
   if (ai) {
-    try { return { ...(await geminiParse(heard, setting)), via: "gemini" }; }
-    catch (e) { console.log(`[gemini] failed, using local match: ${(e as Error).message}`); }
+    const t0 = Date.now();
+    try {
+      const out = await geminiParse(heard, setting);
+      geminiTimes.push(Date.now() - t0);
+      if (geminiTimes.length > 50) geminiTimes.shift();
+      return { ...out, via: "gemini" };
+    } catch (e) { console.log(`[gemini] failed, using local match: ${(e as Error).message}`); }
   }
   return { ...localParse(heard, setting), via: "local" };
 }

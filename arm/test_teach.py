@@ -6,7 +6,8 @@ from unittest.mock import Mock, patch
 
 import numpy as np
 
-from .teach import DEFAULT_RIG, FakeTeachBackend, TeachBackend, Teacher, interact, main
+from .teach import DEFAULT_RIG, FakeTeachBackend, SkillTeacher, TeachBackend, Teacher, interact, interact_skill, main
+from .taught import validate
 
 
 class TeachTests(unittest.TestCase):
@@ -101,6 +102,78 @@ class TeachTests(unittest.TestCase):
         robot.configure.assert_not_called()
         robot.bus.enable_torque.assert_not_called()
         self.assertTrue(config_module.SO101FollowerConfig.call_args.kwargs["use_degrees"])
+
+
+class SkillTeachTests(unittest.TestCase):
+    def setUp(self):
+        self.temp = tempfile.TemporaryDirectory()
+        self.addCleanup(self.temp.cleanup)
+        self.root = Path(self.temp.name)
+        self.backend = FakeTeachBackend([5, 10, -10, 2, 3, 60])
+
+    def teacher(self, direction="pick"):
+        return SkillTeacher(self.backend, "hemostat", direction, "surgical", root=self.root)
+
+    def test_keys_save_waypoints_and_file(self):
+        teacher = self.teacher()
+        poses = iter([[5, 10, -10, 2, 3, 60], [5, 20, -5, 10, 3, 60], [5, 20, -5, 10, 3, 20], [0, 0, 0, 0, 0, 20]])
+        keys = iter(["", "", "g", "x", "", "q"])
+        messages = []
+
+        def read(prompt):
+            key = next(keys)
+            if key in {"", "g"}:
+                self.backend.joints = np.array(next(poses), dtype=float)
+            return key
+
+        path = interact_skill(teacher, read=read, write=messages.append)
+        self.assertEqual(path, self.root / "surgical" / "hemostat-pick.json")
+        skill = json.loads(path.read_text())
+        self.assertEqual((skill["item"], skill["direction"], skill["setting"]), ("hemostat", "pick", "surgical"))
+        self.assertEqual([w["name"] for w in skill["waypoints"]], ["approach", "descend", "grip", "lift"])
+        self.assertEqual([w["gripper"] for w in skill["waypoints"]], [None, None, 1.0, None])
+        self.assertEqual(skill["waypoints"][1]["joints"],
+                         {"shoulder_pan": 5, "shoulder_lift": 20, "elbow_flex": -5, "wrist_flex": 10, "wrist_roll": 3})
+        self.assertIn("Unknown key; nothing saved", messages)
+        self.assertEqual(validate(skill), [])
+
+    def test_return_names_undo_open_and_reported_problems(self):
+        teacher = self.teacher("return")
+        keys = iter(["", "u", "", "o", "q"])
+        messages = []
+        interact_skill(teacher, read=lambda prompt: next(keys), write=messages.append)
+        skill = json.loads((self.root / "surgical" / "hemostat-return.json").read_text())
+        self.assertEqual([w["name"] for w in skill["waypoints"]], ["carry", "descend"])
+        self.assertEqual(skill["waypoints"][1]["gripper"], 0.0)
+        self.assertTrue(any(isinstance(m, str) and "at least 3" in m for m in messages))
+
+    def test_invalid_joints_not_saved_and_eof_does_not_write(self):
+        teacher = self.teacher()
+        self.backend.joints[0] = 500
+        with self.assertRaisesRegex(ValueError, "limits"):
+            teacher.add()
+        self.assertEqual(teacher.waypoints, [])
+
+        def eof(prompt):
+            raise EOFError
+
+        self.assertIsNone(interact_skill(teacher, read=eof, write=lambda _: None))
+        self.assertFalse((self.root / "surgical" / "hemostat-pick.json").exists())
+
+    def test_skill_cli_dry_run_and_safety_args(self):
+        with patch("sys.stderr"):
+            with self.assertRaises(SystemExit):
+                main(["skill", "hemostat", "pick", "--dry-run"])  # no --skills-dir
+            with self.assertRaises(SystemExit):
+                main(["skill", "hemostat", "pick", "--port", "fake"])  # no --supported-and-empty
+            with self.assertRaises(SystemExit):
+                main(["skill", "hemostat", "grab", "--dry-run", "--skills-dir", str(self.root)])
+        keys = iter(["", "g", "", "q"])
+        with patch("builtins.input", lambda prompt: next(keys)), patch("builtins.print"):
+            main(["skill", "hemostat", "pick", "--dry-run", "--skills-dir", str(self.root),
+                  "--joints", "1", "2", "3", "4", "5", "50"])
+        skill = json.loads((self.root / "surgical" / "hemostat-pick.json").read_text())
+        self.assertEqual(len(skill["waypoints"]), 3)
 
 
 if __name__ == "__main__":
