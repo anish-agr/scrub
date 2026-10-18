@@ -487,11 +487,11 @@ every overlay change by output second. Check those against the frames before sho
 
 Smooth, keyframed MuJoCo sim for the video, labeled `SIMULATION` (and `SIMULATED RETURN (electromagnet)` during the
 return). Our arm (white printed parts, black servos, black jaw tips), light wood table, sheet pan with blue tape and a
-white liner, hemostat / scalpel / Mayo scissors. No hand prop: the arm presents the tool at the handoff point, holds,
-opens, and the tool is lifted up and out of shot (0.8 s). Sequence: hemostat, home; Mayo scissors, home; scalpel with a
+white liner, hemostat / scalpel / Mayo scissors. No hand prop: the arm reaches out and up to the front-left (jaw ~0.23 m
+above the table, wrist rolled so the handle points out), holds, opens, and the tool rises up out of shot (1.2 s). Sequence: hemostat, home; Mayo scissors, home; scalpel with a
 stop mid-move (`STOPPED`, then `continue`, small text under the tag), home; a short fade through black, then the
 simulated return (the hemostat lies on the table between the base and the pan, the closed jaw lifts it, sets it flat
-in its slot, home). The arm slows over the last few centimeters to the handoff point. Fixed 3/4 front-right camera,
+in its slot, home). The arm slows over the last few centimeters to the handoff point. Home is a compact upright fold. Fixed close 3/4 front-right camera,
 rendered at 2x and downscaled. `--no-captions` leaves only the tag (and the STOPPED/continue status); the edit adds
 captions.
 

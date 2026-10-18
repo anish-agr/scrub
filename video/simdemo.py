@@ -27,16 +27,20 @@ ROLL = 0.0  # wrist roll for every keyframe: jaws open toward/away from the base
 SLOTS = {"hemostat": (0.21, 0.0), "scalpel": (0.28, 0.0), "mayo_scissors": (0.35, 0.0)}  # parallel, along y
 TABLE_Z, TRAY_Z = 0.0022, 0.0047        # item resting heights (table top, paper liner)
 RETURN = (0.10, -0.15)                  # the used hemostat lies on the table beside the pan
-HANDOFF = np.array([0.30, -0.24, 0.17])  # where the clinician takes it
-TAKE = np.array([0.15, -0.55, 0.40])    # the instrument leaves along this, out of shot
-TAKE_T = 0.8
-HOME = np.array([0.0, -1.7, 1.55, 0.45, ROLL, 0.0])  # the real arm's folded rest pose (layout.json)
+HANDOFF = np.array([0.135, -0.234, 0.23])  # out and up at the front-left, where a standing person's hand would be
+HAND_ROLL = math.pi / 2  # wrist roll at the handoff: the tool lies radial, handle pointing out to the person
+TAKE = np.array([0.06, -0.16, 0.42])    # the instrument leaves along this, out of shot
+TAKE_T = 1.2
+HOME = np.array([0.0, -1.0, 1.69, 0.9, ROLL, 0.0])  # compact upright fold, jaw down in front of the base
 READY = np.array([0.0, -0.45, 0.5, 1.13, ROLL, 0.0])  # elbow up, tip down over the tray
-GRIP_DZ = 0.006  # gripper site above the item centre when grasping: the item sits between the tips, tips clear the liner
+GRIP_DZ = 0.003  # gripper site above the item centre when grasping: the item sits between the tips, tips clear the liner
+_A = math.atan2(HANDOFF[1], HANDOFF[0])
+OUT = np.array([math.cos(_A), math.sin(_A), 0.0])        # horizontal, away from the base
+PRESENT = (1.2 * OUT[0], 1.2 * OUT[1], -1.0)              # jaw reaching out and down toward the hand
 FADE = 0.4  # s: fade out / in around the cut into the simulated return
 
 WHITE, SERVO, TIP = (0.93, 0.92, 0.89, 1.0), (0.11, 0.11, 0.11, 1.0), (0.07, 0.07, 0.07, 1.0)
-CAM = dict(lookat=(0.20, -0.06, 0.12), distance=0.76, azimuth=150, elevation=-30)
+CAM = dict(lookat=(0.17, -0.10, 0.165), distance=0.77, azimuth=154, elevation=-26)
 
 
 # ---- scene ----------------------------------------------------------------------------------------
@@ -79,7 +83,7 @@ def _wood(path, w=1024, h=1024):
     noise = np.repeat(rng.normal(0, 1, (h, w // 128)), 128, axis=1)
     noise = 0.5 * noise + 0.5 * np.roll(noise, 64, axis=1)
     v = 0.86 - 0.03 * g + 0.012 * noise
-    base = np.array([0.84, 0.72, 0.57])
+    base = np.array([0.76, 0.695, 0.60])  # pale birch
     img = np.clip(v[..., None] / 0.86 * base[None, None, :], 0, 1)
     Image.fromarray((img * 255).astype(np.uint8)).save(path)
 
@@ -163,12 +167,12 @@ def load_model():
 
 
 # ---- IK -------------------------------------------------------------------------------------------
-def ik(m, d, site, pos, approach, q0, w_rot=0.25, iters=300):
+def ik(m, d, site, pos, approach, q0, w_rot=0.25, iters=300, roll=ROLL):
     """Position plus tool direction (site x axis) with the first four joints; wrist roll stays at ROLL."""
     import mujoco
 
     a = np.asarray(approach, float); a /= np.linalg.norm(a)
-    q = q0.copy(); q[4] = ROLL
+    q = q0.copy(); q[4] = roll
     jp, jr = np.zeros((3, m.nv)), np.zeros((3, m.nv))
     for _ in range(iters):
         d.qpos[:] = q
@@ -211,7 +215,7 @@ def build(m, d):
     keys, events = [(0.0, HOME.copy(), "mj")], []
     t, q = 0.0, HOME.copy()
 
-    def solve(pos, approach=down):
+    def solve(pos, approach=down, roll=ROLL):
         pos = np.asarray(pos, float)
         ang = math.atan2(pos[1], pos[0])
         if approach is down:  # tip slightly outward, like the real arm reaching over the tray
@@ -220,7 +224,7 @@ def build(m, d):
         ready = READY.copy(); ready[0] = -ang  # positive pan swings toward -y
         for w in (0.25, 0.1, 0.03, 0.01):
             for q0 in (q, ready, keys[-2][1] if len(keys) > 1 else q):
-                qq, err = ik(m, d, site, pos, approach, q0, w_rot=w)
+                qq, err = ik(m, d, site, pos, approach, q0, w_rot=w, roll=roll)
                 score = err + 0.02 * np.abs(qq[:4] - q[:4]).sum()  # stay close to the last pose: no flips
                 if err < 0.003 and (best is None or score < best[0]):
                     best = (score, qq)
@@ -237,8 +241,8 @@ def build(m, d):
         t += dur
         keys.append((t, q.copy(), mode))
 
-    def to(pos, approach=down, dur=1.4, jaw=None, mode="mj"):
-        qn = solve(pos, approach)
+    def to(pos, approach=down, dur=1.4, jaw=None, mode="mj", roll=ROLL):
+        qn = solve(pos, approach, roll)
         if jaw is not None:
             qn[5] = jaw
         key(qn, dur, mode)
@@ -268,11 +272,30 @@ def build(m, d):
         ang = math.atan2(p[1], p[0])
         return (math.cos(ang), math.sin(ang), -down_)
 
-    def approach_hand(first=1.4):
-        """Carry toward the handoff point, then slow down over the last few centimeters."""
-        a = np.array(outward(HANDOFF)); a /= np.linalg.norm(a)
-        to(HANDOFF - 0.07 * a, approach=outward(HANDOFF), dur=first, mode="in")
-        to(HANDOFF, approach=outward(HANDOFF), dur=1.3, mode="out")
+    def via(x, y):
+        """A Cartesian waypoint halfway out to the handoff, raised, wrist half turned: the carry stays extended."""
+        pre = HANDOFF - 0.07 * OUT
+        a0, a1 = math.atan2(y, x), math.atan2(pre[1], pre[0])
+        am, rm = a0 + 0.75 * (a1 - a0), 0.27  # swing around at full reach, never curled in by the base
+        mid = np.array([rm * math.cos(am), rm * math.sin(am), 0.19])
+        return mid, (1.2 * math.cos(am), 1.2 * math.sin(am), -1.0)
+
+    def approach_hand(x, y, first=1.4, stop=False):
+        """Carry out to the handoff point, then slow down over the last few centimeters."""
+        mid, a = via(x, y)
+        if stop:  # the stop: brake to a halt at the waypoint, hold, continue
+            ev("say", text="Stop.")
+            to(mid, approach=a, dur=1.1, mode="stop", roll=HAND_ROLL / 2)
+            ev("status", text="STOPPED")
+            hold(2.2)
+            ev("say", text="Continue.")
+            ev("status", text="continue")
+            to(HANDOFF - 0.07 * OUT, approach=PRESENT, dur=1.1, mode="in", roll=HAND_ROLL)
+            ev("status", text=None)
+        else:
+            to(mid, approach=a, dur=first * 0.55, mode="in", roll=HAND_ROLL / 2)
+            to(HANDOFF - 0.07 * OUT, approach=PRESENT, dur=first * 0.45, mode="lin", roll=HAND_ROLL)
+        to(HANDOFF, approach=PRESENT, dur=1.3, mode="out", roll=HAND_ROLL)
 
     def give(item):
         hold(0.9)
@@ -294,7 +317,7 @@ def build(m, d):
     segment("hemostat")
     ev("say", text="Hemostat coming.")
     x, y = SLOTS["hemostat"]; pick("hemostat", x, y, TRAY_Z)
-    approach_hand()
+    approach_hand(x, y)
     ev("say", text="Here's the hemostat.")
     give("hemostat")
     home()
@@ -303,7 +326,7 @@ def build(m, d):
     segment("scissors")
     ev("say", text="Mayo scissors coming.")
     x, y = SLOTS["mayo_scissors"]; pick("mayo_scissors", x, y, TRAY_Z)
-    approach_hand(first=1.7)
+    approach_hand(x, y, first=1.8)
     ev("say", text="Here are the Mayo scissors.")
     give("mayo_scissors")
     home()
@@ -312,18 +335,7 @@ def build(m, d):
     segment("stop")
     ev("say", text="Scalpel coming.")
     x, y = SLOTS["scalpel"]; pick("scalpel", x, y, TRAY_Z)
-    a = np.array(outward(HANDOFF)); a /= np.linalg.norm(a)
-    q_from, q_to = q.copy(), solve(HANDOFF - 0.07 * a, outward(HANDOFF))
-    ev("say", text="Stop.")
-    key(q_from + 0.38 * (q_to - q_from), 0.7, "in")
-    key(q_from + 0.46 * (q_to - q_from), 0.3, "stop")
-    ev("status", text="STOPPED")
-    hold(2.2)
-    ev("say", text="Continue.")
-    ev("status", text="continue")
-    to(HANDOFF - 0.07 * a, approach=outward(HANDOFF), dur=1.0, mode="in")
-    ev("status", text=None)
-    to(HANDOFF, approach=outward(HANDOFF), dur=1.3, mode="out")
+    approach_hand(x, y, stop=True)
     ev("say", text="Here's the scalpel.")
     give("scalpel")
     home()
@@ -461,7 +473,7 @@ class Player:
             elif kind == "taken":  # lifted up and away out of shot, as if a hand took it
                 pos, rot, ts = data
                 u = (t - ts) / TAKE_T
-                state[k] = (pos + _ease(u, "in") * TAKE, rot)
+                state[k] = (pos + _ease(u) * TAKE, rot)
         return state
 
     def pose(self, t):
