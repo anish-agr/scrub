@@ -1,4 +1,4 @@
-"""python -m controller [--fake-arm | --real-arm | --sim-arm] [--port 8000] [--setting surgical|bench] [--judge] [--skills model|taught|auto]"""
+"""python -m controller [--fake-arm | --real-arm | --sim-arm] [--port 8000] [--setting surgical|bench] [--judge] [--skills model|taught|auto|smart]"""
 import argparse
 import os
 import signal
@@ -36,9 +36,11 @@ def main() -> None:
     p.add_argument("--motion-s", type=float, default=1.0, help="fake arm seconds per motion")
     p.add_argument("--pull-s", type=float, default=2.0,
                    help="fake arm: simulated pull after this many seconds at the hand; 0 = wait for got_it")
-    p.add_argument("--skills", default="model", choices=["model", "taught", "auto"],
+    p.add_argument("--skills", default="model", choices=["model", "taught", "auto", "smart"],
                    help="model (default): the robot model; taught: recorded skills from arm/skills/ only; "
-                        "auto: model for items it passed 3 real tries in a row, else taught if recorded, else model")
+                        "auto: model for items it passed 3 real tries in a row, else taught if recorded, else model; "
+                        "smart: vision locates the item, the method per item comes from real-arm data "
+                        "(controller/picker.py), grip checked, one retry with the next method")
     a = p.parse_args()
 
     if a.real_arm:

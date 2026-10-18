@@ -19,7 +19,11 @@ from unittest import mock
 
 import httpx
 
-from controller import run_all as R
+# The fake-arm controller this starts never reaches MongoDB or Backboard; its events say test: true.
+os.environ.update(MONGODB_URI="", BACKBOARD_API_KEY="", SCRUB_TEST="1",
+                  LEDGER_BUFFER=os.path.join(tempfile.mkdtemp(prefix="scrub-test-run-all-"), "buffer.jsonl"))
+
+from controller import run_all as R  # noqa: E402
 
 FAKE_PORT, BUSY_PORT, CTL_PORT = 8260, 8261, 8262
 
@@ -175,6 +179,14 @@ class TestPlan(unittest.TestCase):
         self.assertIn("--real-arm", self.plan(["--real-arm"])[0][0].cmd)
         with self.assertRaises(SystemExit):
             R.parse(["--skills", "both"])
+
+    def test_backup_runs_the_picker(self):
+        a = R.parse(["backup", "--offline", "--base-port", "8240"])
+        self.assertEqual(a.skills, "smart")
+        c = self.plan(["backup", "--base-port", "8240"])[0][0].cmd
+        self.assertEqual(c[c.index("--skills") + 1], "smart")
+        self.assertEqual(R.parse(["backup", "--skills", "model"]).skills, "model")
+        self.assertEqual(R.parse(["--skills", "smart"]).skills, "smart")
 
     def test_real_preset_is_the_judging_stack(self):
         a = R.parse(["--real"])
