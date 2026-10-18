@@ -124,6 +124,51 @@ class WhichOneTests(unittest.TestCase):
         self.assertEqual(arm.wakes, 0)
         self.assertFalse(ctl.jobs)
 
+    def test_locate_only_duplicates_block_generic_retries_before_and_after_expiry(self):
+        for local_tray in (False, True):
+            with self.subTest(local_tray=local_tray):
+                ctl, arm = self.make(ROWS)
+                local = {"setting": "surgical", "detector": "local", "stale": False,
+                         "slots": [{"item": "hemostat", "present": True, "kind": "configured", "box": None}]}
+                if local_tray:
+                    ctl.post_tray(local)
+                with patch.object(arm, "run_skill", wraps=arm.run_skill) as skill:
+                    first = ctl.submit({"action": "handover", "item": "hemostat"})
+                    self.assertFalse(first["accepted"])
+                    self.assertEqual(len(first["clarify"]["candidates"]), 2)
+                    self.assertEqual(len(ctl._known_instances["hemostat"]), 2)
+                    ctl.locator.rows = None  # subsequent locate cannot answer (down/timeout)
+                    before = ctl.submit({"action": "handover", "item": "hemostat"})
+                    self.assertFalse(before["accepted"])
+                    self.assertEqual(len(before["clarify"]["candidates"]), 2)
+                    self.assertTrue(wait_for(lambda: ctl.clarification is None))
+                    ctl.post_tray({**local, "stale": True})
+                    ctl.post_tray(local)  # neither stale nor local occupancy disproves the duplicate
+                    after = ctl.submit({"action": "handover", "item": "hemostat"})
+                    self.assertFalse(after["accepted"])
+                    self.assertEqual(len(after["clarify"]["candidates"]), 2)
+                    self.assertEqual(arm.wakes, 0)
+                    skill.assert_not_called()
+                    self.assertFalse(ctl.jobs)
+                    self.assertIsNone(ctl.cmd)
+                    t = time.monotonic()
+                    ctl.stop()
+                    self.assertLess(time.monotonic() - t, 0.1)
+                    self.assertFalse(ctl.submit({"action": "handover", "item": "hemostat"})["accepted"])
+                    self.assertEqual(arm.wakes, 0)
+                    skill.assert_not_called()
+
+    def test_fresh_detection_can_disprove_locate_multiplicity(self):
+        ctl, arm = self.make(ROWS)
+        ctl.submit({"action": "handover", "item": "hemostat"})
+        ctl.locator.rows = None
+        ctl.post_tray({"setting": "surgical", "detector": "perceptron", "stale": False, "slots": [],
+                       "candidates": [ROWS[1]]})
+        self.assertNotIn("hemostat", ctl._known_instances)
+        reply = ctl.submit({"action": "handover", "item": "hemostat"})
+        self.assertTrue(reply["accepted"], reply)
+        self.assertTrue(wait_for(lambda: arm.wakes == 1))
+
     def test_stop_during_locate_cancels_before_wake(self):
         import threading
         ctl, arm = self.make()
