@@ -59,7 +59,9 @@ async function call(method: string, path: string, body?: unknown, ms = 3000): Pr
   return res.json();
 }
 
-export const postCommand = (c: Command): Promise<CommandReply> => call("POST", "/command", c);
+// Locate preflight can consume 3 s before acceptance. Leave bounded transport headroom, without slowing stop.
+export const COMMAND_TIMEOUT_MS = 7000;
+export const postCommand = (c: Command): Promise<CommandReply> => call("POST", "/command", c, COMMAND_TIMEOUT_MS);
 export interface ClarifyLog {
   type: "clarify" | "clarify_answer"; say?: string; item?: string | null; candidates?: Candidate[];
   question_id?: string; answer?: string; answer_ms?: number; context?: string; reason?: string; status?: string;
