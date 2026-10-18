@@ -4,6 +4,7 @@ from __future__ import annotations
 import hashlib
 import json
 import math
+import os
 import re
 import subprocess
 import uuid
@@ -17,8 +18,9 @@ from PIL import Image, ImageDraw, ImageFont
 
 REPO = Path(__file__).resolve().parents[1]
 BASE = REPO / "data" / "video"
-DEFAULT_DATASET = Path.home() / "scrub-dataset"  # arm/record.py --root default
-EVENTS_NAME = "events.jsonl"  # written by `export-ledger`, read by find/overlay/cards when --events is omitted
+# SCRUB_DATASET, else ~/scrub-dataset: the --root default of arm/record.py and explore/station/station.py.
+DEFAULT_DATASET = Path(os.environ.get("SCRUB_DATASET") or Path.home() / "scrub-dataset").expanduser()
+EVENTS_NAME = "events.jsonl"  # written by `export-ledger` (and by the Atlas fallback of resolve_events)
 LABELS = {"simulation": "SIMULATION", "reconstructed": "RECONSTRUCTED FROM ARM JOINT DATA",
           "mixed": "MIXED FOOTAGE - NON-REAL SHOTS LABELED; NOT A CONTINUOUS REAL DEMO",
           "photo_plate": "PHOTO PLATE - STATIC BACKGROUND, NOT AN ACTION RECORDING",
@@ -324,11 +326,39 @@ def encode(ws, output, images, fps=30, audio=None, segments=None, audio_clean=Fa
     return {"frames": count, "fps": fps, "duration_s": duration, "width": w, "height": h}
 
 
-def default_events(ws):
+def ledger_buffer():
+    """The file ledger/__init__.py appends to: LEDGER_BUFFER, else ledger/buffer.jsonl."""
+    return Path(os.environ.get("LEDGER_BUFFER") or REPO / "ledger" / "buffer.jsonl").expanduser()
+
+
+def dataset_source(explicit=None):
+    """(path, how it was chosen) for the LeRobot dataset."""
+    if explicit:
+        return Path(explicit).expanduser(), "--input"
+    return DEFAULT_DATASET, "SCRUB_DATASET" if os.environ.get("SCRUB_DATASET") else "default ~/scrub-dataset (arm/record.py --root)"
+
+
+def resolve_events(ws, explicit=None):
+    """(path, source) for --events. Order: the flag, the ledger buffer, Atlas through ledger/, an earlier export."""
+    if explicit:
+        path = ws.source(explicit)
+        return path, f"--events {path}"
+    buffer = ledger_buffer()
+    if buffer.is_file() and buffer.stat().st_size:
+        return buffer, f"ledger buffer {buffer}" + (" (LEDGER_BUFFER)" if os.environ.get("LEDGER_BUFFER") else "")
+    import ledger  # loads .env the way the controller does; nothing is printed
+    if ledger._uri():
+        result = export_ledger(ws)
+        return Path(result["events_file"]), (f"MongoDB Atlas through ledger/ (buffer {buffer} missing): "
+            f"{result['events']} events, {result['tests']} tests exported to {result['events_file']}")
     path = ws.root / EVENTS_NAME
-    if not path.is_file():
-        raise ValueError(f"No --events and no {path}: run `python -m video export-ledger` first")
-    return path
+    if path.is_file():
+        return path, f"earlier export {path} (no ledger buffer at {buffer}, MONGODB_URI unset)"
+    raise ValueError(f"No --events, no ledger buffer at {buffer} and MONGODB_URI unset: nothing to read")
+
+
+def default_events(ws):
+    return resolve_events(ws)[0]
 
 
 def export_ledger(ws, name=EVENTS_NAME):
@@ -349,15 +379,54 @@ def ledger_rows(path):
     for line in Path(path).read_text(encoding="utf-8-sig").splitlines():
         if not line.strip():
             continue
-        row=json.loads(line)
+        try:
+            row=json.loads(line)
+        except json.JSONDecodeError:
+            continue  # a line the live ledger is still writing; ledger/__init__.py skips these too
         kind=row.get('kind')
         doc=dict(row['doc']) if kind in {'event','test'} and 'doc' in row else dict(row)
         doc['_record_kind']=kind if kind in {'event','test'} else 'test' if doc.get('type')=='test' else 'event'
-        if doc.get('source') in {'fake','simulation','sim'}:
+        if doc.get('source')=='fake':
             doc['synthetic']=True
+        doc['_arm']=arm_kind(doc)
         finite(doc['t'],'ledger timestamp')
         result.append(doc)
     return sorted(result,key=lambda row:row['t'])
+
+
+SIM_KEYS = ("sim_arm", "sim")
+
+
+def arm_kind(row):
+    """real, simulation, fake (fake_arm only), synthetic (labeled fixture) or unknown (untagged event).
+
+    The sim controller used to report only fake_arm: true; the new shape adds sim_arm: true (or sim, or arm: "sim").
+    Ledger test rows from controller.trials carry no arm tag and count as real (they need a person to confirm).
+    """
+    if row.get('synthetic'):
+        return 'synthetic'
+    arm=str(row.get('arm') or row.get('arm_kind') or '').lower()
+    if any(row.get(key) for key in SIM_KEYS) or arm in {'sim','simulation','mujoco'} or row.get('source') in {'sim','simulation'}:
+        return 'simulation'
+    if row.get('fake_arm') or arm=='fake':
+        return 'fake'
+    if 'fake_arm' not in row and not arm and 'success' not in row:
+        return 'unknown'  # an event from before the controller tagged its arm: never counted as real
+    return 'real'
+
+
+def legacy_sim(rows):
+    """True when no row carries a sim marker: a fake_arm row may then come from the sim (the old controller shape)."""
+    return not any(key in row for row in rows for key in (*SIM_KEYS, 'arm', 'arm_kind'))
+
+
+def select_arm(rows, arm=None):
+    """Keep rows of one arm kind (real, simulation, fake, synthetic); None or 'all' keeps everything."""
+    if arm in (None, 'all'):
+        return rows
+    if arm not in {'real','simulation','fake','synthetic','unknown'}:
+        raise ValueError("--arm must be real, simulation, fake, synthetic, unknown or all")
+    return [row for row in rows if (row.get('_arm') or arm_kind(row))==arm]
 
 
 def events(path):

@@ -18,3 +18,4 @@ python -m ledger log --setting surgical --item hemostat --direction hand-out --l
 
 | Time | Setting | Item | Direction | Lighting | Demos | Dataset name | Notes |
 | --- | --- | --- | --- | --- | --- | --- | --- |
+| 2026-10-17 22:21 | unknown | spatula | hand-out | unknown | 8 | local | scrub-dataset ep 0-7; task 'pick the spatula' not in settings; loop 29.43-29.99 Hz; side cam 29.1-30.0 fps; wrist cam 18.7-22.6 fps; stalls ep 5 {'wrist': 2}; 6-105 s |

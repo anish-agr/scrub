@@ -16,12 +16,7 @@ Set `data-theme="monitor"` on the root HTML element for dark pages, so the
 canvas and native controls also use the theme. Both dashboard views use it.
 Page CSS should contain layout only, with colors and fonts from the tokens.
 
-The approved nurse and demo consoles retain their original HMI styling in
-isolated native CSS `@scope` blocks. This is deliberate: the task requires no
-visual changes to these two pages. Their original decoded application scripts
-and CSS declarations are checked against the task-start commit. Console copy
-uses HTML entities and equivalent JS unicode escapes so Windows' server-side
-default decoding cannot corrupt it or return HTTP 500.
+The dashboard (paper, `?theme=monitor`), tablet (monitor), ops (monitor), demo console (monitor) and nurse console (paper) all use `scrub.css` directly. Page CSS holds layout only. The old `@scope` copies are gone. Stopped state: a full-width red `.stop-banner` on dashboard, tablet, nurse and demo.
 
 `scrub.css` is the only source. The controller mounts `dashboard/` at `/`,
 the ledger has a fixed file allowlist, and sim mounts `sim/web/` at `/web`.

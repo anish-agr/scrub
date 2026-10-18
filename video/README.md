@@ -53,11 +53,26 @@ block is followed by its bash equivalent.
 
 | Input | Default | Where it is written |
 | --- | --- | --- |
-| Ledger events and trials (`--events` for `find`, `overlay`, `cards`) | `<root>/events.jsonl` | `python -m video export-ledger` writes it from `ledger.stored_rows()`: Atlas (needs `MONGODB_URI` in `.env`) plus `ledger/buffer.jsonl`. Lines are `{"kind":"event"|"test","doc":...}`, the same envelope the ledger buffer uses |
-| LeRobot dataset (`topdown --mode reconstruction`, no `--input`) | `~/scrub-dataset` | `python -m arm.record` writes there by default (`--root` changes it). On Anish's laptop pass `--input` with the actual path |
+| Ledger events and trials (`--events` for `find`, `overlay`, `cards`) | the ledger | In order: `--events`; else `LEDGER_BUFFER`, or `ledger/buffer.jsonl`, when that file exists and is not empty (the file `ledger/__init__.py` appends to); else, when `MONGODB_URI` is set (`.env`, loaded by `ledger/`), Atlas through `ledger.stored_rows()`, exported to `<root>/events.jsonl`; else an earlier `<root>/events.jsonl` from `export-ledger`. Lines are `{"kind":"event"|"test","doc":...}` |
+| LeRobot dataset (`topdown --mode reconstruction`, no `--input`) | `SCRUB_DATASET`, else `~/scrub-dataset` | `python -m arm.record` and `explore/station/station.py` write there by default (`--root` changes it). On Anish's laptop pass `--input` or set `SCRUB_DATASET` |
 
-`ledger/buffer.jsonl` only holds rows that have not reached Atlas yet, so run `export-ledger` rather than pointing at it.
-`export-ledger` overwrites `<root>/events.jsonl` and refuses to write an empty file. An explicit `--events` or `--input` always wins.
+Every command says what it read: a `video: events from ...` (or `video: dataset ...`) line on stderr and a `sources` key in the printed JSON. An explicit `--events` or `--input` always wins.
+
+`ledger/buffer.jsonl` only holds rows that have not reached Atlas yet: any process with `MONGODB_URI` set flushes it and the file disappears. When the buffer is the source but you want everything, run `export-ledger` and pass `--events events.jsonl`. `export-ledger` overwrites `<root>/events.jsonl` and refuses to write an empty file.
+
+### Which arm a row came from
+
+`video.common.arm_kind` puts every ledger row in one of five kinds, and `find --arm` and `cards --arm` keep one of them:
+
+| Kind | Rows | Video label |
+| --- | --- | --- |
+| `real` | `fake_arm: false` events; test rows from `controller.trials` (untagged, a person confirmed each) | none |
+| `simulation` | the sim arm: `sim_arm: true`, `sim: true` or `arm: "sim"` (the controller's new shape). Old shape, `fake_arm: true` with no sim marker anywhere in the file, counts as simulation only when it captions an ingested `simulation` clip | `SIMULATION`; no `--allow-synthetic` needed |
+| `fake` | `fake_arm: true` (the fake arm) | needs `--allow-synthetic`, never on real footage |
+| `synthetic` | `demo-assets` fixtures (`synthetic: true`) | `SIMULATION - SYNTHETIC FIXTURE` |
+| `unknown` | events with no arm tag (written before the controller tagged them) | never counted as real |
+
+Sim rows never caption real footage. Cards from sim rows carry `SIMULATION - SIM ARM RUN` and kind `simulation`, so a `real_only` EDL (the Perceptron arm video) refuses them.
 
 ## Honesty and output boundaries
 
@@ -200,8 +215,8 @@ need their own mapping. No clock sync is inferred from when a file was copied.
 
 From the repo root, after copying correctly named footage, a reference photo
 `photos/reference.jpg`, the other plate photos, and then run
-`python -m video export-ledger` (writes `data/video/events.jsonl`, see "Where the real
-inputs come from"):
+`python -m video export-ledger` (writes `data/video/events.jsonl`; without it the commands read
+the ledger buffer or Atlas, see "Where the real inputs come from"):
 
 Run commands individually and stop on any failure. The binding template uses the
 generated `overlays/A1.mp4`, so the finished demo actually includes the sourced
@@ -217,9 +232,9 @@ python -m video corners --input photos/reference.jpg --camera photo --width-mm $
 python -m video topdown --mode warp --input raw/A1-take3.mp4 --camera side --output topdown/A1.mp4
 python -m video topdown --mode plate --reference photos/reference.jpg --camera photo --empty-scene --output topdown/plate.png
 python -m video clean --input raw/A1-take3.mp4 --output clean/A1.mp4 --denoise --audio
-python -m video find --cut
-python -m video overlay --input clean/A1.mp4 --output overlays/A1.mp4
-python -m video cards
+python -m video find --events events.jsonl --arm real --cut
+python -m video overlay --input clean/A1.mp4 --events events.jsonl --output overlays/A1.mp4
+python -m video cards --events events.jsonl --arm real
 if (-not (Test-Path data/video/edit.json)) { Copy-Item video/edl/bindings.example.json data/video/edit.json }
 notepad data/video/edit.json
 python -m video preview --edl video/edl/demo.yaml --bindings edit.json --output renders/demo-preview.mp4
@@ -412,3 +427,58 @@ Each take in `ranked.json` and the CLI output gets `captions`, `caption_score` a
 Before publishing, watch both full outputs, listen to the ask/reply, compare every
 displayed measurement against its logged source, check all disclosures, and verify
 the arm film is continuous. Tests on synthetic media are **not** physical acceptance.
+
+## Perceptron arm video (`video/edl/perceptron-arm.yaml`)
+
+One unedited real-arm roll (`ARM_ROLL`, cleaned only, never trimmed or sped up) followed by the end cards with the
+success table. Inputs: the filmed roll of real tries, and the ledger: real-arm handover events with
+`skill_source: "model"` (to find and check the tries) and test rows from `controller.trials` (the only success-rate
+denominator). Run from the repo root on the Mac after the tries are filmed:
+
+```bash
+A=data/video/arm                                          # workspace; raw/ holds the filmed roll
+mkdir -p $A/raw && cp <filmed roll>.mp4 $A/raw/arm-roll.mp4
+.venv/bin/python -m video --root $A export-ledger          # every row: Atlas plus the local buffer
+.venv/bin/python -m video --root $A ingest --kind real    # add --clap-clip raw/arm-roll.mp4 --clap-ledger-time <epoch> to sync
+.venv/bin/python -m video --root $A find --events events.jsonl --arm real --skill-source model --no-captions
+#   "trials": the real model handovers (handed + released, zero retries); "ledger_trials" lists them
+.venv/bin/python -m video --root $A cards --events events.jsonl --arm real
+#   cards/end*.png: the success table from real test rows only; refuses if there are no real rows
+echo '{"ARM_ROLL": {"source": "raw/arm-roll.mp4", "clean": {"audio_clean": true}}}' > $A/edit.json
+.venv/bin/python -m video --root $A render --check --edl video/edl/perceptron-arm.yaml --bindings edit.json
+.venv/bin/python -m video --root $A render --edl video/edl/perceptron-arm.yaml --bindings edit.json --output renders/perceptron-arm.mp4
+```
+
+`render --check` runs every gate (real provenance, unedited roll, cards present and not simulated) without encoding.
+Without `cards/index.json` the render now says to run `cards --arm real` first instead of a `FileNotFoundError`.
+The dataset (`~/scrub-dataset`) holds teleoperated demos, not model tries, so it is not an `ARM_ROLL`; use it only for
+`topdown --mode reconstruction` shots, which carry `RECONSTRUCTED FROM ARM JOINT DATA` and are refused by this EDL.
+
+Dry run on Oct 18 01:45: `ledger/buffer.jsonl` had 6 rows, all `fake`. Atlas (`export-ledger`) had 56,933 events and
+0 test rows: 39,253 fake, 17,427 untagged (`unknown`), 253 `fake_arm: false`. Of those, `find --arm real
+--skill-source model` finds 17 complete hemostat handovers, every one 0.41 to 0.43 s request-to-hand, which is
+not a physical arm (likely a test controller writing `fake_arm: false` to Atlas). No genuine real-arm try and no
+trial row exists yet, so `cards --arm real` renders an end card with no rate, and the render waits for the roll.
+
+## Sim backup video (`video/sim_backup.py`)
+
+The labeled `SIMULATION` backup from a running sim stack. Give the stack its own ledger file, otherwise any process
+with `MONGODB_URI` flushes the rows to Atlas before `build` reads them:
+
+```bash
+export LEDGER_BUFFER=$PWD/data/video/sim-run/ledger.jsonl
+SCRUB_STATE_FILE= .venv/bin/python -m controller.run_all backup --offline --loop --pause 2 --base-port 8500 --no-open
+# in another shell, with the same LEDGER_BUFFER, once it prints "backup run N: CLEAN":
+.venv/bin/python -m video.sim_backup capture --root data/video/sim-run/capture-1        # 110 s by default
+.venv/bin/python -m video.sim_backup build --root data/video/sim-run/capture-1
+```
+
+`capture` records `http://127.0.0.1:8502/stream?cam=overhead` and Chromium screenshots of the dashboard on
+`:8500`, resampled to 30 FPS on the capture clock (the clock the controller stamps events with), and writes
+`sync.json` with each clip's first-frame epoch and `kind: simulation`. One backup pass is about 52 s, so 110 s
+always holds one whole case. `build` ingests both clips, picks the first case fully inside the window that ran the
+whole script (three handovers done, a return, an accepted count, no error, missed or stopped event), overlays that
+case only, renders without `--demo` (every frame has the `SIMULATION` bar) and copies the result to
+`data/video/out/sim-backup.mp4`, with `sim-backup-summary.json` listing the case, its request-to-hand times and
+every overlay change by output second. Check those against the frames before showing it.
+

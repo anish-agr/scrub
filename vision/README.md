@@ -118,6 +118,8 @@ The controller uses the same 8 s cutoff (`TRAY_STALE_S`), so a 4 s detect is sti
 
 `POST /clips/label {"case_id": ...}` captions every clip of a case. Each clip sends one `/v1/chat/completions` call (perceptron-mk1.5, `reasoning_effort: "low"`) with 5 frames spread over the 3 s clip as a `video_frames` part (each frame a JPEG data URL with `timestamp_ms`). The prompt does not name the controller's event. It lists the tray's item names (the event's `setting`, or every tray in `settings/`; the clip's own item is sorted in if no tray has it) and asks for JSON: `caption` (one neutral line on what the arm and hands do), `item_seen` (an item name or `none`) and `action` (`picked`, `handed`, `set_down`, `released`, `returned`, `none_or_unclear`).
 
+Auto-caption: with `VISION_AUTO_CAPTION` on (default on when `PERCEPTRON_API_KEY` is set; `VISION_AUTO_CAPTION=0` turns it off), each new clip is captioned on its own thread right after it is saved and the result is posted to `{CONTROLLER_URL}/vision/caption` (2 s timeout, failures are logged, never raised), which stores it in the ledger with the case.
+
 Each clip in `GET /clips` then has:
 - `label`: the caption, plus `, 6.4 s` when the event has `request_to_hand_s`. Without a key, on an HTTP error, an exception or an empty reply, the fallback (`hemostat presented to clinician, 14:02`).
 - `label_source`: `perceptron` or `fallback`.

@@ -1,5 +1,5 @@
 <!doctype html>
-<html lang="en">
+<html lang="en" data-theme="paper">
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
@@ -7,18 +7,132 @@
 <meta name="description" content="Live nurse console on the controller: tray, requests, the step track, request-to-hand time per request, what's out, and the event log.">
 <!-- Live port of explore/prototypes/24-scrub-nurse.html. Reads GET /setting, /state, /vision, /events/recent and WS /events;
      sends POST /command, /stop, /reset, /fake/pull, /fake/force. No mock mode: if the controller is down it says so. -->
-<link rel="preconnect" href="https://fonts.googleapis.com">
-<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;600&family=IBM+Plex+Sans:wght@400;500;600;700&display=swap" rel="stylesheet">
-<link rel="stylesheet" href="/style.css" onerror="this.onerror=null;this.href='../dashboard/style.css'">
+<link rel="stylesheet" href="/design/scrub.css" onerror="this.onerror=null;this.href='../design/scrub.css'">
+<style>
+/* Page layout only. Colors, type and controls come from design/scrub.css (paper theme). */
+.scrub-ui{--bad:var(--red);--warn:var(--amber);--ok:var(--green);--teal:var(--cyan);--text:var(--ink);--line:var(--hair);--panel:var(--paper2)}
+.scrub-ui header.masthead{position:sticky;top:0;z-index:20;background:var(--paper);flex-wrap:nowrap;align-items:center;gap:16px;padding:10px 24px}
+.scrub-ui .logo{display:flex;align-items:center;gap:10px;font:900 34px/1 var(--f);letter-spacing:-.025em;text-transform:uppercase}
+.scrub-ui .logo i{width:12px;height:12px;background:var(--mute);display:inline-block}
+.scrub-ui .logo i.on{background:var(--green)}
+.scrub-ui .meta{flex:1;min-width:0;font:12px/1.4 var(--m);color:var(--mute)}
+.scrub-ui .meta b{color:var(--ink);font-weight:600}
+.scrub-ui .pill{display:inline-flex;align-items:center;justify-content:center;min-width:190px;min-height:44px;padding:6px 12px;border:1px solid var(--ink);font:700 13px var(--m);white-space:nowrap;width:auto}
+.scrub-ui .pill.stop{background:var(--red);border-color:var(--red);color:#fff}
+.scrub-ui .pill.wait{background:var(--amber);border-color:var(--amber);color:var(--paper)}
+.scrub-ui #stopBtn{width:auto;min-width:140px;min-height:56px;padding:6px 20px;font-size:26px;letter-spacing:.1em}
+.scrub-ui #stopBtn.latched{background:var(--ink);color:var(--paper);border-color:var(--ink);font-size:22px}
+.scrub-ui .offline{display:none}
+.scrub-ui .offline.on{display:block}
+.scrub-ui .offline code{font-family:var(--m)}
+.scrub-ui main{display:grid;grid-template-columns:minmax(0,1.45fr) minmax(0,1fr);gap:0 32px;padding:8px 24px 24px}
+.scrub-ui .col{display:flex;flex-direction:column;min-width:0}
+.scrub-ui .wide{grid-column:1/-1}
+.scrub-ui .card{border-top:var(--rule);padding:10px 0 24px;position:relative}
+.scrub-ui .card h2{margin:0 0 14px;display:flex;justify-content:space-between;align-items:baseline;gap:12px;font:700 12px/1.4 var(--f);letter-spacing:.14em;text-transform:uppercase;color:var(--mute)}
+.scrub-ui .card h2 small{font:12px var(--m);letter-spacing:0;text-transform:none;text-align:right;color:var(--mute)}
+.scrub-ui .sub{font:12px/1.5 var(--m);color:var(--mute)}
+.scrub-ui .cam{position:relative;background:#0f1110;border:1px solid var(--ink);aspect-ratio:16/9;display:none}
+.scrub-ui .cam.on{display:block}
+.scrub-ui .cam img{width:100%;height:100%;object-fit:contain;display:block}
+.scrub-ui .armcams{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr);gap:12px;margin-top:12px}
+.scrub-ui .armcam{background:var(--paper2);border:1px solid var(--hair);position:relative;display:grid;align-items:center;min-height:56px}
+.scrub-ui .armcam.on{aspect-ratio:16/10;background:#0f1110}
+.scrub-ui .armcam img{width:100%;height:100%;object-fit:contain;display:none;position:absolute;inset:0}
+.scrub-ui .armcam.on img{display:block}
+.scrub-ui .armcam span{font:12px var(--m);color:var(--mute);padding:8px 8px 8px 64px;overflow-wrap:anywhere}
+.scrub-ui .armcam.on span{display:none}
+.scrub-ui .armcam b{position:absolute;top:6px;left:8px;font:11px var(--m);color:#e8e6df;background:#0f1110;padding:2px 5px;z-index:1}
+.scrub-ui .pose{font:12px/1.5 var(--m);color:var(--mute);margin-top:10px}
+.scrub-ui .pose b{color:var(--ink);font-weight:600}
+.scrub-ui .slots{display:grid;grid-template-columns:repeat(auto-fill,minmax(170px,1fr));gap:12px;margin-top:16px}
+.scrub-ui .slot{border:1px solid var(--ink);padding:10px;display:flex;flex-direction:column;gap:6px;min-height:104px}
+.scrub-ui .slot b{font:700 17px/1.2 var(--f)}
+.scrub-ui .slot .st{font:12px/1.4 var(--m);color:var(--green)}
+.scrub-ui .slot.out{border-style:dashed;border-color:var(--amber)}
+.scrub-ui .slot.out .st{color:var(--amber)}
+.scrub-ui .slot.held{background:var(--ink)}
+.scrub-ui .slot.held b{color:var(--paper)}
+.scrub-ui .slot.held .st{color:var(--paper)}
+.scrub-ui .slot.gone{border-color:var(--red)}
+.scrub-ui .slot.gone .st{color:var(--red)}
+.scrub-ui .slot button{margin-top:auto}
+.scrub-ui .tag{font:700 10px var(--m);letter-spacing:.08em;padding:2px 6px;background:var(--red);color:#fff;margin-left:8px;vertical-align:middle}
+.scrub-ui .cmd{display:flex;gap:8px;flex-wrap:wrap;align-items:center}
+.scrub-ui .mic{width:56px;height:56px;padding:0;flex:none}
+.scrub-ui .mic.on{background:var(--ink);color:var(--paper);animation:pulse 1s infinite}
+@keyframes pulse{50%{opacity:.5}}
+.scrub-ui .mic svg{width:26px;height:26px;fill:currentColor}
+.scrub-ui .cmd input{flex:1;min-width:160px;font-size:16px}
+.scrub-ui .btn.sm{font-size:13px;padding:6px 10px}
+.scrub-ui .btn.alt{border-color:var(--hair)}
+.scrub-ui .btn.warn{border-color:var(--amber);color:var(--amber)}
+.scrub-ui .row{display:flex;flex-wrap:wrap;gap:8px;margin-top:12px}
+.scrub-ui .heard{font:12px/1.5 var(--m);color:var(--mute);margin-top:12px;min-height:18px}
+.scrub-ui .heard b{color:var(--ink)}
+.scrub-ui .heard .no{color:var(--amber)}
+.scrub-ui .status{font:600 30px/1.15 var(--f);margin:0 0 6px;letter-spacing:-.01em}
+.scrub-ui .say{font:14px/1.4 var(--m);color:var(--cyan);min-height:20px}
+.scrub-ui .steps{display:flex;flex-wrap:wrap;margin-top:12px}
+.scrub-ui .step{font:600 11px var(--m);text-transform:uppercase;padding:6px 8px;border:1px solid var(--hair);color:var(--mute);margin:0 -1px -1px 0}
+.scrub-ui .step.done{color:var(--ink);border-color:var(--ink)}
+.scrub-ui .step.cur{background:var(--ink);color:var(--paper);border-color:var(--ink)}
+.scrub-ui .step.bad{background:var(--red);color:#fff;border-color:var(--red)}
+.scrub-ui .q{display:flex;flex-direction:column;margin-top:12px}
+.scrub-ui .qi{display:flex;align-items:center;gap:8px;border-bottom:1px solid var(--hair);padding:8px 0;font:700 16px var(--f)}
+.scrub-ui .qi.active{border-bottom-color:var(--ink)}
+.scrub-ui .qi small{font:12px var(--m);color:var(--mute);font-weight:400;margin-left:auto}
+.scrub-ui .interlock{display:flex;gap:10px;align-items:center;padding:6px 0;border-bottom:1px solid var(--hair);font:13px var(--m)}
+.scrub-ui .lamp{width:14px;height:14px;border:1px solid var(--ink);flex:none}
+.scrub-ui .lamp.on{background:var(--green);border-color:var(--green)}
+.scrub-ui .lamp.warn{background:var(--amber);border-color:var(--amber)}
+.scrub-ui .lamp.bad{background:var(--red);border-color:var(--red)}
+.scrub-ui .statrow{display:flex;gap:24px;margin-bottom:16px}
+.scrub-ui .stat{flex:1;min-width:0;border-top:1px solid var(--hair);padding-top:6px}
+.scrub-ui .stat b{display:block;font:600 40px/1.1 var(--m)}
+.scrub-ui .stat span{font:700 11px var(--f);letter-spacing:.14em;text-transform:uppercase;color:var(--mute)}
+.scrub-ui .lat{display:flex;flex-direction:column;gap:8px;max-height:280px;overflow:auto}
+.scrub-ui .latrow{display:grid;grid-template-columns:minmax(90px,150px) 1fr 64px;gap:12px;align-items:center;font:13px var(--m)}
+.scrub-ui .latrow small{display:block;color:var(--mute);font-size:11px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.scrub-ui .bar{display:block;height:14px;background:var(--paper2);position:relative;grid-template-columns:none}
+.scrub-ui .bar i{display:block;height:100%;background:var(--ink)}
+.scrub-ui .bar i.over{background:var(--amber)}
+.scrub-ui .bar i.fail{background:var(--red)}
+.scrub-ui .bar::after{content:"";position:absolute;left:var(--tgt);top:-3px;bottom:-3px;width:2px;background:var(--ink)}
+.scrub-ui .log{font:13px/1.5 var(--m);max-height:300px;overflow:auto;display:flex;flex-direction:column;gap:0}
+.scrub-ui .log div{border-left:3px solid var(--hair);padding:3px 0 3px 10px;color:var(--mute)}
+.scrub-ui .log div.ok{border-color:var(--green);color:var(--ink)}
+.scrub-ui .log div.warn{border-color:var(--amber);color:var(--ink)}
+.scrub-ui .log div.bad{border-color:var(--red);color:var(--red)}
+.scrub-ui .log q{color:var(--cyan);quotes:none}
+.scrub-ui .fake{display:none}
+.scrub-ui .fake.on{display:block}
+@media(max-width:1000px){.scrub-ui main{grid-template-columns:minmax(0,1fr)}}
+@media(max-width:700px){
+  .scrub-ui header.masthead{flex-wrap:wrap;gap:8px 12px;padding:8px 16px}
+  .scrub-ui .logo{font-size:28px}
+  .scrub-ui .meta{order:3;flex-basis:100%}
+  .scrub-ui .pill{min-width:0;flex:1 1 0;white-space:normal;text-align:center;line-height:1.2;font-size:11px}
+  .scrub-ui .logo{flex:none}
+  .scrub-ui #stopBtn{min-width:110px;font-size:22px;margin-left:auto}
+  .scrub-ui main{padding:8px 16px 16px}
+  .scrub-ui .statrow{gap:12px}
+  .scrub-ui .stat b{font-size:30px}
+  .scrub-ui .armcams{grid-template-columns:minmax(0,1fr)}
+  .scrub-ui .latrow{grid-template-columns:minmax(80px,110px) 1fr 56px;gap:8px}
+}
+</style>
 </head>
-<body class="scrub-console" data-page="nurse">
-<header>
+<body class="scrub-ui" data-page="nurse">
+<header class="masthead">
   <div class="logo"><i id="link" title="WebSocket"></i>SCRUB</div>
   <div class="meta" id="meta">Connecting to the controller...</div>
   <div class="pill" id="pill">--</div>
   <button class="stopbtn" id="stopBtn" aria-label="Stop">STOP</button>
 </header>
-<div class="offline" id="offline">Controller not answering. Start it with <code>.venv/bin/python -m controller</code> and this page reconnects.</div>
+<div class="offline banner stale" id="offline">Controller not answering. Start it with <code>.venv/bin/python -m controller</code> and this page reconnects.</div>
+
+<p class="banner stop-banner" id="stopBanner" role="alert" hidden>Stopped. A person must reset the arm.</p>
 
 <main>
   <div class="col">
@@ -191,6 +305,8 @@ function track(ev){
 
 /* ---------- rendering ---------- */
 function renderHeader(){
+  $('stopBanner').hidden=!halted();
+  $('stopBanner').textContent=state&&state.step==='error'?'Arm frozen. A person must reset.':'Stopped. A person must reset the arm.';
   $('link').classList.toggle('on',online);
   $('offline').classList.toggle('on',!online);
   if(!state){$('pill').textContent='--';return}
@@ -372,20 +488,28 @@ async function pollPose(){
   el.innerHTML='Tip <b>'+(p.tip_m?p.tip_m.map(f).join(', ')+' m':'--')+'</b>'+(p.tip_px?' at px <b>'+p.tip_px.map(v=>Math.round(v)).join(', ')+'</b>':p.calibrated?'':' (no calibration)')+
     ', gripper <b>'+(p.gripper==null?'--':(p.gripper*100).toFixed(0)+'% closed')+'</b>, joints <b>'+p.joints_deg.map(v=>Math.round(v)).join(' / ')+'</b> deg';
 }
+const armWait={};
+const armRetry=(name,base)=>{armWait[name]=Math.min(120000,(armWait[name]||base/2)*2);setTimeout(()=>armCam(name),armWait[name])};
 async function armCam(name){
   const box=$('cam-'+name),im=box.querySelector('img'),msg=box.querySelector('span');
+  // The fake and sim arm have no cameras: say so once, check again rarely, and do not hit the 404.
+  if(state&&state.fake_arm){msg.textContent='No arm camera on this arm.';box.classList.remove('on');setTimeout(()=>armCam(name),30000);return}
   try{
     const r=await fetch('/arm/camera/'+name,{cache:'no-store'});
-    // 404: the arm has no cameras to share (fake arm, or none plugged in). Plain words, not the server's detail.
-    if(!r.ok){msg.textContent=r.status===404?'No arm camera on this arm.':'Arm camera not available right now.';box.classList.remove('on');setTimeout(()=>armCam(name),5000);return}
-    im.onerror=()=>{box.classList.remove('on');msg.textContent='stream dropped, retrying';setTimeout(()=>armCam(name),3000)};
-    im.src='/arm/stream/'+name;box.classList.add('on');
-  }catch(e){msg.textContent='controller not answering';setTimeout(()=>armCam(name),5000)}
+    // 404: the arm has no cameras to share (none plugged in). Plain words, not the server's detail. Back off after each miss.
+    if(!r.ok){msg.textContent=r.status===404?'No arm camera on this arm.':'Arm camera not available right now.';box.classList.remove('on');armRetry(name,5000);return}
+    im.onerror=()=>{box.classList.remove('on');msg.textContent='stream dropped, retrying';armRetry(name,3000)};
+    im.src='/arm/stream/'+name;box.classList.add('on');armWait[name]=0;
+  }catch(e){msg.textContent='controller not answering';armRetry(name,5000)}
 }
+// Tray camera from the vision process (?vision=http://host:8001 overrides). Back off while it is down: 10 s, 20 s ... 2 min.
 const img=$('camImg');
-img.onload=()=>$('cam').classList.add('on');
-img.onerror=()=>$('cam').classList.remove('on');
-img.src=location.protocol+'//'+location.hostname+':8001/stream';
+let camFails=0;
+const visionBase=()=>(new URLSearchParams(location.search).get('vision')||location.protocol+'//'+location.hostname+':8001').replace(/\/$/,'');
+const loadCam=()=>{img.src=visionBase()+'/stream'};
+img.onload=()=>{camFails=0;$('cam').classList.add('on')};
+img.onerror=()=>{$('cam').classList.remove('on');camFails++;setTimeout(loadCam,Math.min(120000,5000*2**camFails))};
+loadCam();
 
 boot();
 })();

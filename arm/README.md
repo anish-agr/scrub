@@ -44,29 +44,57 @@ the operator explicitly invokes `upload`; no dataset was inspected in setup.
 ```text
 python -m arm.dataset_check <local-export> [--cadence-report <cadence.json>]
 python -m arm.train pipeline <local-export> --cadence-report <cadence.json> --check-only
-python -m arm.train pipeline <local-export> --cadence-report <cadence.json> --repo-id <user>/scrub --revision <HF-commit> --idempotency-key scrub-run-1 --confirmed-replay --confirmed-hf-matches-local
+python -m arm.train pipeline <local-export> --cadence-report <cadence.json> --idempotency-key scrub-run-1 --confirmed-replay
+python -m arm.train pipeline <local-export> --cadence-report <cadence.json> --source hf --repo-id <user>/scrub --revision <40-char HF commit> --idempotency-key scrub-run-1 --confirmed-replay --confirmed-hf-matches-local
+python -m arm.datalog sync --root <local-export> [--lighting normal] [--dry-run]
 ```
 
-The first two commands are offline. `arm.dataset_check` runs only the local
-preflight below (default report `<root>-cadence.json`) and prints `NOT READY: <why>`
-with exit 1 on a failure. The second spends one training submission
-only after local checks, a ready dataset and completed service validation. Use
-an immutable HF commit when possible; publishing to HF is a separate step, and
-the operator must confirm that repo/revision contains this local export.
-No actual dataset was read or job submitted while implementing this command.
+The default source is a **direct upload** (`--source upload`): the pipeline
+registers `{"name", "source_kind": "upload"}`, reserves signed URLs, PUTs every
+file of the checked folder, re-hashes the folder and re-runs the local check, and
+only then finalizes. Any change (a recorder still saving, a new episode, an edited
+cadence file) stops it before finalize, so the bytes Perceptron trains on are the
+bytes that passed the check. No Hugging Face push, public repo or revision SHA is
+needed. `--source hf` is the option: it registers an already pushed public repo at
+a 40-character commit SHA (branches are refused) and needs
+`--confirmed-hf-matches-local`. Both sources then wait for the dataset to be
+`ready` and for `/validation` to pass, check `/v1/capabilities` allows the
+settings, and only then submit one job. The direct upload is offline-tested
+(mock API and signed-URL server); the reservation response shape
+(`files[].path/url/method/headers`) comes from the workshop notes, since the
+OpenAPI response schemas are empty. Keep the state file and `.env` outside the
+dataset folder (the pipeline refuses otherwise). Stop the recorder (Ctrl-C, which
+finalizes the LeRobot metadata) before any check or upload: while
+`explore/station/station.py` runs, `info.json` counts episodes whose metadata is
+still buffered, and the check fails with "Episode metadata count/indexes do not
+match info.json".
+
+Gates before any network call, in order: the local preflight below, then the
+episode QA from `explore/dataset/qa.py` (any FAIL blocks, also in `--check-only`;
+a person who has looked at a FAIL episode in `qa.html` can accept it with
+`--accept-qa-fail 1,5`, which is part of the run fingerprint), then
+`--confirmed-replay`. `--check-only` spends nothing and opens no client.
+
+`arm.datalog sync` appends one `docs/DATA-LOG.md` row per batch (consecutive
+episodes with the same task and lighting) from `meta/` and `<root>-cadence.json`
+only, never frames. Notes carry `<root name> ep A-B`, so a rerun adds only new
+episodes. Lighting is the cadence entry's `lighting` if present, else `--lighting`,
+else `unknown`.
 
 Local preflight checks LeRobot v2.0/v2.1/v3.0, fps=30, exactly side/wrist RGB
 640x480 metadata, six float32 joint names in contract order, >=2 episodes,
 episode lengths/counts, finite state/actions and gripper bounds, continuous
-frame indices/timestamps in parquet, and measured recording cadence for **every**
-episode. Media dimensions come from metadata; decode/replay and the service
+frame indices/timestamps in parquet, every episode's task is an exact
+`pick_instruction`/`return_instruction` from `settings/*.json`, and measured
+recording cadence for **every** episode: loop `measured_fps` and `camera_fps.side`
+and `camera_fps.wrist` all 29..31 (the station and `arm_ui` write these). Media dimensions come from metadata; decode/replay and the service
 validator remain mandatory. `pyarrow` is used for parquet, without loading LeRobot.
 
 Supply cadence evidence transcribed from recording's wall-clock cadence reports,
 not computed from frame-index timestamps. Format:
 
 ```json
-{"episodes": [{"episode_index": 0, "measured_fps": 29.88}, {"episode_index": 1, "measured_fps": 30.0}]}
+{"episodes": [{"episode_index": 0, "measured_fps": 29.88, "camera_fps": {"side": 29.9, "wrist": 29.7}}]}
 ```
 
 Each episode must measure 29..31 Hz. A dataset declaring 30 fps but recorded at
