@@ -83,6 +83,11 @@ body{padding:12px;display:flex;flex-direction:column;gap:12px;min-height:100vh}
       <div style="margin-bottom:8px">Preview: nothing is being recorded yet. Check both cameras, the tray and the arm.</div>
       <button id="b-start" style="width:100%;padding:14px;font-size:17px">Start recording<small>Enter in the terminal also works</small></button>
     </div>
+    <div id="parkbox" style="display:flex;gap:8px;margin-bottom:12px;flex-wrap:wrap">
+      <button id="b-home" data-p="home">Home + motors off<small>glides home, then torque off</small></button>
+      <button id="b-wake" data-p="wake">Motors on<small>holds, then follows the leader</small></button>
+      <span id="parkst" style="align-self:center;font-size:13px"></span>
+    </div>
     <div id="btns">
       <button id="b-next" data-a="next">Next episode<small>&rarr;</small></button>
       <button id="b-rerecord" class="warn" data-a="rerecord">Re-record<small>&larr;</small></button>
@@ -171,6 +176,9 @@ function render(s){
   const L=$("log"), stick=L.scrollTop+L.clientHeight>=L.scrollHeight-30;
   L.textContent=(s.log||[]).join("\n"); if(stick)L.scrollTop=L.scrollHeight;
   $("startbox").style.display=s.mode==="preview"?"block":"none";
+  const rec=s.phase==="recording"||s.phase==="saving";
+  $("b-home").disabled=rec||!!s.parked; $("b-wake").disabled=!s.parked;
+  $("parkst").textContent=s.parked?"Parked at home, motors OFF":rec?"Home is off while an episode records":"";
   $("b-next").firstChild.textContent=s.phase==="resetting"?"Start next episode":"Done: save episode";
   const show=s.mode==="record"&&(s.phase==="recording"||s.phase==="resetting");
   $("btns").style.display=show?"flex":"none";
@@ -204,6 +212,8 @@ async function poll(){
 setInterval(poll,250); poll();
 $("b-start").onclick=async()=>{const b=$("b-start");b.disabled=true;b.firstChild.textContent="Starting...";
   try{await fetch("/control",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({action:"start"})});}catch(e){}};
+document.querySelectorAll("#parkbox button").forEach(b=>b.onclick=async()=>{b.disabled=true;
+  try{await fetch("/control",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({action:b.dataset.p})});}catch(e){}});
 </script>
 </body>
 </html>

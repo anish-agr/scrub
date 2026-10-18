@@ -443,6 +443,13 @@ def control(action: str) -> bool:
 
 
 def _control(action: str) -> bool:
+    if action in ("home", "wake"):
+        if action == "home" and S["phase"] in ("recording", "saving"):
+            note("Home + motors off: not while an episode is recording (finish or re-record it first)")
+            return False
+        S["park_req"] = action
+        note("page: " + ("home + motors off" if action == "home" else "motors on"))
+        return True
     if action == "start" and S["mode"] == "preview":
         import os
         import signal
