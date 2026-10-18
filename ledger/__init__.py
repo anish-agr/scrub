@@ -394,8 +394,17 @@ def next_likely(events: list[dict]) -> dict | None:
     }
 
 
-def stats() -> dict:
-    """Success rate by item and by lighting, plus the median handoff time."""
+def _is_sim(row: dict) -> bool:
+    """True for a row the controller tagged `fake_arm` or `sim` (optional fields). Untagged rows count as real."""
+    return bool(row.get("fake_arm") or row.get("sim"))
+
+
+def stats(include_sim: bool = False) -> dict:
+    """Success rate by item and by lighting, plus the median handoff time.
+
+    Rows tagged `fake_arm` or `sim` are left out of the rates and medians unless
+    `include_sim`. The count (`out`) always reads every event: it is live state.
+    """
     empty = {
         "by_item": [],
         "by_lighting": [],
@@ -405,12 +414,16 @@ def stats() -> dict:
         "t": time.time(),
     }
     try:
-        events, tests = stored_rows()
+        all_events, all_tests = stored_rows()
+        events, tests = all_events, all_tests
+        if not include_sim:
+            events = [row for row in all_events if not _is_sim(row)]
+            tests = [row for row in all_tests if not _is_sim(row)]
         return {
             "by_item": _rate_rows(tests, events, "item"),
             "by_lighting": _rate_rows(tests, events, "lighting"),
             "median_request_to_hand_s": _median(_samples(tests, events)),
-            "out": _out(events),
+            "out": _out(all_events),
             "next_likely": next_likely(events),
             "t": time.time(),
         }
