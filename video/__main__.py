@@ -22,6 +22,12 @@ def parser():
     c.add_argument("--points", help="JSON [[TLx,TLy],[TRx,TRy],[BRx,BRy],[BLx,BLy]]")
     c.add_argument("--headless", action="store_true")
     c.add_argument("--accept-auto", action="store_true", help="explicitly accept unattended calibration (fixtures only recommended)")
+    ingest = sub.add_parser("ingest", help="index raw clips/photos, contact sheets and explicit clock sync")
+    ingest.add_argument("--sync", help="JSON keyed by asset basename: {start_time: epoch, kind: real|simulation}")
+    ingest.add_argument("--kind", choices=["real", "simulation", "reconstructed"])
+    ingest.add_argument("--clap-clip")
+    ingest.add_argument("--clap-ledger-time", type=float)
+    ingest.add_argument("--clap-second", type=float, help="omit for isolated audio-peak detection in first minute")
     return p
 
 
@@ -39,6 +45,9 @@ def main(argv=None):
             from .geometry import corners
             result = corners(ws, args.input, args.camera, args.width_mm, args.height_mm,
                 json.loads(args.points) if args.points else None, args.headless, args.accept_auto)
+        elif args.command == "ingest":
+            from .ingest import ingest
+            result = ingest(ws, args.sync, args.kind, args.clap_clip, args.clap_ledger_time, args.clap_second)
         else:
             raise ValueError("Unknown command")
         print(json.dumps(result, indent=2, allow_nan=False))
