@@ -4,7 +4,7 @@
 import { HOLD_S } from "./config.js";
 import { SETTING_IDS, settingAsked, switchSetting } from "./cases.js";
 import { followEvents, JUDGE_LINE, judgeMode, makeCommand, noteJudge, postCommand, postStop, type ScrubEvent } from "./controller.js";
-import { isEndCase, isStop, isTrayCheck, parse, parseAlias } from "./parse.js";
+import { countTurn, isEndCase, isStop, isTrayCheck, parse, parseAlias } from "./parse.js";
 import { currentSetting, forgetSetting, teach } from "./settings.js";
 import { canText, endCase, recordEvent } from "./summary.js";
 import { voiceTrayCheck } from "./tray.js";
@@ -55,13 +55,14 @@ export function startEvents() {
     let line = e.say;
     // "Scalpel down" call-out, if the controller didn't word one.
     if (!line && e.type === "set_down" && e.item) line = `${e.item.replace(/_/g, " ")} down`;
-    if (line) console.log(`[say] ${line}  (${e.type})`);
+    if (line) console.log(`[say] ${line}  (${e.type}${e.skill_source === "taught" ? ", taught skill" : ""})`);
     speak(line, true, e.command_id);
     open?.onEvent(e);
   });
 }
 
 export async function handleTurn(heard: string, say: Say, signal?: AbortSignal): Promise<void> {
+  countTurn();
   console.log(`[heard] ${heard}`);
   const done = new Promise<void>((resolve) => {
     let timer: NodeJS.Timeout | undefined;

@@ -14,6 +14,11 @@ const STEP_LABEL = {
 };
 
 let noticeUntil = 0;
+let lastSource = null;
+
+function sourceLabel(source) {
+  return source === "taught" ? "taught skill" : source === "model" ? "model" : "";
+}
 
 const NAMES = {
   scalpel: "scalpel",
@@ -33,10 +38,13 @@ function nameOf(itemId) {
 
 function paint(state) {
   const step = document.getElementById("step");
-  const label = STEP_LABEL[state.step] || state.step || "Idle";
-  step.textContent = label;
+  const stepName = STEP_LABEL[state.step] || state.step || "Idle";
+  step.textContent = stepName;
   step.className = state.step === "stopped" || state.step === "error" ? state.step : state.step && state.step !== "idle" ? "moving" : "";
-  document.getElementById("item").textContent = state.item ? nameOf(state.item) : "";
+  if (state.skill_source) lastSource = state.skill_source;
+  if (!state.item) lastSource = null;
+  const label = state.item ? sourceLabel(lastSource) : "";
+  document.getElementById("item").textContent = state.item ? nameOf(state.item) + (label ? ` · ${label}` : "") : "";
   const held = Array.isArray(state.out) ? state.out : [];
   document.getElementById("out").textContent = held.length ? held.map(nameOf).join(", ") : "Nothing out";
   if (Date.now() >= noticeUntil) document.getElementById("link").textContent = "live";
@@ -47,11 +55,24 @@ function notice(text) {
   noticeUntil = Date.now() + 2500;
 }
 
+async function recentSource() {
+  try {
+    const response = await fetch("/events/recent?n=12", { cache: "no-store", signal: AbortSignal.timeout(2000) });
+    const events = await response.json();
+    const found = events.filter((event) => event.skill_source).pop();
+    return found ? found.skill_source : null;
+  } catch (error) {
+    return null;
+  }
+}
+
 async function refresh() {
   try {
     const response = await fetch("/state", { cache: "no-store", signal: AbortSignal.timeout(3000) });
     if (!response.ok) throw new Error("down");
-    paint(await response.json());
+    const state = await response.json();
+    if (state.item && !state.skill_source) state.skill_source = await recentSource();
+    paint(state);
   } catch (error) {
     document.getElementById("link").textContent = "not connected";
   }

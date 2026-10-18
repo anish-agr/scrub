@@ -17,6 +17,7 @@ export interface ScrubEvent {
   case_id?: string | null;  // optional, "<setting>-<unix start seconds>"
   error?: string | null; code?: number | null;  // on `error` events: the arm model's status (401, 409, 503), optional
   reason?: string | null; judge?: boolean | null;  // every event carries judge (optional)
+  skill_source?: "model" | "taught" | null;  // on pick and return events (optional)
 }
 export interface State {
   step: string; out: string[]; setting: string; t: number;

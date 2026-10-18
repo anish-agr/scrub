@@ -75,6 +75,23 @@ ev("error", { command_id: "e", code: 401, say: "The arm's model key was refused.
 assert.equal(caseFacts().failed_requests, 1);
 assert.equal(caseFacts().stops, 1);
 
+// skill_source: no field at all means no source line; with it, handovers split by model and taught skill.
+assert.equal(caseFacts().handovers_by_source, null);
+assert.ok(!/by the model/.test(templateSummary(caseFacts())));
+newCase();
+ev("picked", { command_id: "m1", item: "hemostat", skill_source: "model" });
+ev("released", { command_id: "m1", item: "hemostat" });
+ev("picked", { command_id: "m2", item: "scalpel", skill_source: "model" });
+ev("released", { command_id: "m2", item: "scalpel" });
+ev("picked", { command_id: "t1", item: "mayo_scissors", skill_source: "taught" });
+ev("released", { command_id: "t1", item: "mayo_scissors", skill_source: "taught" });
+assert.deepEqual(caseFacts().handovers_by_source, { model: 2, taught: 1 });
+assert.match(templateSummary(caseFacts()), /3 handovers: 2 by the model, 1 by a taught skill/);
+newCase();
+ev("released", { command_id: "t2", item: "hemostat", skill_source: "taught" });
+assert.match(templateSummary(caseFacts()), /1 handover: 0 by the model, 1 by a taught skill/);
+newCase();
+
 // Texts in (F3): fake message stream, fake controller state, local parse only (never Gemini or Photon).
 const surgical: Setting = { id: "surgical", label: "Operating room", items: [
   { id: "scalpel", name: "scalpel", aliases: ["knife"], sharp: true },
@@ -511,7 +528,14 @@ try {
   judgeOn = false;
 
   const health = await (await fetch(`${base}/health`)).json();
-  assert.deepEqual(health, { ok: true, keys: { gemini: false, photon: false, llm_secret: false }, controller: true });
+  assert.equal(health.ok, true);
+  assert.deepEqual(health.keys, { gemini: false, photon: false, llm_secret: false });
+  assert.equal(health.controller, true);
+  assert.match(health.controller_url, /^http:\/\/(localhost|127\.0\.0\.1):\d+$/);
+  assert.ok(health.turns > 0, "turns counted");
+  assert.equal(health.gemini_ms, null);  // no key: Gemini never ran
+  assert.equal(health.gemini_p50_ms, null);
+  assert.equal((await fetch(`${base}/health`)).headers.get("access-control-allow-origin"), "*");
 } finally {
   child.kill();
   wss.close();

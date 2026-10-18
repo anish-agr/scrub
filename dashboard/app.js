@@ -49,6 +49,7 @@ const model = {
   live: false,
   step: "idle",
   item: null,
+  source: null,
   queue: [],
   out: [],
   setting: "surgical",
@@ -82,6 +83,19 @@ function clock(t) {
   return date.toLocaleTimeString([], { hour12: false });
 }
 
+function sourceLabel(source) {
+  return source === "taught" ? "taught skill" : source === "model" ? "model" : "";
+}
+
+function sourceTag(source) {
+  const label = sourceLabel(source);
+  if (!label) return null;
+  const tag = document.createElement("span");
+  tag.className = source === "taught" ? "info" : "mute";
+  tag.textContent = label;
+  return tag;
+}
+
 function eventKey(event) {
   return [event.type, event.item, event.step, event.t].join("|");
 }
@@ -95,6 +109,8 @@ function render() {
 
   const itemLine = $("step-item");
   itemLine.textContent = model.item ? nameOf(model.item) : "";
+  const stepTag = model.item ? sourceTag(model.source) : null;
+  if (stepTag) itemLine.append(" · ", stepTag);
 
   $("hand-seen").textContent = model.handSeen == null ? "--" : model.handSeen ? "seen" : "lost";
   $("queue").textContent = String(model.queue.length);
@@ -150,6 +166,8 @@ function render() {
     }
     detail.textContent = bits.join(" · ");
     if (event.say) detail.classList.add("say");
+    const tag = sourceTag(event.skill_source);
+    if (tag) detail.append(bits.length ? " · " : "", tag);
     li.append(time, kind, detail);
     log.appendChild(li);
   });
@@ -237,8 +255,12 @@ function pushEvent(event) {
   model.events.push(event);
   if (model.events.length > 80) model.events.shift();
   if (event.step) model.step = event.step;
+  if (event.skill_source) model.source = event.skill_source;
   if (event.item) model.item = event.item;
-  else if (event.type === "step" && (event.step === "idle" || event.step === "homing")) model.item = null;
+  else if (event.type === "step" && (event.step === "idle" || event.step === "homing")) {
+    model.item = null;
+    model.source = null;
+  }
   if (event.request_to_hand_s != null) {
     const seconds = Number(event.request_to_hand_s);
     if (!Number.isNaN(seconds)) model.handoff = seconds;
