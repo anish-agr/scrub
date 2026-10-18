@@ -17,32 +17,35 @@ from .perceptron import APIError
 from .pipeline import run_pipeline
 from . import upload_dataset
 
-QA_CLEAN = {"episodes": 2, "pass": [0, 1], "warn": [], "fail": {}}
+N = 10  # local_check needs at least 10 episodes per task
+QA_CLEAN = {"episodes": N, "pass": list(range(N)), "warn": [], "fail": {}}
+VIDEO_CLEAN = {"episodes": N, "unreadable": {}, "dark": []}
+REST = [0., -100., 90., 0., 0., 50.]  # degrees: shoulder_lift rests near -100
 
 
-def fixture(root, version="v2.1"):
+def fixture(root, version="v2.1", n=N, task="pick the hemostat"):
     (root / "meta").mkdir()
     (root / "data/chunk-000").mkdir(parents=True)
     features = {name: {"dtype": "float32", "shape": [6], "names": list(FEATURES)}
                 for name in ("observation.state", "action")}
     features.update({"observation.images." + name: {"dtype": "video", "shape": [480, 640, 3]}
                      for name in ("side", "wrist")})
-    info = {"codebase_version": version, "fps": 30, "total_episodes": 2, "total_frames": 6,
+    info = {"codebase_version": version, "fps": 30, "total_episodes": n, "total_frames": 3 * n,
             "features": features}
     (root / "meta/info.json").write_text(json.dumps(info))
-    episodes = [{"episode_index": i, "length": 3, "tasks": ["pick the hemostat"]} for i in range(2)]
+    episodes = [{"episode_index": i, "length": 3, "tasks": [task]} for i in range(n)]
     if version.startswith("v2"):
         (root / "meta/episodes.jsonl").write_text("\n".join(json.dumps(e) for e in episodes))
     else:
         (root / "meta/episodes/chunk-000").mkdir(parents=True)
         pq.write_table(pa.Table.from_pylist(episodes), root / "meta/episodes/chunk-000/file-000.parquet")
     rows = [{"episode_index": i, "frame_index": j, "timestamp": j / 30,
-             "observation.state": [0.] * 5 + [50.], "action": [0.] * 5 + [50.]}
-            for i in range(2) for j in range(3)]
+             "observation.state": REST, "action": REST}
+            for i in range(n) for j in range(3)]
     pq.write_table(pa.Table.from_pylist(rows), root / "data/chunk-000/file-000.parquet")
     cadence = root / "cadence.json"
-    cadence.write_text(json.dumps({"episodes": [{"episode_index": i, "measured_fps": 29.88,
-                                                  "camera_fps": {"side": 29.9, "wrist": 29.7}} for i in range(2)]}))
+    cadence.write_text(json.dumps({"episodes": [{"episode_index": i, "measured_fps": 29.88, "use_degrees": True,
+                                                  "camera_fps": {"side": 29.9, "wrist": 29.7}} for i in range(n)]}))
     return cadence
 
 
@@ -61,7 +64,8 @@ class PipelineTests(unittest.TestCase):
                                     steps=1000, interval=.01, timeout=1)
         self.api = Mock()
         self.api.capabilities.return_value = {"backends": {"standard": ["expert_only"]}, "action_horizons": [30],
-                                              "rtc": [False, True], "steps": [1000], "ready_for_training": True}
+                                              "rtc": [False, True], "steps": [1000], "ready_for_training": True,
+                                              "quotas": {"successful_jobs_per_team": 5}}
         self.api.register_dataset.return_value = {"id": "ds-test"}
         self.api.dataset.return_value = {"status": "ready"}
         self.api.validation.return_value = {"status": "passed", "errors": []}
@@ -76,9 +80,11 @@ class PipelineTests(unittest.TestCase):
         self.api.contract.return_value = {"contract_id": "contract-test"}
         self.factory = Mock(return_value=self.api)
         self.qa = Mock(return_value=QA_CLEAN)
+        self.qa_video = Mock(return_value=VIDEO_CLEAN)
 
     def run_pipeline(self, **kwargs):
-        return run_pipeline(self.args, api_factory=self.factory, emit=lambda value: None, qa=self.qa, **kwargs)
+        return run_pipeline(self.args, api_factory=self.factory, emit=lambda value: None, qa=self.qa,
+                            qa_video=self.qa_video, sleep=lambda seconds: None, **kwargs)
 
     def change_info(self, mutate):
         path = self.root / "meta/info.json"
@@ -103,7 +109,7 @@ class PipelineTests(unittest.TestCase):
     def test_check_only_never_constructs_api_or_writes_env(self):
         self.args.check_only = True
         report = self.run_pipeline()
-        self.assertEqual(report["episodes"], 2)
+        self.assertEqual(report["episodes"], N)
         self.factory.assert_not_called()
         self.assertFalse(self.args.env_file.exists())
 
@@ -169,7 +175,7 @@ class PipelineTests(unittest.TestCase):
     def test_task_must_be_an_exact_settings_instruction(self):
         path = self.root / "meta/episodes.jsonl"
         for task in ("pick the spatula", "pick up the hemostat"):
-            path.write_text("\n".join(json.dumps({"episode_index": i, "length": 3, "tasks": [task]}) for i in range(2)))
+            path.write_text("\n".join(json.dumps({"episode_index": i, "length": 3, "tasks": [task]}) for i in range(N)))
             with self.assertRaisesRegex(ValueError, "not an exact"):
                 self.run_pipeline()
         self.factory.assert_not_called()
@@ -188,7 +194,7 @@ class PipelineTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
             cadence = fixture(root, "v3.0")
-            self.assertEqual(local_check(root, cadence)["frames"], 6)
+            self.assertEqual(local_check(root, cadence)["frames"], 3 * N)
 
     def test_missing_data_frames_fail(self):
         path = self.root / "data/chunk-000/file-000.parquet"
@@ -291,11 +297,12 @@ class QAGateTests(unittest.TestCase):
                                     accept_qa_fail="", source="upload", confirmed_replay=True)
         self.factory = Mock()
 
-    def run_pipeline(self, verdict):
-        return run_pipeline(self.args, api_factory=self.factory, emit=lambda value: None, qa=lambda root: verdict)
+    def run_pipeline(self, verdict, video=VIDEO_CLEAN):
+        return run_pipeline(self.args, api_factory=self.factory, emit=lambda value: None, qa=lambda root: verdict,
+                            qa_video=lambda root: video)
 
     def test_qa_fail_blocks_check_only_and_submission_before_network(self):
-        failing = {"episodes": 2, "pass": [0], "warn": [], "fail": {1: "frozen"}}
+        failing = {"episodes": N, "pass": [0], "warn": [], "fail": {1: "frozen"}}
         for check_only in (True, False):
             self.args.check_only = check_only
             with self.assertRaisesRegex(ValueError, r"QA FAIL on episodes \[1\].*--accept-qa-fail 1"):
@@ -305,12 +312,27 @@ class QAGateTests(unittest.TestCase):
     def test_reviewed_fail_can_be_accepted_explicitly(self):
         self.args.check_only = True
         self.args.accept_qa_fail = "1"
-        self.assertEqual(self.run_pipeline({"episodes": 2, "pass": [0], "warn": [], "fail": {1: "frozen"}})["episodes"], 2)
+        self.assertEqual(self.run_pipeline({"episodes": N, "pass": [0], "warn": [], "fail": {1: "frozen"}})["episodes"], N)
 
     def test_qa_must_cover_every_episode(self):
         self.args.check_only = True
-        with self.assertRaisesRegex(ValueError, "QA read 1 of 2"):
+        with self.assertRaisesRegex(ValueError, "QA read 1 of 10"):
             self.run_pipeline({"episodes": 1, "pass": [0], "warn": [], "fail": {}})
+
+    def test_qa_crash_is_a_fail_reason_not_a_crash(self):
+        self.args.check_only = True
+        def crash(root):
+            raise SystemExit("no readable parquet files")
+        with self.assertRaisesRegex(ValueError, "PREFLIGHT FAIL.*qa raised SystemExit"):
+            run_pipeline(self.args, api_factory=self.factory, emit=lambda value: None, qa=crash,
+                         qa_video=lambda root: VIDEO_CLEAN)
+        self.factory.assert_not_called()
+
+    def test_unreadable_video_blocks_upload(self):
+        self.args.check_only = False
+        with self.assertRaisesRegex(ValueError, r"unreadable video on episodes \[3\]"):
+            self.run_pipeline(QA_CLEAN, {"episodes": N, "unreadable": {3: "wrist: video unreadable"}, "dark": []})
+        self.factory.assert_not_called()
 
 
 if __name__ == "__main__":
