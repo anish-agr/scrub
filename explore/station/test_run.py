@@ -236,3 +236,19 @@ def test_camera_hang_restart_rule(monkeypatch):
     monkeypatch.setattr(STN.A, "find_camera", lambda spec: 1)
     s._camera_restart_check()
     assert s.restart_requested and s.stop_evt.is_set()
+
+
+def test_reconnect_restarts_after_parking():
+    import threading
+    import station as STN
+    s = STN.Station.__new__(STN.Station)
+    s.note = lambda m: None
+    s.state, s.saving, s.auto, s.restart_requested, s.stop_evt = "parked", False, None, False, threading.Event()
+    s.down, s.down_since, s._restart_hint = set(), {}, 0.0
+    ok, msg = s._dispatch("restart", None, {})
+    assert ok
+    s._restart_pending_check()
+    assert s.restart_requested and s.stop_evt.is_set()
+    s2 = STN.Station.__new__(STN.Station)
+    s2.state, s2.saving, s2.auto = "recording", False, None
+    assert not s2._dispatch("restart", None, {})[0]

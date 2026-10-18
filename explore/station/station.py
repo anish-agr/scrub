@@ -642,6 +642,15 @@ class Station:
             if self.state != "running" or self.auto is None or not callable(getattr(self.auto, "answer", None)):
                 return False, "which one: no active question"
             return self.auto.answer(self, payload.get("question_id"), payload.get("side"))
+        if action == "restart":  # the page's Reconnect: park if needed, save, start fresh (cameras + arms)
+            if self.state == "recording" or self.saving:
+                return False, "reconnect: not while recording or saving (save or discard first)"
+            if self.auto is not None:
+                self._auto_finish("stopped", then="home")
+            elif self.state == "idle":
+                self._dispatch("home", None, {})
+            self.restart_pending = True
+            return True, "reconnecting: parking, saving, restarting the station (about 15 s)"
         if action == "release":  # "let go" (voice or the page): open at the offer
             if self.state != "running" or self.auto is None or not callable(getattr(self.auto, "release", None)):
                 return False, "let go: nothing is being held out"
@@ -1107,7 +1116,15 @@ class Station:
             except Exception as e:  # noqa: BLE001 - the station never dies from one bad tick
                 self.note(f"tick error: {type(e).__name__}: {e}")
             self._camera_restart_check()
+            self._restart_pending_check()
             precise_sleep(max(1 / self.fps - (time.perf_counter() - t0), 0.0))
+
+    def _restart_pending_check(self) -> None:
+        if getattr(self, "restart_pending", False) and not self.restart_requested and \
+                self.state in ("off", "parked", "error", "killed") and not self.saving and self.auto is None:
+            self.note("reconnect: restarting the station now")
+            self.restart_requested = True
+            self.stop_evt.set()
 
     def _camera_restart_check(self) -> None:
         """A hung camera (macOS) often only comes back when the process holding it exits; reopening it in

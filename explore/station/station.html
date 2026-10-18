@@ -107,7 +107,7 @@ select,#r-args{font:500 15px var(--m);background:var(--paper2);color:var(--ink);
 #b-kill{background:var(--red);color:#fff;border:3px solid #fff;font:900 34px var(--f);letter-spacing:.1em;padding:22px 10px}
 #b-kill small{color:#fff;opacity:.85}
 .pair{display:grid;grid-template-columns:1fr 1fr;gap:8px}
-#b-reconnect{background:var(--amber);color:#111;border-color:var(--amber)}
+#b-reconnect.urgent{background:var(--amber);color:#111;border-color:var(--amber)}
 #temps{display:grid;grid-template-columns:repeat(3,1fr);gap:4px}
 .t{font:500 11px var(--m);color:var(--mute);padding:4px 6px;border:1px solid var(--hair)}
 .t b{display:block;font:600 17px var(--m);color:var(--green)}
@@ -208,7 +208,7 @@ kbd{border:1px solid var(--hair);padding:0 4px;font:inherit}
       <button id="b-wake">Motors on<small>holds, then follows</small></button>
       <button id="b-home">Home<small>glide home, motors off</small></button>
     </div>
-    <button id="b-reconnect" hidden>Reconnect arms<small>after a USB or power drop</small></button>
+    <button id="b-reconnect">Reconnect<small>cameras + arms: parks, saves, restarts (~15 s)</small></button>
     <div><h2>Motors °C</h2><div id="temps"></div></div>
     <details id="d-joints"><summary>Joints</summary><div id="joints"></div></details>
     <details id="d-log"><summary>Log</summary><div id="log"></div></details>
@@ -365,7 +365,8 @@ function render(s){
 
   $("b-home").disabled=!["idle","running"].includes(s.state);
   $("b-wake").disabled=!(["parked","homing","killed","off"].includes(s.state)||(s.killed&&s.state!=="cooling"));
-  $("b-reconnect").hidden=s.state!=="error";
+  $("b-reconnect").disabled=s.state==="recording"||!!s.saving;
+  $("b-reconnect").classList.toggle("urgent",s.state==="error"||Object.values(s.cameras||{}).some(c=>c.down));
   $("temps").replaceChildren(...M.map(m=>{const t=(s.temps||{})[m], d=el("div","t "+(t==null?"":t>=60?"red":t>=55?"amber":""),SHORT[m]);
     d.append(el("b",null,t==null?"--":String(t)));return d;}));
   const j=s.joints||{};
@@ -389,7 +390,7 @@ $("b-discard").onclick=()=>send("discard");
 $("b-kill").onclick=()=>send("kill");
 $("b-home").onclick=()=>send("home");
 $("b-wake").onclick=()=>send("wake");
-$("b-reconnect").onclick=()=>send("reconnect");
+$("b-reconnect").onclick=()=>send("restart");
 $("b-qaack").onclick=()=>send("qa_ack");
 $("r-driver").onchange=driverFields;
 $("b-run").onclick=()=>{
