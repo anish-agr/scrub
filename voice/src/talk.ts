@@ -135,11 +135,21 @@ if (!Rec) {
 } else {
   rec = new Rec();
   rec.lang = "en-US"; rec.interimResults = true; rec.continuous = true;
+  // A clear command goes the moment its words appear (no ~1 s wait for the browser to decide the phrase is
+  // over); the same phrase's final result is then skipped. Anything else waits for the final result.
+  const CLEAR = /\\b(stop|freeze|kill|continue|resume|keep going|return (to )?home|go home|let go|let it go|drop it|got it|release|(get|grab|hand|give|pass)( me)? (the |a )?\\w+|kelly|clamp|hemostat|scalpel|knife|scissors)\\b/i;
+  const sentFast = new Set();
   rec.onresult = (e) => {
     for (let i = e.resultIndex; i < e.results.length; i++) {
-      const r = e.results[i];
-      if (r.isFinal) send(r[0].transcript);   // each finished phrase goes to Scrub right away
-      else note("Hearing: " + r[0].transcript);
+      const r = e.results[i], text = r[0].transcript;
+      if (r.isFinal) {
+        if (sentFast.has(i)) sentFast.delete(i); else send(text);
+      } else {
+        note("Hearing: " + text);
+        if (!sentFast.has(i) && CLEAR.test(text) && /\\b(stop|freeze|let go|let it go|drop it|got it|release|kelly|clamp|hemostat|scalpel|knife|scissors|kill|continue|resume|keep going|home)\\b/i.test(text)) {
+          sentFast.add(i); send(text);
+        }
+      }
     }
   };
   rec.onerror = (e) => {

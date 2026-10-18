@@ -3,6 +3,7 @@
 // but only the last 2 and only if they are under 10 s old (a dashboard or smoke run left 20 lines for the next caller).
 import { HOLD_S } from "./config.js";
 import { SETTING_IDS, settingAsked, switchSetting } from "./cases.js";
+import { stationOn, stationPhrase } from "./station.js";
 import { followEvents, getStats, JUDGE_LINE, judgeMode, makeCommand, noteJudge, postCommand, postStop, type ScrubEvent } from "./controller.js";
 import { countTurn, isEndCase, isLetGo, isStop, isTrayCheck, parse, parseAlias } from "./parse.js";
 import { currentSetting, forgetSetting, teach } from "./settings.js";
@@ -136,15 +137,27 @@ export async function handleTurn(heard: string, sayTo: Say, signal?: AbortSignal
   return done;
 }
 
+async function stationWords(heard: string, hold: Hold, clock: Clock): Promise<boolean> {
+  const sent = posting(clock);
+  const r = await stationPhrase(heard);
+  if (!r) return false;
+  clock.tm.controller_ms = Date.now() - sent;
+  console.log(`[station] "${heard}": ${r.msg}`);
+  speak(r.say, true);
+  hold([], 0.05);
+  return true;
+}
+
 // POST /stop: skips the controller's queue and is always accepted. Nothing awaits Gemini, settings or state first.
 async function stopNow(hold: Hold, clock: Clock) {
   const sent = posting(clock);
-  const stopping = io.postStop().catch(() => io.postStop());
+  const stopping = io.postStop().catch(() => io.postStop()).catch(() => ({ accepted: false, station: false }));
   dialogue.clear(undefined, "stop"); // dispatch the safety POST before starting any telemetry work
   await stopping;
   clock.tm.controller_ms = Date.now() - sent;  // one retry: a dropped connection must not lose a stop
   console.log("[command] stop (POST /stop)");
   flushPending();
+  if ((await stopping).station) { speak("Stopped.", true); hold([], 0.05); return; }  // station: no controller events
   hold(DONE.stop, 1.5);
 }
 
@@ -157,6 +170,7 @@ async function letGoNow(heard: string, hold: Hold, clock: Clock) {
   clock.tm.controller_ms = Date.now() - sent;
   speak(reply.say, true, cmd.id);
   if (!reply.accepted) console.log(`[command] rejected: ${reply.reason}`);
+  if (reply.station) { hold([], 0.05, cmd.id); return; }  // the station did it: nothing more to wait for
   hold(reply.accepted ? DONE.let_go : [], reply.accepted ? HOLD_S : 1, cmd.id);
 }
 
@@ -167,7 +181,12 @@ const posting = ({ tm, t0 }: Clock) => { const now = Date.now(); tm.heard_to_com
 async function run(heard: string, clock: Clock, hold: Hold, context: string, signal?: AbortSignal) {
   const say = (line: string) => speak(line, false, undefined, context);
   // Stop first, before Gemini or anything else that takes time.
+  if (stationOn() && /\bkill\b/i.test(heard)) { clock.tm.parser = "local"; return stationWords(heard, hold, clock); }
   if (isStop(heard)) { clock.tm.parser = "local"; return stopNow(hold, clock); }
+  if (stationOn()) {  // kill / return to home / continue go straight to the station's arm
+    const done = await stationWords(heard, hold, clock);
+    if (done) return;
+  }
   if (isLetGo(heard)) { clock.tm.parser = "local"; return letGoNow(heard, hold, clock); }
   dialogue.bind(context, (line) => speak(line, false, undefined, context));
   const version = dialogue.version();
@@ -241,6 +260,7 @@ async function run(heard: string, clock: Clock, hold: Hold, context: string, sig
   // HTTP-only refusals (for example "already out") must also reach the caller. Event duplicates are suppressed.
   speak(reply.say, true, cmd.id, context);
   if (!reply.accepted) console.log(`[command] rejected: ${reply.reason}`);
+  if (reply.station) { hold([], 0.05, cmd.id); return; }  // the station did it: nothing more to wait for
   hold(reply.accepted ? DONE[cmd.action] : [], reply.accepted && DONE[cmd.action].length ? HOLD_FOR[cmd.action] ?? HOLD_S : 1, cmd.id);
 }
 

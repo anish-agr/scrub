@@ -651,6 +651,12 @@ class Station:
                 self._dispatch("home", None, {})
             self.restart_pending = True
             return True, "reconnecting: parking, saving, restarting the station (about 15 s)"
+        if action in ("pause", "resume"):  # voice "stop" freezes the run where it is; "continue" goes on
+            fn = getattr(self.auto, action, None) if self.state == "running" and self.auto is not None else None
+            if not callable(fn):
+                return False, f"{action}: nothing is running"
+            fn()
+            return True, "frozen where it is" if action == "pause" else "continuing"
         if action == "release":  # "let go" (voice or the page): open at the offer
             if self.state != "running" or self.auto is None or not callable(getattr(self.auto, "release", None)):
                 return False, "let go: nothing is being held out"

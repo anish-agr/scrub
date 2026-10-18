@@ -35,7 +35,7 @@ const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 // What the station did, as a short line for the log; never throws.
 export async function stationCommand(c: Command, p: Post = post, get: Get = status, waitMs = 6000): Promise<string> {
   try {
-    if (c.action === "stop") return (await p("stop")).msg;
+    if (c.action === "stop") return (await p("pause")).msg;  // freeze where it is; "continue" resumes
     if (c.action === "got_it" || c.action === "let_go") return (await p("release")).msg;
     if (c.action !== "handover" || !c.item) return "not a station command";
     let s = await get();
@@ -55,6 +55,36 @@ export async function stationCommand(c: Command, p: Post = post, get: Get = stat
   } catch (e) {
     return `station unreachable (${(e as Error).message})`;
   }
+}
+
+// Fast path for the spoken reply: stop / let go are quick station calls (awaited); a handover only checks the
+// station isn't busy (one local GET), then wakes + starts the run in the background so Scrub answers at once.
+export async function stationFast(c: Command, p: Post = post, get: Get = status,
+  later: (m: string) => void = () => {}): Promise<string> {
+  if (c.action !== "handover") return stationCommand(c, p, get);
+  try {
+    const s = await get();
+    if (s.state === "running") return "busy: a run is already going";
+  } catch (e) {
+    return `station unreachable (${(e as Error).message})`;
+  }
+  stationCommand(c, p, get).then(later);
+  return "starting";
+}
+
+// Arm control words besides stop: kill (motors off now), return to home (home, motors off), continue (resume a
+// frozen run). Checked before any parsing. Returns the spoken line, or null when the words aren't one of these.
+const KILL = /\b(kill( it| the (arm|motors?))?|power off|motors off|turn (it|the arm) off)\b/i;
+const HOME = /\b(return (to )?home|go (back )?home|back (to )?home|home position)\b/i;
+const CONTINUE = /\b(continue|resume|keep going|carry on|go on|go ahead)\b/i;
+export async function stationPhrase(heard: string, p: Post = post): Promise<{ say: string; msg: string } | null> {
+  const want = KILL.test(heard) ? "kill" : HOME.test(heard) ? "home" : CONTINUE.test(heard) ? "resume" : null;
+  if (!want) return null;
+  let msg: string;
+  try { msg = (await p(want)).msg || ""; } catch (e) { return { say: "I can't reach the arm.", msg: String(e) }; }
+  const ok = !/nothing is running|not while|refused|unknown/i.test(msg);
+  const say = want === "kill" ? "Motors off." : want === "home" ? "Going home." : ok ? "Continuing." : "Nothing to continue.";
+  return { say, msg };
 }
 
 export const stationOn = () => Boolean(STATION_URL);
