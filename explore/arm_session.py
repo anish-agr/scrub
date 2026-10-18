@@ -46,7 +46,9 @@ CAM_STALL_MS = 2000  # LeRobot stops the whole session if a camera frame is over
                      # we accept up to this, then mark the camera down and keep reconnecting
 GRIP_STALL_S = 0.3   # closing but not moving this long: something is in the jaws
 GRIP_MOVE = 1.0      # gripper units (0 closed .. 100 open) that count as still moving
-GRIP_SQUEEZE = 3.0   # how far past the contact point to keep pressing, for a firm grip
+GRIP_SQUEEZE = 1.5   # how far past the contact point to keep pressing. 3.0 kept the claw stalled
+                     # against LeRobot's 50% current limit until it tripped overload (Oct 17 crash)
+GRIP_BACKOFF = 4.0   # on an overload reply, open this much per loop until the servo stops reporting it
 
 
 DROP_TARGET = [None, False]  # camera index for the SCRUB_DROP_CAMERA drill, done flag
@@ -174,7 +176,19 @@ def guard_gripper() -> None:
         goal = action.get("gripper.pos")
         if goal is None:
             return send(self, action)
-        pos = self.bus.read("Present_Position", "gripper")
+        try:
+            pos = self.bus.read("Present_Position", "gripper")
+        except RuntimeError as e:
+            if "Overload" not in str(e):
+                raise
+            # The servo tripped overload protection: it flags every reply until the load drops.
+            # Open a little each loop instead of letting LeRobot's exception end the session.
+            base = st["hold"] if st["hold"] is not None else st.get("pos", goal)
+            st["hold"], st["ref"] = min(100.0, base + GRIP_BACKOFF), None
+            print(f"gripper guard: overload, easing to {st['hold']:.0f}", flush=True)
+            _guard_ui(True, round(st["hold"]))
+            return send(self, {**action, "gripper.pos": max(goal, st["hold"])})
+        st["pos"] = pos
         now = time.perf_counter()
         if st["hold"] is not None:
             if goal >= st["hold"] + GRIP_SQUEEZE:  # leader opened past the contact point: let go
