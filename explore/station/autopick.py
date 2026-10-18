@@ -1107,10 +1107,12 @@ class Calibrate:
         pose = {k: self.frm[k] + (to[k] - self.frm[k]) * f for k in to}
         self.progress = self.i / len(self.stops)
         self.phase, self.detail = "calibrate", f"stop {self.i + 1}/{len(self.stops)}, {len(self.samples)} tape sightings"
-        if cap and el >= self.dur + CAL_SETTLE_S:
+        if cap and el >= self.dur and not hasattr(self, "_shot") and not self._settled(st, now, el):
+            pass  # the station's gentle speed limit makes real moves slower than planned: wait for the arm to stop
+        elif cap and el >= self.dur:
             # find-myself wiggle: frame closed, open the jaw, frame open, close again
             # closed, open, closed, open: frames taken 0.35 s into each 0.7 s half (jaw moved and settled)
-            w = el - self.dur - CAL_SETTLE_S
+            w = el - self.dur
             if not hasattr(self, "_shot"):
                 self._shot = {"closed": self.ap._frame(st), "joints": {m: float(st.joints[m]) for m in JOINTS}}
             half, k = 0.7, int(w // 0.7)
@@ -1131,6 +1133,20 @@ class Calibrate:
         elif not cap and el >= self.dur:
             self.cur, self.i, self.t0 = dict(to), self.i + 1, None
         return {f"{k}.pos": float(v) for k, v in pose.items()}
+
+    def _settled(self, st, now, el) -> bool:
+        """True once the joints have stopped moving (< 0.4 deg over 0.4 s), or after 3 s more."""
+        here = np.array([float(st.joints[m]) for m in JOINTS])
+        hist = self.__dict__.setdefault("_settle_hist", [])
+        hist.append((now, here))
+        while hist and now - hist[0][0] > 0.4:
+            hist.pop(0)
+        still = len(hist) >= 6 and float(np.abs(hist[-1][1] - hist[0][1]).max()) < 0.4 and now - hist[0][0] >= 0.3
+        if still or el >= self.dur + 3.0:
+            hist.clear()
+            self.dur = el  # the wiggle timeline starts from now
+            return True
+        return False
 
     def _capture(self, st, xyz, shot):
         c, o = shot.get("closed"), shot.get("open")

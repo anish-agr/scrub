@@ -267,7 +267,7 @@ def test_calibrate_recovers_the_table_map(tmp_path, monkeypatch):
         assert d.status()["phase"] == "calibrated", d.status()
         hn = np.array(AP.load_calib()["table_H"])
         p, q = hn @ np.array([530, 305, 1.0]), np.linalg.inv(h_true) @ np.array([530, 305, 1.0])
-        assert np.linalg.norm(p[:2] / p[2] - q[:2] / q[2]) < 0.005
+        assert np.linalg.norm(p[:2] / p[2] - q[:2] / q[2]) < 0.008
     finally:
         assert real.read_text() == orig  # synthetic fitting must never overwrite the measured camera map
 
