@@ -238,7 +238,7 @@ def _when(event: dict) -> float:
 
 
 def _median(values: list[float]) -> float | None:
-    nums = sorted(value for value in values if isinstance(value, (int, float)))
+    nums = sorted(number for number in (_num(value) for value in values) if number is not None)
     if not nums:
         return None
     mid = len(nums) // 2

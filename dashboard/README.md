@@ -17,3 +17,14 @@ python -m controller --fake-arm
 Then open http://localhost:8000/. A handover command (a button on the page, or `POST /command`) moves the step, the event log, what's out, and the handoff time. The results tables load from `GET /stats`, which should return `ledger.stats()` unchanged.
 
 Done when: a fake-arm handover shows live, and a judge can follow a whole request on it.
+
+## Tested
+
+Saturday Oct 17, with `python -m controller --fake-arm` and `python -m vision --fake` already up.
+
+- Dashboard at http://127.0.0.1:8000/, desktop and a 390px phone width. No horizontal overflow. The picker lists Operating room and Robotics bench. Dental stays in `settings/dental.json` and is not in the picker. The page showed Idle, hemostat out, the handoff seconds, and the success table. No console errors.
+- Count from the page appended a count line to the log.
+- Closing the event socket changed the pill to "reconnecting". About a second later it was "live" again on a new socket.
+- A bad `GET /stats` body and an empty body did not throw. The empty body shows "No measured trials yet" and hides the table headers.
+- Tablet at http://127.0.0.1:8000/tablet.html on a 390px width. Stop stays on screen. Reset and Stop span the width. No console errors.
+- `settings/surgical.json`, `settings/bench.json`, and `settings/dental.json` parse. Only the scalpel is sharp.

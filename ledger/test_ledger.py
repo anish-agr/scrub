@@ -72,6 +72,25 @@ class StatsTests(unittest.TestCase):
         self.assertGreater(high, low)
         self.assertTrue(self.buffer.exists())
 
+    def test_bad_numbers_stay_out_of_the_json(self):
+        ledger.log({"type": "step", "out": "hemostat", "setting": "surgical", "t": 1})
+        ledger.log(
+            {
+                "type": "handed",
+                "item": "hemostat",
+                "request_to_hand_s": "nope",
+                "out": ["hemostat"],
+                "setting": "surgical",
+                "t": 2,
+            }
+        )
+        ledger.log_test("hemostat", "surgical", "normal", True, float("nan"), 0)
+        report = ledger.stats()
+        self.assertEqual(report["out"], ["hemostat"])
+        self.assertEqual(report["by_item"][0]["successes"], 1)
+        self.assertIsNone(report["median_request_to_hand_s"])
+        self.assertNotIn("NaN", json.dumps(report))
+
     def test_a_bad_timestamp_does_not_blank_the_tables(self):
         ledger.log({"type": "step", "out": ["hemostat"], "setting": "surgical", "t": "nope"})
         ledger.log_test("hemostat", "surgical", "normal", True, 4.0, 0)

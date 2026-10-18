@@ -76,3 +76,15 @@ bash ledger/push_public.sh root@THE_SERVER_IP
 ```
 
 The exact Vultr and GoDaddy clicks are in the comments at the top of `ledger/install_public.sh`.
+
+Each results row also has `wilson_low` and `wilson_high`. `next_likely` is a suggestion only.
+
+## Tested
+
+Saturday Oct 17.
+
+- `python -m unittest ledger.test_ledger` passed, 9 tests. A bad timestamp does not blank the tables. A NaN trial does not put `NaN` in the JSON.
+- `MONGODB_URI` was unset. The running public page read `ledger/buffer.jsonl`. A throwaway case showed up on `GET /api/cases` and was then removed from that file.
+- Judge page, case list, one real case, a missing case, and the table card, desktop and a 390px phone width. No horizontal overflow. No console errors. The phone judge page uses the numbered steps instead of the wide diagram. The missing case says "That case is not in the ledger."
+- A bad `/api/stats` body and an empty body did not throw. Empty tables show "No measured trials yet." An empty `out` list shows "Nothing out."
+- `GET /qr.png` is a PNG for the current public URL, with `Cache-Control: no-store`. With no `SCRUB_PUBLIC_URL`, that URL is http://127.0.0.1:8080.
