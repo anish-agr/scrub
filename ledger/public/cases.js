@@ -31,6 +31,7 @@ async function loadCases() {
     const response = await fetch("/api/cases", { cache: "no-store" });
     if (!response.ok) throw new Error("bad");
     const rows = await response.json();
+    if (!Array.isArray(rows)) throw new Error("bad");
     list.replaceChildren();
     if (!rows.length) {
       const empty = document.createElement("li");
@@ -43,7 +44,8 @@ async function loadCases() {
       const link = document.createElement("a");
       link.href = `case.html?id=${encodeURIComponent(row.case_id)}`;
       const held = (row.out || []).map(nameOf).join(", ") || "nothing out";
-      link.textContent = `${row.case_id} · ${row.setting || "case"} · ${row.n} events · ${held}`;
+      const count = Number(row.n) || 0;
+      link.textContent = `${row.case_id} · ${row.setting || "case"} · ${count} ${count === 1 ? "event" : "events"} · ${held}`;
       li.appendChild(link);
       list.appendChild(li);
     });
@@ -62,7 +64,13 @@ async function loadCase() {
     document.getElementById("summary").textContent = view.summary || "";
     const list = document.getElementById("timeline");
     list.replaceChildren();
-    (view.events || []).forEach((event) => {
+    const events = Array.isArray(view.events) ? view.events : [];
+    if (!events.length) {
+      const empty = document.createElement("li");
+      empty.textContent = "No events in this case.";
+      list.appendChild(empty);
+    }
+    events.forEach((event) => {
       const li = document.createElement("li");
       const bits = [clock(event.t), event.type];
       if (event.item) bits.push(nameOf(event.item));

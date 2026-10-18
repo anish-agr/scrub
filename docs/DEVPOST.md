@@ -1,6 +1,8 @@
 # Devpost text
 
-Owner: Evan. Ready to paste. Plain words. No buzzwords. No em dashes.
+Owner: Evan. Ready to paste before 10:30 PM Saturday. Plain words. No buzzwords. No em dashes.
+
+Paste into the Devpost form from **Project name** through **Built with**. Leave this note out. Leave the video sections out of the form. Anish submits the draft.
 
 Measured arm numbers stay as `[measured]` until the tests are logged on Sunday morning. Do not invent a success rate.
 
@@ -128,3 +130,33 @@ Edit a 2 to 3 minute video from these shots once the real arm can hand an instru
 Separate from this edit: Anish records the Perceptron arm video as one unedited roll of picks and returns, with the success table at the end. That file is for the robotics track, not this 2 to 3 minute cut.
 
 Before upload, replace the `[measured]` slots above with the numbers on the dashboard tables. Upload the video and submit the final Devpost by Sun 9:30 AM.
+
+## Video edit plan (after the arm works)
+
+Cut one 2 minute film, 16:9, 1080p. No music. Room sound only, with the speakerphone loud enough to hear the ask and the reply. Do not include the dental tray, a failed take, or a shot of the laptop setup. The fake-arm screenshots stay in the written Devpost. This film is the real arm.
+
+Assembly, in this order. Times are the finished cut, not the length of the raw take.
+
+| Time | Picture | Sound | On-screen text |
+| --- | --- | --- | --- |
+| 0:00 to 0:05 | Arm at rest over the operating room tray. | Quiet room. | Scrub. A robot arm that passes instruments when you ask. |
+| 0:05 to 0:28 | Brandon's hands stay on the work. He asks for a hemostat. Cut to the pick, then the handle landing in the open hand, then the gripper letting go when he pulls. | The ask, then "hemostat coming." | Last 3 seconds: the dashboard handoff seconds. |
+| 0:28 to 0:42 | Ask for the scalpel. It goes to the safe spot. It does not go to the hand. | "Scalpel down." | Safe spot. |
+| 0:42 to 0:58 | Hemostat in the return spot. The arm puts it back in its slot. | "Returning the hemostat." | Return. |
+| 0:58 to 1:12 | Lamp on. Glare on the steel. A handoff still finishes. Cut to the lighting table. | The ask only. | Bright, normal, dim. |
+| 1:12 to 1:28 | Switch the picker to the robotics bench. Ask for the pliers. Same arm. | The ask, then the reply. | Same code. Different tray. |
+| 1:28 to 1:44 | Ask for a count. Then the phone shows the summary text. | The spoken count. | What is still out. |
+| 1:44 to 1:56 | Hold the dashboard: camera, what is out, success tables with the ranges. | None. | Long enough to read the numbers. |
+| 1:56 to 2:05 | Team and the arm. | None. | Anish, Caiden, Brandon, Evan. DubHacks '26. |
+
+Edit notes:
+
+- Cut on the motion, not on a pause. If a take hesitates, use the next take of that shot.
+- Keep one wide shot and one close-up for the hemostat handoff. The close-up has to show the handle, not the tip, arriving first.
+- The scalpel shot is the proof it does not go hand to hand. Do not shorten it into the hemostat sequence.
+- The lighting shot needs the glare visible before the cut to the table. If the glare is not in frame, reshoot that one.
+- The bench shot is one ask. Do not explain the settings file on camera.
+- The count and the phone text are one sequence. If the text is late, hold the phone until it arrives, then cut.
+- Captions only where the table above says so. White text, bottom left, no animation.
+- Export H.264, 1080p, 30 fps, stereo from the mic that was next to the speakerphone.
+- Separate file, not part of this cut: Anish's unedited roll of picks and returns for the robotics track, with the success table at the end.
