@@ -1,8 +1,14 @@
 # Scrub: tonight's bring-up
 
-Run commands from the repository root in PowerShell, in the existing environment
-with LeRobot and Feetech installed. Use the workshop-approved hardware Python;
-the lightweight repo tests also run on Python 3.10. Do not repeat account setup.
+The arm is on the Mac. Run every command from the repository root in zsh, with the
+repo venv active (it has LeRobot and Feetech; plain `python` is not on this Mac's PATH):
+
+```bash
+cd ~/Documents/dubhacks/dubhacks-2026
+source .venv/bin/activate      # python and lerobot-* now come from .venv
+```
+
+Do not repeat account setup.
 Anish drives the arm; a second person resets the tray, watches clearance and can
 cut power. Software stop is not an emergency-stop circuit. Start with an empty
 gripper and blunt practice objects, never an attached blade.
@@ -13,62 +19,75 @@ The shipped rig disables real operation. Do not mark it verified to bypass error
 
 ## 1. Check the software without hardware
 
-```powershell
+```bash
 git pull --rebase
 python -m unittest arm.test_perceptron arm.test_kinematics arm.test_streaming arm.test_real_arm arm.test_sessions arm.test_pipeline arm.test_teach arm.test_prepare arm.test_record -v
 python -m arm --dry-run --self-test
-python -m controller --fake-arm --motion-s 0.2
+python -m controller --fake-arm --motion-s 0.2 --port 8100
 ```
 
-In a second terminal, run the state check first. **Require `fake_arm: true`
-before the smoke command**; if port 8000 belongs to an existing real controller,
-do not run this smoke invocation. Without `--human`, smoke can send simulated
-release commands.
+The fake controller goes on 8100 so it never collides with a stack already on
+8000. In a second terminal, run the state check first. **Require `fake_arm: true`
+before the smoke command**; never point smoke at a real controller. Without
+`--human`, smoke can send simulated release commands.
 
-```powershell
-Invoke-RestMethod http://localhost:8000/state
-python -m controller.smoke --items hemostat
+```bash
+curl -s http://localhost:8100/state
+python -m controller.smoke --url http://localhost:8100 --items hemostat
 ```
 
 **Expect:** offline tests pass; dry-run says `closed_and_still`; controller state
 says `fake_arm: true`; the fake request releases and homes. Open
-`http://localhost:8000/` for the dashboard and `/demo` for judging controls.
+`http://localhost:8100/` for the dashboard and `/demo` for judging controls.
 **If not:** fix the offline/controller failure first. These tests are not evidence
 of learned grasping or physical safety. Stop the fake controller before real setup.
 
 ## 2. Identify ports and all three cameras
 
-```powershell
-python -m arm.check_setup --side 0 --wrist 1
+```bash
+python -m arm.check_setup --side C920 --wrist icspring
 ```
 
-On the Mac, pass camera names instead of indexes (`--side C920 --wrist icspring`);
-OpenCV's indexes change when a camera is replugged. It lists the serial ports
+Pass camera names, not indexes: OpenCV's indexes change when a camera is
+replugged (on a Windows laptop it is `--side 0 --wrist 1`). It lists the serial ports
 (never opens them, so the motors are not touched), opens each camera at 640x480
 at 30 fps, measures the real fps over 2 s, saves one test frame each under
 `~/scrub-setup-check/` (or `--out <folder>`) and ends with a PASS/FAIL line
 (`--json` for machine output). Close teleop, recording and vision first. Look
 at the saved frames to tell side from wrist. Fallback, plain LeRobot:
 
-```powershell
+```bash
 lerobot-find-port
 lerobot-find-cameras opencv
 ```
 
 `lerobot-find-port` asks you to unplug/replug one arm at a time. Label follower
-and leader USB cables. Record the actual values below, not these placeholders:
+and leader USB cables. The values on this Mac (check them again after a replug).
+Set them in every terminal that runs the raw `lerobot-*` commands below:
 
-```powershell
-$Follower = "REPLACE_FOLLOWER_PORT"
-$Leader = "REPLACE_LEADER_PORT"
-$Side = 0    # replace with the fixed side camera id
-$Wrist = 1   # replace with the wrist camera id
-$HfUser = "REPLACE_HF_USER"
-$Repo = "$HfUser/scrub"
-$DatasetRoot = Join-Path $env:USERPROFILE "scrub-dataset"
-$Cadence = Join-Path $env:USERPROFILE "scrub-cadence.json"
-$Cameras = "{side: {type: opencv, index_or_path: $Side, width: 640, height: 480, fps: 30}, wrist: {type: opencv, index_or_path: $Wrist, width: 640, height: 480, fps: 30}}"
+```bash
+Follower=/dev/tty.usbmodem5C821089781
+Leader=/dev/tty.usbmodem5C821067211
+Side=0     # OpenCV index of the C920, from lerobot-find-cameras opencv (raw lerobot-* commands only)
+Wrist=1    # OpenCV index of the icspring wrist camera, same
+HfUser=caidenm11   # the account of HF_TOKEN in .env (python -m arm.record --print-only shows it)
+Repo=$HfUser/scrub
+DatasetRoot=~/scrub-dataset
+Cadence=~/scrub-dataset-cadence.json   # arm.record on the Mac writes this per episode
+Cameras="{side: {type: opencv, index_or_path: $Side, width: 640, height: 480, fps: 30}, wrist: {type: opencv, index_or_path: $Wrist, width: 640, height: 480, fps: 30}}"
 ```
+
+And in `.env` (the controller, `arm.teach` and `arm.record` read these; the camera
+values take a name part):
+
+```
+SO101_PORT=/dev/tty.usbmodem5C821089781
+SO101_SIDE_CAMERA=C920
+SO101_WRIST_CAMERA=icspring
+```
+
+`arm.teach`, `arm.record` and the LeRobot connect refuse a port another process
+holds: close teleop, recording and the controller first.
 
 **Expect:** distinct follower/leader ports and side/wrist feeds. A third overhead
 camera belongs to `vision/`; it must not reopen a LeRobot-owned device.
@@ -78,10 +97,12 @@ on the assembled workshop arms unless staff specifically requires it.
 
 ## 3. Reuse one calibration and verify units
 
-For the first setup only, with room to sweep the empty arm and an operator
+This Mac already has both files (`~/.cache/huggingface/lerobot/calibration/robots/so_follower/scrub_follower.json`
+and `.../teleoperators/so_leader/scrub_leader.json`): reuse them and skip this step.
+For a first setup only, with room to sweep the empty arm and an operator
 supporting it, follow the calibration prompts:
 
-```powershell
+```bash
 lerobot-calibrate --robot.type=so101_follower --robot.port=$Follower --robot.id=scrub_follower
 lerobot-calibrate --teleop.type=so101_leader --teleop.port=$Leader --teleop.id=scrub_leader
 ```
@@ -97,7 +118,7 @@ teleop, recording and inference must reuse the same ids and calibration.
 
 ## 4. Teleoperate once, then tape the setup
 
-```powershell
+```bash
 lerobot-teleoperate --robot.type=so101_follower --robot.port=$Follower --robot.id=scrub_follower --robot.use_degrees=true --robot.cameras="$Cameras" --teleop.type=so101_leader --teleop.port=$Leader --teleop.id=scrub_leader --display_data=true
 ```
 
@@ -109,14 +130,14 @@ not compensate for a sign error by recording demonstrations around it.
 
 Tape the base, tray outline, slots, return spot and camera mounts. Keep the safe
 set-down zone clear and separate from the handoff region. Keep both policy
-cameras fixed for the whole dataset, including later dental/bench recording.
+cameras fixed for the whole dataset, including the later bench recording.
 Changing trays does not mean moving cameras or recalibrating.
 
 ## 5. Teach poses and measure the handoff region
 
 Support the empty arm before disabling torque. With teleop/controller closed:
 
-```powershell
+```bash
 python -m arm.teach --port $Follower --robot-id scrub_follower --supported-and-empty
 ```
 
@@ -148,19 +169,19 @@ task must be an exact `pick_instruction`/`return_instruction` from
 Always check with `--print-only` first; it prints the config and exact command
 and touches nothing.
 
-Windows laptop (plain `lerobot-record` underneath, `--lerobot`):
+On the Mac (the default backend `explore/arm_session.py`: cameras by name, ease-in,
+gripper and joint guards, recorder page on http://localhost:8090, per-episode
+cadence in `~/scrub-dataset-cadence.json`; its default ports are the two above):
 
-```powershell
-python -m arm.record --lerobot --follower $Follower --leader $Leader --side $Side --wrist $Wrist --hf-user $HfUser --setting surgical --item hemostat --direction hand-out --lighting bright --episodes 5 --print-only
-python -m arm.record --lerobot --follower $Follower --leader $Leader --side $Side --wrist $Wrist --hf-user $HfUser --setting surgical --item hemostat --direction hand-out --lighting bright --episodes 5
+```bash
+python -m arm.record --setting surgical --item hemostat --direction hand-out --lighting bright --episodes 5 --print-only
+python -m arm.record --setting surgical --item hemostat --direction hand-out --lighting bright --episodes 5
 ```
 
-Mac (default backend `explore/arm_session.py`: cameras by name, ease-in, gripper
-and joint guards, recorder page on http://localhost:8090, per-episode cadence
-in `~/scrub-dataset-cadence.json`):
+Plain `lerobot-record` underneath instead (`--lerobot`, camera indexes):
 
-```powershell
-python -m arm.record --task "pick the hemostat" --lighting bright --episodes 5 --side C920 --wrist icspring
+```bash
+python -m arm.record --lerobot --follower $Follower --leader $Leader --side $Side --wrist $Wrist --hf-user $HfUser --setting surgical --item hemostat --direction hand-out --lighting bright --episodes 5 --print-only
 ```
 
 Later batches: the same command with the next exact instruction, for example
@@ -170,7 +191,7 @@ with `python -m arm.train upload`. `--no-log` skips the DATA-LOG row.
 
 Fallback, the raw command it builds (first batch, five picks):
 
-```powershell
+```bash
 lerobot-record --robot.type=so101_follower --robot.port=$Follower --robot.id=scrub_follower --robot.use_degrees=true --robot.cameras="$Cameras" --teleop.type=so101_leader --teleop.port=$Leader --teleop.id=scrub_leader --dataset.repo_id=$Repo --dataset.root=$DatasetRoot --dataset.single_task="pick the hemostat" --dataset.num_episodes=5 --dataset.fps=30 --dataset.episode_time_s=25 --dataset.reset_time_s=10 --dataset.push_to_hub=true
 ```
 
@@ -180,7 +201,8 @@ additional episodes. Example changes: `return the hemostat`, `pick the mayo
 scissors` only if that is the exact `pick_instruction` in the current settings.
 Read the actual setting strings; do not invent aliases for recording.
 
-**Expect:** 15 pick + 10 return demos per surgical item (75 total), spread across
+**Expect:** 20 pick + 10 return demos per surgical item (90 total, the table in
+`docs/TRAINING.md`; bench is 15 + 10 per item, 75), spread across
 bright/normal/dim after one setup is reliable. `n`/right arrow ends cleanly;
 `r`/left arrow re-records; `q`/Esc finishes and encodes. Pick demos end still at
 carry, not moving toward a person's hand. Evan logs instruction, lighting and
@@ -197,12 +219,14 @@ credentials or unnecessary people in view. Never commit recordings or weights.
 Replay causes real motion: clear the workspace, use a blunt test object and keep
 everyone out of the trajectory. Preserve the same calibration:
 
-```powershell
+```bash
 lerobot-replay --robot.type=so101_follower --robot.port=$Follower --robot.id=scrub_follower --robot.use_degrees=true --dataset.repo_id=$Repo --dataset.root=$DatasetRoot --dataset.episode=0
 python -m arm.train pipeline $DatasetRoot --cadence-report $Cadence --check-only
 ```
 
-Before the second command, create `$Cadence` from the actual **wall-clock**
+On the Mac, `python -m arm.record` (arm_session) already wrote `$Cadence`
+(`~/scrub-dataset-cadence.json`) from the wall-clock loop, one entry per episode.
+After a raw `lerobot-record` batch, write it yourself from the actual **wall-clock**
 recording reports, one entry for every episode. Schema example, not measured data:
 
 ```json
@@ -222,7 +246,7 @@ Keep keys only in ignored local `.env`. `PERCEPTRON_TEAM_API_KEY` is the Robotic
 team key; `PERCEPTRON_API_KEY` is the different vision key. Once Anish confirms
 the Robotics key is present:
 
-```powershell
+```bash
 python -m arm.train capabilities
 python -m arm.train pipeline $DatasetRoot --cadence-report $Cadence --repo-id $Repo --revision <HF_COMMIT> --idempotency-key scrub-run-1 --confirmed-replay --confirmed-hf-matches-local
 ```
@@ -247,9 +271,11 @@ workshop quota. Do not spend a third job unless live capabilities/staff allow it
 ## 9. Calibrate overhead vision with Brandon/Evan
 
 Set `CAMERA_INDEX` in `.env` to the **third** camera. Keep LeRobot's side/wrist
-closed while they are not needed. Start vision in its own terminal:
+closed while they are not needed. If `curl -s http://localhost:8001/health` already
+answers, vision is running: use it, don't start a second one. Otherwise start
+vision in its own terminal:
 
-```powershell
+```bash
 python -m vision
 python -m vision.calibrate
 ```
@@ -262,9 +288,9 @@ Restart vision after changing calibration. Preview is `http://localhost:8001/`.
 
 For tray boxes, save a snapshot then pass the actual image:
 
-```powershell
-Invoke-WebRequest http://localhost:8001/snapshot -OutFile "$env:TEMP\scrub-tray.jpg"
-python -m vision.mark_slots --setting surgical --image "$env:TEMP\scrub-tray.jpg"
+```bash
+curl -s http://localhost:8001/snapshot -o /tmp/scrub-tray.jpg
+python -m vision.mark_slots --setting surgical --image /tmp/scrub-tray.jpg
 ```
 
 **Expect:** calibration error under about 2 cm on held-out checks, `target` becomes
@@ -280,7 +306,7 @@ do not accept that file as safe just because the command exited successfully.
 After R4's physical checks, fill measured poses, transforms, limits and the
 handoff box in `arm/rig.json`. Fetch and review the deployment contract:
 
-```powershell
+```bash
 python -m arm.train contract <DEPLOYMENT_ID>
 ```
 
@@ -290,7 +316,10 @@ joint order/units, absolute targets, two cameras, horizon/rate 30 and RTC delay
 Private `.env` values: `SO101_PORT`, `SO101_ROBOT_ID=scrub_follower`,
 `SO101_SIDE_CAMERA`, `SO101_WRIST_CAMERA`, Robotics key and deployment id.
 
-```powershell
+Port 8000 must be free first: `lsof -nP -iTCP:8000 -sTCP:LISTEN` shows what holds
+it (on this Mac, often an old fake-arm controller). Stop that one in its own terminal.
+
+```bash
 python -m controller --real-arm --setting surgical
 ```
 
@@ -301,9 +330,9 @@ posts. The shipped default is not a measurement of your table. Use a clear,
 blunt-object handoff with the spotter ready. This endpoint starts a **whole**
 handover, not just an isolated policy skill:
 
-```powershell
-Invoke-RestMethod http://localhost:8000/command -Method Post -ContentType application/json -Body '{"action":"handover","item":"hemostat","source":"keyboard"}'
-Invoke-RestMethod http://localhost:8000/state
+```bash
+curl -s -X POST http://localhost:8000/command -H 'content-type: application/json' -d '{"action":"handover","item":"hemostat","source":"keyboard"}'
+curl -s http://localhost:8000/state
 ```
 
 **Expect:** pick, verified carry, slow hand approach, release only after pull or
@@ -317,10 +346,10 @@ Closed-and-still is a heuristic, not proof of a grasp or a completed put-back.
 
 These are manual operator commands, not a script to run in sequence:
 
-```powershell
-Invoke-RestMethod http://localhost:8000/stop -Method Post
-Invoke-RestMethod http://localhost:8000/command -Method Post -ContentType application/json -Body '{"action":"got_it","source":"keyboard"}'
-Invoke-RestMethod http://localhost:8000/reset -Method Post -ContentType application/json -Body '{"clear_count":false}'
+```bash
+curl -s -X POST http://localhost:8000/stop
+curl -s -X POST http://localhost:8000/command -H 'content-type: application/json' -d '{"action":"got_it","source":"keyboard"}'
+curl -s -X POST http://localhost:8000/reset -H 'content-type: application/json' -d '{"clear_count":false}'
 ```
 
 **Expect:** stop latches and holds. Send `got_it` only when a recipient really has
@@ -332,17 +361,19 @@ case count after the physical tray has actually been reconciled.
 
 ## 12. Voice handoff, test tables and submission
 
-In the existing voice environment:
+If `curl -s http://localhost:3000/health` already answers, the voice server (the
+live Photon line) is up: use it. Never start a second one with the `.env` keys
+(a test copy needs `VOICE_NO_KEYS=1`). Otherwise:
 
-```powershell
+```bash
 cd voice
 npm run dev
 ```
 
 From another root terminal, test text without a phone:
 
-```powershell
-Invoke-RestMethod http://localhost:3000/heard -Method Post -ContentType application/json -Body '{"text":"grab me the kelly"}'
+```bash
+curl -s -X POST http://localhost:3000/heard -H 'content-type: application/json' -d '{"text":"grab me the kelly"}'
 ```
 
 **Expect:** one controller request and one spoken reply per event. Then test the
@@ -360,7 +391,7 @@ Simulation/fake results stay separate from measured hardware success tables.
 
 These commands perform no hardware work:
 
-```powershell
+```bash
 python -m controller.trials --plan-only
 python -m controller.trials --self-test
 ```
@@ -373,7 +404,7 @@ not require the Robotics key, LeRobot, cameras or MongoDB.
 
 After physical bring-up, start small against the real controller:
 
-```powershell
+```bash
 python -m controller.trials --settings surgical --items hemostat --lighting normal --actions handover --tries 2
 ```
 
@@ -421,11 +452,13 @@ timing as a later observation rather than the original adoption time.
 
 Practice against an explicitly fake/sim controller only:
 
-```powershell
-python -m controller.trials --practice --yes --settings surgical --items hemostat --lighting normal --actions handover --tries 2
+```bash
+python -m controller.trials --practice --yes --url http://localhost:8100 --settings surgical --items hemostat --lighting normal --actions handover --tries 1
 ```
 
-`--practice` never calls `ledger.log_test`, labels every journal row as practice,
+(The fake controller from section 1. With `--tries 2` the second try reports
+"completion event missing": the first hemostat is still out and nothing puts it
+back between tries on a fake arm.) `--practice` never calls `ledger.log_test`, labels every journal row as practice,
 and permits simulated `got_it`. It refuses a real controller. Conversely,
 measured mode refuses a fake/sim controller. `--yes` is prohibited for real trials.
 
