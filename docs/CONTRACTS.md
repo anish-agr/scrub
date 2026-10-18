@@ -91,6 +91,7 @@ question. Stop uses `/stop` immediately, even while a question is pending.
 controller event stream. It does not move the arm. Body fields are `type`
 (`clarify` or `clarify_answer`), and optional `say`, `item`, `candidates`,
 `question_id`, `answer`, `answer_ms` and `context`.
+`confirm` (optional, bool) marks a yes/no question. `context` may be a string or object.
 
 ## State (`GET /state`)
 
@@ -112,6 +113,7 @@ controller event stream. It does not move the arm. Body fields are `type`
 
 - `out_camera` (optional): what the camera says is out, from the latest fresh TrayState: items whose slot is empty, minus anything sitting in the return spot. `null` when there's no fresh TrayState. `count` compares it with `out` and says if they disagree.
 - `out_instances` (optional): `[{"item", "id", "instance"}]`, outstanding physical identities alongside the existing unique `out` item-id list. Use `out_instances` for unit counts when present. Multiple handed instances of the same item remain counted separately; returning one must not remove another person's instrument. Pick, handover and return events may carry `instance` to identify which copy changed hands.
+- `clarify` (optional): the current controller question, with `say`, `item`, `candidates`, `question_id` and optional `confirm`, or `null`. No motion job waits on it.
 - `sheet` (optional): the last count sheet read this case, `{"tray", "items": {"<item id>": {"expected", "initial", "closing"}}, "method", "t"}`, or `null`. Counts are integers or `null` when the box is empty or unreadable.
 - `packs` (optional): pack labels read this case, `[{"item", "lot", "expires", "expired"}]`. `expires` is `YYYY-MM-DD` or `null`.
 - `case_id` (optional): the current case, `<setting>-<unix start seconds>`. A new case starts when the controller starts, when the setting changes and on `POST /reset` with `clear_count`.
@@ -199,6 +201,7 @@ controller event stream. It does not move the arm. Body fields are `type`
 
 - `type` is one of `command`, `step`, `picked`, `handed`, `set_down`, `released`, `returned`, `missed`, `count`, `stopped`, `error`.
 - Optional types `clarify` and `clarify_answer` record each question and answer. A question carries `say`, `item`, `candidates` and `question_id`. Each candidate can carry `item` (item id), `label`, `variant`, `side`, `slot` and `instance` (the handover hint). Answers carry `question_id`, `answer` and `answer_ms` (elapsed milliseconds). Cancellation and timeout are answers too, with no handover. `context` optionally identifies the call or text thread. These events use the same WebSocket and ledger path as all other events.
+- Optional `clarify_timeout` records a controller question expiring. Voice and station terminal answer records use `answer: "timeout"` for an unanswered question. Do not count these as human answers when reporting answer times.
 - Optional `type` `read`: the result of a reading command, with a `read` object `{"kind": "count_sheet" | "tray_tag" | "pack_label", "ok", "method": "qr" | "perceptron" | "gemini" | null, "latency_ms", ...}` plus the reader's fields (vision `POST /read/*`). Its `say` is the spoken answer. Optional extras: for a count sheet `compare` (`"closing"`, `"initial"` or `null`) and `mismatch` (closing mode `[{"item", "sheet", "scrub"}]`, initial mode `[{"item", "sheet", "expected"}]`); for a tray tag `switched` (bool); `error` when vision can't be reached.
 - `read.source` (optional) is `"photo"` when the result came from a texted photo through `POST /read_result`.
 - `sheet_mismatch` (optional) on `count` events, when a count sheet was read this case: `[{"item", "sheet", "scrub"}]`, where the sheet's count and Scrub's count of that item on the tray differ.
@@ -234,6 +237,13 @@ Read by the controller (`/tray_check`, `/snapshot`) and the dashboard (`/stream`
 | `GET /safe_zone` | `{"clear": bool or null, "blocked_by": ["hand" or item id], "item_in_zone": id or null, "method", "confidence", "t"}`. `clear: null` with no zone pixels (no calibration and no `safe_zone_px` in the setting) |
 
 Vision reads the controller's `GET /state`, `GET /setting` and `GET /events/recent?n=20`, and posts `/vision/hand`, `/vision/tray` and `/lighting` (only when the tag changes, with `lux`).
+
+`/locate` also accepts optional `variant`, `side` and one-based `slot` query parameters.
+Optional response fields `candidates`, `candidate`, `ambiguous`, `instance` and
+`instance_validated` describe physical selection. An ambiguous result must ask a
+question, never take the first box. Real physical selections require finite calibrated
+coordinates and sufficient confidence before the arm wakes; model/plain taught picks
+do not target a selected copy, so physical instance choices use IK.
 
 ## Ledger public page (port 8080)
 
