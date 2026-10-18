@@ -60,7 +60,11 @@ GRIP_TORQUE_HOLD = 350   # holding an object: plenty for a spatula or an instrum
 GRIP_TORQUE_MOVE = 500   # moving / opening: LeRobot's limit
 GRIP_CLOSED_POS = 6.0    # at or below this the jaws are shut on nothing
 GRIP_IDLE_S = 1.5
-GRIP_DEAD_ZONE = 3       # encoder steps either side (factory 1): stop chasing sub-degree errors   # on an overload reply, open this much per loop until the servo stops reporting it
+GRIP_DEAD_ZONE = 3
+LIFT_M = 0.03            # gripper tip this much higher than at the grab = lifted off the table
+PULL_PEAK_MIN = 60       # a grasp whose |load| peaked at least this was really squeezing something
+PULL_DROP = 0.3          # then |load| falling below this share of the peak (and <= 25) ...
+PULL_S = 0.3             # ... for this long, while the leader still holds the claw shut = pulled out by a hand       # encoder steps either side (factory 1): stop chasing sub-degree errors   # on an overload reply, open this much per loop until the servo stops reporting it
 
 
 DROP_TARGET = [None, False]  # camera index for the SCRUB_DROP_CAMERA drill, done flag
@@ -424,6 +428,9 @@ def guard_joints() -> None:
                           f"holding at {here:.0f} instead of pushing to {goal:.0f}", flush=True)
             else:
                 st["since"].pop(m, None)
+        if now - st.get("tip_t", 0.0) >= 0.2:
+            st["tip_t"] = now
+            _track_lift(pos)
         if now - st.get("log_t", 0.0) >= 0.5:
             st["log_t"] = now
             try:
@@ -436,7 +443,12 @@ def guard_joints() -> None:
                 thermal_log.track_temps(st["temp"])  # peak temperature per motor for the episode_end row
             except Exception:  # noqa: BLE001
                 pass
-            _thermal_row({"kind": "sample", "phase": ph, "loop_hz": hz, "motors": {
+            try:
+                import thermal_log as _tl
+                tip_z = _tl.EP.get("tip_z")
+            except Exception:  # noqa: BLE001
+                tip_z = None
+            _thermal_row({"kind": "sample", "phase": ph, "loop_hz": hz, "tip_z": tip_z, "motors": {
                 m: {"temp": st["temp"].get(m), "load": int(loads.get(m, 0)), "pos": round(float(pos.get(m, 0)), 1),
                     "goal": round(float(action.get(m + ".pos", 0)), 1) if (m + ".pos") in action else None,
                     "current": st.get("amps", {}).get(m), "volt": st.get("volt", {}).get(m),
@@ -569,11 +581,32 @@ def guard_gripper() -> None:
                 return send(self, {**action, "gripper.pos": max(goal, st["hold"])})
         else:
             st["strain"], st["eased"] = None, False
+        g = st.get("grasp")
+        if g is not None and load is not None:
+            g["peak"] = max(g["peak"], abs(load))
+            low = abs(load) <= max(25, PULL_DROP * g["peak"])
+            if st["hold"] is not None and g["peak"] >= PULL_PEAK_MIN and low and goal < st["hold"] + GRIP_SQUEEZE:
+                g["low_since"] = g.get("low_since") or now
+                if now - g["low_since"] >= PULL_S:  # squeezing stopped while the leader still holds shut
+                    try:
+                        import thermal_log
+                        thermal_log.event("pulled_out", held_s=round(now - g["t0"], 2), peak_load=g["peak"],
+                                          load_after=load, pos=round(pos, 1), hold=round(st["hold"], 1),
+                                          lifted=bool(thermal_log.EP.get("lifted_this_grasp")),
+                                          lift_m=round(thermal_log.EP.get("lift_max", 0.0), 3))
+                    except Exception:  # noqa: BLE001
+                        pass
+                    print(f"gripper guard: pulled out by hand (load {g['peak']} -> {load})", flush=True)
+                    st["hold"], st["ref"] = None, None
+                    _grasp_end(st, pos, goal, load, temp, now, how="pulled")
+                    _guard_ui(False, None)
+            else:
+                g["low_since"] = None
         if st["hold"] is not None:
             if goal >= st["hold"] + GRIP_SQUEEZE:  # leader opened past the contact point: let go
                 st["hold"], st["ref"] = None, None
                 print("gripper guard: released", flush=True)
-                _grasp_end(st, pos, goal, load, temp, now)
+                _grasp_end(st, pos, goal, load, temp, now, how="released")
                 _guard_ui(False, None)
             else:
                 action = {**action, "gripper.pos": max(goal, st["hold"])}
@@ -595,26 +628,77 @@ def guard_gripper() -> None:
     SOFollower.send_action = guarded
 
 
+_KIN = {"k": None, "failed": False}
+
+
+def _tip_z(pos: dict):
+    """Gripper tip height (m) from the joint angles, via arm/kinematics.py (Anish's URDF model; read only).
+    Angles a little past the model's limits (the folded rest pose) are clamped. None if unavailable."""
+    if _KIN["failed"]:
+        return None
+    try:
+        import numpy as np
+        if _KIN["k"] is None:
+            root = str(Path(__file__).resolve().parents[1])
+            if root not in sys.path:
+                sys.path.insert(0, root)
+            from arm.kinematics import Kinematics
+            _KIN["k"] = Kinematics()
+        k = _KIN["k"]
+        deg = [pos[m] for m in ARM_JOINTS]
+        t, _, _ = k._chain(np.clip(k.to_urdf(deg), k.lower, k.upper))
+        return float((np.linalg.inv(k.base_to_urdf) @ t)[2, 3])
+    except Exception:  # noqa: BLE001 - no model: lift tracking is off, nothing else changes
+        _KIN["failed"] = True
+        return None
+
+
+def _track_lift(pos: dict) -> None:
+    """While a grasp is active, how high the tip has risen since the grab; `lift` event once per grasp."""
+    try:
+        import thermal_log
+        E = thermal_log.EP
+        z = _tip_z(pos)
+        E["tip_z"] = round(z, 4) if z is not None else None
+        if z is None or not E.get("grasp_active"):
+            return
+        if E.get("z0") is None:
+            E["z0"] = z
+        rise = z - E["z0"]
+        E["lift_max"] = max(E.get("lift_max", 0.0), rise)
+        if rise >= LIFT_M and not E.get("lifted_this_grasp"):
+            E["lifted_this_grasp"] = E["lifted"] = True
+            thermal_log.event("lift", lift_m=round(rise, 3), tip_z=round(z, 3), z_at_grab=round(E["z0"], 3))
+    except Exception:  # noqa: BLE001
+        pass
+
+
 def _grasp_start(st: dict, pos, goal, load, temp, now: float) -> None:
     """The claw closed on an object (the guard's blocked detection). Never raises."""
     try:
         import thermal_log
-        st["grasp"] = {"t0": now, "peak": load or 0}
+        st["grasp"] = {"t0": now, "peak": load or 0, "low_since": None}
         thermal_log.EP["grasps"] += 1
+        thermal_log.EP.update(grasp_active=True, z0=thermal_log.EP.get("tip_z"), lifted_this_grasp=False)
         thermal_log.event("grasp_start", pos=round(pos, 1), goal=round(goal, 1), load=load, temp=temp,
                           torque_limit=GRIP_TORQUE_HOLD, n_in_episode=thermal_log.EP["grasps"])
     except Exception:  # noqa: BLE001
         pass
 
 
-def _grasp_end(st: dict, pos, goal, load, temp, now: float) -> None:
-    """The leader opened past the contact point: the object was let go. Never raises."""
+def _grasp_end(st: dict, pos, goal, load, temp, now: float, how: str = "released") -> None:
+    """The grasp is over: `released` (the leader opened the claw) or `pulled` (a hand took it). Never raises."""
     try:
         import thermal_log
         g, st["grasp"] = st["grasp"], None
+        E = thermal_log.EP
         if g:
-            thermal_log.event("grasp_end", duration_s=round(now - g["t0"], 2), peak_load=g["peak"],
-                              pos=round(pos, 1), goal=round(goal, 1), load=load, temp=temp)
+            E["pulled" if how == "pulled" else "released"] += 1
+            thermal_log.event("grasp_end", how=how, duration_s=round(now - g["t0"], 2), peak_load=g["peak"],
+                              pos=round(pos, 1), goal=round(goal, 1), load=load, temp=temp,
+                              lifted=bool(E.get("lifted_this_grasp")),
+                              lift_m=round(E.get("lift_max", 0.0), 3))
+        E["grasp_active"] = False
     except Exception:  # noqa: BLE001
         pass
 

@@ -68,8 +68,8 @@ def episodes_section(rows: list[dict], motors: list) -> list[str]:
     samples = [r for r in rows if r.get("kind") == "sample"]
     out = ["", "## Episodes and grasps", "", f"Total grasps: {len(grasps)}; claw closed on nothing: {len(empties)}", ""]
     if starts:
-        out += ["| session | episode | outcome | duration s | grasps | mean grip load in grasps | peak grip load | "
-                + " | ".join(f"{m} rise C" for m in motors) + " |", "|" + "---|" * (7 + len(motors))]
+        out += ["| session | episode | outcome | handoff | lift cm | pulled out | duration s | grasps | mean grip load in grasps | peak grip load | "
+                + " | ".join(f"{m} rise C" for m in motors) + " |", "|" + "---|" * (10 + len(motors))]
     for st in starts:
         sess = st.get("session")
         en = next((e for e in ends if e.get("session") == sess and e["t"] >= st["t"]), None)
@@ -95,9 +95,18 @@ def episodes_section(rows: list[dict], motors: list) -> list[str]:
             temps = [x for x in temps if x is not None]
             rises.append(f"{temps[-1] - temps[0]:+d}" if len(temps) >= 2 else "-")
         dur = (en or {}).get("duration_s")
-        out.append(f"| {sess} | {st.get('episode')} | {outcome} | {dur if dur is not None else '-'} | "
+        e_ = en or {}
+        handoff = "-" if "handoff_success" not in e_ else ("SUCCESS" if e_["handoff_success"] else
+                  "no grab" if not e_.get("grasps") else "no lift" if not e_.get("lifted") else "not pulled")
+        lift_cm = f"{e_['lift_m'] * 100:.0f}" if e_.get("lift_m") is not None else "-"
+        out.append(f"| {sess} | {st.get('episode')} | {outcome} | {handoff} | {lift_cm} | {e_.get('pulled', '-')} | "
+                   f"{dur if dur is not None else '-'} | "
                    f"{(en or {}).get('grasps', len(gs))} | {f'{np.mean(loads):.0f}' if loads else '-'} | "
                    f"{peak if (loads or ge) else '-'} | " + " | ".join(rises) + " |")
+    ends_h = [e for e in ends if "handoff_success" in e]
+    if ends_h:
+        ok = sum(1 for e in ends_h if e["handoff_success"])
+        out += ["", f"Handoffs (grab, lift >= 3 cm, pulled out by hand): {ok} of {len(ends_h)} episodes."]
     if grasps:
         durs = [g.get("duration_s") for g in ev("grasp_end") if g.get("duration_s") is not None]
         if durs:
