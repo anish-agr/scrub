@@ -71,6 +71,8 @@ Working in the repo as of Saturday evening:
 - Typed speech ("grab me the kelly") becomes a hemostat handover through Gemini. A real phone call is still waiting on the Photon number.
 - The camera code locks exposure, finds an open hand, and posts the tray. Slot boxes, the camera-to-arm fit, and a lighting-test log can be run without guessing at the file format.
 
+The dashboard can show the case again later: every event, the handoff times, and what was out at each moment. It also names the instrument that usually comes next. That line is only a suggestion. The arm does not move until someone asks. A large tablet view across the room shows the step, what is out, and the stop and reset buttons. The success tables show how many tries and a 95% range around the rate, so a small sample does not look more certain than it is.
+
 The real-arm numbers go here on Sunday morning, after the tests:
 
 - Request to hand, median: [measured] seconds

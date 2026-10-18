@@ -16,6 +16,12 @@ function nameOf(itemId) {
   return NAMES[itemId] || String(itemId || "").replaceAll("_", " ");
 }
 
+function rateText(row) {
+  const pct = percent(row.success_rate);
+  if (row.wilson_low == null || row.wilson_high == null) return pct;
+  return `${pct} (${row.successes} of ${row.attempts}, ${percent(row.wilson_low)} to ${percent(row.wilson_high)})`;
+}
+
 function percent(rate) {
   if (rate == null || Number.isNaN(Number(rate))) return "—";
   return `${Math.round(Number(rate) * 100)}%`;
@@ -32,7 +38,7 @@ function fillTable(tableId, rows, labelKey) {
   rows.forEach((row) => {
     const tr = document.createElement("tr");
     const label = labelKey === "item" ? nameOf(row.item) : row[labelKey];
-    [label, row.attempts, percent(row.success_rate), seconds(row.median_request_to_hand_s)].forEach((value) => {
+    [label, row.attempts, rateText(row), seconds(row.median_request_to_hand_s)].forEach((value) => {
       const cell = document.createElement("td");
       cell.textContent = value;
       tr.appendChild(cell);

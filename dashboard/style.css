@@ -32,7 +32,8 @@ body {
   padding: 14px 18px;
 }
 
-.brand { display: flex; align-items: center; gap: 12px; }
+.brand { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; }
+.brand a { color: #efe6d4; font-size: 14px; }
 
 .mark {
   font-size: 28px;
@@ -141,6 +142,12 @@ h1.stopped, h1.error { color: var(--red); }
   min-height: 1.4em;
   margin: 8px 0 0;
   font-size: 20px;
+}
+
+.next-likely {
+  margin: 8px 0 0;
+  font-size: 18px;
+  font-weight: 700;
 }
 
 .meta {

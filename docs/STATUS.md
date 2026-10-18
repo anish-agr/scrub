@@ -90,9 +90,17 @@ Agents: the first unchecked box in your person's section is the next task. Tick 
 - [ ] E5 Devpost draft submitted by 10:00 PM
   - Paste-ready text is in `docs/DEVPOST.md` (plain words, measured numbers left blank). Evan submits it on Devpost.
 - [ ] E6 tables on the dashboard, public page on Vultr and the domain
-  - The dashboard shows the success tables, handoff times, the current lighting, and a "Vision stale" warning. Public page: `python -m ledger serve` then http://127.0.0.1:8080/. QA-01, QA-02, QA-03, QA-07, QA-08, QA-09, QA-10, and QA-11 are fixed (see `docs/QA.md`). Vultr and the GoDaddy domain still need Evan's accounts. The clicks and `bash ledger/push_public.sh root@SERVER_IP` are in `ledger/install_public.sh`.
+  - The dashboard shows the success tables, handoff times, the current lighting, and a "Vision stale" warning. Public page: `python -m ledger serve` then http://127.0.0.1:8080/. QA-01, QA-02, QA-03, QA-07, QA-08, QA-09, QA-10, and QA-11 are fixed (see `docs/QA.md`). Brandon has the Vultr and domain deploy.
 - [ ] E7 demo video and final Devpost
   - Shot-list checklist is at the bottom of `docs/DEVPOST.md`. The edit and the upload are Sunday.
+- [x] X1 case replay
+  - `python -m ledger serve`, then http://127.0.0.1:8080/cases.html. Each case lists the events, handoff times, the count at each moment, and a short summary. The dashboard links to the current case.
+- [x] X2 likely next
+  - `GET /stats` includes `next_likely`. The dashboard shows "Likely next: hemostat (70%)" when past requests support it. The arm does not move on that line.
+- [x] X7 tablet view
+  - http://localhost:8000/tablet.html after `python -m controller`. Large type, the step, what is out, Stop, and Reset.
+- [x] X8 honest tables
+  - Each success cell shows the rate, the tries, and a 95% Wilson range, on the dashboard and the public page.
 
 ## Checkpoints
 
