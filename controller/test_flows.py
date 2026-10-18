@@ -280,7 +280,7 @@ def sharp_goes_to_safe_spot_with_timer():
     _, evs = run(ctl, {"action": "handover", "item": "scalpel"})
     assert "moving_to_hand" not in steps(evs) and arm.moves == []
     sd = next(e for e in evs if e["type"] == "set_down")
-    assert sd["say"] == "Scalpel down." and sd["request_to_hand_s"] >= 0.15
+    assert sd["say"] == lines.sharp_down("scalpel") and sd["say"].startswith("Scalpel down") and sd["request_to_hand_s"] >= 0.15
 
 
 @test

@@ -42,6 +42,45 @@ lock = threading.Lock()
 
 def note(line: str) -> None:
     S["log"].append(time.strftime("%H:%M:%S ") + line)
+    _speak_for(line)
+
+
+def _speak_for(line: str) -> None:
+    """The arm says the moments that matter, through arm_voice (ElevenLabs, or the Mac voice)."""
+    try:
+        import arm_voice
+    except ImportError:
+        return
+    low = line.lower()
+    nice = lambda s: s.replace("_flex", "").replace("_", " ")  # noqa: E731
+    if low.startswith("recording episode"):
+        n, total = S["session_done"] + 1, S["session_total"]
+        arm_voice.say(f"Recording. Episode {n} of {total}." if total else "Recording.")
+    elif low.startswith("reset the environment"):
+        arm_voice.say("Saved. Reset the tray.")
+    elif low.startswith("re-record episode"):
+        arm_voice.say("Let's do that one again.")
+    elif low.startswith("stop recording"):
+        arm_voice.say("That's a wrap. Saving.")
+    elif "camera down" in low:
+        arm_voice.say(f"I lost the {line.split()[0]} camera. Reconnecting.", key="cam-down", every=20)
+    elif "camera back" in low:
+        arm_voice.say(f"{line.split()[0].capitalize()} camera is back.", key="cam-back", every=20)
+    elif low.startswith("episode discarded"):
+        why = line[line.find("(") + 1:line.rfind(")")] if "(" in line else ""
+        arm_voice.say(f"Throwing that episode away. {nice(why).capitalize()}." if why else "Throwing that episode away.",
+                      key="discard", every=10)
+    elif low.startswith("claw guard: holding"):
+        arm_voice.say("Got it. Holding.", key="claw", every=15)
+    elif low.startswith("session restarted"):
+        arm_voice.say("I'm back.")
+    elif low.startswith("reference saved"):
+        arm_voice.say("Setup photo saved.")
+    elif "too hot" in low:
+        joint = nice(line.split()[0])
+        arm_voice.say(f"My {joint} is getting hot. Holding still to cool down.", key="hot-" + joint, every=60)
+    elif low.startswith("teleop ready"):
+        arm_voice.say("Ready. Move the leader arm and I'll follow.")
 
 
 def camera_stall(index) -> None:
@@ -156,6 +195,7 @@ def install(mode: str, task, episodes, episode_s, reset_s, root, cams: dict) -> 
     cfg.update(root=root, episode_s=episode_s, reset_s=reset_s, cams={v: k for k, v in cams.items()})
     if mode == "teleop":
         phase("teleop")
+        note("teleop ready")
 
     get_obs = SOFollower.get_observation
 
