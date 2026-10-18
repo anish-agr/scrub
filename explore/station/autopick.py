@@ -541,7 +541,7 @@ class AutoPick:
     def __init__(self, args: dict | None = None, calib: dict | None = None, detector=None, kin=None):
         args = dict(args or {})
         self.mode = args.get("mode", "handoff")
-        self.task = args.get("task", "pick the scalpel")
+        self.task = args.get("task")  # None: the station's current task (start), so it replays the latest demos
         self.min_episode = int(args.get("min_episode", 18))  # demos from the current setup (camera moved after 17)
         if self.mode not in ("handoff", "hold", "offer", "calibrate", "look", "learned", "replay_demo"):
             raise ValueError("mode must be 'handoff' (wait for a hand, release, go home) or 'hold' (bring it home)")
@@ -596,6 +596,8 @@ class AutoPick:
         self._choice_st = st
         self.start_pose = {m: float(st.joints[m]) for m in JOINTS}
         self.start_pose["gripper"] = float(st.gripper if st.gripper is not None else JAW_OPEN)
+        if not self.task:
+            self.task = getattr(st, "task", None) or "pick the scalpel"
         if self.mode == "replay_demo":  # play the most typical demo back, smoothed; offer; let go on command
             got = pick_demo(self.task, self.min_episode)
             if got is None:
@@ -626,7 +628,7 @@ class AutoPick:
             self.found = {"demo": ep, "frames": kp["frames"]}
             self.mode = "handoff"
             self._phase = self.plan[0]["name"]
-            st.note(f"autopick: replaying demo {ep} smoothly ({times[-1]:.0f} s), then holding it out for 'let go'")
+            st.note(f"autopick: replaying {self.task!r} demo {ep} smoothly ({times[-1]:.0f} s), then holding it out for 'let go'")
             return
         if self.mode == "learned":  # replay what the demos taught: smooth, then offer and let go on command
             demo = learn_demos(self.task, self.min_episode)
@@ -720,7 +722,8 @@ class AutoPick:
                 st.note("autopick: done, holding the item at home; motors off")
                 return {"done": "off"}
             nxt = self.plan[self.seg]
-            st.note(f"autopick: {nxt['name']} ({nxt['dur']:.1f} s)")
+            if nxt["name"] != seg["name"]:  # one line per stage, not per replay sample
+                st.note(f"autopick: {nxt['name']}")
         return self._hold_action(pose)
 
     def abort(self) -> None:
