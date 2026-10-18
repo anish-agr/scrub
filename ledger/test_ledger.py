@@ -199,6 +199,57 @@ class StatsTests(unittest.TestCase):
         self.assertEqual([e["skill_source"] for e in view["events"]], ["taught", None])
 
 
+class PaperTests(unittest.TestCase):
+    def _events(self):
+        return [
+            {"type": "read", "case_id": "p", "t": 1, "say": "Count sheet read.",
+             "read": {"kind": "count_sheet", "ok": True, "method": "perceptron", "latency_ms": 2100,
+                      "tray": "A", "items": [
+                          {"item": "scalpel", "name": "scalpel", "expected": 1, "initial": 1, "closing": 1},
+                          {"item": "hemostat", "name": "hemostat", "expected": 1, "initial": 1, "closing": 0}]}},
+            {"type": "read", "case_id": "p", "t": 2,
+             "read": {"kind": "pack_label", "ok": True, "method": "gemini", "latency_ms": 900, "labels": [
+                 {"item": "scalpel", "lot": "L1", "expires": "2020-01-01", "expired": True},
+                 {"item": "hemostat", "lot": "L2", "expires": "2030-01-01", "expired": False}]}},
+            {"type": "handed", "item": "hemostat", "case_id": "p", "t": 100, "request_to_hand_s": 3.0, "out": ["hemostat"]},
+            {"type": "handed", "item": "scalpel", "case_id": "p", "t": 101, "request_to_hand_s": 4.0, "out": ["hemostat", "scalpel"]},
+            {"type": "caption", "case_id": "p", "event_type": "handed", "item": "hemostat", "t": 104,
+             "label": "gripper holding a hemostat", "label_source": "perceptron", "agrees": False},
+            {"type": "caption", "case_id": "p", "event_type": "handed", "item": "scalpel", "t": 150,
+             "label": "far away", "label_source": "perceptron", "agrees": True},
+            {"type": "caption", "case_id": "p", "event_type": "handed", "item": "scalpel", "t": 102,
+             "label": "fallback text", "label_source": "fallback", "agrees": None},
+        ]
+
+    def test_reads_are_rows_and_expired_is_marked(self):
+        view = case_view("p", self._events())
+        self.assertEqual(len(view["events"]), 4)
+        first, second = view["events"][0], view["events"][1]
+        self.assertIn("Count sheet read (perceptron, 2.1 s)", first["read_line"])
+        self.assertIn("hemostat 1/0", first["read_line"])
+        self.assertIn("scalpel lot L1 expires 2020-01-01 EXPIRED", second["read_line"])
+        self.assertNotIn("L2 expires 2030-01-01 EXPIRED", second["read_line"])
+
+    def test_caption_matches_by_type_item_and_time(self):
+        view = case_view("p", self._events())
+        hemostat, scalpel = view["events"][2], view["events"][3]
+        self.assertEqual(hemostat["caption"]["label"], "gripper holding a hemostat")
+        self.assertTrue(hemostat["caption"]["disagrees"])
+        self.assertNotIn("caption", scalpel)  # one is out of range, one is fallback
+
+    def test_captions_and_reads_do_not_change_stats_or_counts(self):
+        events = self._events()
+        base = [e for e in events if e["type"] == "handed"]
+        self.assertEqual(list_cases(events)[0]["n"], len(base) + 2)
+        self.assertEqual(ledger._out(events), ledger._out(base))
+        self.assertEqual(ledger._samples([], events), ledger._samples([], base))
+        self.assertEqual(ledger.next_likely(events), ledger.next_likely(base))
+
+    def test_old_events_without_paper_fields(self):
+        view = case_view("s", [{"type": "handed", "item": "hemostat", "case_id": "s", "t": 1}])
+        self.assertNotIn("caption", view["events"][0])
+
+
 class FakeCollection:
     def __init__(self, db, name):
         self.db, self.name, self.rows, self.batches = db, name, [], []

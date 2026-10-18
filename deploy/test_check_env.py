@@ -4,7 +4,19 @@ import os
 import unittest
 from unittest import mock
 
-from deploy.check_env import check_backboard, check_deployment, check_public, check_tiger, detect_verdict, format_table, key_lines, need, present, redact
+from deploy.check_env import (
+    check_backboard,
+    check_deployment,
+    check_page,
+    check_public,
+    check_tiger,
+    detect_verdict,
+    format_table,
+    key_lines,
+    need,
+    present,
+    redact,
+)
 
 
 class CheckEnvTests(unittest.TestCase):
@@ -69,6 +81,17 @@ class CheckEnvTests(unittest.TestCase):
         with mock.patch.dict(os.environ, {"PERCEPTRON_TEAM_API_KEY": "", "SCRUB_PUBLIC_URL": "", "SCRUB_SERVER_IP": ""}):
             self.assertEqual(check_deployment()[1], "FAIL")
             self.assertIn("missing", check_public()[2])
+
+    def test_public_page_passes_on_a_scrub_title(self):
+        response = mock.Mock(status_code=200, text="<title>Scrub</title>")
+        with mock.patch("deploy.check_env.httpx.get", return_value=response):
+            name, result, detail = check_page("public page", "http://144.202.95.111/")
+        self.assertEqual(name, "public page")
+        self.assertEqual(result, "PASS")
+        self.assertIn("200", detail)
+        missing = check_page("public url", "")
+        self.assertEqual(missing[1], "FAIL")
+        self.assertIn("SCRUB_PUBLIC_URL", missing[2])
 
     def test_table_has_pass_and_fail(self):
         text = format_table([("Gemini", "FAIL", "missing GEMINI_API_KEY"), ("MongoDB Atlas", "PASS", "ping ok")])
