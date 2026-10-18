@@ -140,6 +140,17 @@ class VideoTests(unittest.TestCase):
         self.assertEqual(len(events(path)),1)
         self.assertEqual(len(ledger_rows(path)),2)
 
+    def test_rates_use_test_denominator_including_failures_not_selected_takes(self):
+        from video.cards import trial_table
+        rows=[{'_record_kind':'test','success':True,'seconds':6.4,'item':'hemostat'},
+              {'_record_kind':'test','success':False,'seconds':None,'item':'hemostat'},
+              {'_record_kind':'event','type':'handed','item':'hemostat'}]
+        table=trial_table(rows)
+        self.assertEqual((table[0]['successes'],table[0]['attempts']),(1,2))
+        self.assertEqual(table[0]['median_s'],6.4)
+        self.assertLess(table[0]['low'],.5)
+        self.assertGreater(table[0]['high'],.5)
+
 
 if __name__ == "__main__":
     unittest.main()

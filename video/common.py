@@ -90,7 +90,7 @@ def provenance(path):
             if doc is not None:
                 break
     doc = doc or {"kind": "unknown", "operations": []}
-    if doc.get("kind") not in {*LABELS, "real"}:
+    if doc.get("kind") not in {*LABELS, "real", "card"}:
         raise ValueError("Unrecognized source provenance")
     if doc.get("sha256") and digest(path) != doc["sha256"]:
         raise ValueError("Media changed after provenance was written; re-ingest the source")

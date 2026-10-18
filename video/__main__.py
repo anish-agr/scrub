@@ -70,6 +70,9 @@ def parser():
     ov.add_argument('--output',required=True)
     ov.add_argument('--case-id')
     ov.add_argument('--allow-synthetic',action='store_true')
+    ca=sub.add_parser('cards',help='render Scrub HTML cards through headless Chromium at 1080p')
+    ca.add_argument('--events',required=True,help='ledger JSONL export/buffer; rates require kind=test rows')
+    ca.add_argument('--allow-synthetic',action='store_true')
     return p
 
 
@@ -117,6 +120,9 @@ def main(argv=None):
         elif args.command == 'overlay':
             from .overlay import overlay
             result=overlay(ws,args.input,args.events,args.output,args.case_id,args.allow_synthetic)
+        elif args.command == 'cards':
+            from .cards import cards
+            result=cards(ws,args.events,args.allow_synthetic)
         else:
             raise ValueError("Unknown command")
         print(json.dumps(result, indent=2, allow_nan=False))
