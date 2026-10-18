@@ -30,9 +30,18 @@ Sources and numbers: `team/PROPOSAL.md` (sources section), `docs/BUSINESS.md`, `
 | Says "count" / "what's out" | Reads back what's out, checked against the camera |
 | Says "check the tray" | Compares the tray to the expected items and says what's missing |
 | Says "stop" | Freezes instantly (skips Gemini). A person must reset it |
+| Says "read the count sheet" | Reads the sheet's expected, initial and closing counts and says where its own count and the sheet disagree |
+| Says "what tray is this" | Reads the tray tag, says which tray it is, and switches the setting when idle |
+| Says "read the pack" | Reads the sterile pack's lot and expiry and warns on an expired pack |
 | Says "end of case" | Texts a case summary to the same phone thread, with a link to the case replay |
 | Texts "add a second hemostat to the surgical tray" | Logs a restock and replies |
 | Says "call the hemostat a clamp" | Learns the new word for this clinic |
+
+Scrub reads the paper the OR team already uses: the count sheet, the tray tag (QR first, printed text second) and sterile pack labels. Perceptron OCR reads first and Gemini is the fallback. Matching uses the fixed item list, so a read never invents an item. Details are in `docs/INTEGRATION.md` and `vision/README.md`.
+
+Event clips get a Perceptron caption from 5 frames, with an `agrees` flag when the camera disagrees with the controller's event. Captions go to the ledger replay. Dataset QA flags failed grasps, drops and dark cameras before anything uploads.
+
+What is measured: on rendered props, 9 of 9 reads were correct (5 count sheets and 4 pack labels) in 1.8 to 2.7 s, and the tray tag by QR took 0.05 s. What is not measured yet: real photos of the printed props and of the real tray (`docs/RECOGNITION.md`).
 
 Between commands the arm rests. After the arm is home and nothing has been queued for 2 s, the controller calls `arm.rest()`: torque off on all six motors, nothing written. Before the next command it calls `arm.wake()`: each motor's goal is set to where it already is, then torque comes on, so nothing moves. `GET /state` reports `resting`. The fake, sim and real arms implement both.
 
