@@ -19,7 +19,11 @@ const secrets = Object.values(env).filter((v) => v && v.length >= 12);
 const redact = (s: string) => secrets.reduce((t, v) => t.split(v).join("<redacted>"), s);
 
 export const FIRST_MESSAGE = "Scrub here. What do you need?";
-export const PROMPT = "You are Scrub, a robot arm that passes surgical instruments. Caller: {{system__caller_id}}";
+export const CALLER_LINE = "Caller: {{system__caller_id}}";
+export const CONVERSATION_LINE = "Conversation: {{system__conversation_id}}";  // the voice server tells overlapping calls apart by it
+export const PROMPT = `You are Scrub, a robot arm that passes surgical instruments.\n${CALLER_LINE}\n${CONVERSATION_LINE}`;
+// Fast TTS. SIP uses G.711/G.722 whatever the agent's audio formats say (docs: sip-trunking), so formats stay pcm_16000.
+export const TTS_MODEL = "eleven_flash_v2";
 export const KEYWORDS = ["kelly", "hemostat", "scalpel", "mayo", "scissors", "knife", "stop", "got it", "end of case"];
 
 // "https://x", "https://x/" or "https://x/v1" -> "https://x/v1" (server.ts serves /v1/chat/completions).
@@ -41,9 +45,14 @@ export function agentBody(base: string, secretId: string | null) {
         },
       },
       asr: { keywords: KEYWORDS },
+      tts: { model_id: TTS_MODEL, expressive_mode: false, optimize_streaming_latency: 3 },
       turn: { turn_timeout: 30, turn_eagerness: "eager", soft_timeout_config: { timeout_seconds: -1 } },
-      conversation: { max_duration_seconds: 1800 },
+      // "interruption" must stay in client_events or the caller can't talk over Scrub ("stop").
+      conversation: { max_duration_seconds: 1800,
+        client_events: ["audio", "interruption", "agent_response", "user_transcript", "agent_response_correction"] },
     },
+    // Open to any caller: no auth/allowlist. No concurrency limit: a rejected call is silent, our server says "Scrub is busy".
+    platform_settings: { auth: { enable_auth: false, allowlist: [] }, call_limits: { agent_concurrency_limit: -1 } },
   };
 }
 
@@ -106,7 +115,11 @@ async function status() {
   if (!id) return console.log("[agent] no ELEVENLABS_AGENT_ID yet: npm run agent -- https://<tunnel>");
   const a = await api("GET", `/agents/${id}`);
   const p = a.conversation_config?.agent?.prompt || {};
+  const cc = a.conversation_config || {}, ps = a.platform_settings || {}, yn = (b: boolean) => (b ? "y" : "N");
   console.log(`AGENT ${id}  (${a.name})\n  llm ${p.llm}  url ${p.custom_llm?.url}  key ${p.custom_llm?.api_key ? "secret set" : "none"}`);
+  console.log(`  first message "${cc.agent?.first_message}"  tts ${cc.tts?.model_id} (${cc.tts?.agent_output_audio_format}, latency ${cc.tts?.optimize_streaming_latency})`);
+  console.log(`  prompt has Caller line ${yn((p.prompt || "").includes(CALLER_LINE))}, Conversation line ${yn((p.prompt || "").includes(CONVERSATION_LINE))}`);
+  console.log(`  turn ${cc.turn?.turn_eagerness}, interruption event ${yn((cc.conversation?.client_events || []).includes("interruption"))}, auth ${ps.auth?.enable_auth ? "ON" : "off"}, allowlist ${(ps.auth?.allowlist || []).length}, concurrency limit ${ps.call_limits?.agent_concurrency_limit}`);
   await printPhones(id);
 }
 
