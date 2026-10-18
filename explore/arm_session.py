@@ -1,8 +1,13 @@
 """Teleop or record on this Mac with the SO-101 pair, without the start-up jump.
 
   .venv/bin/python explore/arm_session.py                                   # teleop, no cameras
-  .venv/bin/python explore/arm_session.py --side 1 --wrist 2                # teleop with both cameras
-  .venv/bin/python explore/arm_session.py --side 1 --wrist 2 --task "pick the hemostat" --episodes 5
+  .venv/bin/python explore/arm_session.py --side C920 --wrist icspring      # teleop with both cameras
+  .venv/bin/python explore/arm_session.py --side C920 --wrist icspring --task "pick the hemostat" --episodes 5
+
+Cameras are picked by name (OpenCV's numbers change when a camera is replugged).
+
+Opens a live recorder page at http://localhost:8090 (cameras, phase and countdown, joints, claw guard,
+warnings, and Next / Re-record / Stop buttons that work like LeRobot's arrow keys).
 
 First eases the follower to the leader's pose over --ease-s seconds (torque stays on), so it doesn't
 jump when LeRobot starts. Gripper guard: if the claw is told to close but stops moving for
@@ -24,6 +29,15 @@ GRIP_MOVE = 1.0      # gripper units (0 closed .. 100 open) that count as still 
 GRIP_SQUEEZE = 3.0   # how far past the contact point to keep pressing, for a firm grip
 
 
+def _guard_ui(holding: bool, at) -> None:
+    try:
+        import arm_ui
+        arm_ui.S["guard"] = {"holding": holding, "at": at}
+        arm_ui.note("claw guard: " + (f"holding at {at}" if holding else "released"))
+    except ImportError:
+        pass
+
+
 def guard_gripper() -> None:
     """Patch SOFollower.send_action so a blocked claw times out to a gentle hold."""
     from lerobot.robots.so_follower.so_follower import SOFollower
@@ -40,6 +54,7 @@ def guard_gripper() -> None:
             if goal >= st["hold"] + GRIP_SQUEEZE:  # leader opened past the contact point: let go
                 st["hold"], st["ref"] = None, None
                 print("gripper guard: released", flush=True)
+                _guard_ui(False, None)
             else:
                 action = {**action, "gripper.pos": max(goal, st["hold"])}
         elif goal < pos - GRIP_SQUEEZE:  # told to close further than it is
@@ -49,6 +64,7 @@ def guard_gripper() -> None:
                 st["hold"] = max(0.0, pos - GRIP_SQUEEZE)
                 action = {**action, "gripper.pos": st["hold"]}
                 print(f"gripper guard: blocked at {pos:.0f}, holding at {st['hold']:.0f}", flush=True)
+                _guard_ui(True, round(st["hold"]))
         else:
             st["ref"] = None
         return send(self, action)
@@ -126,10 +142,28 @@ def start_log() -> Path:
     return path
 
 
+def camera_names() -> list[str]:
+    """Camera names in OpenCV's index order. OpenCV's macOS backend sorts devices by uniqueID,
+    which includes the USB location, so indexes change when a camera is replugged elsewhere."""
+    import AVFoundation as AVF
+    devs = AVF.AVCaptureDevice.devicesWithMediaType_(AVF.AVMediaTypeVideo)
+    return [str(d.localizedName()) for d in sorted(devs, key=lambda d: str(d.uniqueID()))]
+
+
+def camera_index(spec: str) -> int:
+    if spec.isdigit():
+        return int(spec)
+    names = camera_names()
+    hits = [i for i, n in enumerate(names) if spec.lower() in n.lower()]
+    if len(hits) != 1:
+        sys.exit(f"camera {spec!r} matches {len(hits)} of {names}")
+    return hits[0]
+
+
 def main() -> None:
     p = argparse.ArgumentParser()
-    p.add_argument("--side", type=int, help="side camera index (lerobot-find-cameras opencv)")
-    p.add_argument("--wrist", type=int, help="wrist camera index")
+    p.add_argument("--side", help='side camera: name part like "C920", or an OpenCV index')
+    p.add_argument("--wrist", help='wrist camera: name part like "icspring", or an OpenCV index')
     p.add_argument("--task", help='record this exact instruction, e.g. "pick the hemostat"; omit to teleop')
     p.add_argument("--episodes", type=int, default=5)
     p.add_argument("--episode-s", type=int, default=25)
@@ -137,6 +171,7 @@ def main() -> None:
     p.add_argument("--root", default=str(Path.home() / "scrub-dataset"))
     p.add_argument("--repo", default="local/scrub", help="dataset name; only matters if pushed later")
     p.add_argument("--ease-s", type=float, default=3.0)
+    p.add_argument("--no-ui", action="store_true", help="skip the recorder page on http://localhost:8090")
     p.add_argument("--follower", default=FOLLOWER)
     p.add_argument("--leader", default=LEADER)
     a = p.parse_args()
@@ -146,7 +181,9 @@ def main() -> None:
     robot = [f"--robot.type=so101_follower", f"--robot.port={a.follower}", "--robot.id=scrub_follower",
              "--robot.disable_torque_on_disconnect=false"]
     teleop = [f"--teleop.type=so101_leader", f"--teleop.port={a.leader}", "--teleop.id=scrub_leader"]
-    cams = {k: v for k, v in (("side", a.side), ("wrist", a.wrist)) if v is not None}
+    cams = {k: camera_index(v) for k, v in (("side", a.side), ("wrist", a.wrist)) if v is not None}
+    for k, v in cams.items():
+        print(f"{k} camera: index {v} ({camera_names()[v] if v < len(camera_names()) else '?'})", flush=True)
     if cams:
         spec = ", ".join(f"{k}: {{type: opencv, index_or_path: {v}, width: 640, height: 480, fps: 30}}"
                          for k, v in cams.items())
@@ -167,6 +204,12 @@ def main() -> None:
     ease(a.follower, a.leader, a.ease_s)
     print(" ".join(cmd), flush=True)
     guard_gripper()
+    if not a.no_ui:
+        import webbrowser
+        import arm_ui
+        arm_ui.install("record" if a.task else "teleop", a.task, a.episodes, a.episode_s, a.reset_s,
+                       a.root if a.task else None, cams)
+        webbrowser.open(f"http://localhost:{arm_ui.PORT}")
     if a.task:
         from lerobot.scripts.lerobot_record import main as run
     else:
