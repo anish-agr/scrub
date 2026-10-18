@@ -21,6 +21,11 @@ class TeachBackend:
         self.robot = None
 
     def connect(self):
+        from .backends import port_holders
+        busy = port_holders(self.port)
+        if busy:  # torque off under a running controller would drop a raised arm and its tool
+            raise RuntimeError(f"{self.port} is open in another process (pid {', '.join(map(str, busy))}): "
+                               "stop the controller, teleop or recording first")
         from lerobot.robots.so_follower.config_so_follower import SO101FollowerConfig
         from lerobot.robots.so_follower.so_follower import SO101Follower
 

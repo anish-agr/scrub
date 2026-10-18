@@ -59,6 +59,10 @@ def pose(arm) -> dict:
         return out
     out["available"] = True
     out["joints_deg"] = [round(v, 2) for v in q[:5]]
+    # Real arm health at a glance: late/accepted model chunks, 30 Hz overruns, API errors, why the last skill ended.
+    if isinstance(getattr(arm, "counters", None), dict):
+        out["counters"] = dict(arm.counters)
+        out["last_reason"] = getattr(arm, "last_reason", None)
     try:
         out["gripper"] = round(float(arm.gripper_position()), 3)
     except Exception:  # noqa: BLE001

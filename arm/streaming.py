@@ -45,18 +45,20 @@ class Timeline:
         chunk = self.active(tick)
         return chunk.row(tick) if chunk else np.asarray(hold)
 
-    def command(self, tick, previous, hold):
+    def command(self, tick, previous, hold=None):
         # Committed rows take precedence even if a new reply arrives early.
         if tick in self.committed:
             return self.committed[tick].copy()
-        desired = self.desired(tick, hold)
+        # No chunk covers this tick: hold the previous command (hold=None). Sending the measured
+        # joints back instead lets the P-only servos sag under gravity and the jaw let go.
+        desired = self.desired(tick, previous if hold is None else hold)
         delta = np.clip(desired - previous, -self.limits, self.limits)
         initial_point = self.kin.forward(previous[:5])
         while np.linalg.norm(self.kin.forward((previous + delta)[:5]) - initial_point) > self.kin.rig["max_cartesian_speed_m_s"] / HZ:
             delta *= .5
         return np.asarray(previous) + delta
 
-    def rtc(self, tick, previous, hold):
+    def rtc(self, tick, previous, hold=None):
         prior = self.active(tick)
         if prior is None:
             return None

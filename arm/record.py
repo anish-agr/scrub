@@ -307,6 +307,15 @@ def describe(a, pl: dict) -> None:
     print(show(pl["cmd"]))
 
 
+def busy_ports(a, holders=None) -> dict:
+    """{port: [pid, ...]} for the follower and leader ports some other process has open."""
+    from arm.backends import port_holders
+    from arm.check_setup import known_ports
+    holders = holders or port_holders
+    ports = [p for p in (a.follower, a.leader) if p] or list(known_ports())
+    return {p: pids for p in ports if (pids := holders(p))}
+
+
 def main(argv=None) -> int:
     load_env()
     a = parse(argv)
@@ -322,6 +331,10 @@ def main(argv=None) -> int:
         raise SystemExit("--lerobot needs --follower and --leader (see python -m arm.check_setup)")
     if not a.lerobot and use_degrees_default() is False:
         raise SystemExit("this LeRobot defaults to use_degrees=false and arm_session cannot set it: use --lerobot")
+    busy = busy_ports(a)
+    if busy:  # two programs on one motor bus fight; the controller may be holding a raised arm
+        raise SystemExit("arm port in use: " + "; ".join(f"{p} (pid {', '.join(map(str, pids))})" for p, pids in busy.items())
+                         + ". Stop the controller (--real-arm), teleop or arm.teach first")
     cmd = list(pl["cmd"])
     if a.lerobot and not shutil.which("lerobot-record"):
         cmd[0:1] = [sys.executable, "-m", "lerobot.scripts.lerobot_record"]

@@ -2,7 +2,10 @@
 from __future__ import annotations
 
 from io import BytesIO
+import os
 from pathlib import Path
+import shutil
+import subprocess
 import time
 
 import numpy as np
@@ -56,6 +59,40 @@ class SavedImageBackend:
         self.connected = False
 
 
+def camera_index(spec):
+    """OpenCV index for a camera id: an int or digits as given, a /dev path as given, otherwise a
+    name part ("C920") matched the way arm.check_setup does (macOS indexes move on a replug)."""
+    if isinstance(spec, int) or str(spec).strip().isdigit():
+        return int(spec)
+    if str(spec).startswith("/"):
+        return str(spec)
+    from .check_setup import camera_names, resolve_camera
+    index, why = resolve_camera(str(spec), camera_names())
+    if index is None:
+        raise RuntimeError(f"camera {spec!r}: {why}. Run python -m arm.check_setup")
+    return index
+
+
+def port_holders(port, run=subprocess.run):
+    """PIDs of other processes with the arm's serial port open (both macOS nodes, tty. and cu.).
+    Two programs writing one motor bus fight each other; [] where lsof is missing or fails."""
+    lsof = shutil.which("lsof")
+    if not lsof or not port:
+        return []
+    paths = {port}
+    for a, b in (("/dev/tty.", "/dev/cu."), ("/dev/cu.", "/dev/tty.")):
+        if port.startswith(a):
+            paths.add(b + port[len(a):])
+    paths = sorted(p for p in paths if os.path.exists(p))
+    if not paths:
+        return []
+    try:
+        out = run([lsof, "-t", *paths], capture_output=True, text=True, timeout=5).stdout
+    except Exception:  # noqa: BLE001 - no answer is not proof of a conflict
+        return []
+    return sorted({int(x) for x in out.split() if x.isdigit() and int(x) != os.getpid()})
+
+
 class LeRobotBackend:
     """Uses LeRobot's SOFollower API (source verified against v0.4.4).
 
@@ -67,11 +104,17 @@ class LeRobotBackend:
         self.robot = None
 
     def connect(self):
+        port, robot_id, side, wrist = self.config_args
+        # Only the controller moves the arm: refuse while teleop, recording, replay or teaching holds the bus.
+        busy = port_holders(port)
+        if busy:
+            raise RuntimeError(f"{port} is open in another process (pid {', '.join(map(str, busy))}): "
+                               "close teleop, recording, replay or arm.teach first")
+        side, wrist = camera_index(side), camera_index(wrist)
         from lerobot.cameras.opencv.configuration_opencv import OpenCVCameraConfig
         from lerobot.robots.so_follower.config_so_follower import SO101FollowerConfig
         from lerobot.robots.so_follower.so_follower import SO101Follower
 
-        port, robot_id, side, wrist = self.config_args
         config = SO101FollowerConfig(port=port, id=robot_id, use_degrees=True,
                                     disable_torque_on_disconnect=False,
                                     cameras={name: OpenCVCameraConfig(index_or_path=index,
