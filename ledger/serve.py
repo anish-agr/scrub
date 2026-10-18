@@ -34,6 +34,7 @@ FILES = {
     "/memory.js": ("memory.js", "text/javascript; charset=utf-8"),
     "/data.html": ("data.html", "text/html; charset=utf-8"),
     "/qr.png": ("qr.png", "image/png"),
+    "/scrub-logo.png": ("scrub-logo.png", "image/png"),
 }
 REPO = PUBLIC.parent.parent
 DATA_FILES = [REPO / "data" / "analysis.json", REPO / "docs" / "media" / "data" / "analysis.json"]  # fresh, then committed
