@@ -1235,6 +1235,10 @@ def make_handler(st: Station):
                 self._send(200, HTML.read_bytes(), "text/html; charset=utf-8")
             elif path == "/status":
                 self._send(200, json.dumps(st.status(), default=str).encode(), "application/json")
+            elif path == "/style.css":                # the shared design system (design/scrub.css)
+                css = HERE.parents[1] / "design" / "scrub.css"
+                self._send(200, css.read_bytes(), "text/css; charset=utf-8") if css.exists() \
+                    else self._send(404, b"", "text/css")
             elif path == "/drivers":
                 try:
                     import replay

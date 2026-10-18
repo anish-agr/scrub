@@ -1,131 +1,250 @@
 <!doctype html>
-<html lang="en">
+<html lang="en" data-theme="monitor">
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Scrub Station</title>
-<link rel="preconnect" href="https://fonts.googleapis.com">
-<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@500;700&family=IBM+Plex+Sans:wght@400;600;700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="/style.css">
 <style>
-:root{
-  --bg:#0b0d10; --panel:#14181d; --panel2:#1d232a; --line:#2c343e;
-  --text:#f2f5f8; --muted:#8c97a4;
-  --red:#ff3b3b; --amber:#ffb020; --blue:#3b9cff; --grey:#5b6470; --teal:#14c8b4; --green:#3ddc84;
-}
-*{box-sizing:border-box;border-radius:0}
-html,body{margin:0;background:var(--bg);color:var(--text);font-family:"IBM Plex Sans",system-ui,sans-serif;overflow-x:hidden}
-body{padding:12px;display:flex;flex-direction:column;gap:10px;min-height:100vh}
-.mono{font-family:"IBM Plex Mono",ui-monospace,Menlo,monospace}
-#top{display:flex;flex-wrap:wrap;align-items:center;gap:14px;background:var(--panel);padding:12px 16px;border:1px solid var(--line)}
-#badge{font-size:clamp(24px,3.4vw,44px);font-weight:700;letter-spacing:.04em;padding:6px 20px;background:var(--grey);color:#fff;white-space:nowrap}
-#badge.recording{background:var(--red);animation:pulse 1.2s infinite}
-#badge.idle{background:var(--teal);color:#021a17}
-#badge.homing,#badge.parked,#badge.off{background:var(--blue)}
-#badge.cooling{background:var(--amber);color:#1a1200}
-#badge.killed,#badge.error{background:#000;color:var(--red);outline:3px solid var(--red)}
-@keyframes pulse{0%,100%{opacity:1}50%{opacity:.55}}
-#taskbox{flex:1;min-width:260px;display:flex;gap:8px}
-#task{flex:1;font:inherit;font-size:clamp(18px,2vw,26px);font-weight:600;background:var(--panel2);color:var(--text);border:1px solid var(--line);padding:8px 12px}
-#task:focus{outline:2px solid var(--blue)}
-#settask{font:inherit;font-weight:700;padding:0 16px;background:var(--panel2);color:var(--text);border:1px solid var(--line);cursor:pointer}
-#clock{font-size:clamp(36px,5vw,72px);font-weight:700;line-height:1}
-#counts{font-size:15px;color:var(--muted);line-height:1.4;text-align:right}
-#warn{display:none;background:var(--red);color:#fff;padding:10px 16px;font-size:clamp(16px,1.8vw,24px);font-weight:700}
-#disc{display:none;background:var(--amber);color:#1a1200;padding:12px 16px;font-size:22px;font-weight:700;text-align:center}
-#main{display:grid;grid-template-columns:minmax(0,2fr) minmax(300px,1fr);gap:10px;flex:1}
-#cams{display:grid;grid-template-columns:1fr 1fr;gap:10px;align-content:start}
-.cam{position:relative;aspect-ratio:4/3;background:#000;border:2px solid var(--line);overflow:hidden}
-.cam.rec{border-color:var(--red)}
-.cam img{width:100%;height:100%;object-fit:cover;display:block}
-.lbl{position:absolute;left:0;top:0;background:rgba(0,0,0,.75);padding:4px 12px;font-size:18px;font-weight:700}
-.chip{position:absolute;right:0;bottom:0;background:rgba(0,0,0,.8);padding:4px 10px;font-size:15px}
-.chip.bad{background:var(--red)}
-#side{display:flex;flex-direction:column;gap:10px}
-button.big{font:inherit;font-size:24px;font-weight:700;padding:20px 10px;border:0;color:#fff;cursor:pointer;width:100%;background:var(--blue)}
-button.big small{display:block;font-size:12px;font-weight:600;opacity:.8;margin-top:2px}
-button.big:disabled{opacity:.3;cursor:default}
-#b-toggle{background:var(--green);color:#03170b}
-#b-toggle.save{background:var(--blue);color:#fff}
-#b-discard{background:var(--grey)}
-#b-kill{background:var(--red);font-size:40px;padding:26px 10px;letter-spacing:.08em;border:4px solid #fff}
-.pair{display:grid;grid-template-columns:1fr 1fr;gap:10px}
-#b-home,#b-wake,#b-reconnect{font-size:18px;padding:14px 8px;background:var(--panel2);border:1px solid var(--line)}
-#b-reconnect{display:none;background:var(--amber);color:#1a1200}
-.card{background:var(--panel);border:1px solid var(--line);padding:10px 12px}
-.card h3{margin:0 0 8px;font-size:13px;letter-spacing:.08em;text-transform:uppercase;color:var(--muted)}
-#temps{display:grid;grid-template-columns:repeat(3,1fr);gap:6px}
-.t{padding:6px 8px;background:var(--panel2);font-size:13px}
-.t b{display:block;font-size:22px}
-.t.ok b{color:var(--green)} .t.amber{background:var(--amber);color:#1a1200} .t.red{background:var(--red);color:#fff}
-#joints{font-size:14px;color:var(--muted);margin-top:8px;line-height:1.5}
-#log{flex:1;min-height:120px;max-height:260px;overflow-y:auto;background:#000;border:1px solid var(--line);padding:8px 10px;font-size:13px;line-height:1.45;color:#b8c4d0;white-space:pre-wrap}
-#keys{font-size:12px;color:var(--muted)}
-#tasks{display:flex;flex-wrap:wrap;gap:6px;background:var(--panel);border:1px solid var(--line);padding:8px 12px}
-#tasks button{font:inherit;font-size:16px;font-weight:600;padding:8px 12px;background:var(--panel2);color:var(--text);border:1px solid var(--line);cursor:pointer}
-#tasks button.on{background:var(--teal);color:#021a17;border-color:var(--teal)}
-#tasks button.sep{margin-left:14px}
-#tasks button:disabled{opacity:.35;cursor:default}
-#notrain{display:none;background:#000;color:var(--amber);outline:3px solid var(--amber);padding:10px 16px;font-size:clamp(20px,2.4vw,32px);font-weight:700;text-align:center;letter-spacing:.04em}
-#rerec{display:none;background:var(--red);color:#fff;padding:14px 16px;font-size:clamp(22px,2.8vw,40px);font-weight:700;align-items:center;gap:16px}
+/* Layout only; colors and fonts come from design/scrub.css (served as /style.css). Fallbacks keep the
+   page usable if that file is missing. */
+:root{--paper:#0f1110;--paper2:#181b19;--ink:#e8e6df;--mute:#8d8a80;--hair:#2c302d;--red:#ff4b3e;--amber:#ffb02e;
+  --green:#3ad17a;--cyan:#4cc9e8;--f:'Archivo',Arial,sans-serif;--m:'IBM Plex Mono',ui-monospace,monospace}
+html,body{margin:0;background:var(--paper);color:var(--ink);font:400 16px/1.35 var(--f);overflow-x:hidden}
+*{box-sizing:border-box}
+.mono{font-family:var(--m)}
+.scrub-ui button{display:flex;flex-direction:column;align-items:center;justify-content:center;font:700 16px var(--f);padding:12px 14px;background:var(--paper2);color:var(--ink);border:1px solid var(--hair);cursor:pointer;width:100%;text-align:center}
+.scrub-ui button small{display:block;font:500 11px var(--m);color:var(--mute);margin-top:3px;text-transform:none;letter-spacing:0}
+.scrub-ui button:disabled,.scrub-ui button.big:disabled{background:transparent;color:var(--mute);border:1px dashed var(--hair);opacity:1;cursor:not-allowed}
+.scrub-ui button:disabled small{opacity:.6}
+.scrub-ui button.big:not(:disabled) small{color:inherit;opacity:.75}
+
+/* top bar */
+#top{display:flex;align-items:center;gap:18px;flex-wrap:wrap;padding:10px 16px;border-bottom:2px solid var(--ink)}
+#mark{font:900 18px var(--f);letter-spacing:.14em;text-transform:uppercase;white-space:nowrap}
+#tabs{display:flex;border:1px solid var(--hair)}
+#tabs button{width:auto;padding:8px 22px;border:0;font:800 14px var(--f);letter-spacing:.1em;text-transform:uppercase;background:transparent;color:var(--mute)}
+#tabs button.on{background:var(--ink);color:var(--paper)}
+#tabs button:disabled{border:0;opacity:.35}
+#state{font:900 22px var(--f);letter-spacing:.08em;text-transform:uppercase;padding:6px 16px;border:2px solid currentColor;white-space:nowrap}
+#state.idle,#state.running{color:var(--green)}
+#state.recording{color:var(--red);animation:pulse 1.2s infinite}
+#state.running{animation:pulse 1.6s infinite}
+#state.homing,#state.parked,#state.off{color:var(--cyan)}
+#state.cooling{color:var(--amber)}
+#state.killed,#state.error{background:var(--red);color:#fff;border-color:var(--red)}
+@keyframes pulse{50%{opacity:.55}}
+#clock{font:600 30px var(--m);min-width:4.5ch}
+#clock.live{color:var(--red)}
+#stats{margin-left:auto;display:flex;gap:16px;font:500 13px var(--m);color:var(--mute);flex-wrap:wrap}
+#stats b{color:var(--ink);font-weight:600}
+#stats .warn b{color:var(--amber)} #stats .bad b{color:var(--red)}
+
+/* banners: red only for things that stop work */
+.banner{padding:10px 16px;font:800 18px var(--f)}
+.banner.crit{background:var(--red);color:#fff}
+.banner.amber{background:transparent;color:var(--amber);border-bottom:2px solid var(--amber);text-align:center;letter-spacing:.04em}
+#rerec{display:flex;align-items:center;gap:14px}
 #rerec .msgs{flex:1}
-#rerec button{font:inherit;font-size:16px;font-weight:700;padding:10px 14px;background:#fff;color:var(--red);border:0;cursor:pointer}
-#qa{font-size:13px;line-height:1.5;max-height:150px;overflow-y:auto}
-#qa .PASS{color:var(--green)} #qa .FAIL{color:var(--red);font-weight:700} #qa .checking{color:var(--amber)}
-#tcounts{font-size:13px;line-height:1.5}
-#tcounts .g{margin-bottom:6px}
-#tcounts .bar{height:6px;background:var(--panel2);margin-top:2px}
-#tcounts .bar i{display:block;height:100%;background:var(--teal)}
-@media (max-width:900px){#main{grid-template-columns:1fr}#cams{grid-template-columns:1fr}#counts{text-align:left}}
+#rerec button{width:auto;background:#fff;color:var(--red);border:0}
+#chips{display:flex;flex-wrap:wrap;gap:8px;padding:8px 16px 0}
+#chips span{font:500 13px var(--m);color:var(--amber);border:1px solid var(--amber);padding:3px 8px}
+#chips:empty{display:none}
+
+/* body */
+#main{display:grid;grid-template-columns:minmax(0,1fr) 300px;gap:16px;padding:12px 16px 16px}
+#cams{display:grid;grid-template-columns:1fr 1fr;gap:12px}
+.cam{position:relative;aspect-ratio:4/3;background:#000;border:2px solid var(--hair);overflow:hidden}
+.cam.rec{border-color:var(--red)} .cam.run{border-color:var(--green)}
+.cam img{width:100%;height:100%;object-fit:cover;display:block}
+.cam .lbl{position:absolute;left:0;top:0;background:rgba(0,0,0,.7);padding:3px 10px;font:700 13px var(--m);letter-spacing:.08em;text-transform:uppercase;color:#e8e6df}
+.cam .chip{position:absolute;right:0;bottom:0;background:rgba(0,0,0,.7);padding:3px 8px;font:500 13px var(--m);color:#e8e6df}
+.cam .chip.bad{background:var(--amber);color:#111}
+
+.panel{margin-top:14px;border-top:2px solid var(--ink);padding-top:12px}
+h2{font:800 12px var(--f);letter-spacing:.14em;text-transform:uppercase;color:var(--mute);margin:0 0 8px}
+.row{display:flex;gap:10px;align-items:center;flex-wrap:wrap}
+.grid2{display:grid;grid-template-columns:2fr 1fr;gap:10px}
+.mute{color:var(--mute)}
+
+/* record */
+#tasks{display:flex;flex-wrap:wrap;gap:6px;margin-bottom:10px}
+#tasks button{width:auto;padding:7px 12px;font:600 14px var(--f);text-transform:none;letter-spacing:0}
+#tasks button.on{background:var(--ink);color:var(--paper);border-color:var(--ink)}
+#tasks button.sep{margin-left:12px}
+#taskrow{display:flex;gap:8px;margin-bottom:10px}
+#task{flex:1;font:600 18px var(--f);background:var(--paper2);color:var(--ink);border:1px solid var(--hair);padding:8px 12px}
+#task[readonly]{display:none}
+#settask{width:auto}
+#b-toggle:not(:disabled){font-size:22px;padding:16px;background:var(--green);color:#0b1a10;border-color:var(--green)}
+#b-toggle.save:not(:disabled){background:var(--cyan);border-color:var(--cyan)}
+#counts{font:500 14px var(--m);color:var(--mute);margin-top:10px}
+#counts b{color:var(--ink)}
+#tcounts,#qa{font:500 13px/1.5 var(--m)}
+#tcounts .bar,.prog{height:6px;background:var(--paper2);margin-top:3px}
+#tcounts .bar i,.prog i{display:block;height:100%;background:var(--green)}
+#qa{max-height:130px;overflow-y:auto}
+#qa .PASS{color:var(--green)} #qa .FAIL{color:var(--red)} #qa .checking{color:var(--amber)}
+.cols{display:grid;grid-template-columns:1fr 1fr;gap:16px;margin-top:14px}
+
+/* run */
+label.f{display:flex;flex-direction:column;gap:4px;font:700 12px var(--f);letter-spacing:.1em;text-transform:uppercase;color:var(--mute)}
+select,#r-args{font:500 15px var(--m);background:var(--paper2);color:var(--ink);border:1px solid var(--hair);padding:8px 10px;min-width:0}
+#runform{display:grid;grid-template-columns:1fr 2fr 1fr;gap:10px;margin-bottom:12px}
+#b-run,#b-stop,#b-toggle{font-size:22px;padding:16px}
+#b-run:not(:disabled){background:var(--green);color:#0b1a10;border-color:var(--green)}
+#b-stop:not(:disabled){background:var(--amber);color:#111;border-color:var(--amber)}
+#runlive{margin-top:12px;font:500 14px var(--m)}
+#lastrun{margin-top:12px;padding:10px 12px;border:1px solid var(--hair);font:500 14px var(--m)}
+#lastrun .row button{width:auto;padding:8px 16px}
+#lastrun button.on{background:var(--ink);color:var(--paper)}
+#tally{margin-top:8px;font:500 13px var(--m);color:var(--mute)}
+
+/* rail */
+#rail{display:flex;flex-direction:column;gap:10px}
+#b-kill{background:var(--red);color:#fff;border:3px solid #fff;font:900 34px var(--f);letter-spacing:.1em;padding:22px 10px}
+#b-kill small{color:#fff;opacity:.85}
+.pair{display:grid;grid-template-columns:1fr 1fr;gap:8px}
+#b-reconnect{background:var(--amber);color:#111;border-color:var(--amber)}
+#temps{display:grid;grid-template-columns:repeat(3,1fr);gap:4px}
+.t{font:500 11px var(--m);color:var(--mute);padding:4px 6px;border:1px solid var(--hair)}
+.t b{display:block;font:600 17px var(--m);color:var(--green)}
+.t.amber{border-color:var(--amber)} .t.amber b{color:var(--amber)}
+.t.red{background:var(--red);border-color:var(--red);color:#fff} .t.red b{color:#fff}
+details{border-top:1px solid var(--hair);padding-top:8px}
+summary{cursor:pointer;font:800 12px var(--f);letter-spacing:.14em;text-transform:uppercase;color:var(--mute)}
+#joints{font:500 12px/1.5 var(--m);color:var(--mute);margin-top:6px}
+#log{font:500 12px/1.45 var(--m);color:var(--mute);white-space:pre-wrap;max-height:260px;overflow-y:auto;margin-top:6px}
+#logtail{font:500 12px/1.45 var(--m);color:var(--mute);white-space:pre-wrap;margin-top:4px}
+#keys{font:500 11px var(--m);color:var(--mute)}
+kbd{border:1px solid var(--hair);padding:0 4px;font:inherit}
+
+@media (max-width:980px){#main{grid-template-columns:1fr}#stats{margin-left:0}#rail{order:-1}#tasks button.sep{margin-left:0}}
+@media (max-width:640px){#cams,.cols,#runform,.grid2{grid-template-columns:1fr}#top{gap:10px}}
 </style>
 </head>
-<body>
+<body class="scrub-ui">
 <div id="top">
-  <div id="badge">CONNECTING</div>
-  <div id="taskbox"><input id="task" placeholder="task" autocomplete="off" readonly><button id="settask">Set task</button></div>
-  <div id="clock" class="mono">00:00</div>
-  <div id="counts" class="mono"></div>
+  <div id="mark">Scrub Station</div>
+  <div id="tabs"><button id="tab-record" class="on">Record</button><button id="tab-run">Run</button></div>
+  <div id="state">Connecting</div>
+  <div id="clock" class="mono"></div>
+  <div id="stats"></div>
 </div>
-<div id="tasks"></div>
-<div id="notrain"></div>
-<div id="rerec"><div class="msgs"></div><button id="b-qaack">Noted</button></div>
-<div id="disc">Disconnected: is station.py running?</div>
-<div id="warn"></div>
+<div id="disc" class="banner crit" hidden>Disconnected: is station.py running?</div>
+<div id="alert" class="banner crit" hidden></div>
+<div id="flash" class="banner crit" hidden></div>
+<div id="notrain" class="banner amber" hidden>NOT FOR TRAINING</div>
+<div id="rerec" class="banner crit" hidden><div class="msgs"></div><button id="b-qaack">Noted</button></div>
+<div id="chips"></div>
+
 <div id="main">
-  <div id="cams">
-    <div class="cam" id="cam-side"><img alt=""><div class="lbl">Side</div><div class="chip mono">--</div></div>
-    <div class="cam" id="cam-wrist"><img alt=""><div class="lbl">Wrist</div><div class="chip mono">--</div></div>
-  </div>
-  <div id="side">
-    <button class="big" id="b-toggle">Start episode<small>Space / Enter in the terminal</small></button>
-    <button class="big" id="b-discard">Discard<small>Backspace: throw this episode away</small></button>
-    <button class="big" id="b-kill">KILL<small>Escape: motors off now (a raised arm drops)</small></button>
-    <div class="pair">
-      <button class="big" id="b-home">Home + motors off<small>glides home, torque off</small></button>
-      <button class="big" id="b-wake">Motors on<small>holds, then follows</small></button>
+  <div>
+    <div id="cams">
+      <div class="cam" id="cam-side"><img alt="side camera"><div class="lbl">Side</div><div class="chip">--</div></div>
+      <div class="cam" id="cam-wrist"><img alt="wrist camera"><div class="lbl">Wrist</div><div class="chip">--</div></div>
     </div>
-    <button class="big" id="b-reconnect">Reconnect arms<small>after a USB or power drop</small></button>
-    <div class="card"><h3>Episodes per task (this dataset)</h3><div id="tcounts" class="mono"></div></div>
-    <div class="card"><h3>Episode QA (this session)</h3><div id="qa" class="mono">no episodes saved yet</div></div>
-    <div class="card"><h3>Motor temperatures</h3><div id="temps"></div><div id="joints" class="mono"></div></div>
-    <div id="log" class="mono"></div>
-    <div id="keys">Space start/save &middot; Esc KILL &middot; Backspace discard (not while typing the task)</div>
+
+    <section id="p-record" class="panel">
+      <h2>Task</h2>
+      <div id="tasks"></div>
+      <div id="taskrow"><input id="task" placeholder="task" autocomplete="off" readonly><button id="settask" hidden>Set task</button></div>
+      <div class="grid2">
+        <button id="b-toggle" class="big">Start episode<small><kbd>Space</kbd> or Enter in the terminal</small></button>
+        <button id="b-discard">Discard<small><kbd>Backspace</kbd></small></button>
+      </div>
+      <div id="counts"></div>
+      <div class="cols">
+        <div><h2>Episodes per task</h2><div id="tcounts"></div></div>
+        <div><h2>Episode QA (this session)</h2><div id="qa" class="mute">no episodes saved yet</div></div>
+      </div>
+    </section>
+
+    <section id="p-run" class="panel" hidden>
+      <h2>Automated run (not recorded)</h2>
+      <div id="runform">
+        <label class="f">Driver<select id="r-driver"></select></label>
+        <label class="f" id="f-episode">Demo episode<select id="r-episode"></select></label>
+        <label class="f" id="f-speed">Speed<select id="r-speed"><option>0.25</option><option selected>0.5</option><option>0.75</option><option>1</option></select></label>
+        <label class="f" id="f-args" hidden>Args (JSON)<input id="r-args" value="{}" autocomplete="off"></label>
+      </div>
+      <div class="grid2">
+        <button id="b-run" class="big">Run<small>arm must be on (Motors on)</small></button>
+        <button id="b-stop" class="big">Stop<small>ends the run, home, motors off</small></button>
+      </div>
+      <div id="runhint" class="mute" style="margin-top:8px;font-size:14px"></div>
+      <div id="runlive" hidden><div id="runtext"></div><div class="prog"><i id="runprog"></i></div></div>
+      <div id="lastrun" hidden>
+        <div id="lasttext"></div>
+        <div class="row" style="margin-top:8px"><span class="mute">Did it grab it?</span>
+          <button id="b-grab">Grabbed</button><button id="b-miss">Missed</button></div>
+      </div>
+      <div id="tally"></div>
+    </section>
   </div>
+
+  <aside id="rail">
+    <button id="b-kill">KILL<small><kbd>Esc</kbd> motors off now. A raised arm drops.</small></button>
+    <div class="pair">
+      <button id="b-wake">Motors on<small>holds, then follows</small></button>
+      <button id="b-home">Home<small>glide home, motors off</small></button>
+    </div>
+    <button id="b-reconnect" hidden>Reconnect arms<small>after a USB or power drop</small></button>
+    <div><h2>Motors °C</h2><div id="temps"></div></div>
+    <details id="d-joints"><summary>Joints</summary><div id="joints"></div></details>
+    <details id="d-log"><summary>Log</summary><div id="log"></div></details>
+    <div id="logtail"></div>
+    <div id="keys"><kbd>Esc</kbd> KILL · <kbd>Space</kbd> start/save · <kbd>Backspace</kbd> discard (Record tab)</div>
+  </aside>
 </div>
 <script>
 const $=id=>document.getElementById(id);
 const M=["shoulder_pan","shoulder_lift","elbow_flex","wrist_flex","wrist_roll","gripper"];
-const LABEL={idle:"TELEOP",recording:"RECORDING",homing:"GOING HOME",parked:"PARKED",cooling:"COOLING",killed:"KILLED",error:"ERROR",off:"MOTORS OFF",running:"RUNNING"};
-let st=null, fails=0, taskDirty=false;
+const SHORT={shoulder_pan:"pan",shoulder_lift:"lift",elbow_flex:"elbow",wrist_flex:"wrist",wrist_roll:"roll",gripper:"grip"};
+const LABEL={idle:"Teleop",recording:"Recording",homing:"Going home",parked:"Parked",cooling:"Cooling",killed:"Killed",error:"Error",off:"Motors off",running:"Running"};
+// Warnings that stop work go in the red banner; the rest are amber chips.
+const CRIT=/^(KILLED|ERROR|COOLING|[A-Z]+ CAMERA DOWN)|torque OFF/;
+let st=null, fails=0, taskDirty=false, mode="record", drv=null;
+try{mode=localStorage.getItem("station-mode")||"record";}catch(e){}
 const fmt=s=>{s=Math.max(0,Math.floor(s));return String(Math.floor(s/60)).padStart(2,"0")+":"+String(s%60).padStart(2,"0");};
+const el=(tag,cls,text)=>{const d=document.createElement(tag);if(cls)d.className=cls;if(text!=null)d.textContent=text;return d;};
+
 async function send(action,extra){
   try{const r=await fetch("/control",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({action,...extra})});
-    const j=await r.json(); if(!j.ok&&j.msg)flash(j.msg); poll();}catch(e){flash("control failed");}
+    const j=await r.json(); if(!j.ok&&j.msg)flash(j.msg); poll(); return j;}catch(e){flash("control failed");}
 }
 let flashT=null;
-function flash(m){const w=$("warn");w.style.display="block";w.textContent=m;clearTimeout(flashT);flashT=setTimeout(()=>{if(st)render(st);},2500);}
+function flash(m){const f=$("flash");f.hidden=false;f.textContent=m;clearTimeout(flashT);flashT=setTimeout(()=>{f.hidden=true;},3000);}
+
+function setMode(m){
+  mode=m; try{localStorage.setItem("station-mode",m);}catch(e){}
+  $("tab-record").classList.toggle("on",m==="record"); $("tab-run").classList.toggle("on",m==="run");
+  $("p-record").hidden=m!=="record"; $("p-run").hidden=m!=="run";
+  if(m==="run")loadDrivers();
+  if(st)render(st);
+}
+async function loadDrivers(){
+  try{drv=await (await fetch("/drivers",{cache:"no-store"})).json();}catch(e){return;}
+  const sel=$("r-driver"), keep=sel.value;
+  sel.replaceChildren(...drv.drivers.map(d=>{const o=el("option",null,d.ok?d.name:`${d.name} (not available)`);
+    o.value=d.name;o.disabled=!d.ok;o.title=d.error||"";return o;}));
+  const firstOk=drv.drivers.find(d=>d.ok); sel.value=keep&&drv.drivers.some(d=>d.name===keep&&d.ok)?keep:(firstOk?firstOk.name:"");
+  const ep=$("r-episode"), keepEp=ep.value;
+  ep.replaceChildren(...drv.episodes.slice().reverse().map(e=>{const o=el("option",null,
+    `ep ${e.episode} · ${e.task} · ${(e.length/30).toFixed(1)} s`);o.value=e.episode;return o;}));
+  if(keepEp)ep.value=keepEp;
+  driverFields();
+}
+function driverFields(){
+  const r=$("r-driver").value==="replay";
+  $("f-episode").hidden=!r; $("f-speed").hidden=!r; $("f-args").hidden=r;
+  $("runhint").textContent=r?(drv&&!drv.episodes.length?"No replayable episodes yet (the open file unlocks when the station restarts).":
+    "Replay repeats a demo exactly: put the object where it was in that episode."):"";
+}
+
 function setCam(name,s){
   const box=$("cam-"+name), img=box.querySelector("img"), c=(s.cameras||{})[name], chip=box.querySelector(".chip");
-  box.classList.toggle("rec",s.state==="recording");
+  box.classList.toggle("rec",s.state==="recording"); box.classList.toggle("run",s.state==="running");
   if(!c){chip.textContent="no camera";return;}
   if(!img.dataset.on){img.dataset.on="1";img.src="/stream/"+name+"?t="+Date.now();}
   chip.textContent=c.down?"DOWN":`${c.fps!=null?c.fps.toFixed(0):"--"} fps`+(c.stalls?` · ${c.stalls} stalls`:"");
@@ -133,67 +252,103 @@ function setCam(name,s){
 }
 ["side","wrist"].forEach(n=>{const img=$("cam-"+n).querySelector("img");
   img.addEventListener("error",()=>setTimeout(()=>{img.src="/stream/"+n+"?t="+Date.now();},2000));});
+
 let tasksKey="";
-function renderTasks(s){
+function renderRecord(s){
   const list=s.allowed_tasks||[], key=list.join("|")+"#"+s.any_task;
   if(key!==tasksKey){tasksKey=key;
-    $("tasks").replaceChildren(...list.map((t,i)=>{const b=document.createElement("button");b.textContent=t;b.dataset.task=t;
-      if(i>0&&t.startsWith("pick")&&i%2===0)b.className="sep";
-      b.onclick=()=>{send("task",{task:t});b.blur();};return b;}));
-    $("task").readOnly=!s.any_task; $("settask").style.display=s.any_task?"":"none";
-    $("task").placeholder=s.any_task?"any task text (NOT FOR TRAINING)":"pick a task button";}
-  $("tasks").querySelectorAll("button").forEach(b=>{b.classList.toggle("on",b.dataset.task===s.task);
-    b.disabled=s.state==="recording";});
-  const nt=$("notrain");
-  nt.style.display=s.any_task?"block":"none";
-  nt.textContent=s.task_ok?"--any-task is on: free text allowed. Episodes with a non-settings task are NOT FOR TRAINING"
-    :`NOT FOR TRAINING: "${s.task}" is not a settings instruction`;
-  nt.style.color=s.task_ok?"var(--amber)":"var(--red)";
-  const rr=s.rerecord||[], box=$("rerec");
-  box.style.display=rr.length?"flex":"none";
-  box.querySelector(".msgs").replaceChildren(...rr.map(x=>{const d=document.createElement("div");d.textContent=x;return d;}));
-  const c=s.counts||{}, by=c.by_task||{};
-  $("tcounts").replaceChildren(...(c.targets||[]).map(g=>{const d=document.createElement("div");d.className="g";
-    const per=Object.entries(g.tasks).map(([t,v])=>`${t} ${v.done}${v.target?"/"+v.target:""}`).join(" · ");
-    d.innerHTML=`<b>${g.label}</b>: ${g.done} of ${g.min}-${g.max}<br>${per}<div class="bar"><i style="width:${Math.min(100,100*g.done/g.max)}%"></i></div>`;
-    return d;}));
-  const other=Object.entries(by).filter(([t,v])=>v.total&&!(c.targets||[]).some(g=>t in g.tasks));
-  if(other.length){const d=document.createElement("div");d.textContent="other: "+other.map(([t,v])=>`${t} ${v.total}`).join(" · ");$("tcounts").appendChild(d);}
-  const q=s.qa||[];
-  if(q.length)$("qa").replaceChildren(...q.slice().reverse().map(r=>{const d=document.createElement("div");d.className=r.status;
-    d.textContent=`ep ${r.episode} ${r.task}: ${r.status}${r.reasons.length?" - "+r.reasons.join("; "):""}${r.status!=="checking"&&!r.video_done?" (video check running)":""}`;return d;}));
-}
-function render(s){
-  renderTasks(s);
-  const b=$("badge"); b.className=s.state; b.textContent=LABEL[s.state]||String(s.state).toUpperCase();
+    $("tasks").replaceChildren(...list.map((t,i)=>{const b=el("button",i>0&&t.startsWith("pick")&&i%2===0?"sep":"",t);b.dataset.task=t;
+      b.onclick=()=>send("task",{task:t});return b;}));
+    $("task").readOnly=!s.any_task; $("settask").hidden=!s.any_task;
+    $("task").placeholder="any task text (NOT FOR TRAINING)";}
+  $("tasks").querySelectorAll("button").forEach(b=>{b.classList.toggle("on",b.dataset.task===s.task);b.disabled=s.state==="recording";});
   if(!taskDirty&&document.activeElement!==$("task"))$("task").value=s.task||"";
-  $("clock").textContent=fmt(s.recording_s||0); $("clock").style.color=s.state==="recording"?"var(--red)":"var(--muted)";
-  $("counts").innerHTML=`${s.state==="recording"?"episode "+s.episode_index+" · "+s.frames+" frames<br>":""}`+
-    `saved this session ${s.episodes_session} · dataset ${s.episodes_total??"?"}<br>loop ${s.loop_hz!=null?s.loop_hz.toFixed(1):"--"} Hz`+(s.saving?" · saving":"");
-  const w=s.warnings||[]; $("warn").style.display=w.length?"block":"none";
-  $("warn").replaceChildren(...w.map(x=>{const d=document.createElement("div");d.textContent=x;return d;}));
-  setCam("side",s); setCam("wrist",s);
   const rec=s.state==="recording", tg=$("b-toggle");
   tg.classList.toggle("save",rec); tg.firstChild.textContent=rec?"Save episode":"Start episode";
   tg.disabled=!(rec||(s.state==="idle"&&!s.saving));
   $("b-discard").disabled=!rec;
-  $("b-home").disabled=rec||!["idle"].includes(s.state);
+  $("counts").innerHTML=(rec?`<b>episode ${s.episode_index}</b> · ${s.frames} frames · `:"")+
+    `saved this session <b>${s.episodes_session}</b> · dataset <b>${s.episodes_total??"?"}</b>`+(s.saving?" · saving…":"");
+  const c=s.counts||{}, by=c.by_task||{};
+  $("tcounts").replaceChildren(...(c.targets||[]).map(g=>{const d=el("div");
+    const per=Object.entries(g.tasks).map(([t,v])=>`${t} ${v.done}${v.target?"/"+v.target:""}`).join(" · ");
+    d.append(el("b",null,`${g.label}: ${g.done} of ${g.min}-${g.max}`),el("div","mute",per));
+    const bar=el("div","bar"),i=el("i");i.style.width=Math.min(100,100*g.done/g.max)+"%";bar.append(i);d.append(bar);return d;}));
+  const other=Object.entries(by).filter(([t,v])=>v.total&&!(c.targets||[]).some(g=>t in g.tasks));
+  if(other.length)$("tcounts").append(el("div","mute","other: "+other.map(([t,v])=>`${t} ${v.total}`).join(" · ")));
+  const q=s.qa||[];
+  if(q.length)$("qa").replaceChildren(...q.slice(-6).reverse().map(r=>el("div",r.status,
+    `ep ${r.episode} ${r.status}${r.reasons.length?": "+r.reasons.join("; "):""}`)));
+}
+
+function renderRun(s){
+  const running=s.state==="running", run=s.run;
+  $("b-run").disabled=running||s.state!=="idle"||!$("r-driver").value;
+  $("b-run").querySelector("small").textContent=s.state==="idle"?"starts from where the arm is":
+    running?"running…":["parked","off","killed"].includes(s.state)?"press Motors on first":`not while ${LABEL[s.state]||s.state}`;
+  $("b-stop").disabled=!running;
+  ["r-driver","r-episode","r-speed","r-args"].forEach(id=>$(id).disabled=running);
+  $("runlive").hidden=!running;
+  if(running&&run){const d=run.driver_status||{};
+    $("runtext").textContent=`${run.driver} · ${d.phase||""} · ${d.detail||""} · ${fmt(run.seconds||0)}`;
+    $("runprog").style.width=Math.round(100*(d.progress||0))+"%";}
+  const last=(s.runs||[]).slice(-1)[0];
+  $("lastrun").hidden=running||!last;
+  if(last&&!running){
+    const a=last.args||{}, what=last.driver==="replay"?`ep ${a.episode} at ${a.speed}x`:JSON.stringify(a);
+    $("lasttext").textContent=`Last run ${last.started}: ${last.driver} ${what} · ${last.result} · ${last.seconds} s`;
+    $("b-grab").classList.toggle("on",last.mark==="grabbed"); $("b-miss").classList.toggle("on",last.mark==="missed");}
+  const runs=s.runs||[], marked=runs.filter(r=>r.mark), got=marked.filter(r=>r.mark==="grabbed").length;
+  $("tally").textContent=runs.length?`${runs.length} runs this session · ${marked.length?`${got} of ${marked.length} marked grabbed (${Math.round(100*got/marked.length)}%)`:"none marked yet"}`:"";
+}
+
+function render(s){
+  // a running driver pins the Run tab; recording pins Record
+  if(s.state==="running"&&mode!=="run")setMode("run");
+  if(s.state==="recording"&&mode!=="record")setMode("record");
+  $("tab-run").disabled=s.state==="recording"; $("tab-record").disabled=s.state==="running";
+
+  const b=$("state"); b.className=s.state; b.textContent=LABEL[s.state]||s.state;
+  const clk=$("clock"), live=s.state==="recording"||s.state==="running";
+  clk.textContent=s.state==="recording"?fmt(s.recording_s):s.state==="running"&&s.run?fmt(s.run.seconds||0):"";
+  clk.classList.toggle("live",s.state==="recording");
+  const hot=s.hottest, hz=s.loop_hz;
+  $("stats").innerHTML=`<span class="${hot>=60?"bad":hot>=55?"warn":""}">hottest <b>${hot??"--"} °C</b></span>`+
+    `<span class="${hz!=null&&hz<27?"warn":""}">loop <b>${hz!=null?hz.toFixed(0):"--"} Hz</b></span>`+
+    `<span>dataset <b>${s.episodes_total??"?"}</b></span>`;
+
+  const w=s.warnings||[], crit=w.filter(x=>CRIT.test(x)), soft=w.filter(x=>!CRIT.test(x)&&!x.startsWith("NOT FOR TRAINING"));
+  $("alert").hidden=!crit.length; $("alert").replaceChildren(...crit.map(x=>el("div",null,x)));
+  $("chips").replaceChildren(...soft.map(x=>el("span",null,x)));
+  const nt=$("notrain"); nt.hidden=!s.any_task;
+  nt.textContent=s.task_ok?"--any-task is on: episodes with a non-settings task are NOT FOR TRAINING":`NOT FOR TRAINING: "${s.task}" is not a settings instruction`;
+  const rr=s.rerecord||[]; $("rerec").hidden=!rr.length;
+  $("rerec").querySelector(".msgs").replaceChildren(...rr.map(x=>el("div",null,x)));
+
+  setCam("side",s); setCam("wrist",s);
+  renderRecord(s); renderRun(s);
+
+  $("b-home").disabled=!["idle","running"].includes(s.state);
   $("b-wake").disabled=!(["parked","homing","killed","off"].includes(s.state)||(s.killed&&s.state!=="cooling"));
-  $("b-reconnect").style.display=s.state==="error"?"block":"none";
-  $("temps").replaceChildren(...M.map(m=>{const t=(s.temps||{})[m], d=document.createElement("div");
-    d.className="t "+(t==null?"":t>=60?"red":t>=55?"amber":"ok");
-    d.innerHTML=`${m.replace("_"," ")}<b class="mono">${t==null?"--":t+" C"}</b>`;return d;}));
+  $("b-reconnect").hidden=s.state!=="error";
+  $("temps").replaceChildren(...M.map(m=>{const t=(s.temps||{})[m], d=el("div","t "+(t==null?"":t>=60?"red":t>=55?"amber":""),SHORT[m]);
+    d.append(el("b",null,t==null?"--":String(t)));return d;}));
   const j=s.joints||{};
-  $("joints").textContent=Object.entries(j).map(([k,v])=>`${k} ${v.toFixed(0)}`).join("  ")+(s.gripper!=null?`  gripper ${s.gripper.toFixed(0)}`:"");
-  const L=$("log"), stick=L.scrollTop+L.clientHeight>=L.scrollHeight-30;
-  L.textContent=(s.log||[]).join("\n"); if(stick)L.scrollTop=L.scrollHeight;
+  $("joints").textContent=Object.entries(j).map(([k,v])=>`${k} ${v.toFixed(0)}`).join("\n")+(s.gripper!=null?`\ngripper ${s.gripper.toFixed(0)}`:"");
+  const log=s.log||[], L=$("log"), stick=L.scrollTop+L.clientHeight>=L.scrollHeight-30;
+  L.textContent=log.join("\n"); if(stick)L.scrollTop=L.scrollHeight;
+  $("logtail").textContent=$("d-log").open?"":log.slice(-3).join("\n");
 }
 async function poll(){
   try{const r=await fetch("/status",{cache:"no-store"}); if(!r.ok)throw 0; st=await r.json(); fails=0;
-    $("disc").style.display="none"; render(st);}
-  catch(e){if(++fails>=3){$("disc").style.display="block";$("badge").className="";$("badge").textContent="OFFLINE";}}
+    $("disc").hidden=true; render(st);}
+  catch(e){if(++fails>=3){$("disc").hidden=false;$("state").className="";$("state").textContent="Offline";}}
 }
 setInterval(poll,250); poll();
+setInterval(()=>{if(mode==="run"&&st&&st.state!=="running")loadDrivers();},15000);
+
+$("tab-record").onclick=()=>setMode("record");
+$("tab-run").onclick=()=>setMode("run");
 $("b-toggle").onclick=()=>send("toggle");
 $("b-discard").onclick=()=>send("discard");
 $("b-kill").onclick=()=>send("kill");
@@ -201,6 +356,16 @@ $("b-home").onclick=()=>send("home");
 $("b-wake").onclick=()=>send("wake");
 $("b-reconnect").onclick=()=>send("reconnect");
 $("b-qaack").onclick=()=>send("qa_ack");
+$("r-driver").onchange=driverFields;
+$("b-run").onclick=()=>{
+  const d=$("r-driver").value; let args={};
+  if(d==="replay")args={episode:Number($("r-episode").value),speed:Number($("r-speed").value)};
+  else{try{args=JSON.parse($("r-args").value||"{}");}catch(e){flash("args: not valid JSON");return;}}
+  send("run",{driver:d,args});
+};
+$("b-stop").onclick=()=>send("stop");
+$("b-grab").onclick=()=>send("mark",{result:"grabbed"});
+$("b-miss").onclick=()=>send("mark",{result:"missed"});
 document.querySelectorAll("button").forEach(b=>b.addEventListener("click",()=>b.blur()));  // Space never double-fires
 $("task").addEventListener("input",()=>taskDirty=true);
 const setTask=()=>{send("task",{task:$("task").value});taskDirty=false;$("task").blur();};
@@ -208,11 +373,12 @@ $("settask").onclick=setTask;
 $("task").addEventListener("keydown",e=>{if(e.key==="Enter"){e.preventDefault();setTask();}});
 document.addEventListener("keydown",e=>{
   if(e.key==="Escape"){e.preventDefault();send("kill");return;}       // works even while typing
-  const typing=document.activeElement&&document.activeElement.tagName==="INPUT";
-  if(typing)return;
+  const typing=document.activeElement&&["INPUT","SELECT"].includes(document.activeElement.tagName);
+  if(typing||mode!=="record")return;                                   // Space never starts anything on the Run tab
   if(e.key===" "){e.preventDefault();if(!e.repeat)send("toggle");}
   else if(e.key==="Backspace"){e.preventDefault();if(!e.repeat)send("discard");}
 });
+setMode(mode);
 </script>
 </body>
 </html>
