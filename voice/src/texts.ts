@@ -165,9 +165,11 @@ export async function handleText(text: string, from: string | null, deps: Partia
     dialogue.clear();
     return d.stop().catch(() => d.stop()).then(() => "Stopped.", () => "I can't reach the arm controller.");
   }
+  const version = dialogue.version();
   if (isTrayCheck(text)) { console.log(`[text] ${from ?? "?"}: ${text} -> tray check`); return d.trayCheck(); }
   const st = await d.state().catch(() => null);
   const setting = await d.setting(st?.setting || "surgical");
+  if (version !== dialogue.version()) return "That request was cancelled.";
   const answer = dialogue.answer(context, text, setting);
   if (answer && "say" in answer) return answer.say;
   const local = localParse(text, setting);
@@ -197,12 +199,16 @@ export async function handleText(text: string, from: string | null, deps: Partia
   }
   if (/\b(hand|bring|give|pass|grab|get)\b/i.test(text)) {
     const command = await d.parseCommand(text, setting);
+    if (version !== dialogue.version()) return "That request was cancelled.";
     if (command.action !== "unknown") return sendTextCommand(command, text, context, setting, d);
   }
   return HELP;
 }
 
 async function sendTextCommand(p: ParseResult, text: string, context: string, setting: Setting, d: TextDeps): Promise<string> {
+  const scoped = dialogue.scope(context, p, setting);
+  if (scoped && "say" in scoped) return scoped.say;
+  if (scoped && "parsed" in scoped) p = scoped.parsed;
   const question = dialogue.askParsed(context, p, setting);
   if (question) return question;
   const cmd = makeCommand(p.action, p.item, text);
@@ -219,7 +225,12 @@ async function sendTextCommand(p: ParseResult, text: string, context: string, se
   try {
     const r = await d.command(cmd);
     waiting = false;
-    if (r.clarify) return dialogue.ask(context, r.clarify, setting, cmd.action, false, false);
+    if (r.clarify) {
+      if (!dialogue.commandActive(cmd.id)) return "That request was cancelled.";
+      last = dialogue.ask(context, r.clarify, setting, cmd.action, false, false);
+      return last;
+    }
+    if (!early.length && r.say) last = r.say;
     return early.join(" ") || r.say || (r.accepted ? "Request sent." : "The controller couldn't accept that request.");
   } catch { waiting = false; return "I can't reach the arm controller."; }
 }
