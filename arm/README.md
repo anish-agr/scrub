@@ -1,10 +1,10 @@
 # arm
 
-Owner: Anish. Tasks A3, A6, A7 in `team/LEFT.md`. Steps in `docs/ARM.md`.
+Owner: Anish. Steps in `docs/ARM.md`.
 
-`real_arm.py` implements the arm interface in `docs/CONTRACTS.md` with LeRobot and the fine-tuned Isaac 0.5 policy. `rig.json` holds the home, carry and safe-spot poses and the handoff region. Only the controller imports this folder.
+`real_arm.py` implements the arm interface in `docs/CONTRACTS.md` with LeRobot. It plays taught skills (recorded demonstrations), and it can run a Perceptron policy deployment, but no training job was ever run, so there is no fine-tuned policy to deploy. `rig.json` holds the home, carry and safe-spot poses and the handoff region. Only the controller imports this folder.
 
-Done when: the controller runs a real "pick the hemostat" with `--real-arm`, and `move_to` reaches test points within about 2 cm.
+The real arm in the demo ran through `explore/station`, not this folder: its picks replay our recorded demonstrations (autopick average mode). The training commands below are written and offline-tested, but 0 jobs were submitted.
 
 ## Robotics API (A2)
 

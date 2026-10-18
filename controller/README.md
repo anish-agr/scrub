@@ -1,8 +1,10 @@
 # controller
 
-Owner: Caiden. Tasks C1, C2, C5, C6, C8 in `team/LEFT.md`.
+Owner: Caiden.
 
-FastAPI on port 8000. Owns the arm and every safety rule. Endpoints and messages are in `docs/CONTRACTS.md`. Serves `dashboard/` at `/` (a placeholder page with item buttons until `dashboard/index.html` exists).
+FastAPI on port 8000. Owns the arm and every safety rule. Endpoints and messages are in `docs/CONTRACTS.md`. Serves `dashboard/` at `/`.
+
+Scope: the controller drives the sim and the fake arm. The safe spot, hand tracking and the grasp check below are controller behavior and were tested there, not on the real arm. The real arm in the demo ran through `explore/station`, which replays our recorded demonstrations and lets go when you pull or say "let go".
 
 ## Run
 
@@ -13,7 +15,7 @@ python3.10 -m venv .venv && .venv/bin/pip install -r controller/requirements.txt
 .venv/bin/python -m controller --sim-arm      # MuJoCo SO-101 from sim/, see "Testing in the sim" below
 ```
 
-Options: `--port`, `--setting surgical|bench` (surgical first, bench second; `dental` is hidden but still loads with `--setting dental` or `POST /setting`), `--judge` (start in judge mode), `--motion-s 0.2` (fake arm seconds per motion), `--pull-s 2` (fake arm: simulated pull this long after reaching the hand; `0` = wait for `got_it`), `--skills model|taught|auto` (see Skills below; default `model`).
+Options: `--port`, `--setting surgical|bench` (surgical first, bench second; `dental` is hidden but still loads with `--setting dental` or `POST /setting`), `--judge` (start in judge mode), `--motion-s 0.2` (fake arm seconds per motion), `--pull-s 2` (fake arm: simulated pull this long after reaching the hand; `0` = wait for `got_it`), `--skills model|taught|auto|smart` (see Skills below; default `model`; on the real arm `model` needs a Perceptron deployment, and none exists because 0 training jobs ran).
 
 Try it:
 
@@ -141,9 +143,9 @@ It is telemetry only: it never changes a motion job or resolves a controller que
 - `POST /restock` with `{"item", "qty", "setting", "from", "heard"}`: a restock texted to the Photon thread (voice F3), logged to the ledger with the `case_id`. Returns `{"ok": false}` when the ledger isn't loaded (voice then keeps it in `voice/restocks.jsonl`).
 - `POST /vision/caption` with a clip caption `{"case_id", "event_type", "item", "t", "label", "label_source", "agrees", "caption_item", "caption_action", "caption_latency_ms", "filename"}` (vision's auto-caption, `vision/clips.py`): logged to the ledger as `{"type": "caption", ...}` with `setting` and `fake_arm`, not broadcast as an Event. Returns `{"ok": false}` when the ledger isn't loaded.
 - `POST /fake/pull`: simulate the clinician tugging the item (sim arm), otherwise the same as `got_it`.
-- `GET /demo`: the judging console (P4). Keys 1/2 load the surgical and bench trays (dental is not offered), J toggles judge mode (amber "judge mode" badge in the header), R resets and clears the count, Space or Esc stops (latched), C sends the current cue's request, G is got it. A 3:00 clock with the PITCH.md beats and who does what, and a rehearsal log for P5. `demo.html` is a copy of `team/prototypes/48-judge-run.html`.
-- `GET /ops`: the ops page (`controller/ops.html`, on `/design/scrub.css`): step and events, skill source per item, arm temperatures and loads, latencies. A placeholder until that file exists. `/design/*` serves the shared `design/` folder.
-- `GET /nurse`: the nurse console, a live port of `team/prototypes/24-scrub-nurse.html`. Tray slots (on tray, out, held, plus the camera's view from TrayState), item chips and typed or browser-mic requests matched against the setting's aliases, the step track for the running request, request-to-hand time per request (`?target=10` sets the line), the queue, hand lamps (seen, open, path), stop that turns into reset, got it, count, return per item, fake-arm pull and forced failures, and the event log. Space or Esc stops (Esc also from the text box), G is got it, / types.
+- `GET /demo`: the judging console (P4). Keys 1/2 load the surgical and bench trays (dental is not offered), J toggles judge mode (amber "judge mode" badge in the header), R resets and clears the count, Space or Esc stops (latched), C sends the current cue's request, G is got it. A 3:00 clock with the pitch beats and who does what, and a rehearsal log for P5.
+- `GET /ops`: the ops page (`controller/ops.html`, on `/design/scrub.css`): step and events, skill source per item, arm temperatures and loads, latencies. `/design/*` serves the shared `design/` folder.
+- `GET /nurse`: the nurse console. Tray slots (on tray, out, held, plus the camera's view from TrayState), item chips and typed or browser-mic requests matched against the setting's aliases, the step track for the running request, request-to-hand time per request (`?target=10` sets the line), the queue, hand lamps (seen, open, path), stop that turns into reset, got it, count, return per item, fake-arm pull and forced failures, and the event log. Space or Esc stops (Esc also from the text box), G is got it, / types.
 - `controller/armview.py` (read-only, nothing moves): `GET /arm/pose` gives `joints_deg`, `gripper` (0 open, 1 closed), `tip_m` from `arm/rig.json` forward kinematics and `tip_px`, the tip projected into the overhead image with `vision/calibration.json` (table-plane homography, so approximate above the table). `available: false` with a `reason` on the fake arm. On the real arm it also has `counters` (`accepted` and `late` model chunks, `holds`, `ticks`, `overruns` of the 30 Hz loop, `api_errors`) and `last_reason` (why the last skill or move ended): watch `late` and `overruns` on first contact. `GET /arm/camera/side|wrist` (one JPEG) and `GET /arm/stream/side|wrist` (MJPEG, about 10 fps) need `Arm.camera_jpeg(name)` in `arm/real_arm.py` (Anish), else 404 with the reason. `GET /camera/overhead` proxies vision's `/snapshot` (`VISION_URL`, default `http://localhost:8001`) so pages on :8000 get it same-origin. `GET /calibration` returns `vision/calibration.json` or 404.
 - `GET /vision`: the last TrayState and Hand as posted, with `tray_age_s` and `hand_age_s` (for the nurse console).
 - `GET /tray_check` (X3): "check the tray". Calls vision's `GET {VISION_URL}/tray_check` (default `http://localhost:8001`, 3 s timeout, in a thread so `stop` never waits) and returns vision's fields plus `say`, `available`, `label` (the setting's label) and `items` (its item names). Always 200. Vision must answer, for the controller's current setting (item ids from `settings/<id>.json`):
