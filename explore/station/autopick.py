@@ -60,58 +60,119 @@ def pixel_to_table(H, u: float, v: float) -> np.ndarray:
     return p[:2] / p[2]
 
 
-def handle_midpoint(bgr, box):
-    """Midpoint and angle (deg, image) of the handle inside a detection box. The box can cover two
-    neighbouring rods, so the dark pixels are split into connected shapes and the handle is the
-    biggest elongated one (weighted by darkness, nearer the box centre wins ties)."""
+def _dark_rod(bgr, box):
+    """The darkest elongated shape inside a box: (score, u, v, angle, darkness) or None."""
     import cv2
     x1, y1, x2, y2 = [int(round(t)) for t in box]
     x1, y1 = max(0, x1), max(0, y1)
     roi = cv2.cvtColor(bgr[y1:y2, x1:x2], cv2.COLOR_BGR2GRAY)
     if roi.size == 0:
-        return (x1 + x2) / 2, (y1 + y2) / 2, None
-    thr = min(np.percentile(roi, 25), float(roi.mean()) - 25)
-    mask = (roi < thr).astype(np.uint8)
-    mask = cv2.morphologyEx(mask, cv2.MORPH_OPEN, np.ones((2, 2), np.uint8))
+        return None
+    thr = min(np.percentile(roi, 25), float(np.median(roi)) - 25)
+    mask = cv2.morphologyEx((roi < thr).astype(np.uint8), cv2.MORPH_OPEN, np.ones((2, 2), np.uint8))
     n, lab, st_, cen = cv2.connectedComponentsWithStats(mask, connectivity=8)
-    best, best_score = None, -1.0
+    best = None
     cx, cy = roi.shape[1] / 2, roi.shape[0] / 2
     for i in range(1, n):
-        area = st_[i, cv2.CC_STAT_AREA]
-        if area < 12:
+        if st_[i, cv2.CC_STAT_AREA] < 12:
             continue
         ys, xs = np.nonzero(lab == i)
         pts = np.c_[xs, ys].astype(float)
-        w, _ = np.linalg.eigh(np.cov(pts.T)) if len(pts) > 2 else (np.array([1, 1]), None)
-        elong = math.sqrt(max(w[1], 1e-6) / max(w[0], 1e-6))
-        if elong < 2.5:
+        w, vec = np.linalg.eigh(np.cov(pts.T))
+        if math.sqrt(max(w[1], 1e-6) / max(w[0], 1e-6)) < 2.5:
             continue
         dark = 255.0 - float(roi[ys, xs].mean())
         dist = math.hypot(cen[i][0] - cx, cen[i][1] - cy) / max(cx, cy)
-        score = area * dark * (1.0 - 0.3 * dist)
-        if score > best_score:
-            best, best_score = pts, score
-    if best is None:
+        score = len(xs) * dark * (1.0 - 0.3 * dist)
+        if best is None or score > best[0]:
+            c, d = pts.mean(0), vec[:, 1]
+            best = (score, x1 + c[0], y1 + c[1], float(math.degrees(math.atan2(d[1], d[0]))), dark)
+    return best
+
+
+def handle_midpoint(bgr, box):
+    """Midpoint and angle (deg, image) of the handle inside a detection box (the box can cover two rods)."""
+    r = _dark_rod(bgr, box)
+    if r is None:
+        x1, y1, x2, y2 = box
         return (x1 + x2) / 2, (y1 + y2) / 2, None
-    c = best.mean(0)
-    _w, vec = np.linalg.eigh(np.cov(best.T))
-    d = vec[:, 1]
-    return x1 + c[0], y1 + c[1], float(math.degrees(math.atan2(d[1], d[0])))
+    return r[1], r[2], r[3]
 
 
-def detect_handle(bgr, detector=None, label="scalpel handle"):
-    """(u, v, angle, box) of the handle's midpoint in the side frame, or None."""
+CANDIDATES = ["scalpel handle", "tweezers", "forceps", "scissors"]
+HANDLE_DARK = 150   # the handle is black (darkness ~170+); steel tools read ~100-140
+
+
+GEMINI_MODELS = ("gemini-3.1-flash-lite", "gemini-3-flash-preview")
+GEMINI_PROMPT = ("This is a robot's view of a surgical tray. Find the {label}: a straight, flat, black (dark) metal "
+                 "handle with no blade, on the white sheet. Not tweezers/forceps (two arms joined at one end), not "
+                 "scissors (finger rings), not the robot. Return JSON {{\"box_2d\": [ymin, xmin, ymax, xmax]}} "
+                 "normalized to 0-1000, of the {label} only, or {{\"box_2d\": null}} if there is none.")
+
+
+def gemini_box(bgr, label="scalpel handle", timeout=15.0):
+    """Box [x1, y1, x2, y2] (pixels) of the label from Gemini, or None. Perceptron's labels flip with the
+    lighting (the handle comes back as tweezers/forceps); Gemini with a description of the handle got it
+    right on every saved frame (Flash-Lite ~4 s)."""
+    import base64
+    import cv2
+    import requests
+    from dotenv import dotenv_values
+    key = dotenv_values(ROOT / ".env").get("GEMINI_API_KEY")
+    if not key:
+        return None
+    h, w = bgr.shape[:2]
+    body = {"contents": [{"parts": [
+        {"inline_data": {"mime_type": "image/jpeg", "data": base64.b64encode(cv2.imencode(".jpg", bgr)[1]).decode()}},
+        {"text": GEMINI_PROMPT.format(label=label)}]}], "generationConfig": {"response_mime_type": "application/json"}}
+    for model in GEMINI_MODELS:
+        try:
+            r = requests.post(f"https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent",
+                              headers={"x-goog-api-key": key}, json=body, timeout=timeout)
+            r.raise_for_status()
+            out = json.loads(r.json()["candidates"][0]["content"]["parts"][-1]["text"])
+            out = out[0] if isinstance(out, list) and out else out
+            b = out.get("box_2d") if isinstance(out, dict) else None
+            if not b:
+                return None
+            y1, x1, y2, x2 = [float(t) for t in b]
+            return [x1 * w / 1000, y1 * h / 1000, x2 * w / 1000, y2 * h / 1000]
+        except Exception:  # noqa: BLE001 - busy/slow model: try the next, then Perceptron
+            continue
+    return None
+
+
+def detect_handle(bgr, detector=None, label="scalpel handle", in_reach=None, use_gemini=True):
+    """(u, v, angle, box) of the handle's midpoint in the side frame, or None.
+    The detector's labels flip with lighting (the handle comes back as "tweezers", "forceps" or "thin rod"),
+    so every instrument box is a candidate and the handle is the one holding the darkest long thin shape.
+    A box the detector itself calls the label gets a small bonus; in_reach(u, v) drops out-of-reach ones."""
+    if use_gemini and detector is None:
+        box = gemini_box(bgr, label)
+        if box is not None:
+            u, v, ang = handle_midpoint(bgr, box)
+            if in_reach is None or in_reach(u, v):
+                return u, v, ang, box
     if detector is None:
         from dotenv import dotenv_values
         from vision.tray import PerceptronDetector
         detector = PerceptronDetector(dotenv_values(ROOT / ".env").get("PERCEPTRON_API_KEY"), timeout=15)
     from vision.tray import detection_box
-    hits = [d for d in detector.detect(bgr, [label, "tweezers", "scissors", "robot arm"]) if d.get("mention") == label]
-    if not hits:
-        return None
-    box = detection_box(hits[0])
-    u, v, ang = handle_midpoint(bgr, box)
-    return u, v, ang, box
+    cats = [label] + [c for c in CANDIDATES if c != label]
+    best = None
+    for d in detector.detect(bgr, cats):
+        if d.get("mention") not in cats:
+            continue
+        box = detection_box(d)
+        r = _dark_rod(bgr, box)
+        if r is None or r[4] < HANDLE_DARK:
+            continue
+        if in_reach is not None and not in_reach(r[1], r[2]):
+            continue
+        score = r[4] * (1.15 if d.get("mention") == label else 1.0)
+        if best is None or score > best[0]:
+            best = (score, r[1], r[2], r[3], box)
+    return None if best is None else best[1:]
 
 
 def min_jerk(s: float) -> float:
@@ -371,11 +432,16 @@ class AutoPick:
         try:
             if frame is None:
                 raise RuntimeError("no side-camera frame")
-            hit = detect_handle(frame, self.detector, self.label)
+            ws = self.cal["workspace_m"]
+
+            def in_reach(u, v):
+                x, y = pixel_to_table(self.cal["table_H"], u, v)
+                return ws["x"][0] <= x <= ws["x"][1] and ws["y"][0] <= y <= ws["y"][1]
+            hit = detect_handle(frame, self.detector, self.label, in_reach)
             if self._aborted:
                 return
             if hit is None:
-                raise RuntimeError(f"no {self.label} in view")
+                raise RuntimeError(f"no {self.label} in view within reach (outside the table area the arm can reach?)")
             u, v, ang, box = hit
             xy = pixel_to_table(self.cal["table_H"], u, v)
             ws = self.cal["workspace_m"]
