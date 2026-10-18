@@ -86,7 +86,7 @@ Actions:
 - unknown: anything else, or you can't tell which instrument
 Instruments on this tray:
 ${list}
-item is the instrument id for handover, otherwise "none". If they ask for an instrument not on this tray, use unknown.
+item is the instrument id for handover, and for return when they name one, otherwise "none". If they ask for an instrument not on this tray, use unknown.
 Clinician said: "${heard}"`;
   const res = await ai!.models.generateContent({
     model: GEMINI_MODEL,
@@ -100,7 +100,8 @@ Clinician said: "${heard}"`;
   });
   const out = JSON.parse(res.text || "{}");
   const action: Action = ACTIONS.includes(out.action) ? out.action : "unknown";
-  const item = action === "handover" && ids.includes(out.item) ? out.item : null;
+  // A return keeps a named item ("put the hemostat back"), else null: the controller takes the return spot or last out.
+  const item = (action === "handover" || action === "return") && ids.includes(out.item) ? out.item : null;
   // Never send an item that isn't in the current setting.
   return action === "handover" && !item ? { action: "unknown", item: null } : { action, item };
 }
@@ -143,9 +144,9 @@ export function localParse(heard: string, setting: Setting): { action: Action; i
   const s = ` ${norm(heard)} `;
   const read = readAction(heard);
   if (read) return { action: read, item: null };
-  // "take back the mayo scissors" is a return, not a handover of the scissors.
-  if (/\b(put (it|that|this) back|return|put back|take (it |that |this )?back)\b/.test(s)) return { action: "return", item: null };
-  if (/\b(count|what s out|whats out|what is out|how many)\b/.test(s)) return { action: "count", item: null };
+  // "take back the mayo scissors" is a return of the scissors (item named), not a handover; "put it back": item null.
+  const isReturn = /\b(put( [a-z ]+)? back|return|take( [a-z ]+)? back)\b/.test(s);
+  if (!isReturn && /\b(count|what s out|whats out|what is out|how many)\b/.test(s)) return { action: "count", item: null };
   let best: { id: string; len: number } | null = null;
   for (const it of setting.items) {
     for (const phrase of [it.name, it.id.replace(/_/g, " "), ...it.aliases]) {
@@ -156,5 +157,6 @@ export function localParse(heard: string, setting: Setting): { action: Action; i
       }
     }
   }
+  if (isReturn) return { action: "return", item: best?.id ?? null };
   return best ? { action: "handover", item: best.id } : { action: "unknown", item: null };
 }

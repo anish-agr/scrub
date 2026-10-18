@@ -2,18 +2,18 @@
  "note": "Learned Oct 18 from scrub-dataset episodes 10-13 (side camera position after ep 9): table homography from the follower's blue jaw tape (pixel) vs URDF forward kinematics (arm metres), near-table frames only, RANSAC. Held-out error 0.5-2.8 cm. Grasp poses from the scalpel-handle demos that lifted >= 3 cm.",
  "table_H": [
   [
-   0.04391771450150365,
-   -0.01900931522960036,
-   -9.42971347634893
+   0.0011284437763798927,
+   0.00840539250512356,
+   -2.389946979379916
   ],
   [
-   -0.0001238475350830373,
-   -0.010864448386552653,
-   2.4768659473822177
+   0.0018635148648236354,
+   -0.007264862663193448,
+   1.23501393274589
   ],
   [
-   0.21133389667310887,
-   -0.24965835776246603,
+   -0.0006462984687267677,
+   0.005613932423105754,
    1.0
   ]
  ],
@@ -22,12 +22,12 @@
  "lift_dz_m": 0.12,
  "workspace_m": {
   "x": [
-   0.1,
-   0.32
+   0.13,
+   0.34
   ],
   "y": [
    -0.16,
-   0.16
+   0.12
   ]
  },
  "demos": [
@@ -139,5 +139,23 @@
   "wrist_flex": 72.3,
   "wrist_roll": -9.3,
   "gripper": 4.8
- }
+ },
+ "table_H_prev": [
+  [
+   0.04391771450150365,
+   -0.01900931522960036,
+   -9.42971347634893
+  ],
+  [
+   -0.0001238475350830373,
+   -0.010864448386552653,
+   2.4768659473822177
+  ],
+  [
+   0.21133389667310887,
+   -0.24965835776246603,
+   1.0
+  ]
+ ],
+ "table_H_from": "autopick calibrate 2026-10-18 03:39: 13/19 grid points, median 0.3 cm, max 0.8 cm"
 }
