@@ -28,6 +28,21 @@ def parser():
     ingest.add_argument("--clap-clip")
     ingest.add_argument("--clap-ledger-time", type=float)
     ingest.add_argument("--clap-second", type=float, help="omit for isolated audio-peak detection in first minute")
+    top = sub.add_parser("topdown", help="plane warp, static photo plate or exact recorded-joint replay")
+    top.add_argument("--mode", choices=["warp", "plate", "reconstruction"], required=True)
+    top.add_argument("--input", help="clip/image for warp; explicit dataset directory or six-joint JSON for reconstruction")
+    top.add_argument("--camera", default="side")
+    top.add_argument("--output", required=True)
+    top.add_argument("--no-track", action="store_true", help="locked tripod only")
+    top.add_argument("--reference")
+    top.add_argument("--photos", default="photos")
+    top.add_argument("--empty-scene", action="store_true")
+    top.add_argument("--episode", type=int, default=0)
+    top.add_argument("--width", type=int, default=960)
+    top.add_argument("--height", type=int, default=720)
+    top.add_argument("--plate")
+    top.add_argument("--plate-alignment")
+    top.add_argument("--start-time", type=float, help="explicit epoch sync to the real clip, not inferred")
     return p
 
 
@@ -48,6 +63,23 @@ def main(argv=None):
         elif args.command == "ingest":
             from .ingest import ingest
             result = ingest(ws, args.sync, args.kind, args.clap_clip, args.clap_ledger_time, args.clap_second)
+        elif args.command == "topdown":
+            from .topdown import warp, photo_plate
+            if args.mode == "warp":
+                if not args.input:
+                    raise ValueError("warp needs --input")
+                result = warp(ws, args.input, args.camera, args.output, not args.no_track)
+            elif args.mode == "plate":
+                if not args.reference:
+                    raise ValueError("plate needs --reference")
+                result = photo_plate(ws, args.reference, args.photos, args.camera, args.output, args.empty_scene)
+            else:
+                from .reconstruction import render_joints
+                if not args.input:
+                    raise ValueError("reconstruction needs recorded joints --input")
+                result = render_joints(ws, ws.source(args.input), ws.out(args.output), args.width, args.height,
+                    args.episode, ws.source(args.plate) if args.plate else None, args.start_time,
+                    ws.source(args.plate_alignment) if args.plate_alignment else None)
         else:
             raise ValueError("Unknown command")
         print(json.dumps(result, indent=2, allow_nan=False))
