@@ -21,7 +21,7 @@ Evan's tasks (E1 to E7) aren't listed here; he's on them. As of 5 PM he has push
 | # | What | Who |
 | --- | --- | --- |
 | Q3 | `docs/AUDIT.md`: read every part against `docs/CONTRACTS.md` and list mismatches and likely bugs, by owner. Done in the final verification pass | Caiden, final pass |
-| Q4 | A sim backup: a recorded full run on the MuJoCo sim arm with voice and the dashboard, in case the real arm fails at judging | Caiden, final pass |
+| Q4 | Sim backup: `python -m controller.run_all backup` plays a full run on the MuJoCo arm (checked clean). Left: screen-record one run with voice and the dashboard as the backup video | Caiden, final pass |
 | R4 | Live bring-up with Anish once the arm is plugged in and the team key is in: capabilities, `real_arm --dry-run` against the real joints, the five-point `move_to` check, gripper load sign | Codex |
 
 ## After everyone finishes: the final pass
@@ -41,7 +41,6 @@ From `docs/PROPOSAL.md` ("What's next", the tracks) and `explore/research/04-bui
 
 | # | What | Track it serves | Who | May edit |
 | --- | --- | --- | --- | --- |
-| X9 | **Data and model links:** the Hugging Face dataset and the deployment id shown on the dashboard and in the Devpost text, filled in by `arm.train pipeline` | Perceptron Robotics | Codex | `arm/` |
 
 ## Blockers only people can clear
 
@@ -56,14 +55,7 @@ From `docs/PROPOSAL.md` ("What's next", the tracks) and `explore/research/04-bui
 
 | # | What | Files |
 | --- | --- | --- |
-| L1 | Codex's 4 handoff items in `arm/README.md` ("Handoff to Caiden"). 8153bd3 covered the latched freeze; check the rest: no gripper load means wait for `got_it` without crashing, a failed `set_down_safe_spot()` is reported (not counted as out), and put-back is done only when tray perception shows the item in its slot (not just `max_s`) | `controller/` |
-| L2 | Pre-open Perceptron robot sessions for the current setting's instructions when the setting changes, so the first motion doesn't wait on a grant. Expose 401/409/503 from the arm as events and spoken lines | `controller/` (calls into `arm/` through the interface only) |
-| L3 | P4 demo mode is in (`GET /demo`, reset with `clear_count`). Left: a "judge mode" that only allows handover, count and stop | `controller/` |
-| L6 | `arm/check_setup.py` (ports, cameras at 640x480 at 30 fps, real fps, one test frame each) and `arm/record.py` (builds and runs `lerobot-record` with `use_degrees=true`, fps 30, episode 25 s, reset 10 s, one repo `<HF_USER>/scrub`, `--resume` when it exists, appends to `docs/DATA-LOG.md`, `--print-only`). Anish allows these two new files in `arm/` | `arm/check_setup.py`, `arm/record.py` |
-| L7 | One command that starts the whole stack for a demo or test: controller (fake, sim or real arm), vision (real or `--fake`), voice, and opens the dashboard. Plus a full-stack smoke test on the sim arm | `controller/run_all.py` |
-| L8 | README "Running it" section with the real commands, once L7 works | `README.md` (Anish allows) |
-| L10 | Full-stack check with Evan's parts: the controller serves `dashboard/`, events reach the ledger (buffer file when Mongo is down), `GET /stats` returns the tables, settings load. Report mismatches to Evan rather than editing his folders | read only outside `controller/` |
-| L9 | P2: slide text is in `docs/SLIDES.md`. Left: the system diagram as an image, and the Google Slides deck itself | `docs/SLIDES.md`, `explore/` |
+| L9 | P2: slide text final and the diagram is `docs/media/system.svg` / `.png`. Left: a person builds the Google Slides deck from `docs/SLIDES.md` and pastes the link there | a person |
 
 ## Needs the arm (people, with agents helping)
 
