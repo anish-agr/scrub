@@ -9,17 +9,17 @@
   <style>
     .brand{display:flex;align-items:center;flex-wrap:wrap;gap:12px 18px}.brand a{font-size:13px;min-height:44px;display:inline-flex;align-items:center}
     .pickers{display:flex;gap:16px}.pickers label{display:grid;gap:6px;font:700 12px var(--f);letter-spacing:.14em;text-transform:uppercase;color:var(--mute)}
-    main{display:grid;grid-template-columns:minmax(0,1.2fr) minmax(0,1fr);gap:0 32px;grid-template-areas:"step out" "camera log" "tables tables" "commands commands"}
-    .step-card{grid-area:step}.out-card{grid-area:out}.camera-card{grid-area:camera}.log-card{grid-area:log}.tables{grid-area:tables}.commands{grid-area:commands}
+    main{display:grid;grid-template-columns:minmax(0,1.2fr) minmax(0,1fr);gap:0 32px;grid-template-areas:"step out" "camera log" "paper paper" "tables tables" "commands commands"}
+    .step-card{grid-area:step}.out-card{grid-area:out}.camera-card{grid-area:camera}.log-card{grid-area:log}.paper{grid-area:paper}.tables{grid-area:tables}.commands{grid-area:commands}
     #step{font-size:clamp(44px,6vw,88px);text-transform:uppercase;margin:0;min-height:1em}.moving{color:var(--cyan)}.step-item{font-size:24px;min-height:1.4em;margin:12px 0}.next-likely{color:var(--mute);font-size:16px}
     .meta{display:grid;grid-template-columns:repeat(5,minmax(0,1fr));gap:12px;margin:24px 0 0}.meta div{border-top:1px solid var(--hair);padding-top:8px}.meta dd{margin:6px 0 0;font-size:18px}
     .out li{font-size:28px}.camera-frame{margin-top:12px}.scrub-ui .camera-frame img{display:none}.scrub-ui .camera-frame.has-stream img{display:block}.camera-frame.has-stream .camera-fallback{display:none}
     .camera-fallback{position:absolute;inset:0;display:grid;place-items:center;text-align:center;padding:20px;color:var(--mute)}
     .log{max-height:360px;overflow:auto}.log li{display:grid;grid-template-columns:72px 90px minmax(0,1fr);gap:8px}.log .kind{color:var(--ink);text-transform:uppercase}.log time{color:var(--mute)}
-    .item-row{display:flex;flex-wrap:wrap;gap:8px;margin:12px 0 0}.tables:not(.has-rows) .table-wrap{display:none}.scrub-ui .tables.has-rows .table-wrap{display:grid}.handoffs{color:var(--mute);font:13px var(--m)}
+    .paper[hidden]{display:none}.paper-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(280px,1fr));gap:12px 32px}.paper table{width:100%}.paper .bad{color:var(--red,#d33);font-weight:700}.paper .mute{color:var(--mute)}.item-row{display:flex;flex-wrap:wrap;gap:8px;margin:12px 0 0}.tables:not(.has-rows) .table-wrap{display:none}.scrub-ui .tables.has-rows .table-wrap{display:grid}.handoffs{color:var(--mute);font:13px var(--m)}
     .safety-dock{position:sticky;bottom:0;z-index:10;padding:12px 24px;background:var(--paper);border-top:4px solid var(--ink);display:grid;grid-template-columns:auto 1fr;gap:8px 16px;align-items:center}
     .safety-dock .stop{grid-column:2;grid-row:1;min-height:64px;font-size:30px}.safety-dock .reset{min-height:64px}.stop-hint{grid-column:1/-1;text-align:right;font:12px var(--m);color:var(--mute);margin:0}.safety-dock:has(.reset[hidden]) .stop{grid-column:1/-1}
-    @media(max-width:860px){main{grid-template-columns:minmax(0,1fr);grid-template-areas:"step" "out" "camera" "log" "tables" "commands"}.pickers{width:100%;flex-wrap:wrap}.pickers label{flex:1}.meta{grid-template-columns:repeat(2,minmax(0,1fr))}.log li{grid-template-columns:66px minmax(0,1fr)}.log li>:last-child{grid-column:2}.safety-dock{padding:10px 16px}.safety-dock .stop{font-size:26px}}
+    @media(max-width:860px){main{grid-template-columns:minmax(0,1fr);grid-template-areas:"step" "out" "camera" "log" "paper" "tables" "commands"}.pickers{width:100%;flex-wrap:wrap}.pickers label{flex:1}.meta{grid-template-columns:repeat(2,minmax(0,1fr))}.log li{grid-template-columns:66px minmax(0,1fr)}.log li>:last-child{grid-column:2}.safety-dock{padding:10px 16px}.safety-dock .stop{font-size:26px}}
   </style>
 </head>
 <body class="scrub-ui" data-page="dashboard">
@@ -84,6 +84,22 @@
     <section class="log-card">
       <p class="kicker">Event log</p>
       <ol id="log" class="log"></ol>
+    </section>
+
+    <section class="paper" id="paper" hidden>
+      <p class="kicker">Paper</p>
+      <div class="paper-grid">
+        <table id="sheet-table" hidden>
+          <caption id="sheet-caption">Count sheet</caption>
+          <thead><tr><th>Item</th><th>Expected</th><th>Initial</th><th>Closing</th></tr></thead>
+          <tbody></tbody>
+        </table>
+        <table id="packs-table" hidden>
+          <caption>Pack labels</caption>
+          <thead><tr><th>Item</th><th>Lot</th><th>Expires</th></tr></thead>
+          <tbody></tbody>
+        </table>
+      </div>
     </section>
 
     <section class="tables">
