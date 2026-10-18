@@ -51,6 +51,11 @@ class Force(BaseModel):
     skill_fail: int = 0
     no_pull: int = 0
     no_load: int = 0
+    api_error: int = 0  # an HTTP status: the next prepare or run_skill raises the robot model's APIError
+
+
+class Judge(BaseModel):
+    on: bool
 
 
 def make_app(ctl: Controller, extra=None) -> FastAPI:
@@ -103,6 +108,12 @@ def make_app(ctl: Controller, extra=None) -> FastAPI:
         """X6: teach a clinic word ("call the hemostat a clamp"). {"ok", "say", "reason"}; saved in settings/<id>.local.json."""
         return await asyncio.to_thread(ctl.add_alias, body.item, body.alias)
 
+    @app.post("/judge")
+    async def judge(body: Judge):
+        """L3 judge mode: /command takes only handover, count, stop and got_it; /alias is refused."""
+        ctl.set_judge(body.on)
+        return {"ok": True, "judge": ctl.judge}
+
     @app.post("/lighting")
     async def lighting(body: Lighting):
         ctl.set_lighting(body.lighting, body.lux)
@@ -145,7 +156,7 @@ def make_app(ctl: Controller, extra=None) -> FastAPI:
             raise HTTPException(400, "only with --fake-arm")
         for k, v in body.model_dump().items():
             if v:
-                ctl.arm.force[k] = ctl.arm.force.get(k, 0) + v
+                ctl.arm.force[k] = v if k == "api_error" else ctl.arm.force.get(k, 0) + v
         return {"force": ctl.arm.force}
 
     @app.post("/fake/pull")
@@ -172,7 +183,7 @@ def make_app(ctl: Controller, extra=None) -> FastAPI:
 
     @app.get("/demo", response_class=HTMLResponse)
     async def demo():
-        """P4 demo console: 1/2/3 settings, R reset that clears the count, Space stop, 3:00 cue cards."""
+        """P4 demo console: 1/2 settings (surgical, bench), J judge mode, R reset that clears the count, Space stop, 3:00 cue cards."""
         return DEMO.read_text()
 
     @app.get("/nurse", response_class=HTMLResponse)

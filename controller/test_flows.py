@@ -14,6 +14,7 @@ core.HAND_WAIT_S = 1.0
 core.PULL_WAIT_S = 1.0
 core.TRAY_LAG_S = 0.05
 core.AUTO_RETURN_S = 0.3
+core.PREPARE_RETRY_S = 0.1
 
 
 class RecordingArm(FakeArm):
@@ -789,6 +790,134 @@ def unknown_hints_at_teaching():
     r = ctl.submit({"action": "unknown", "heard": "hand me the bovie"})
     assert not r["accepted"] and r["say"] == "Which instrument? You can say: call the hemostat a kelly.", r
     assert ctl.history[-1]["say"] == r["say"]
+
+
+def errors(ctl, start=0):
+    return [e for e in list(ctl.history)[start:] if e["type"] == "error"]
+
+
+@test
+def prepare_opens_sessions_at_start_and_on_setting_change():
+    ctl, arm = make()
+    surgical = [s for i in ctl.setting["items"] for s in (i["pick_instruction"], i["return_instruction"])]
+    assert wait_for(lambda: ctl.prepared == "surgical") and arm.prepared == surgical, arm.prepared
+    ctl.set_setting("bench")
+    assert wait_for(lambda: ctl.prepared == "bench")
+    assert arm.prepared == [s for i in ctl.setting["items"] for s in (i["pick_instruction"], i["return_instruction"])]
+    assert not errors(ctl)
+
+
+@test
+def prepare_api_error_speaks_once_per_setting_change():
+    ctl, arm = make()
+    assert wait_for(lambda: ctl.prepared == "surgical")
+    tries = []
+
+    def down(instructions):
+        tries.append(1)
+        raise type("APIError", (RuntimeError,), {})("Perceptron HTTP 503")
+    arm.prepare = down
+    start = len(ctl.history)
+    ctl.set_setting("bench")
+    assert wait_for(lambda: len(tries) == core.PREPARE_TRIES) and time.sleep(0.3) is None
+    errs = errors(ctl, start)
+    assert len(errs) == 1 and errs[0]["code"] == 503 and errs[0]["say"] == lines.API_DOWN, errs
+    assert errs[0]["command_id"] is None and ctl.step == "idle" and ctl.prepared == "surgical"
+    assert run(ctl, {"action": "handover", "item": "hex_key"})[0]["accepted"]  # skills still open sessions on demand
+
+
+@test
+def prepare_busy_retries_then_works():
+    from fastapi.testclient import TestClient
+    from .server import make_app
+    ctl, arm = make()
+    client = TestClient(make_app(ctl))
+    assert wait_for(lambda: ctl.prepared == "surgical")
+    assert client.post("/fake/force", json={"api_error": 409}).json()["force"]["api_error"] == 409
+    start = len(ctl.history)
+    assert client.post("/setting", json={"setting": "bench"}).status_code == 200
+    assert wait_for(lambda: ctl.prepared == "bench")
+    errs = errors(ctl, start)
+    assert len(errs) == 1 and errs[0]["code"] == 409 and errs[0]["say"] == lines.API_BUSY, errs
+
+
+@test
+def prepare_never_blocks_stop_or_the_setting_change():
+    ctl, arm = make()
+    assert wait_for(lambda: ctl.prepared == "surgical")
+    gate = threading.Event()
+    arm.prepare = lambda instructions: gate.wait(5)
+    t0 = time.time()
+    ctl.set_setting("bench")
+    ctl.stop()
+    assert time.time() - t0 < 0.2 and ctl.step == "stopped" and arm._frozen.is_set()
+    gate.set()
+
+
+@test
+def prepare_cancelled_by_a_stop_is_silent_and_retried_after_reset():
+    ctl, arm = make()
+    assert wait_for(lambda: ctl.prepared == "surgical")
+    ctl.stop()
+    start = len(ctl.history)
+    ctl.set_setting("bench")  # the fake arm, like the real one, refuses to prepare while frozen
+    time.sleep(0.2)
+    assert ctl.prepared == "surgical" and not errors(ctl, start)
+    reset(ctl)
+    assert wait_for(lambda: ctl.prepared == "bench") and not errors(ctl, start)
+
+
+@test
+def skill_api_errors_say_why_and_hold():
+    for code, line in ((401, lines.API_KEY_REFUSED), (409, lines.API_BUSY), (503, lines.API_DOWN)):
+        ctl, arm = make()
+        assert wait_for(lambda: ctl.prepared == "surgical")
+        arm.force["api_error"] = code
+        _, evs = run(ctl, HANDOVER)
+        err = [e for e in evs if e["type"] == "error"]
+        assert ctl.step == "error" and arm._frozen.is_set() and len(err) == 1, types(evs)
+        assert err[0]["code"] == code and err[0]["say"] == lines.api_failed(code) and err[0]["say"].startswith(line)
+        assert "503" in err[0]["reason"] or code != 503
+        assert ctl.submit(dict(HANDOVER))["say"] == lines.NEEDS_RESET
+
+
+@test
+def judge_mode_takes_only_handover_count_stop_got_it():
+    from fastapi.testclient import TestClient
+    from .server import make_app
+    with scratch_settings() as d:
+        ctl, arm = make(pull_s=0)
+        client = TestClient(make_app(ctl))
+        assert client.get("/state").json()["judge"] is False
+        r = client.post("/judge", json={"on": True}).json()
+        assert r == {"ok": True, "judge": True} and ctl.history[-1]["judge"] is True
+        assert client.get("/state").json()["judge"] is True
+        for action in ("return", "unknown", "dance"):
+            r = client.post("/command", json={"action": action, "source": "voice"}).json()
+            assert not r["accepted"] and r["reason"] == "judge mode" and r["say"] == lines.JUDGE_ONLY, r
+            assert ctl.history[-1]["type"] == "command" and ctl.history[-1]["reason"] == "judge mode"
+        r = client.post("/alias", json={"item": "hemostat", "alias": "snap"}).json()
+        assert not r["ok"] and r["reason"] == "judge mode" and r["say"] == lines.JUDGE_ONLY
+        assert not (d / "surgical.local.json").exists()
+        assert client.post("/command", json={"action": "handover", "item": "hemostat"}).json()["accepted"]
+        assert wait_for(lambda: ctl.step == "waiting_for_pull")
+        assert client.post("/command", json={"action": "count"}).json()["accepted"]
+        assert client.post("/command", json={"action": "got_it"}).json()["accepted"]
+        assert wait_for(lambda: ctl.step == "idle" and ctl.out == ["hemostat"])
+        assert client.post("/lighting", json={"lighting": "bright"}).json()["ok"]  # operator endpoints stay open
+        assert client.post("/setting", json={"setting": "bench"}).status_code == 200
+        assert client.post("/command", json={"action": "stop"}).json()["accepted"] and ctl.step == "stopped"
+        assert client.post("/reset", json={"clear_count": True}).json()["ok"]
+        assert wait_for(lambda: ctl.step == "idle")
+        client.post("/judge", json={"on": False})
+        assert client.post("/alias", json={"item": "hex_key", "alias": "allen"}).json()["ok"]  # its word already
+        assert client.post("/command", json={"action": "unknown"}).json()["reason"] == "unknown command"
+
+
+@test
+def judge_flag_starts_in_judge_mode():
+    ctl = Controller(RecordingArm(motion_s=0.1), fake_arm=True, judge=True)
+    assert ctl.state()["judge"] and ctl.submit({"action": "return"})["reason"] == "judge mode"
 
 
 def main():

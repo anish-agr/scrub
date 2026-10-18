@@ -70,3 +70,28 @@ def tray_wrong_slot(name, slot_name): return f"The {name} is in the {_poss(slot_
 def tray_wrong_place(name): return f"The {name} is in the wrong slot."
 def tray_extra(names): return f"Extra on the tray: {', '.join(names)}."
 def tray_other_setting(seen, current): return f"The camera is checking the {seen} tray, not the {current} tray."
+
+
+# The robot model (Perceptron) refused or is down (L2). Codes from arm/perceptron.py's APIError.
+API_KEY_REFUSED = "The robot model key was refused. Check the team key."
+API_BUSY = "The robot model is busy with another session. Try again in a moment."
+API_DOWN = "The robot model is down right now."
+API_UNREACHABLE = "I can't reach the robot model right now."
+API_REFUSED = "The robot model refused the request."
+
+
+def api_error(code):
+    if code is None:
+        return API_UNREACHABLE  # transport failed, or no key in .env
+    if code in (401, 403):
+        return API_KEY_REFUSED
+    if code in (409, 429):
+        return API_BUSY
+    return API_DOWN if code >= 500 else API_REFUSED
+
+
+def api_failed(code): return api_error(code) + " Holding."  # a skill failed on it: the arm waits for a reset
+
+
+# Judge mode (L3): a judge may only ask for an instrument, the count, got it or stop.
+JUDGE_ONLY = "In judge mode I can hand you an instrument, read the count, or stop."
