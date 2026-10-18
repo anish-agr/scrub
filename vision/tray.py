@@ -307,7 +307,12 @@ class FakeDetector:
         return detections
 
 
-def tray_from_detections(setting: dict, detections: list[dict], stale: bool = False) -> dict:
+def tray_from_detections(
+    setting: dict,
+    detections: list[dict],
+    stale: bool = False,
+    detector: str | None = None,
+) -> dict:
     """Build a TrayState. A slot with a null box counts a matching detection anywhere."""
     by_item: dict[str, list] = {item["id"]: [] for item in setting.get("items") or []}
     for detection in detections:
@@ -344,7 +349,7 @@ def tray_from_detections(setting: dict, detections: list[dict], stale: bool = Fa
             if return_item:
                 break
 
-    return {
+    state = {
         "setting": setting.get("id"),
         "slots": slots,
         "return_spot": {
@@ -355,6 +360,9 @@ def tray_from_detections(setting: dict, detections: list[dict], stale: bool = Fa
         "stale": stale,
         "t": time.time(),
     }
+    if detector:
+        state["detector"] = detector
+    return state
 
 
 def empty_tray(setting: dict, stale: bool = True) -> dict:

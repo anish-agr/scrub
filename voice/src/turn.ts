@@ -30,7 +30,13 @@ const DONE: Record<string, string[]> = {
   count: ["count", "error"],
   stop: ["stopped"],
   unknown: [],
+  // Reads take 1 to 3 s: hold until the `read` event, so its `say` is spoken in this reply.
+  read_sheet: ["read", "error", "stopped"],
+  read_tray: ["read", "error", "stopped"],
+  read_pack: ["read", "error", "stopped"],
 };
+// Hold (seconds) for actions that wait longer than HOLD_S.
+const HOLD_FOR: Record<string, number> = { read_sheet: 25, read_tray: 25, read_pack: 25 };
 
 // fromEvent: skip an event line said in the last 3 s for the same command (the controller repeating itself).
 // A new command that gets the same answer ("I'm stopped. Reset me first." twice) is said again: keyed on the
@@ -153,7 +159,7 @@ async function run(heard: string, hold: Hold) {
   const reply = await io.postCommand(cmd);
   // Lines come from the events only; the reply's `say` repeats the event's.
   if (!reply.accepted) console.log(`[command] rejected: ${reply.reason}`);
-  hold(reply.accepted ? DONE[cmd.action] : [], reply.accepted && DONE[cmd.action].length ? HOLD_S : 1, cmd.id);
+  hold(reply.accepted ? DONE[cmd.action] : [], reply.accepted && DONE[cmd.action].length ? HOLD_FOR[cmd.action] ?? HOLD_S : 1, cmd.id);
 }
 
 function flushPending() {
