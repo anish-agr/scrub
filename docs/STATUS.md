@@ -30,14 +30,17 @@ Agents: the first unchecked box in your person's section is the next task. Tick 
   - Pushed `ed084b6`. Point vision at `POST :8000/vision/hand` and `/vision/tray`; the dashboard at `WS :8000/events`, `GET /state`, `GET /setting`.
 - [ ] C3 Photon call reaches `voice/`
 - [ ] C4 Gemini commands, stop path, spoken replies
+  - Works without a call: `curl -XPOST localhost:3000/heard -d '{"text":"grab me the kelly"}'` gives `handover hemostat` and "Hemostat coming." with Gemini live; mayo, "knife please", "what's out" and "stop" checked too. `cd voice && npm test` passes offline. Left: the same on a real Photon call (C3).
 - [ ] C5 Checkpoint 1 shown
   - Ready on the agent side: voice → controller tested locally (`/heard` "grab me the kelly" → `handover hemostat`, lines spoken from events). Needs the team at 6 PM: phone call, Brandon's Hand posts, Evan's dashboard. Dry run: `.venv/bin/python -m controller.smoke --return`.
 - [x] C6 real controller flows and failure cases
   - `.venv/bin/python -m controller.test_flows` forces each failure on the fake arm: 28/28 pass. Real-arm safe: stop latches until `POST /reset` (rearms with `resume()`, sets a held item at the safe spot), missing load falls back to `got_it`, failed set-down holds (Anish's arm/README handoff items 1-4). Sim: 3 clean full runs in a row. Covers grasp check + one retry, wait for pull/`got_it` (30 s), freeze on hand lost or path blocked, slow near the hand, the request-to-hand timer. Force live failures with `POST /fake/force`.
 - [ ] C7 end-of-case summary text
+  - Gemini writes it from the case events with the count first (from the controller's `out`), item names, no double counting; checked against a live fake-arm case. `POST localhost:3000/summary` sends it via Photon to the caller or `PHOTON_SUMMARY_TO`. Left: one real send to a phone.
 - [ ] C8 ten clean full runs
   - Tool ready: `.venv/bin/python -m controller --real-arm` then `.venv/bin/python -m controller.smoke --runs 10 --human --return` counts the clean streak. Needs `arm/real_arm.py` (A6) and the arm.
-- [ ] P4 demo mode and backup run
+- [x] P4 demo mode and backup run
+  - `http://localhost:8000/demo`: 1/2/3 load the trays, R resets and clears the count (`POST /reset {"clear_count": true}`), Space/Esc stop, 3:00 cue cards and a rehearsal log. Checked live on the fake arm. A plain `POST /reset` now keeps the count after a stop. The backup full run is recorded Sunday morning.
 - [ ] P2 backup slide deck
 
 ## Brandon

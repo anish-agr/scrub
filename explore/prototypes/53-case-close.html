@@ -11,8 +11,8 @@ FEATURES:
 - Case window: all events, since the last reset, or since the last setting change
 - Count reconciliation per tray item: arrivals at hand, released, safe-spot set-downs, returns, where it is now,
   replayed out list vs the controller's own out list. Anything out or unconfirmed blocks "Case closed"
-- Catches two real count gaps in controller/core.py: POST /reset clears `out` while items are still out, and an item
-  held in the gripper at STOP is never added to `out`
+- Count gaps in controller/core.py are fixed and the replay follows them: POST /reset keeps `out` unless
+  {"clear_count": true}, and an item held at STOP counts as out. Flags a clear_count reset that empties `out` mid-case
 - Pass log per command_id: heard, source, outcome, request-to-hand s, retries, event refs
 - Sharps: every "Scalpel down." set-down at the safe spot with its request-to-hand time
 - Facts block exactly as voice/src/summary.ts caseFacts() builds it, next to the reconstructed facts, with the differences
@@ -278,8 +278,9 @@ const defSetting=id=>({id,label:DEFAULTS[id].label,items:DEFAULTS[id].items.map(
 
 // The prompt from voice/src/summary.ts writeSummary(), with the two interpolations as placeholders
 const TPL_DEFAULT=`Write the end-of-case text message from Scrub, a robot arm that passed instruments to a clinician.
-Plain text, no markdown, under 400 characters, short lines. Say what was passed, what's still out (the count must be clear;
-if something is still out, say so first), misses or stops, and the median request-to-hand time if known. No greetings or sign-off.
+Plain text, no markdown, under 400 characters, short lines. Start with the count: name every item still out, or say everything is back on the tray.
+Then what was passed, anything set at the safe spot, failed requests and stops, and the median request-to-hand time if known.
+Use only the numbers below. No greetings or sign-off.
 This case: {{facts}}
 All-time ledger stats (may be null): {{stats}}`;
 
@@ -319,9 +320,10 @@ function mockCase(){
   wait(140); handover('hemostat','kelly again',{rth:7.1,nopull:true});
   wait(80); ret('hemostat','put the clamp back');
   wait(60); handover('hemostat','clamp',{rth:6.0,stop:true});
-  step='stopped'; E('stopped',{say:'Stopped.',dt:.1}); const sc=command('stop',null,'stop'); cmd=null;
-  wait(25); const rj={id:hex()}; cmd=rj; out=[]; step='homing'; item=null; E('step'); wait(2); step='idle'; E('step',{say:'Reset. Ready.'}); cmd=null;
-  wait(110); const cc=command('count',null,"what's out"); E('count',{say:"Everything's on the tray.",item:null,cid:cc.id});
+  step='stopped'; out.includes(item)||out.push(item); E('stopped',{say:'Stopped.',dt:.1}); const sc=command('stop',null,'stop'); cmd=null;
+  wait(25); const rj={id:hex()}; cmd=rj; step='homing'; E('step'); wait(2); step='setting_down'; E('step'); wait(3); // reset keeps out, held item to the safe spot
+  step='homing'; E('step'); wait(2); step='idle'; item=null; E('step',{say:'Reset. Ready.'}); cmd=null;
+  wait(110); const cc=command('count',null,"what's out"); E('count',{say:out.length?'Out: '+out.map(nm).join(', ')+'.':"Everything's on the tray.",item:null,cid:cc.id});
   wait(90); ret('scalpel','scalpel back');
   wait(40); command('unknown',null,'hand me the bovie',{accepted:false,reason:'unknown command',say:'Sorry, say that again?'});
   wait(30); ret('hemostat','hemostat back');
@@ -351,7 +353,7 @@ const median=a=>{if(!a.length)return null;const s=[...a].sort((x,y)=>x-y),m=s.le
 function rebuild(all){
   const start=windowStart(all), evs=all.slice(start).map((e,k)=>({...e,_n:start+k+1}));
   const per={}; setting.items.forEach(it=>per[it.id]={it,arrivals:0,released:0,sharpDown:0,otherDown:0,returns:0,loc:'tray',locEv:null});
-  const recs=[], byId={}, exc=[], sharps=[], rth=[]; let out=[], grip=null, stops=0, resets=0, missRetry=0, missFail=0;
+  const recs=[], byId={}, exc=[], sharps=[], rth=[]; let out=[], grip=null, stops=0, resets=0, cleared=0, missRetry=0, missFail=0;
   const add=id=>{if(!out.includes(id)) out.push(id)}, P=id=>per[id]||(per[id]={it:{id,name:name(id),aliases:[],sharp:false},arrivals:0,released:0,sharpDown:0,otherDown:0,returns:0,loc:'tray'});
   for(const e of evs){
     if(e.type==='command'){
@@ -382,20 +384,21 @@ function rebuild(all){
       case 'returned': if(e.item){out=out.filter(x=>x!==e.item);const p=P(e.item);p.returns++;p.loc='tray';p.locEv=e;} if(r){r.outcome='Returned to slot';r.cls='';} break;
       case 'stopped': {
         stops++; const held=grip;
-        exc.push({e,kind:'STOP',cls:'t-bad',text:held?`Stopped with the ${name(held)} in the gripper. core.py never adds it to out.`:'Stopped, gripper empty.'});
-        if(held){P(held).loc='held in gripper at STOP';P(held).locEv=e;}
+        exc.push({e,kind:'STOP',cls:'t-bad',text:held?`Stopped with the ${name(held)} in the gripper. It counts as out until it is returned.`:'Stopped, gripper empty.'});
+        if(held){add(held);P(held).loc='in gripper at STOP';P(held).locEv=e;}
         if(r){r.outcome=held?`Stopped holding the ${name(held)}`:'Stopped';r.cls='bad';}
         break;}
       case 'step':
         if(e.say===RESET_SAY){
-          resets++; const lost=[...out]; const held=grip; grip=null;
-          if(held){P(held).loc='unconfirmed (gripper opened on reset)';P(held).locEv=e;}
-          const what=[...lost.map(name),...(held?[name(held)+' (in gripper)']:[])];
-          exc.push({e,kind:'Reset',cls:what.length?'t-bad':'t-info',text:what.length?`Reset cleared the controller's out list while ${what.join(', ')} ${what.length>1?'were':'was'} out. From here the controller's count is wrong.`:'Reset, nothing was out.'});
+          resets++; const held=grip; grip=null;
+          if(held){add(held);P(held).loc='safe spot (set down on reset)';P(held).locEv=e;}
+          const wipe=out.length&&Array.isArray(e.out)&&!e.out.length; if(wipe) cleared++;
+          exc.push({e,kind:'Reset',cls:wipe?'t-bad':'t-info',text:wipe?`Reset with clear_count emptied the controller's out list while ${out.map(name).join(', ')} ${out.length>1?'were':'was'} out. From here the controller's count is wrong.`
+            :out.length?`Reset, count kept: ${out.map(name).join(', ')} still out.${held?` The ${name(held)} was set at the safe spot.`:''}`:'Reset, nothing was out.'});
         }
         break;
       case 'count': {
-        const unconf=Object.values(per).filter(p=>/unconfirmed|STOP/.test(p.loc)).map(p=>p.it.id);
+        const unconf=Object.values(per).filter(p=>/unconfirmed/.test(p.loc)).map(p=>p.it.id);
         const truth=[...out,...unconf]; const same=truth.length===(e.out||[]).length&&truth.every(x=>(e.out||[]).includes(x));
         exc.push({e,kind:'Count read-back',cls:same?'t-ok':'t-bad',text:`Said "${e.say}"`+(same?' and the events agree.':` but the events say ${truth.length?truth.map(name).join(', ')+' out':'nothing out'}.`)});
         break;}
@@ -403,25 +406,50 @@ function rebuild(all){
     }
   }
   recs.forEach(r=>{if(!r.outcome){r.outcome=r.action==='count'?'Count read':r.action==='stop'?'STOP':(r.action==='handover'||r.action==='return')?'No end event yet':r.action;}});
-  const unconfirmed=Object.values(per).filter(p=>/unconfirmed|STOP/.test(p.loc)).map(p=>p.it.id);
+  const unconfirmed=Object.values(per).filter(p=>/unconfirmed/.test(p.loc)&&!out.includes(p.it.id)).map(p=>p.it.id);
   const ctlOut=all.length?(all.at(-1).out||[]):[];
   const t0=evs.length?evs[0].t:Date.now()/1000, t1=live?Date.now()/1000:(evs.length?evs.at(-1).t:t0);
-  return {start,evs,per,recs,exc,sharps,rth,out,unconfirmed,ctlOut,stops,resets,missRetry,missFail,t0,t1,
+  return {start,evs,per,recs,exc,sharps,rth,out,unconfirmed,ctlOut,stops,resets,cleared,missRetry,missFail,t0,t1,
     median:median(rth),minutes:Math.round((t1-t0)/60),
     closed:!out.length&&!unconfirmed.length&&!ctlOut.length};
 }
 
-// voice/src/summary.ts caseFacts(), line for line (including its upper-median and double counting)
+// voice/src/summary.ts caseFacts(), line for line (minutes: this page's window, summary.ts counts from its case start)
 function caseFactsTS(R){
-  const handed={}; let missed=0,returned=0,stops=0; const times=[]; let out=[];
+  const passed={}, setDown={}, cmds=new Map();
+  let returned=0, stops=0, failed=0, retried=0;
+  const times=[];
+  let reported=null; // the controller's own out list, on every event
+  let derived=[];
+  const add=id=>{derived=[...derived.filter(i=>i!==id),id];};
   for(const e of R.evs){
-    if((e.type==='handed'||e.type==='set_down')&&e.item){handed[e.item]=(handed[e.item]||0)+1; if(e.request_to_hand_s!=null) times.push(e.request_to_hand_s); out=[...out.filter(i=>i!==e.item),e.item];}
-    if(e.type==='returned'&&e.item){returned++; out=out.filter(i=>i!==e.item);}
-    if(e.type==='missed') missed++;
+    if(Array.isArray(e.out)) reported=e.out;
+    const c=cmds.get(e.command_id||'')||{ok:false,pre:0,post:0};
+    cmds.set(e.command_id||'',c);
+    if(e.type==='picked'||e.type==='returned') c.ok=true;
+    if(e.type==='missed'){if(c.ok) c.post++; else c.pre++;}
+    if(e.type==='handed'&&e.request_to_hand_s!=null) times.push(e.request_to_hand_s);
+    if(e.type==='released'&&e.item){passed[e.item]=(passed[e.item]||0)+1; add(e.item);}
+    if(e.type==='set_down'&&e.item){
+      add(e.item);
+      if(e.request_to_hand_s!=null){passed[e.item]=(passed[e.item]||0)+1; times.push(e.request_to_hand_s);}
+      else setDown[e.item]=(setDown[e.item]||0)+1;
+    }
+    if(e.type==='returned'){returned++; if(e.item) derived=derived.filter(i=>i!==e.item);}
     if(e.type==='stopped') stops++;
   }
+  for(const c of cmds.values()){
+    if(c.pre&&c.ok) retried++;
+    if((c.pre&&!c.ok)||c.post) failed++;
+  }
   times.sort((a,b)=>a-b);
-  return {minutes:R.minutes,handed,returned,missed,stops,still_out:out,median_request_to_hand_s:times.length?times[Math.floor(times.length/2)]:null};
+  const mid=Math.floor(times.length/2);
+  const median=!times.length?null:times.length%2?times[mid]:(times[mid-1]+times[mid])/2;
+  return {
+    minutes:R.minutes, still_out:reported??derived, passed,
+    set_down_at_safe_spot:setDown, returned, failed_requests:failed, picks_retried:retried, stops,
+    median_request_to_hand_s:median,
+  };
 }
 function factsRe(R){
   const items={}; Object.values(R.per).forEach(p=>{items[p.it.id]={arrived_at_hand:p.arrivals,released_on_pull:p.released,sharp_set_downs:p.sharpDown,other_set_downs:p.otherDown,returned:p.returns,now:p.loc};});
@@ -430,13 +458,21 @@ function factsRe(R){
     median_request_to_hand_s:R.median==null?null:+R.median.toFixed(2),passes_timed:R.rth.length};
 }
 const nm2=id=>id.replace(/_/g,' ');
+const list=r=>Object.entries(r).map(([i,n])=>`${nm2(i)} x${n}`).join(', ');
 function templateTS(f){ // summary.ts templateSummary()
-  const passes=Object.entries(f.handed).map(([i,n])=>`${nm2(i)} x${n}`).join(', ')||'none';
-  const L=[`Scrub case summary (${f.minutes} min)`,`Passed: ${passes}`,`Returned: ${f.returned}. Missed picks: ${f.missed}. Stops: ${f.stops}.`,
-    f.still_out.length?`Still out: ${f.still_out.map(nm2).join(', ')}. Check the count.`:'Count: everything is back on the tray.'];
+  const L=[
+    f.still_out.length?`Still out: ${f.still_out.map(nm2).join(', ')}. Check the count.`:'Count: everything is back on the tray.',
+    `Scrub case summary (${f.minutes} min)`,
+    `Passed: ${list(f.passed)||'none'}`,
+  ];
+  if(Object.keys(f.set_down_at_safe_spot).length) L.push(`Set at the safe spot: ${list(f.set_down_at_safe_spot)}`);
+  L.push(`Returned: ${f.returned}. Failed requests: ${f.failed_requests}. Retried picks: ${f.picks_retried}. Stops: ${f.stops}.`);
   if(f.median_request_to_hand_s!=null) L.push(`Median request to hand: ${f.median_request_to_hand_s.toFixed(1)} s`);
   return L.join('\n');
 }
+// summary.ts readable(): item names instead of ids, as sent to Gemini
+const renamed=r=>Object.fromEntries(Object.entries(r).map(([i,n])=>[nm2(i),n]));
+const readable=f=>({...f,still_out:f.still_out.map(nm2),passed:renamed(f.passed),set_down_at_safe_spot:renamed(f.set_down_at_safe_spot)});
 function templateFix(R){ // proposal: out first, real passes, sharps called out
   const L=[]; const unc=R.unconfirmed.map(name);
   if(R.out.length||unc.length) L.push(`COUNT OPEN. Still out: ${[...R.out.map(name),...unc.map(n=>n+' (unconfirmed)')].join(', ')}.`);
@@ -444,7 +480,7 @@ function templateFix(R){ // proposal: out first, real passes, sharps called out
   const ps=Object.values(R.per).filter(p=>p.released||p.sharpDown).map(p=>p.sharpDown?`${p.it.name} x${p.sharpDown} to the safe spot`:`${p.it.name} x${p.released}`);
   L.push(`Passed: ${ps.join(', ')||'none'}.`);
   const ex=[]; if(R.missRetry) ex.push(`${R.missRetry} missed pick${R.missRetry>1?'s':''} retried`); if(R.missFail) ex.push(`${R.missFail} miss${R.missFail>1?'es':''}`);
-  if(R.stops) ex.push(`${R.stops} stop${R.stops>1?'s':''}`); if(R.resets&&!R.closed) ex.push('reset cleared the count');
+  if(R.stops) ex.push(`${R.stops} stop${R.stops>1?'s':''}`); if(R.cleared&&!R.closed) ex.push('a clear_count reset emptied the count');
   L.push(ex.length?cap(ex.join(', '))+'.':'No misses or stops.');
   if(R.median!=null) L.push(`Median request to hand ${R.median.toFixed(1)} s.`);
   L.push(`${R.minutes} min.`);
@@ -496,8 +532,10 @@ function checkClaims(text,R,F){
     let m;
     if((m=/(?:missed picks?|misses|missed)\s*:?\s*(\d+|no|zero|one|two|three)\b/.exec(low))||(m=/\b(\d+|no|zero|one|two|three)\s+(?:missed picks?|misses|missed)/.exec(low))){
       const n=numOf(m[1]), tot=R.missRetry+R.missFail;
-      c.push(n===tot||n===F.missed?['ok',`misses ${n}: ${R.missRetry} retried, ${R.missFail} failed`]:['bad',`says ${n} missed, events show ${R.missRetry} retried + ${R.missFail} failed`]);
+      c.push(n===tot||n===F.failed_requests?['ok',`misses ${n}: ${R.missRetry} retried, ${R.missFail} failed`]:['bad',`says ${n} missed, events show ${R.missRetry} retried + ${R.missFail} failed`]);
     }
+    if((m=/failed requests?\s*:?\s*(\d+|no|zero|one|two|three)\b/.exec(low))) {const n=numOf(m[1]); c.push(n===R.missFail?['ok',`failed requests ${n}`]:['bad',`says ${n} failed requests, events show ${R.missFail} failed misses`]);}
+    if((m=/retried picks?\s*:?\s*(\d+|no|zero|one|two|three)\b/.exec(low))) {const n=numOf(m[1]); c.push(n===R.missRetry?['ok',`retried picks ${n}`]:['bad',`says ${n} retried picks, events show ${R.missRetry}`]);}
     if((m=/stops?\s*:\s*(\d+|no|zero|one|two)\b/.exec(low))||(m=/\b(\d+|no|zero|one|two)\s+stops?\b/.exec(low))){
       const n=numOf(m[1]); c.push(n===R.stops?['ok',`stops ${n}`]:['bad',`says ${n} stops, events show ${R.stops}`]);
     } else if(/\bstopped\b/.test(low)) c.push(R.stops?['ok',`${R.stops} stop event(s)`]:['bad','no stopped event']);
@@ -508,7 +546,7 @@ function checkClaims(text,R,F){
       const v=+m[1], a=R.median, b=F.median_request_to_hand_s;
       if(a==null) c.push(['bad','no timed pass in the events']);
       else if(Math.abs(v-a)<.06) c.push(['ok',`median ${a.toFixed(2)} s over ${R.rth.length} timed passes`]);
-      else if(b!=null&&Math.abs(v-b)<.06) c.push(['warn',`matches summary.ts upper median ${b} s; true median ${a.toFixed(2)} s`]);
+      else if(b!=null&&Math.abs(v-b)<.06) c.push(['warn',`matches summary.ts median ${b} s; replayed median ${a.toFixed(2)} s`]);
       else c.push(['bad',`says ${v} s, events give ${a.toFixed(2)} s`]);
     }
     if((m=/\b(\d+)\s*min/.exec(low))){const v=+m[1]; c.push(Math.abs(v-R.minutes)<=1?['ok',`${R.minutes} min from first to last event`]:['bad',`says ${v} min, window is ${R.minutes} min`]);}
@@ -546,7 +584,7 @@ function render(){
   $('#countT').innerHTML=`<tr><th>Item</th><th></th><th>At hand</th><th>Released</th><th>Safe spot</th><th>Returned</th><th>Where now</th><th>Ctl out</th><th>Final</th></tr>${rows}`;
   const block=[...R.out.map(i=>`${name(i)} is out (replayed from events)`),...R.unconfirmed.map(i=>`${name(i)}: ${R.per[i].loc}. Confirm by eye.`),
     ...R.ctlOut.filter(i=>!R.out.includes(i)).map(i=>`controller still lists ${name(i)} in out`)];
-  const ctlNote=R.resets&&!sameSet(R.ctlOut,[...R.out,...R.unconfirmed])?`<div class="small">Controller out list now: [${R.ctlOut.map(name).join(', ')}]. It was cleared by a reset, so it is not the count.</div>`:'';
+  const ctlNote=R.cleared&&!sameSet(R.ctlOut,[...R.out,...R.unconfirmed])?`<div class="small">Controller out list now: [${R.ctlOut.map(name).join(', ')}]. It was emptied by a clear_count reset, so it is not the count.</div>`:'';
   $('#closeBox').innerHTML=R.closed?`<div class="stamp ok">Case closed</div><div>All ${setting.items.length} items back on the tray. Controller out list empty.${!live?' <span class="tag t-warn">MOCK</span>':''}</div>`
     :`<div class="stamp bad">Count open</div><div><b>Case cannot close:</b><ul>${block.map(b=>`<li>${h(b)}</li>`).join('')}</ul>${ctlNote}
       ${!live&&R.out.includes('mayo_scissors')?'<div class="row"><button id="mockPut">Mock: put back the Mayo scissors</button></div>':''}</div>`;
@@ -571,17 +609,21 @@ function renderFacts(){
   $$('[data-facts]').forEach(b=>b.classList.toggle('on',b.dataset.facts===factsTab));
   $('#factsPre').textContent=JSON.stringify(factsTab==='ts'?F:factsRe(R),null,2);
   const d=[]; const Fx=factsRe(R);
-  Object.entries(F.handed).forEach(([i,n])=>{const p=R.per[i]; if(p&&n!==p.released+p.sharpDown) d.push(`handed.${i} = ${n}: counts handed and set_down together, so a no-pull set-down counts twice. Completed passes: ${p.released+p.sharpDown}.`);});
-  if(F.missed!==R.missFail) d.push(`missed = ${F.missed} includes ${R.missRetry} retried pick${R.missRetry===1?'':'s'} that then worked. Failed outright: ${R.missFail}.`);
-  if(!sameSet(F.still_out,[...R.out,...R.unconfirmed])) d.push(`still_out = [${F.still_out.join(', ')}]: summary.ts adds an item at handed, before release. Events say [${[...R.out,...R.unconfirmed].join(', ')}].`);
-  if(F.median_request_to_hand_s!=null&&R.median!=null&&Math.abs(F.median_request_to_hand_s-R.median)>.005) d.push(`median = ${F.median_request_to_hand_s} s is times[floor(n/2)], the upper middle for even n. True median ${R.median.toFixed(2)} s.`);
-  if(R.resets) d.push(`${R.resets} reset${R.resets>1?'s':''} in the window. caseFacts ignores resets, but the controller's out list was cleared each time.`);
-  if(R.unconfirmed.length) d.push(`Not in the facts at all: ${R.unconfirmed.map(name).join(', ')} held in the gripper at a STOP.`);
+  const truth=[...R.out,...R.unconfirmed];
+  if(!sameSet(F.still_out,truth)) d.push(`still_out = [${F.still_out.join(', ')}] is the last controller out list an event carried. Replaying the events gives [${truth.join(', ')}].`);
+  Object.values(R.per).forEach(p=>{const i=p.it.id,n=F.passed[i]||0,done=p.released+p.sharpDown; if(n!==done) d.push(`passed.${i} = ${n}, the events show ${done} completed pass${done===1?'':'es'} (released or planned sharp set-down).`);
+    const sd=F.set_down_at_safe_spot[i]||0; if(sd!==p.otherDown) d.push(`set_down_at_safe_spot.${i} = ${sd}, the events show ${p.otherDown} unplanned set-down${p.otherDown===1?'':'s'}.`);});
+  if(F.failed_requests!==R.missFail) d.push(`failed_requests = ${F.failed_requests} (per command_id), the miss lines say ${R.missFail} failed outright.`);
+  if(F.picks_retried!==R.missRetry) d.push(`picks_retried = ${F.picks_retried} (per command_id), the miss lines say ${R.missRetry} retried.`);
+  if(F.median_request_to_hand_s!=null&&R.median!=null&&Math.abs(F.median_request_to_hand_s-R.median)>.005) d.push(`median = ${F.median_request_to_hand_s} s, replayed median ${R.median.toFixed(2)} s.`);
+  if(R.cleared) d.push(`${R.cleared} reset${R.cleared>1?'s':''} with clear_count in the window emptied the controller's out list, so still_out restarts there.`);
+  if(R.unconfirmed.length) d.push(`Not in the facts: ${R.unconfirmed.map(name).join(', ')} unconfirmed, confirm by eye.`);
+  d.push(`summary.ts counts events since the voice server's last newCase() (its last summary or start), not this page's case window (${{all:'all events',reset:'since the last reset',setting:'since the last setting change'}[win]}).`);
   d.push(`minutes in summary.ts counts from the voice server's case start, not the first event (here ${Fx.minutes} min).`);
   $('#diffs').innerHTML=d.map(x=>`<li>${h(x)}</li>`).join('');
   const prompt=renderPrompt(); $('#promptPre').textContent=prompt; $('#promptLen').textContent=`${prompt.length} chars rendered`;
 }
-const renderPrompt=()=>$('#tpl').value.replace('{{facts}}',JSON.stringify(F)).replace('{{stats}}',JSON.stringify(stats));
+const renderPrompt=()=>$('#tpl').value.replace('{{facts}}',JSON.stringify(readable(F))).replace('{{stats}}',JSON.stringify(stats));
 
 const GSM='@£$¥èéùìòÇ\nØø\rÅåΔ_ΦΓΛΩΠΨΣΘΞÆæßÉ !"#¤%&\'()*+,-./0123456789:;<=>?¡ABCDEFGHIJKLMNOPQRSTUVWXYZÄÖÑÜ§¿abcdefghijklmnopqrstuvwxyzäöñüà', GSMX='^{}\\[~]|€';
 function segs(t){
