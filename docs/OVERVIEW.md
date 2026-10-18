@@ -41,7 +41,7 @@ Scrub reads the paper the OR team already uses: the count sheet, the tray tag (Q
 
 Event clips get a Perceptron caption from 5 frames, with an `agrees` flag when the camera disagrees with the controller's event. Captions go to the ledger replay. Dataset QA flags failed grasps, drops and dark cameras before anything uploads.
 
-What is measured: on rendered props, 9 of 9 reads were correct (5 count sheets and 4 pack labels) in 1.8 to 2.7 s, and the tray tag by QR took 0.05 s. What is not measured yet: real photos of the printed props and of the real tray (`docs/RECOGNITION.md`).
+What is measured: on rendered props, all 9 rendered props read correctly (5 count sheets, 2 tray tags, 2 sheets of 4 pack labels): Perceptron in 1.8 to 2.7 s, the tray tags by QR in 0.05 s. What is not measured yet: real photos of the printed props and of the real tray (`docs/RECOGNITION.md`).
 
 Between commands the arm rests. After the arm is home and nothing has been queued for 2 s, the controller calls `arm.rest()`: torque off on all six motors, nothing written. Before the next command it calls `arm.wake()`: each motor's goal is set to where it already is, then torque comes on, so nothing moves. `GET /state` reports `resting`. The fake, sim and real arms implement both.
 
@@ -96,6 +96,7 @@ Every pick and return carries a skill source on its events, `model` (the fine-tu
 - **The phone path.** Designed in `voice/README.md` (Photon number, SIP, an ElevenLabs agent with a Custom LLM pointing at `voice/`). `ELEVENLABS_AGENT_ID` is empty, no tunnel URL is recorded, and no Photon line exists. Photon keys load and the texting code passes its mocked test, but no real text has gone out. The ElevenLabs key works: the arm speaks in the room. The phone agent and the Photon line are being set up now.
 - **Hugging Face and GoDaddy.** `HF_TOKEN` is empty, so the training pipeline cannot start. No domain is bought, so the public page has no HTTPS and the replay link in the text has no host.
 - **Tiger Data and Backboard are not live.** `ledger/tiger.py` and `ledger/memory.py` exist, but both keys are empty. The series and memory pages answer from the local ledger. We make no track claim for either.
+- **Reading and recognition on real photos.** The readers, captions and the bench run, but every accuracy number so far comes from rendered props, synthetic trays or 7 recorded episodes. Real photos of the printed count sheet, tray tag, pack labels, the tray and gloved hands are listed in `docs/RECOGNITION.md` ("Photos to take"). The demo beat for the count sheet waits on that.
 - **Design review.** The restyle is checked by script and by fetching every page. Browser screenshots are pending.
 
 ### Dropped
