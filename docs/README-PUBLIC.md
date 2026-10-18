@@ -59,11 +59,18 @@ One command starts the whole stack and prints every URL (Ctrl-C stops it all):
 
 ```
 .venv/bin/python -m controller.run_all                 # fake arm, fake camera, voice
+.venv/bin/python -m controller.run_all --arm fake      # same as the line above
 .venv/bin/python -m controller.run_all --arm sim       # MuJoCo arm, viewer at :8002/web/viewer.html
 .venv/bin/python -m controller.run_all --ledger        # also the public page on :8080
 ```
 
-Then open http://localhost:8000/ for the dashboard and http://localhost:8000/tablet.html for the large view. With `--ledger`, the public page is http://127.0.0.1:8080/.
+Then open http://localhost:8000/ for the dashboard and http://localhost:8000/tablet.html for the large view. With `--ledger`, the public page is http://127.0.0.1:8080/. Series is `/series.html`. Memory is `/memory.html`. Cases are `/cases.html`. The table card is `/card.html`.
+
+Drive one spoken line without a phone:
+
+```
+cd voice && npm run say -- "grab me the kelly"
+```
 
 The real arm is `--arm real --vision real`. It needs the arm plugged in, a camera, `PERCEPTRON_TEAM_API_KEY` and a deployment id from training. The phone call needs Photon and ElevenLabs set up as in `voice/README.md`.
 
@@ -87,6 +94,8 @@ cd voice && npm test
 | DubHacks NEXT | Business case: surgery centers first, a monthly fee per operating room (`docs/NEXT.md`) |
 | MLH Gemini API | Speech becomes one command from the current tray. Also the summary and texts |
 | MLH MongoDB Atlas | The event log, case replays and success tables |
+| MLH Tiger Data | Handoff times by minute on the series page |
+| MLH Backboard | What was asked, and what usually comes next, on the memory page |
 | MLH Vultr | The public page's server |
 | MLH GoDaddy Registry | The domain on the QR code |
 
