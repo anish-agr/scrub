@@ -32,6 +32,7 @@ APPROACH_BACK_M = 0.08      # stop this far short at normal speed, then creep in
 SPEED_NORMAL, SPEED_NEAR = 0.3, 0.1
 MAX_QUEUE = 3
 DEFAULT_SPOT = [0.22, -0.10, 0.18]  # clinician's saved spot when no hand tracking
+AUTO_RETURN_S = 2.0         # an item in the return spot this long with the arm idle goes back on its own
 
 
 def _saved_spot() -> list:
@@ -58,6 +59,7 @@ class Controller:
         self.step = "idle"
         self.item = None
         self.out: list[str] = []
+        self.case_id = self._new_case()
         self.lighting = "normal"
         self.lux = None
         self.jobs: deque = deque()
@@ -68,6 +70,9 @@ class Controller:
         self.hand_at = 0.0
         self.tray: dict | None = None
         self.tray_at = 0.0
+        self._spot_item = None          # item the return spot has shown since _spot_since
+        self._spot_since = 0.0
+        self._auto_done = None          # auto-returned already; not again until it leaves the spot
         self.history: deque = deque(maxlen=500)
         self.listeners: list = []       # (loop, asyncio.Queue)
         self.cmd = None                 # command being run
@@ -88,7 +93,7 @@ class Controller:
             "request_to_hand_s": kw.pop("request_to_hand_s", None), "retries": kw.pop("retries", None),
             "setting": self.setting["id"], "lighting": self.lighting,
             "command_id": kw.pop("command_id", cmd["id"] if cmd else None), "out": list(self.out),
-            "t": time.time(),
+            "case_id": self.case_id, "t": time.time(),
         }
         ev.update(kw)
         self.history.append(ev)
@@ -112,7 +117,8 @@ class Controller:
             return {
                 "step": self.step, "item": self.item, "queue": [j["item"] for j in self.jobs],
                 "out": list(self.out), "setting": self.setting["id"], "lighting": self.lighting,
-                "fake_arm": self.fake_arm, "hand_seen": self._hand_fresh() is not None, "t": time.time(),
+                "fake_arm": self.fake_arm, "hand_seen": self._hand_fresh() is not None,
+                "out_camera": self._camera_out()[0], "case_id": self.case_id, "t": time.time(),
             }
 
     # ---------- inputs ----------
@@ -129,9 +135,9 @@ class Controller:
             self._emit_command(cmd, True, None, None)
             return {"accepted": True, "reason": None, "say": lines.STOPPED}
         if action == "count":
-            say = lines.count(self._names(self.out))
+            say, cam = self._count_line()
             self._emit_command(cmd, True, None, None)
-            self.emit("count", say=say, item=None, command_id=cmd["id"], out=list(self.out))
+            self.emit("count", say=say, item=None, command_id=cmd["id"], out=list(self.out), out_camera=cam)
             return {"accepted": True, "reason": None, "say": say}
         with self.lock:
             ok, reason, say = self._check(cmd)
@@ -209,6 +215,7 @@ class Controller:
         with self.lock:
             if clear_count:
                 self.out = []
+                self.case_id = self._new_case()
             self.held = None
         self.set_step("homing", item=held if holding else None)
         self._call(gen, self.arm.go_home)  # saved poses keep the gripper as it is
@@ -226,6 +233,20 @@ class Controller:
             self.step, self.item = "idle", None
         self.emit("step", say=lines.RESET)
 
+    def log_restock(self, body: dict) -> bool:
+        """F3: {"item", "qty", "setting", "from", "heard"} to the ledger. False when the ledger isn't loaded."""
+        rec = {"type": "restock", "item": body.get("item"), "qty": int(body.get("qty") or 1),
+               "setting": body.get("setting") or self.setting["id"], "from": body.get("from"),
+               "heard": body.get("heard"), "case_id": self.case_id, "t": body.get("t") or time.time()}
+        if ledger is None:
+            return False
+        self._ledger_pool.submit(ledger.log, rec)
+        return True
+
+    def _new_case(self) -> str:
+        """CONTRACTS: case_id = <setting>-<unix start seconds>."""
+        return f"{self.setting['id']}-{int(time.time())}"
+
     def set_setting(self, setting_id: str) -> dict:
         data = settings.load(setting_id)
         with self.lock:
@@ -233,6 +254,7 @@ class Controller:
                 raise RuntimeError("busy")
             self.setting = data
             self.out = []
+            self.case_id = self._new_case()
             self.step, self.item = "idle", None
         self.emit("step", item=None)
         return data
@@ -247,7 +269,30 @@ class Controller:
 
     def post_tray(self, tray: dict) -> None:
         with self.lock:
-            self.tray, self.tray_at = tray, time.time()
+            now = time.time()
+            gap = now - self.tray_at
+            self.tray, self.tray_at = tray, now
+            if tray.get("stale"):
+                self._spot_item = None  # breaks "continuously", but isn't proof the item left
+                return
+            spot = (tray.get("return_spot") or {}).get("item")
+            if spot != self._auto_done:
+                self._auto_done = None  # it left the return spot
+            if spot != self._spot_item or gap > TRAY_STALE_S:
+                self._spot_item, self._spot_since = spot, now
+            if (spot and spot != self._auto_done and now - self._spot_since >= AUTO_RETURN_S
+                    and self.step == "idle" and not self.jobs and self.cmd is None
+                    and settings.item(self.setting, spot)):
+                self._auto_done = spot
+                self._auto_return(spot, now)
+
+    def _auto_return(self, item_id: str, now: float) -> None:
+        """F1: an item sat in the return spot with the arm idle. Queue a return. Called with the lock held."""
+        cmd = {"id": uuid.uuid4().hex, "action": "return", "item": item_id, "heard": None,
+               "source": "auto", "t": now, "received": now}
+        self._emit_command(cmd, True, None, lines.auto_return(settings.item(self.setting, item_id)["name"]))
+        self.jobs.append(cmd)
+        self.jobs_cv.notify()
 
     # ---------- vision helpers ----------
     def _hand_fresh(self) -> dict | None:
@@ -283,6 +328,32 @@ class Controller:
         if not self.tray or time.time() - self.tray_at > TRAY_STALE_S:
             return None
         return (self.tray.get("return_spot") or {}).get("item")
+
+    def _camera_out(self) -> tuple[list | None, set]:
+        """F2: (items whose slot is empty minus the return-spot item, items the camera reports on)
+        from a fresh TrayState, else (None, empty set)."""
+        tray = self.tray
+        if not tray or tray.get("stale") or time.time() - self.tray_at > TRAY_STALE_S:
+            return None, set()
+        spot = (tray.get("return_spot") or {}).get("item")
+        slots = [s for s in tray.get("slots", []) if settings.item(self.setting, s.get("item") or "")]
+        out = [s.get("item") for s in slots if not s.get("present") and s.get("item") != spot]
+        return out, {s.get("item") for s in slots} | ({spot} if spot else set())
+
+    def _count_line(self) -> tuple[str, list | None]:
+        """The count line, plus a short note where the camera disagrees with `out`."""
+        with self.lock:
+            out = list(self.out)
+            cam, known = self._camera_out()
+        say = lines.count(self._names(out))
+        if cam is not None:
+            gone = [i for i in cam if i not in out]
+            back = [i for i in out if i not in cam and i in known]
+            if gone:
+                say += " " + lines.camera_gone(self._names(gone))
+            if back:
+                say += " " + lines.camera_back(self._names(back))
+        return say, cam
 
     def _names(self, ids) -> list[str]:
         return [(settings.item(self.setting, i) or {"name": i})["name"] for i in ids]

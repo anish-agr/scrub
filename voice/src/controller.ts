@@ -14,6 +14,11 @@ export interface ScrubEvent {
   type: string; t: number; item?: string | null; step?: string | null; say?: string | null;
   command_id?: string | null; setting?: string | null; lighting?: string | null;
   request_to_hand_s?: number | null; retries?: number | null; out?: string[] | null;
+  case_id?: string | null;  // optional, "<setting>-<unix start seconds>"
+}
+export interface State {
+  step: string; out: string[]; setting: string; t: number;
+  out_camera?: string[] | null; case_id?: string | null;
 }
 
 export function makeCommand(action: Action, item: string | null, heard: string): Command {
@@ -34,6 +39,8 @@ async function call(method: string, path: string, body?: unknown): Promise<any> 
 export const postCommand = (c: Command): Promise<CommandReply> => call("POST", "/command", c);
 export const postStop = (): Promise<{ accepted: boolean }> => call("POST", "/stop");
 export const getSetting = (): Promise<any> => call("GET", "/setting");
+export const getState = (): Promise<State> => call("GET", "/state");
+export const postRestock = (r: object): Promise<{ ok: boolean }> => call("POST", "/restock", r);
 export const getStats = (): Promise<unknown> => call("GET", "/stats");
 
 // Follow WS /events forever, reconnecting every second if the controller is down.

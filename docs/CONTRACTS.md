@@ -39,6 +39,10 @@ Every part codes against these. Build against fake inputs that match them, and t
 | `GET /events/recent?n=50` | | the last n Events, oldest first (optional) |
 | `GET /vision` | | `{"tray": TrayState or null, "tray_age_s": number or null, "hand": Hand or null, "hand_age_s": number or null}`: the last posts as received (optional) |
 | `GET /nurse` | | the nurse console page (optional) |
+| `GET /arm/pose` | | `{"available": bool, "joints_deg": [5] or null, "gripper": 0..1 or null, "tip_m": [x, y, z] or null, "tip_px": [x, y] or null, "calibrated": bool, "reason": str or null, "t": float}` (optional, read-only) |
+| `GET /arm/camera/{side,wrist}`, `GET /arm/stream/{side,wrist}` | | a JPEG, or MJPEG; 404 until the arm has `camera_jpeg(name)` (optional) |
+| `GET /camera/overhead` | | vision's `/snapshot` proxied, 502 if vision is down (optional) |
+| `GET /calibration` | | `vision/calibration.json`, 404 if missing (optional) |
 
 ## Command (voice, keyboard or dashboard to the controller)
 

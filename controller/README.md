@@ -48,23 +48,28 @@ websocat ws://localhost:8000/events      # or open http://localhost:8000/
 - Tracking stays "running" for 5 s after the last Hand post. Fake-hand drills need about a 6 s gap between them, or the next handover waits for a hand instead of using the saved spot.
 - Out of region: if the point 8 cm short of the hand is refused (and the hand watcher didn't freeze it), the arm goes straight to the hand slowly. Only if the hand point itself is refused does it say "That's out of my reach" and set the item down (`/fake/force {"out_of_region": 2}` forces that). With no Hand posts at all it goes to the saved spot (`handoff_spot` in `arm/rig.json`, else `[0.22, -0.10, 0.18]`).
 - `return` with no item takes the return-spot item from a fresh TrayState, else the last item out.
+- Auto return (F1): if TrayStates show the same item in the return spot for `AUTO_RETURN_S` (2 s) with the arm idle and nothing queued, Scrub says "Returning the X." and runs the normal return; its `command` event has `source: "auto"`, `action: "return"`. Once per visit (the item must leave the spot first), never while stopped or busy, and `stop` interrupts it like any return.
+- Count from the camera (F2): `GET /state` and `count` events carry `out_camera` (empty slots minus the return-spot item, from a fresh TrayState; `null` without one). If it disagrees with `out`, the count line adds "Camera also sees the X gone." and/or "Camera sees the X back."; otherwise the line is unchanged.
 - `count` answers at once, even mid-handover. Up to 3 handovers queue; `stop` clears the queue.
 - Switching trays (`POST /setting`) only works when idle or stopped, and clears `out`.
+- `case_id` (`<setting>-<unix start seconds>`) is in `GET /state` and on every event. A new case starts at controller start, on `POST /setting`, and on `POST /reset {"clear_count": true}`; a plain reset keeps it.
 - `ledger` is used if `ledger.log` exists; otherwise `/stats` comes from memory.
 
 ## Extra endpoints (not needed by other parts)
 
 - `GET /setting`: the current setting file (the voice server can read item ids and aliases here).
 - `GET /events/recent?n=50`: the last events, for a page that loads mid-run.
+- `POST /restock` with `{"item", "qty", "setting", "from", "heard"}`: a restock texted to the Photon thread (voice F3), logged to the ledger with the `case_id`. Returns `{"ok": false}` when the ledger isn't loaded (voice then keeps it in `voice/restocks.jsonl`).
 - `POST /fake/pull`: simulate the clinician tugging the item (sim arm), otherwise the same as `got_it`.
 - `GET /demo`: the judging console (P4). Keys 1/2/3 load the surgical, dental and bench trays, R resets and clears the count, Space or Esc stops (latched), C sends the current cue's request, G is got it. A 3:00 clock with the PITCH.md beats and who does what, and a rehearsal log for P5. `demo.html` is a copy of `explore/prototypes/48-judge-run.html`.
 - `GET /nurse`: the nurse console, a live port of `explore/prototypes/24-scrub-nurse.html`. Tray slots (on tray, out, held, plus the camera's view from TrayState), item chips and typed or browser-mic requests matched against the setting's aliases, the step track for the running request, request-to-hand time per request (`?target=10` sets the line), the queue, hand lamps (seen, open, path), stop that turns into reset, got it, count, return per item, fake-arm pull and forced failures, and the event log. Space or Esc stops (Esc also from the text box), G is got it, / types.
+- `controller/armview.py` (read-only, nothing moves): `GET /arm/pose` gives `joints_deg`, `gripper` (0 open, 1 closed), `tip_m` from `arm/rig.json` forward kinematics and `tip_px`, the tip projected into the overhead image with `vision/calibration.json` (table-plane homography, so approximate above the table). `available: false` with a `reason` on the fake arm. `GET /arm/camera/side|wrist` (one JPEG) and `GET /arm/stream/side|wrist` (MJPEG, about 10 fps) need `Arm.camera_jpeg(name)` in `arm/real_arm.py` (Anish), else 404 with the reason. `GET /camera/overhead` proxies vision's `/snapshot` (`VISION_URL`, default `http://localhost:8001`) so pages on :8000 get it same-origin. `GET /calibration` returns `vision/calibration.json` or 404.
 - `GET /vision`: the last TrayState and Hand as posted, with `tray_age_s` and `hand_age_s` (for the nurse console).
 - `POST /fake/force` with `{"miss_grasp": 1, "out_of_region": 1, "skill_fail": 1, "no_pull": 1, "no_load": 1}`: the next fake-arm calls fail that way (testing C6).
 
 ## Tests
 
-`.venv/bin/python -m controller.test_flows` forces every failure case on the fake arm (grasp miss and retry, tray grasp check, stale tray, empty slot, no pull, no load reading, load drop, `got_it`, no hand, hand lost and path blocked holding until reset, failed set-down, arm exception, out of region, stop mid-pick, mid-move and while holding out, sharp set-down, return checked against the tray, count, rejects). About 40 s, prints `30/30 passed`.
+`.venv/bin/python -m controller.test_flows` forces every failure case on the fake arm (grasp miss and retry, tray grasp check, stale tray, empty slot, no pull, no load reading, load drop, `got_it`, no hand, hand lost and path blocked holding until reset, failed set-down, arm exception, out of region, stop mid-pick, mid-move and while holding out, sharp set-down, return checked against the tray, count, auto return, count against the camera, case_id, rejects). About 50 s, prints `37/37 passed`.
 
 ## Full runs (Checkpoint 1, C8)
 
