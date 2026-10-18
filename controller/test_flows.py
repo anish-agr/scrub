@@ -238,6 +238,15 @@ def sharp_goes_to_safe_spot_with_timer():
 
 
 @test
+def sharp_acknowledged_as_safe_spot_not_coming():
+    ctl, arm = make()
+    reply, evs = run(ctl, {"action": "handover", "item": "scalpel"})
+    assert reply["accepted"] and reply["say"] == "Scalpel to the safe spot."
+    cmd = next(e for e in evs if e["type"] == "command")
+    assert cmd["say"] == "Scalpel to the safe spot." and "coming" not in " ".join(says(evs))
+
+
+@test
 def tracking_on_but_no_hand():
     ctl, arm = make()
     stop = threading.Event()
