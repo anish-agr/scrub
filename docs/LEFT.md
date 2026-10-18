@@ -7,26 +7,29 @@ Evan's tasks (E1 to E7) aren't listed here; he's on them. As of 5 PM he has push
 | Agent | Works on | May edit |
 | --- | --- | --- |
 | Caiden, session 1 (orchestrator) | L1 to L10 below | `controller/` (except `trials.py`), `voice/`, `arm/check_setup.py`, `arm/record.py`, `controller/run_all.py`, `README.md` "Running it", `docs/SLIDES.md`, `explore/` |
-| Caiden, session 2 (orchestrator) | Q1 to Q4 below | `docs/BRINGUP.md`, `controller/trials.py`, `docs/AUDIT.md`, `explore/` |
-| Evan, Cursor | E3 to E7 | `dashboard/`, `ledger/`, `settings/`, `docs/DATA-LOG.md`, `docs/DEVPOST.md` |
-| Brandon, Cursor | B5, B6, B8 | `vision/`, `docs/PERCEPTRON.md` |
-| Anish, Codex | R1 to R4 below | `arm/` except `check_setup.py` and `record.py` |
+| Evan, Cursor (Grok only) | E3 to E7 | `dashboard/`, `ledger/`, `settings/`, `docs/DATA-LOG.md`, `docs/DEVPOST.md` |
+| Brandon, Cursor (Grok only) | B5, B6, B8 | `vision/`, `docs/PERCEPTRON.md` |
+| Anish, Codex | R1 to R4, Q1, Q2 below | `arm/` except `check_setup.py` and `record.py`; `docs/BRINGUP.md`; `controller/trials.py` (new file only) |
 | Anish, Antigravity | G1, G2 below | `docs/PITCH.md`, `docs/QA.md` |
 
 ## More work (Q, R, G)
 
 | # | What | Who |
 | --- | --- | --- |
-| Q1 | `docs/BRINGUP.md`: the exact step-by-step for tonight, with commands: ports, cameras, calibration ids, taping, measuring poses, the first teleop, recording, the dataset check, training, the first live skill, calibration with Brandon, the first handoff. Each step lists what you should see and what to do if you don't | Caiden 2 |
-| Q2 | `controller/trials.py`: runs the success tests in `docs/PLAN.md` (N tries per item and lighting through the controller, logging each with `ledger.log_test`), with a prompt to the operator between tries | Caiden 2 |
-| Q3 | `docs/AUDIT.md`: read every part against `docs/CONTRACTS.md` and list mismatches and likely bugs, by owner. Fix nothing outside your scope; post the list | Caiden 2 |
-| Q4 | A sim backup: a recorded full run on the MuJoCo sim arm with voice and the dashboard, in case the real arm fails at judging | Caiden 2 |
+| Q1 | `docs/BRINGUP.md`: the exact step-by-step for tonight, with commands: ports, cameras, calibration ids, taping, measuring poses, the first teleop, recording, the dataset check, training, the first live skill, calibration with Brandon, the first handoff. Each step lists what you should see and what to do if you don't | Codex |
+| Q2 | `controller/trials.py`: runs the success tests in `docs/PLAN.md` (N tries per item and lighting through the controller, logging each with `ledger.log_test`), with a prompt to the operator between tries | Codex |
+| Q3 | `docs/AUDIT.md`: read every part against `docs/CONTRACTS.md` and list mismatches and likely bugs, by owner. Done in the final verification pass | Caiden, final pass |
+| Q4 | A sim backup: a recorded full run on the MuJoCo sim arm with voice and the dashboard, in case the real arm fails at judging | Caiden, final pass |
 | R1 | `python -m arm.train pipeline`: check a local dataset first (fps, camera names and sizes, joint names, episode count, cadence), register the Hugging Face repo, wait for validation, train, follow, wait for a ready deployment, write `PERCEPTRON_DEPLOYMENT_ID` into `.env` | Codex |
 | R2 | `arm/teach.py`: torque off, move the arm by hand, press a key to save the current joints as home, carry or safe-spot in `arm/rig.json`, and mark the handoff-region corners | Codex |
 | R3 | `Arm.prepare(instructions)` in `real_arm.py` that pre-opens robot sessions, for Caiden's L2. Optional method, so the contract doesn't change | Codex |
 | R4 | Live bring-up with Anish once the arm is plugged in and the team key is in: capabilities, `real_arm --dry-run` against the real joints, the five-point `move_to` check, gripper load sign | Codex |
 | G1 | `docs/PITCH.md`: tighten the 3-minute script and judge Q&A against what's built, with `[measured]` slots for the numbers. Plain words, no buzzwords, no em dashes | Antigravity |
 | G2 | Browser QA: start the stack with the fake arm and `vision --fake`, click through the dashboard and the public page, try every control, and write bugs by owner in `docs/QA.md` | Antigravity |
+
+## After everyone finishes: the final pass
+
+When Caiden session 1, Codex, Antigravity and Evan's Cursor are done, Caiden runs one verification pass with subagents: Q3 (the audit), Q4 (the sim backup), every test in the repo, the full stack on the sim arm, and small fixes anywhere. That pass is the last software step before the hardware work takes over.
 
 ## Blockers only people can clear
 
