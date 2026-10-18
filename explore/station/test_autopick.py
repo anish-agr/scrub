@@ -315,7 +315,8 @@ def _demo(t_grasp=60, n=200, lift_drop=30.0):
     for i in range(n):
         g = 35.0 if i < t_grasp else (9.0 if i < 150 else 35.0)
         lift = 10.0 if i < t_grasp else 10.0 - lift_drop * min(1.0, (i - t_grasp) / 30)
-        rows.append([5.0, lift, 30.0, 50.0, 70.0, g])
+        reach = min(1.0, i / 40)  # the arm reaches out from home before the grasp
+        rows.append([5.0, -100.0 + (lift + 100.0) * reach, 97.0 - 67.0 * reach, 50.0, 70.0, g])
     return rows
 
 
@@ -348,4 +349,34 @@ def test_learned_from_demos(tmp_path, monkeypatch):
         if d.hand == "offer" and not released and t[0] > 1:
             d.release()  # someone says "let go"
             released = True
+    assert released and d.handed
+
+
+def test_replay_demo_smooth_then_let_go(tmp_path, monkeypatch):
+    import json
+    for k, tg in enumerate((60, 64, 58)):
+        (tmp_path / f"ep-{20 + k:04d}.json").write_text(json.dumps(
+            {"episode_index": 20 + k, "task": "pick the scalpel", "fps": 30, "state": _demo(tg)}))
+    monkeypatch.setattr(AP, "EPISODES_DIR", tmp_path)
+    d = AP.AutoPick({"mode": "replay_demo"})
+    st = St()
+    d.start(st)
+    assert d.found["demo"] in (20, 21, 22) and d.plan[-1]["name"] == "present"
+    t = [0.0]
+    monkeypatch.setattr(AP.time, "perf_counter", lambda: t[0])
+    acts, released = [], False
+    for _ in range(6000):
+        a = d.tick(st, {})
+        t[0] += 1 / 30
+        if a is None or "done" in a:
+            break
+        if a and "shoulder_pan.pos" in a and d.hand is None:
+            acts.append([a[f"{m}.pos"] for m in AP.JOINTS])
+        if a and "gripper.pos" in a:
+            st.gripper = max(10.5 if not released else 3.0, a["gripper.pos"])
+        if d.hand == "offer" and not released and t[0] > 1:
+            d.release()
+            released = True
+    A = np.array(acts)
+    assert np.abs(np.diff(A, axis=0)).max() * 30 <= AP.MAX_DEG_S + 1
     assert released and d.handed
