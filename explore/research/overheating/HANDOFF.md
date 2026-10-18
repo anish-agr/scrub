@@ -81,6 +81,16 @@ explore/arm_session.py is running. Keep every change small and measured.
 | --- | --- | --- | --- | --- | --- |
 | Oct 17 | Torque-on hold at rest, no movement | experiment rows (kind "experiment") | ~3 in minute 1, ~0.5 after | 55 (gripper) | Self-heating with torque on is the main term |
 
+### Oct 18 upstream sync note
+
+Upstream commit `319161a` separately added situational **gripper** Torque_Limit values
+150 (idle shut), 350 (holding), 500 (moving), plus gripper CW/CCW dead zone 3.
+The Oct 17 audit below predates those changes and does **not** validate them. Statements
+below about unimplemented register experiments describe the audit's work at that time;
+the body-joint experiments in the table are still separate from these gripper changes.
+Do not revert or stack settings to recreate old data. Record the current commit/settings
+for a fresh baseline, then keep exactly those settings for the fan-only comparison.
+
 ### Oct 17 continuation: telemetry audit; baseline still required
 
 Read MongoDB with `thermal_analyze.py --hours 12` from Anish's Windows checkout
