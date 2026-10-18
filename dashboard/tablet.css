@@ -1,19 +1,18 @@
-:root { color: #fff; background: #111; font-family: "Avenir Next", "Segoe UI", sans-serif; }
-* { box-sizing: border-box; }
-html, body { max-width: 100%; overflow-x: clip; }
-body { margin: 0; min-height: 100vh; padding: 24px; display: flex; flex-direction: column; gap: 8px; }
-.link { margin: 0; letter-spacing: 0.08em; text-transform: uppercase; color: #bdbdbd; }
-h1 { margin: 0; font-size: clamp(64px, 14vw, 160px); line-height: 0.9; letter-spacing: -0.04em; }
-h1.moving { color: #7dffa8; }
-h1.stopped, h1.error { color: #ff5a3c; }
-#item { margin: 0; font-size: clamp(28px, 5vw, 48px); min-height: 1.2em; }
-.kicker { margin: 12px 0 0; letter-spacing: 0.08em; text-transform: uppercase; color: #bdbdbd; }
-#out { margin: 0; font-size: clamp(36px, 7vw, 72px); font-weight: 700; overflow-wrap: anywhere; }
-button { border: 0; border-radius: 16px; font: inherit; font-weight: 800; letter-spacing: 0.06em; text-transform: uppercase; cursor: pointer; }
-#reset { margin-top: auto; background: #fff; color: #111; font-size: clamp(28px, 4vw, 40px); padding: 18px; }
-#stop { position: sticky; bottom: 0; background: #ff2a00; color: #fff; font-size: clamp(40px, 8vw, 72px); padding: 28px; }
-@media (max-width: 700px) {
-  body { padding: 16px; }
-  h1 { font-size: clamp(48px, 18vw, 96px); }
-  #stop, #reset { width: 100%; }
+/* Medical device HMI. Page layout only; tokens and controls are in style.css. */
+body[data-page="tablet"] { display:flex; flex-direction:column; }
+main { width:100%; flex:1; display:grid; grid-template-columns:minmax(0,1.5fr) minmax(0,1fr); gap:32px; }
+.link { margin:0; font:600 13px var(--m); text-transform:uppercase; color:var(--mute); }
+#step { margin:0; font-size:clamp(64px,10vw,150px); text-transform:uppercase; }
+#step.moving { color:var(--cyan); }
+#item { margin:20px 0 0; font-size:clamp(26px,4vw,48px); min-height:1.4em; }
+#out { margin:12px 0 0; font-size:clamp(32px,5vw,64px); font-weight:700; line-height:1.15; }
+.safety-dock { position:sticky; bottom:0; z-index:10; background:var(--paper); border-top:4px solid var(--ink); padding:16px 24px; display:grid; grid-template-columns:1fr 2fr; gap:8px 16px; }
+.safety-dock button { font-size:clamp(24px,4vw,44px); min-height:88px; }
+.safety-dock p { grid-column:1/-1; font:12px var(--m); color:var(--mute); text-align:right; margin:0; }
+@media(max-width:760px) {
+  main { grid-template-columns:minmax(0,1fr); gap:16px; }
+  #step { font-size:clamp(46px,15vw,80px); }
+  #out { font-size:36px; }
+  .safety-dock { padding:12px 16px; grid-template-columns:1fr 1.4fr; gap:8px; }
+  .safety-dock button { min-height:72px; font-size:26px; }
 }
