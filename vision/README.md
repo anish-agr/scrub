@@ -10,10 +10,11 @@ Run from the repo root:
 
 ```
 python -m vision              # camera CAMERA_INDEX from .env, preview at http://localhost:8001/
+python -m vision --source sim # overhead MJPEG from python -m sim (port 8002), no webcam
 python -m vision --fake      # no camera: synthetic tray, open palm, locked-exposure stand-in (30 fps)
 python -m vision --fake --port 8011 --host 0.0.0.0   # another port, open to the LAN
-python -m vision.test_vision # fake-input checks for B1 to B7, plus the slot, calibration, and lighting tools
-.venv/bin/python -m pytest -q vision/test_vision.py  # the same tests under pytest
+python -m vision.test_vision # fake-input checks, plus the sim stream, towel tray, local detector, and tip fit
+.venv/bin/python -m pytest -q vision/test_vision.py vision/test_pipeline.py
 ```
 
 The controller does not have to be running. The first failed POST to `/vision/hand` or `/vision/tray` is logged once.
@@ -35,6 +36,11 @@ The controller does not have to be running. The first failed POST to `/vision/ha
 | `heights.py` | Load and save `hand_heights.json` |
 | `mark_slots.py` | Click slot corners, or `--fake` to write the surgical and bench trays in the settings shape |
 | `calibrate.py` | Homography from guided gripper points or `--pairs` (explore page 42). Prints the max error in cm. Target is 4 cm short of the palm |
+| `sim_source.py` | Reads the sim overhead MJPEG (`SIM_URL` or `http://127.0.0.1:8002/stream`). Reopens the stream after a drop |
+| `tray_find.py` | Finds the light tray rectangle on the blue towel and places the slot boxes on it. No printed markers |
+| `local_detect.py` | Full or empty per slot from edges, color, and an empty-slot reference, when Perceptron is slow or down |
+| `auto_calibrate.py` | Finds the orange gripper tip in the overhead frame and fits the same homography. Reports the max error in mm |
+| `profile_loop.py` | Times the hand and tray loops on a local sim-style MJPEG stream |
 | `lighting.py` | Mean brightness, and `--test` to append hand / detect / stale rates to a CSV |
 | `hand_heights.json` | Default hand height 0.18 m, plus one height per clinician |
 | `test_vision.py` | All the fake-input tests |
@@ -105,8 +111,8 @@ VISION_DETECT_WIDTH=640      # 0 sends the full frame
 VISION_TRAY_STALE_S=8        # default: detect timeout + 2 s
 ```
 
-The controller has its own 3 s cutoff (`TRAY_STALE_S` in `controller/core.py`), so with a 4 s detect it sees the tray as stale between reads.
-`GET /tray_check` reports `stale: true` with no tray read yet, after a failed read, or when the last read is older than the cutoff above (a hung detect), so the controller says it can't check instead of "missing everything". `wrong_slot[].in_slot_of` is another item's id or null. Event clips: vision polls the controller's `/events/recent` every 0.5 s and saves a clip for each picked, handed, set_down, released, returned, stopped and missed event once its 1.5 s after-window has passed. Events from before vision started are skipped. The clip buffer keeps frames at 640 px wide. `target` stays null until `vision/calibration.json` exists, except `python -m vision --fake`, which posts a stand-in target so the fake arm can finish a handover. The API returns no confidence, so a fresh TrayState uses `1.0`. A failed call keeps the last good state and sets `stale` true (optional field).
+The controller uses the same 8 s cutoff (`TRAY_STALE_S`), so a 4 s detect is still a fresh tray read.
+`GET /tray_check` reports `stale: true` with no tray read yet, after a failed read, or when the last read is older than the cutoff above (a hung detect), so the controller says it can't check instead of "missing everything". `wrong_slot[].in_slot_of` is another item's id or null. Event clips: vision polls the controller's `/events/recent` every 0.5 s and saves a clip for each picked, handed, set_down, released, returned, stopped and missed event once its 1.5 s after-window has passed. Events from before vision started are skipped. The clip buffer keeps frames at 640 px wide. `target` stays null until `vision/calibration.json` exists, except `python -m vision --fake`, which posts a stand-in target so the fake arm can finish a handover. The API returns no confidence, so a fresh TrayState uses `1.0`. A Perceptron answer within the detect timeout sets `detector` to `perceptron`. A call that runs past that timeout, fails, or has an empty key uses the local slot check and sets `detector` to `local` (that answer is not stale). `stale` is true only when both miss; then the last good state is posted with `detector` `none`.
 
 ## Clip captions
 
@@ -164,6 +170,24 @@ python -m vision.mark_slots --setting surgical --live
 
 `python -m vision.mark_slots --fake --out /tmp/marked` writes the surgical and bench files (and a .jpg of each synthetic frame), with no camera and no window. It does not change `settings/`.
 
+## Sim camera
+
+`python -m sim` serves the overhead camera at `GET /stream` (640x480 MJPEG, about 15 fps). Vision reads it with no webcam:
+
+```
+python -m vision --source sim
+```
+
+`SIM_URL` overrides the default `http://127.0.0.1:8002`. If the sim is down, or the stream drops and comes back, the grabber keeps the last frame and opens the stream again. `/health` reports `camera` false while reads are failing, then true once frames return. The hand loop does not wait on a tray detect that is still in flight.
+
+## Tray on the towel
+
+There are no printed markers. Each frame, vision looks for the blue towel and the light rectangle on it (the same corner idea as `docs/VIDEO-TOOL.md`). The slot boxes are laid along that rectangle, and the return spot sits just outside the bottom edge. Those boxes stay in memory for that frame. `settings/*.json` is not rewritten. If the towel is not in the picture, the boxes already in the setting are used.
+
+## Local slot check
+
+`LocalDetector` crops each slot. A flat gray crop is empty. Edges, color, or a difference from the first empty crop of that slot counts as full. Turn it off with `VISION_LOCAL=0`. The posted TrayState includes `detector`: `perceptron`, `local`, or `none`.
+
 ## Calibration (B6)
 
 At the arm, record 6 to 8 gripper positions as pixel and arm meters:
@@ -174,6 +198,14 @@ python -m vision.calibrate --pairs pairs.json
 ```
 
 Guided mode asks for one point at a time: `pixel_x pixel_y arm_x arm_y arm_z`, meters, 6 to 8 points, blank line to finish. `--pairs` reads the file from explore page 42 (`image_points`, `arm_points`, `hand_height_m`; extra fields are ignored). Either way it writes `vision/calibration.json` and prints the max error in centimeters. It should be under 2 cm. Once that file exists, the Hand posted to the controller includes `target` (4 cm closer to the arm base than the palm, at the saved hand height). `python -m vision --fake` uses a stand-in target when the file is missing, so a fake-arm handover can still move to a hand.
+
+The sim path does not use a marker. `find_gripper_tip` takes the orange jaw in the render (or a small bright blob). `calibrate_frames` pairs those pixels with the true tip positions and writes the same homography, plus `max_error_mm` and `source: gripper_tip`. `python -m vision.calibrate` is still the path where a person types the points.
+
+```
+python -m vision.profile_loop --seconds 1800
+```
+
+That runs the hand loop and the tray loop against a local MJPEG stream in the sim's format (15 fps, 640x480). It uses the local slot check and a synthetic hand. It does not call Perceptron and it does not start `python -m sim`.
 
 ## Path and hand height (B7)
 
@@ -189,7 +221,7 @@ That writes `vision/hand_heights.json`, which is in git. `CLINICIAN` in `.env` p
 
 ## Keys
 
-`PERCEPTRON_API_KEY` and `CAMERA_INDEX` live in `.env`. Optional: `CAMERA_EXPOSURE`, `CAMERA_WB`, `CONTROLLER_URL` (default `http://localhost:8000`), `CLINICIAN`, `VISION_PORT` (8001), `VISION_HOST` (127.0.0.1), `VISION_FAKE=1` (same as `--fake`), `VISION_SETTING` (surgical, used when the controller is down), `VISION_EXTRA_CATEGORIES=0` (stop asking for "robot arm" and "gripper"), and the three detect settings above. The hand model downloads into `vision/models/` (git-ignored) on first real run.
+`PERCEPTRON_API_KEY` and `CAMERA_INDEX` live in `.env`. Optional: `CAMERA_EXPOSURE`, `CAMERA_WB`, `CONTROLLER_URL` (default `http://localhost:8000`), `CLINICIAN`, `VISION_PORT` (8001), `VISION_HOST` (127.0.0.1), `VISION_FAKE=1` (same as `--fake`), `VISION_SETTING` (surgical, used when the controller is down), `VISION_EXTRA_CATEGORIES=0` (stop asking for "robot arm" and "gripper"), `SIM_URL`, `VISION_SOURCE` (`camera` or `sim`), `VISION_LOCAL` (`0` turns the local slot check off), and the three detect settings above. The hand model downloads into `vision/models/` (git-ignored) on first real run.
 
 ## Tested
 
@@ -212,3 +244,20 @@ What failed or still needs a person:
 - Gloves: not a controlled test. MediaPipe's hand landmarker has no glove model. During the soak `/vision/hand` answered, including one `seen: true` read, but nobody held a gloved hand up for it.
 - B5 is not done. Slot boxes in the settings files are still null. With the overhead camera mounted, run `python -m vision.mark_slots --setting surgical --live`, then the same for `bench`. Click two corners per item, then the return spot. It writes `vision/marked/<id>.json` for Evan. Do not pass `--write-settings`.
 - B8 is not done. The three lamp rows are not in `docs/STATUS.md`. Run `python -m vision.lighting --test --label bright --seconds 10 --csv vision/lighting_tests.csv`, then `normal`, then `dim`, changing the lamp between them. Do not commit the CSV.
+
+Sim source, towel tray, local detector, and gripper-tip fit, Oct 18, 2026. `python -m vision.test_vision`: 59 tests OK. `python -m unittest deploy.test_check_env`: 8 tests OK.
+
+What passed:
+
+- Sim MJPEG: a JPEG is pulled out of the multipart stream. After the stream drops, the next read opens it again. The grabber marks the camera down after missed reads and back up when frames return.
+- Towel tray: slot boxes move when the blue towel moves. A frame with no towel keeps the boxes from settings. Settings files are not rewritten.
+- Local detector: a flat crop is empty and a colored crop is full. A failed Perceptron call posts `detector: local` and `stale: false`. With the local check turned off, the same failure posts the last good state with `stale: true` and `detector: none`. A detect that sleeps does not block `publish_hand`.
+- Gripper tip: guided `python -m vision.calibrate` lines still parse. An orange tip painted on a known homography fits again with max error under 8 mm. The same fit on the sim overhead camera, using the true tip positions, stays under 15 mm.
+- Short profile (1.2 s, local MJPEG, synthetic hand, no Perceptron call): hand loop above 5 fps, more than two tray reads, detect latency under 0.5 s, working set not climbing by 80 MB.
+
+30-minute profile (`python -m vision.profile_loop --seconds 1800`, same local sim-style stream, local slot check, synthetic hand, no Perceptron call), Oct 18, 2026:
+
+- Hand loop: 15.28 fps (27,500 frames). The loop waits whatever is left of 0.05 s after each post.
+- Tray loop: 8,355 reads. This profile paces that loop at 0.2 s so latency is visible. The vision process itself still waits 1 s between tray posts.
+- Detect latency: 0.087 s worst read. That is the local slot check, not a Perceptron call.
+- Memory: working set started at 49 MB, reached 191 MB by the first minute (libraries and the 150-frame clip buffer), then stayed between 191 MB and 196 MB. Peak 196 MB, end 195 MB.
