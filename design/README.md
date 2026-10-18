@@ -16,6 +16,13 @@ Set `data-theme="monitor"` on the root HTML element for dark pages, so the
 canvas and native controls also use the theme. Both dashboard views use it.
 Page CSS should contain layout only, with colors and fonts from the tokens.
 
+The approved nurse and demo consoles retain their original HMI styling in
+isolated native CSS `@scope` blocks. This is deliberate: the task requires no
+visual changes to these two pages. Their original decoded application scripts
+and CSS declarations are checked against the task-start commit. Console copy
+uses HTML entities and equivalent JS unicode escapes so Windows' server-side
+default decoding cannot corrupt it or return HTTP 500.
+
 `scrub.css` is the only source. The controller mounts `dashboard/` at `/`,
 the ledger has a fixed file allowlist, and sim mounts `sim/web/` at `/web`.
 None serves the root `design/` directory. To keep backend files untouched,
@@ -25,6 +32,19 @@ we publish identical copies as each server's existing `style.css`:
 python design/sync.py
 python design/sync.py --check
 ```
+
+Regression and integration checks:
+
+```
+python design/check.py
+python -m unittest design.test_ui -v
+python design/check_http.py --controller http://localhost:8400 --ledger http://localhost:8403 --sim http://localhost:8402
+```
+
+`migrate_console.py` is the one-time, guarded extraction tool for the two
+approved consoles. Do not rerun it after migration. The shared link falls back
+to `../dashboard/style.css` when a console is opened from disk or a root static
+server. The normal controller route uses `/style.css` directly.
 
 Do not hand-edit those three generated files. Include regenerated copies in
 any commit that changes the source. The consoles use the controller's
