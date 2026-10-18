@@ -1,4 +1,4 @@
-"""python -m controller [--fake-arm | --real-arm] [--port 8000] [--setting surgical]"""
+"""python -m controller [--fake-arm | --real-arm] [--port 8000] [--setting surgical|bench] [--judge]"""
 import argparse
 import threading
 from pathlib import Path
@@ -21,7 +21,10 @@ def main() -> None:
     g.add_argument("--sim-arm", action="store_true", help="MuJoCo SO-101 from sim/ (say got_it to release)")
     p.add_argument("--port", type=int, default=8000)
     p.add_argument("--sim-port", type=int, default=8002, help="--sim-arm: also serve sim viewer/stream/state here")
-    p.add_argument("--setting", default="surgical", choices=["surgical", "dental", "bench"])
+    p.add_argument("--setting", default="surgical", choices=["surgical", "bench", "dental"], metavar="SETTING",
+                   help="surgical (default) or bench; dental is hidden but still loads")
+    p.add_argument("--judge", action="store_true",
+                   help="judge mode: /command takes only handover, count, stop, got_it (POST /judge toggles it)")
     p.add_argument("--motion-s", type=float, default=1.0, help="fake arm seconds per motion")
     p.add_argument("--pull-s", type=float, default=2.0,
                    help="fake arm: simulated pull after this many seconds at the hand; 0 = wait for got_it")
@@ -38,9 +41,9 @@ def main() -> None:
         from .fake_arm import FakeArm
         arm = FakeArm(motion_s=a.motion_s, auto_pull_s=a.pull_s or None)
     arm.connect()
-    ctl = Controller(arm, fake_arm=not a.real_arm, setting_id=a.setting)
+    ctl = Controller(arm, fake_arm=not a.real_arm, setting_id=a.setting, judge=a.judge)
     print(f"controller: {'real' if a.real_arm else 'sim' if a.sim_arm else 'fake'} arm, setting {a.setting} "
-          f"({ctl.setting['_source']}), ledger {'on' if core.ledger else 'off'}", flush=True)
+          f"({ctl.setting['_source']}), ledger {'on' if core.ledger else 'off'}{', judge mode' if a.judge else ''}", flush=True)
     try:
         if a.sim_arm:  # MuJoCo GL needs the main thread: controller API in a thread, frame grabber here
             from sim.server import Grabber, create_app
