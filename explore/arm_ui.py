@@ -389,6 +389,7 @@ API = {
                    "guard, dataset, last_episode (cadence), warnings, log",
     "GET /stream/side, /stream/wrist": "MJPEG camera previews (15 fps)",
     "GET /reference.jpg": "the saved setup photo",
+    "GET /frame/side.jpg, /frame/wrist.jpg": "the latest camera frame as one JPEG",
     "POST /control {action: next|rerecord|stop}": "like the arrow keys; recording Mac only (or X-Scrub-Token)",
     "POST /reference": "save the side camera as the setup photo; recording Mac only",
     "files": "<root>-cadence.json per-episode timing; ~/scrub-logs/arm-*.log every run",
@@ -403,6 +404,7 @@ class Handler(BaseHTTPRequestHandler):
         self.send_response(code)
         self.send_header("Content-Type", ctype)
         self.send_header("Cache-Control", "no-store")
+        self.send_header("Access-Control-Allow-Origin", "*")  # other pages may read; buttons stay local (_local)
         self.end_headers()
         self.wfile.write(body)
 
@@ -417,6 +419,13 @@ class Handler(BaseHTTPRequestHandler):
         elif self.path == "/reference.jpg":
             p = reference_path()
             self._send(200, p.read_bytes(), "image/jpeg") if p.exists() else self._send(404, b"none", "text/plain")
+        elif self.path.startswith("/frame/") and self.path.endswith(".jpg"):
+            with lock:
+                f = frames.get(self.path[len("/frame/"):-4])
+            if f is None:
+                return self._send(404, b"no frame", "text/plain")
+            ok, jpg = cv2.imencode(".jpg", cv2.cvtColor(f, cv2.COLOR_RGB2BGR), [cv2.IMWRITE_JPEG_QUALITY, 80])
+            self._send(200, jpg.tobytes(), "image/jpeg")
         elif self.path.startswith("/stream/"):
             self._stream(self.path.split("/")[-1])
         else:
