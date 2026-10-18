@@ -305,6 +305,16 @@ def status() -> dict:
                     (" this episode: re-record it" if out["mode"] == "record" else ""))
     if out["loop_hz"] is not None and out["loop_hz"] < 27 and out["phase"] in ("recording", "resetting", "teleop"):
         warn.append(f"Control loop {out['loop_hz']:.0f} Hz (needs 30)")
+    for m, v in (S.get("motors") or {}).items():
+        if (v.get("temp_c") or 0) >= 55:
+            warn.insert(0, f"{m} motor {v['temp_c']} C: rest the arm with torque off")
+        if v.get("held"):
+            warn.append(f"{m} blocked: holding instead of pushing (move the leader back to free it)")
+    gh = S.get("grip_health") or {}
+    if (gh.get("temp_c") or 0) >= 55:
+        warn.insert(0, f"Gripper {gh['temp_c']} C: let it rest open (eases itself open at 62 C)")
+    if (gh.get("load") or 0) > 300:
+        warn.append(f"Gripper straining (load {gh['load']}): close the leader only until the claw touches")
     out["warnings"] = [f"Waiting for {w}" for w in S["waiting"]] + warn
     return out
 

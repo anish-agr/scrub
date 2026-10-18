@@ -48,10 +48,15 @@ GRIP_STALL_S = 0.3   # closing but not moving this long: something is in the jaw
 GRIP_MOVE = 1.0      # gripper units (0 closed .. 100 open) that count as still moving
 GRIP_SQUEEZE = 1.5   # how far past the contact point to keep pressing. 3.0 kept the claw stalled
                      # against LeRobot's 50% current limit until it tripped overload (Oct 17 crash)
+GRIP_LOAD_MAX = 300  # raw |Present_Load| (LeRobot caps the gripper near 500): above this the claw is straining
+GRIP_LOAD_S = 1.0    # straining this long eases the claw open a unit per loop, before overload trips
+GRIP_TEMP_WARN = 55  # deg C: warn on the page
+GRIP_TEMP_EASE = 62  # deg C: open the claw until it cools (STS3215 shuts itself off near 70)
 GRIP_BACKOFF = 4.0   # on an overload reply, open this much per loop until the servo stops reporting it
 
 
 DROP_TARGET = [None, False]  # camera index for the SCRUB_DROP_CAMERA drill, done flag
+LAST_ERROR = Path.home() / "scrub-logs" / "last-error.txt"  # a crashed session's reason, for the page
 CAM_SPECS: dict = {}         # starting OpenCV index -> (role, name spec), to find a camera again after a replug
 
 
@@ -157,6 +162,139 @@ def tolerate_camera_stalls() -> None:
         OpenCVCamera.connect = connect_and_arm
 
 
+def lenient_motor_check() -> None:
+    """LeRobot's start-up check pings each motor once and counts a reply carrying an error flag
+    (angle out of range, overload) as a missing motor. A motor that answers is there: retry a
+    missed reply twice and ignore the flag."""
+    from lerobot.motors.motors_bus import MotorsBus
+
+    def ping(self, motor, num_retry: int = 0, raise_on_error: bool = False):
+        id_ = self._get_motor_id(motor)
+        for _ in range(1 + max(num_retry, 2)):
+            model, comm, _error = self.packet_handler.ping(self.port_handler, id_)
+            if self._is_comm_success(comm):
+                return model
+        if raise_on_error:
+            raise ConnectionError(f"motor {id_} did not answer")
+        return None
+    MotorsBus.ping = ping
+
+
+def joint_limits(bus) -> dict:
+    """Each follower joint's calibrated range in LeRobot's units, 1 inside the ends."""
+    out = {}
+    for m, c in bus.calibration.items():
+        if m == "gripper":
+            out[m] = (1.0, 99.0)
+            continue
+        mid = (c.range_min + c.range_max) / 2
+        lo, hi = ((r - mid) * 360 / 4095 for r in (c.range_min, c.range_max))
+        out[m] = (lo + 1, hi - 1)
+    return out
+
+
+def clamp_follower() -> None:
+    """The leader's wrist reaches past the follower's range; a goal past a limit sets the motor's
+    angle error, which later fails LeRobot's start-up check. Keep every goal inside the range."""
+    from lerobot.robots.so_follower.so_follower import SOFollower
+    send = SOFollower.send_action
+
+    def clamped(self, action):
+        lim = getattr(self, "_scrub_limits", None) or joint_limits(self.bus)
+        self._scrub_limits = lim
+        action = dict(action)
+        for k, v in action.items():
+            m = k[:-4] if k.endswith(".pos") else None
+            if m in lim:
+                action[k] = min(lim[m][1], max(lim[m][0], v))
+        return send(self, action)
+    SOFollower.send_action = clamped
+
+
+JOINT_LOAD_MAX = 250  # |Present_Load| (0.1% of max torque) a joint may push without moving
+JOINT_STALL_S = 1.0   # pushing this long while stuck: hold where it is instead of pushing
+TEMP_WARN, TEMP_RELAX = 55, 62  # deg C: warn on the page; stop pushing with that motor
+ARM_JOINTS = ("shoulder_pan", "shoulder_lift", "elbow_flex", "wrist_flex", "wrist_roll")
+
+
+def guard_joints() -> None:
+    """A blocked joint (the folded rest pose against the base or table, an object in the way) keeps
+    its motor stalled at the current limit until it overheats and trips overload, one motor after
+    another (Oct 17: all six at 54-61 C, wrist_flex flagged overload). If a joint pushes hard without
+    moving for JOINT_STALL_S, or its motor is too hot, command its present position until the leader
+    moves it back the other way."""
+    from lerobot.robots.so_follower.so_follower import SOFollower
+    send = SOFollower.send_action
+    st = {"since": {}, "hold": {}, "dir": {}, "temp": {}, "temp_t": 0.0}
+
+    def guarded(self, action):
+        now = time.perf_counter()
+        try:
+            loads = self.bus.sync_read("Present_Load", normalize=False)
+            pos = self.bus.sync_read("Present_Position")
+        except Exception:  # noqa: BLE001 - no fresh reading: send as is
+            return send(self, action)
+        if now - st["temp_t"] > 2.0:
+            st["temp_t"] = now
+            try:
+                st["temp"] = {k: int(v) for k, v in self.bus.sync_read("Present_Temperature", normalize=False).items()}
+            except Exception:  # noqa: BLE001
+                pass
+        action = dict(action)
+        for m in ARM_JOINTS:
+            k = m + ".pos"
+            if k not in action or m not in pos:
+                continue
+            goal, here, load = action[k], pos[m], abs(int(loads.get(m, 0)))
+            push = goal - here
+            if m in st["hold"]:
+                # Released when the leader comes back to where the follower is or moves the other way.
+                if abs(goal - st["hold"][m]) < 2.0 or push * st["dir"][m] < 0:
+                    st["hold"].pop(m)
+                    st["since"].pop(m, None)
+                    print(f"joint guard: {m} released", flush=True)
+                else:
+                    action[k] = st["hold"][m]
+                    continue
+            hot = st["temp"].get(m, 0) >= TEMP_RELAX
+            if (load > JOINT_LOAD_MAX and abs(push) > 3.0) or (hot and abs(push) > 1.0):
+                st["since"].setdefault(m, now)
+                if hot or now - st["since"][m] > JOINT_STALL_S:
+                    st["hold"][m], st["dir"][m] = here, (1 if push > 0 else -1)
+                    action[k] = here
+                    print(f"joint guard: {m} {'hot ' + str(st['temp'][m]) + ' C' if hot else 'blocked (load ' + str(load) + ')'}, "
+                          f"holding at {here:.0f} instead of pushing to {goal:.0f}", flush=True)
+            else:
+                st["since"].pop(m, None)
+        try:
+            import arm_ui
+            arm_ui.S["motors"] = {m: {"temp_c": st["temp"].get(m), "load": int(loads.get(m, 0)),
+                                      "held": m in st["hold"]} for m in (*ARM_JOINTS, "gripper")}
+        except ImportError:
+            pass
+        return send(self, action)
+    SOFollower.send_action = guarded
+
+    disconnect = SOFollower.disconnect
+
+    def safe_disconnect(self, *a, **kw):
+        """Keeping torque on stops a raised arm falling, but at rest it only keeps the motors
+        pushing into the base. Folded at rest: torque off. Raised: hold where it is, no push."""
+        try:
+            p = self.bus.sync_read("Present_Position")
+            if p["shoulder_lift"] <= -90 and p["elbow_flex"] >= 85:
+                self.bus.disable_torque()
+                print("exit: arm folded at rest, torque off so the motors cool", flush=True)
+            else:
+                raw = self.bus.sync_read("Present_Position", normalize=False)
+                self.bus.sync_write("Goal_Position", raw, normalize=False)
+                print("exit: arm raised, holding where it is", flush=True)
+        except Exception:  # noqa: BLE001 - the original disconnect still runs
+            pass
+        return disconnect(self, *a, **kw)
+    SOFollower.disconnect = safe_disconnect
+
+
 def _guard_ui(holding: bool, at) -> None:
     try:
         import arm_ui
@@ -164,6 +302,28 @@ def _guard_ui(holding: bool, at) -> None:
         arm_ui.note("claw guard: " + (f"holding at {at}" if holding else "released"))
     except ImportError:
         pass
+
+
+def _grip_health(bus, st: dict, now: float):
+    """Gripper load every loop and temperature every 2 s; None when a read fails. Shown on the page."""
+    load = temp = None
+    try:
+        load = abs(int(bus.read("Present_Load", "gripper", normalize=False)))
+    except Exception:  # noqa: BLE001 - an error flag or a busy bus is not a reason to stop teleop
+        pass
+    temp = st.get("temp")
+    if now - st.get("temp_t", 0.0) > 2.0:
+        st["temp_t"] = now
+        try:
+            temp = st["temp"] = int(bus.read("Present_Temperature", "gripper", normalize=False))
+        except Exception:  # noqa: BLE001
+            temp = st["temp"] = None
+    try:
+        import arm_ui
+        arm_ui.S["grip_health"] = {"load": load, "temp_c": temp}
+    except ImportError:
+        pass
+    return load, temp
 
 
 def guard_gripper() -> None:
@@ -190,6 +350,19 @@ def guard_gripper() -> None:
             return send(self, {**action, "gripper.pos": max(goal, st["hold"])})
         st["pos"] = pos
         now = time.perf_counter()
+        load, temp = _grip_health(self.bus, st, now)
+        if (load is not None and load > GRIP_LOAD_MAX) or (temp is not None and temp >= GRIP_TEMP_EASE):
+            st["strain"] = st.get("strain") or now
+            if now - st["strain"] > GRIP_LOAD_S or (temp is not None and temp >= GRIP_TEMP_EASE):
+                # Ease off before the servo trips overload or overheats; the leader opening still releases.
+                st["hold"], st["ref"] = min(100.0, max(st["hold"] or 0.0, pos) + 1.0), None
+                if not st.get("eased"):
+                    print(f"gripper guard: straining (load {load}, {temp} C), easing open", flush=True)
+                st["eased"] = True
+                _guard_ui(True, round(st["hold"]))
+                return send(self, {**action, "gripper.pos": max(goal, st["hold"])})
+        else:
+            st["strain"], st["eased"] = None, False
         if st["hold"] is not None:
             if goal >= st["hold"] + GRIP_SQUEEZE:  # leader opened past the contact point: let go
                 st["hold"], st["ref"] = None, None
@@ -298,17 +471,21 @@ def find_camera(spec: str) -> int | None:
 
 
 def bus_ok(port: str) -> bool:
-    """All six motors answer (only called while no session owns the port)."""
+    return not silent_motors(port)
+
+
+def silent_motors(port: str) -> list[int]:
+    """Motor ids 1-6 that don't answer a ping, [0] if the port won't open (only while no session owns it)."""
     import scservo_sdk as scs
     ph = scs.PortHandler(port)
     try:
         if not ph.openPort():
-            return False
+            return [0]
         ph.setBaudRate(1_000_000)
         pk = scs.PacketHandler(0)
-        return all(pk.ping(ph, i)[1] == scs.COMM_SUCCESS for i in range(1, 7))
+        return [i for i in range(1, 7) if pk.ping(ph, i)[1] != scs.COMM_SUCCESS]
     except Exception:  # noqa: BLE001 - unplugged mid-check
-        return False
+        return [0]
     finally:
         try:
             ph.closePort()
@@ -321,8 +498,12 @@ def missing_devices(a) -> list[str]:
     for name, port in (("follower arm", a.follower), ("leader arm", a.leader)):
         if not os.path.exists(port):
             out.append(f"{name} USB ({Path(port).name})")
-        elif not bus_ok(port):
-            out.append(f"{name} motors (power or cable)")
+        elif silent := silent_motors(port):
+            if silent == [0] or len(silent) == 6:
+                out.append(f"{name} motors (power or cable)")
+            else:
+                hint = "; check the gripper cable" if 6 in silent else ""
+                out.append(f"{name} motor {', '.join(map(str, silent))} not answering: power-cycle the arm{hint}")
     for role in ("side", "wrist"):
         spec = getattr(a, role)
         if spec and find_camera(spec) is None:
@@ -421,6 +602,7 @@ def supervise(a, argv: list) -> None:
             env = {**os.environ, "SCRUB_CHILD": "1", "SCRUB_RESTARTS": str(restarts)}
             if opened:
                 env["BROWSER"] = "true"  # the tab is already open; don't open another
+            LAST_ERROR.unlink(missing_ok=True)
             proc = subprocess.Popen([sys.executable, str(Path(__file__).resolve()), *child], env=env)
             opened = opened or not a.no_ui
             try:
@@ -432,8 +614,15 @@ def supervise(a, argv: list) -> None:
                 print("session finished", flush=True)
                 return
             restarts += 1
-            print(f"session ended (exit {rc}): restarting when the devices are back ({restarts}x)", flush=True)
-            time.sleep(2)
+            err = LAST_ERROR.read_text().strip() if LAST_ERROR.exists() else f"exit {rc}"
+            delay = min(15, 2 * 2 ** min(restarts - 1, 3))  # 2, 4, 8, 15 s: don't spin on a startup error
+            print(f"session ended ({err}): restarting in {delay} s ({restarts}x)", flush=True)
+            if not a.no_ui:
+                arm_ui.S["phase"] = "waiting"
+                arm_ui.S["waiting"] = [f"restart in {delay} s (session ended: {err})"]
+                arm_ui.start_server()
+                serving = True
+            time.sleep(delay)
     except KeyboardInterrupt:
         pass
     finally:
@@ -501,9 +690,12 @@ def main() -> None:
     else:
         cmd = ["lerobot-teleoperate", *robot, *teleop, "--fps=30"]
 
+    lenient_motor_check()
     ease(a.follower, a.leader, a.ease_s)
     print(" ".join(cmd), flush=True)
+    clamp_follower()  # innermost: the gripper guard below sees and sends clamped goals
     guard_gripper()
+    guard_joints()  # outermost: sees the leader's goals before the claw guard and the clamp
     DROP_TARGET[0] = cams.get("wrist")
     tolerate_camera_stalls()
     if not a.no_ui:
@@ -517,7 +709,12 @@ def main() -> None:
     else:
         from lerobot.scripts.lerobot_teleoperate import main as run
     sys.argv = cmd  # same arguments as the CLI, run in this process so the guard applies
-    run()
+    try:
+        run()
+    except BaseException as e:
+        if not isinstance(e, (KeyboardInterrupt, SystemExit)):
+            LAST_ERROR.write_text(f"{type(e).__name__}: {str(e).strip().splitlines()[0][:160] if str(e).strip() else ''}")
+        raise
 
 
 if __name__ == "__main__":
