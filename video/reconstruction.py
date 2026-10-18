@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import copy
+import hashlib
 import json
 import threading
 import uuid
@@ -10,14 +11,38 @@ from pathlib import Path
 import cv2
 import numpy as np
 
-from .common import REPO, encode, finite, read_json, save_provenance, stamp
+from .common import REPO, encode, finite, provenance, read_json, save_provenance, stamp
 
 _SCENE_LOCK = threading.Lock()
 
 
 def load_joints(path, episode=0):
     path = Path(path)
-    if path.is_file():
+    if path.suffix.lower()=='.jsonl':
+        rows=[json.loads(line) for line in path.read_text(encoding='utf-8-sig').splitlines() if line.strip()]
+        if len(rows)<2:
+            raise ValueError("Pose logs need at least two timestamped observations")
+        stamps=np.asarray([finite(row['t']) for row in rows])
+        intervals=np.diff(stamps)
+        if np.any(intervals<=0) or np.max(np.abs(intervals-np.median(intervals)))>max(.001,.02*np.median(intervals)):
+            raise ValueError("Irregular/missing pose samples: do not invent interpolated robot motion; use the LeRobot dataset")
+        states=[]
+        for row in rows:
+            joints=np.asarray(row['joints_deg'],dtype=float)
+            if joints.shape!=(5,):
+                raise ValueError("Pose logs require five named-order joints_deg plus gripper")
+            raw=row.get('gripper_raw')
+            if raw is None:
+                public=finite(row['gripper'])
+                if not 0<=public<=1:
+                    raise ValueError("Public pose gripper must be 0 open..1 closed")
+                raw=100*(1-public)
+            states.append([*joints,raw])
+        states=np.asarray(states)
+        fps=1/float(np.mean(intervals))
+        doc={'kind':'reconstructed','synthetic':any(row.get('synthetic') or row.get('fake_arm') for row in rows),
+             'start_time':float(stamps[0]),'source':'timestamped /arm/pose records, no interpolation'}
+    elif path.is_file():
         doc = read_json(path)
         if doc.get("units") != "degrees_gripper_0_100":
             raise ValueError("Joint logs require explicit degrees_gripper_0_100 units")
@@ -27,6 +52,12 @@ def load_joints(path, episode=0):
         # Reuse the v3 reader's feature ordering. It never opens a motor bus.
         from explore.dataset.replay import Dataset
         ds = Dataset(path)
+        expected=['shoulder_pan.pos','shoulder_lift.pos','elbow_flex.pos','wrist_flex.pos','wrist_roll.pos','gripper.pos']
+        names=ds.info.get('features',{}).get('observation.state',{}).get('names')
+        if isinstance(names,dict):
+            names=names.get('motors')
+        if names!=expected:
+            raise ValueError("Dataset joint feature order must match the six recorded joints")
         states, _actions = ds.states(episode)
         fps = finite(ds.fps, "dataset FPS", True)
         doc = {"kind": "reconstructed", "synthetic": False, "instruction": ds.task(episode)}
@@ -109,6 +140,8 @@ def render_joints(ws, source, output, width=960, height=720, episode=0, plate=No
     meta = {"kind": "reconstructed", "synthetic": bool(doc.get("synthetic")),
             "note": "Joint positions replayed exactly; instrument poses static/illustrative, no contact/outcome inferred."}
     background = cv2.imread(str(plate)) if plate else None
+    if plate:
+        meta['synthetic']=meta['synthetic'] or provenance(plate).get('synthetic',False)
     if plate and background is None:
         raise ValueError("Cannot read photo plate")
     if background is not None and alignment is None:
@@ -140,6 +173,7 @@ def render_joints(ws, source, output, width=960, height=720, episode=0, plate=No
     details = encode(ws, output, images(), fps)
     return save_provenance(output, kind="reconstructed", synthetic=meta["synthetic"], **details,
         joint_source=str(Path(source).resolve()), episode=episode,
+        joint_states_sha256=hashlib.sha256(states.astype('<f8').tobytes()).hexdigest(),
         start_time=start_time if start_time is not None else doc.get("start_time"),
         objects="Static slot illustration only; joint data cannot establish grasps, releases or tool motion.",
         plate=str(plate) if plate else None, plate_alignment=str(alignment) if alignment else None,

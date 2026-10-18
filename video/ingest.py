@@ -56,6 +56,8 @@ def ingest(ws, sync=None, kind=None, clap_clip=None, clap_time=None, clap_second
         raise ValueError("No clips/photos found in workspace raw/ and photos/")
     if len({p.name for p in paths}) != len(paths):
         raise ValueError("Duplicate asset basenames; rename originals before creating sync map")
+    if len({p.stem.casefold() for p in paths})!=len(paths):
+        raise ValueError("Duplicate asset stems would collide in contacts/takes; use distinct clip/photo names")
     if clap_clip:
         if clap_time is None:
             raise ValueError("Clap alignment requires the matching ledger epoch --clap-ledger-time")
@@ -72,7 +74,15 @@ def ingest(ws, sync=None, kind=None, clap_clip=None, clap_time=None, clap_second
         if path.is_symlink():
             raise ValueError("Input symlinks are not supported")
         details = info(path)
-        meta = provenance(path)
+        meta = provenance(path,verify=False)
+        try_info=path.with_suffix('.json')
+        if meta['kind']=='unknown' and try_info.is_file():
+            recorded=read_json(try_info)
+            if recorded.get('success_is_operator_reported') is True:
+                offline=recorded.get('offline') or recorded.get('source_kind')=='saved-images'
+                meta={**meta,'kind':'simulation' if offline else 'real','synthetic':bool(offline),
+                      'arm_video_operator_label':recorded.get('success'),
+                      'note':'Per-try operator label is not an independent measured success trial.'}
         requested = clock_map.get(path.name, {}).get("kind", kind)
         if requested:
             if requested not in {"real", "simulation", "reconstructed"}:

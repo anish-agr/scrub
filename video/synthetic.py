@@ -2,10 +2,11 @@
 from __future__ import annotations
 
 import json
+import wave
 import cv2
 import numpy as np
 
-from .common import encode, save_provenance, stamp, write_json
+from .common import encode, run_ffmpeg, save_provenance, stamp, write_json
 
 
 def demo_assets(ws, seconds=6):
@@ -37,9 +38,12 @@ def demo_assets(ws, seconds=6):
     mask = cv2.warpPerspective(np.full(plate.shape[:2], 255, np.uint8), transform, (640, 480))
     view = cv2.warpPerspective(plate, transform, (640, 480))
     background[mask > 0] = view[mask > 0]
+    photo_quad=np.float32([[50,80],[590,80],[590,400],[50,400]])
+    overhead=cv2.warpPerspective(plate,cv2.getPerspectiveTransform(source,photo_quad),(640,480),borderValue=(155,70,15))
     for i in range(8):
-        shift = np.float32([[1, 0, (i-3)*1.2], [0, 1, (i%3-1)*1.0]])
-        photo = cv2.warpAffine(background, shift, (640, 480), borderMode=cv2.BORDER_REFLECT)
+        extent=np.float32([[0,0],[639,0],[639,479],[0,479]])
+        angles=extent+(rng.uniform(-14,14,(4,2)).astype(np.float32) if i else 0)
+        photo = cv2.warpPerspective(overhead,cv2.getPerspectiveTransform(extent,angles),(640,480),borderMode=cv2.BORDER_REFLECT)
         name = ws.root / "photos" / f"demo-{i:02d}.png"
         cv2.imwrite(str(name), stamp(photo, {"kind":"simulation", "synthetic":True}))
         save_provenance(name, kind="simulation", synthetic=True)
@@ -52,6 +56,20 @@ def demo_assets(ws, seconds=6):
             yield stamp(image, meta)
     path = ws.root / "raw/demo.mp4"
     details = encode(ws, path, sequence())
+    # Fixture room noise + one clap, not generated speech or a claim of robot sounds.
+    rate=48000
+    audio=rng.normal(0,.002,round(seconds*rate))
+    clap_start=round(.4*rate)
+    audio[clap_start:clap_start+960]+=rng.normal(0,.3,960)
+    sound=ws.out('demo/fixture-room-clap.wav')
+    with wave.open(str(sound),'wb') as stream:
+        stream.setnchannels(1)
+        stream.setsampwidth(2)
+        stream.setframerate(rate)
+        stream.writeframes(np.clip(audio*32767,-32768,32767).astype('<i2').tobytes())
+    with_audio=ws.out('work/fixture-audio.mp4')
+    run_ffmpeg(ws,['-i',path,'-i',sound,'-map','0:v','-map','1:a','-c:v','copy','-c:a','aac','-t',seconds,with_audio])
+    with_audio.replace(path)
     save_provenance(path, kind="simulation", synthetic=True, start_time=1792285200.0, **details)
     n = round(seconds * 30)
     states = np.zeros((n, 6))
@@ -80,7 +98,7 @@ def demo_assets(ws, seconds=6):
             stream.write(json.dumps({'kind':'test','doc':{'t':1792285200.0+seconds,
                 'item':'hemostat','setting':'surgical','lighting':'normal','success':success,
                 'seconds':seconds/2 if success else None,'retries':0,'synthetic':True}})+'\n')
-    write_json(ws.out("demo/truth.json"), {"corners": quad.tolist(), "width_mm": 300, "height_mm": 180})
+    write_json(ws.out("demo/truth.json"), {"corners": quad.tolist(), "photo_reference_corners":photo_quad.tolist(), "width_mm": 300, "height_mm": 180})
     write_json(ws.out("demo/plate-alignment.json"), {"synthetic": True,
         "world_corners_m": [[.19,-.13,0], [.29,-.13,0], [.29,.13,0], [.19,.13,0]]})
     write_json(ws.out("sync.json"), {"demo.mp4": {"start_time": 1792285200.0,

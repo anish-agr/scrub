@@ -75,7 +75,7 @@ def sidecar(path):
     return Path(str(path) + ".video.json")
 
 
-def provenance(path):
+def provenance(path, verify=True):
     path = Path(path).resolve()
     doc = read_json(sidecar(path)) if sidecar(path).is_file() else None
     if doc is None:
@@ -94,7 +94,7 @@ def provenance(path):
     doc = doc or {"kind": "unknown", "operations": []}
     if doc.get("kind") not in {*LABELS, "real", "card"}:
         raise ValueError("Unrecognized source provenance")
-    if doc.get("sha256") and digest(path) != doc["sha256"]:
+    if verify and doc.get("sha256") and digest(path) != doc["sha256"]:
         raise ValueError("Media changed after provenance was written; re-ingest the source")
     return doc
 
@@ -141,12 +141,25 @@ def text_bar(frame, lines, *, bottom=False, color=PAPER, foreground=INK):
 @lru_cache(maxsize=128)
 def _band(width, lines, color, foreground):
     size = max(12, round(width / 48))
+    face = font(size, mono=True)
+    measure=ImageDraw.Draw(Image.new('RGB',(1,1)))
+    wrapped=[]
+    for line in lines:
+        current=''
+        for word in line.split():
+            proposed=(current+' '+word).strip()
+            if current and measure.textlength(proposed,font=face)>width-20:
+                wrapped.append(current)
+                current=word
+            else:
+                current=proposed
+        wrapped.append(current)
+    lines=wrapped
     line_h = size + 10
     height = line_h * len(lines) + 12
     image=Image.new('RGB',(width,height),color)
     draw=ImageDraw.Draw(image)
     draw.line((0,height-2,width,height-2),fill=foreground,width=2)
-    face = font(size, mono=True)
     for i, line in enumerate(lines):
         # Fit full disclosure, never silently crop the reconstruction label.
         actual = face
@@ -239,6 +252,8 @@ def audible(path):
 def encode(ws, output, images, fps=30, audio=None, segments=None, audio_clean=False, video_filter=None):
     """Stream BGR frames to bundled ffmpeg. Optional source-time audio remap."""
     output = Path(output)
+    if output.suffix.lower()!='.mp4':
+        raise ValueError("Encoded video output must use .mp4")
     fps = finite(fps, "FPS", True)
     iterator = iter(images)
     try:
@@ -316,6 +331,8 @@ def ledger_rows(path):
         kind=row.get('kind')
         doc=dict(row['doc']) if kind in {'event','test'} and 'doc' in row else dict(row)
         doc['_record_kind']=kind if kind in {'event','test'} else 'test' if doc.get('type')=='test' else 'event'
+        if doc.get('source') in {'fake','simulation','sim'}:
+            doc['synthetic']=True
         finite(doc['t'],'ledger timestamp')
         result.append(doc)
     return sorted(result,key=lambda row:row['t'])

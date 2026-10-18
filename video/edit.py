@@ -64,7 +64,7 @@ def resolve_plan(ws,edl,bindings,demo=False):
         roll=links['ARM_ROLL']
         source=ws.source(roll['source'])
         details,meta=info(source),provenance(source)
-        if details['media']!='video' or roll.get('in_s',0)!=0 or roll.get('layout') or roll.get('speed',1)!=1:
+        if details['media']!='video' or roll.get('in_s',0)!=0 or roll.get('layout') or roll.get('events') or roll.get('speed',1)!=1:
             raise ValueError("Arm roll must be a full continuous video, no trim/speed/composite")
         if meta.get('time_altered') or meta.get('continuous') is False or any('find cut'==op.get('command') for op in meta.get('operations',[])):
             raise ValueError("Edited/time-altered derivative cannot be an unedited arm roll")
@@ -139,7 +139,7 @@ def prepare_source(ws,shot,job,ordinal,demo):
     return source
 
 
-def normalize_delivery(ws,assembled,output,duration):
+def normalize_delivery(ws,assembled,output,duration,allow_leveling=True):
     """Two-pass measured loudness for audible content; silence stays silence."""
     if not audible(assembled):
         run_ffmpeg(ws,['-i',assembled,'-c','copy','-t',duration,'-movflags','+faststart',output])
@@ -154,7 +154,28 @@ def normalize_delivery(ws,assembled,output,duration):
         [('measured_I','input_i'),('measured_TP','input_tp'),('measured_LRA','input_lra'),('measured_thresh','input_thresh'),('offset','target_offset')])
     run_ffmpeg(ws,['-i',assembled,'-c:v','copy','-af','loudnorm=I=-16:TP=-1.5:LRA=11:linear=true:'+parameters,
         '-c:a','aac','-ar','48000','-ac','2','-t',duration,'-movflags','+faststart',output])
-    return {'target_lufs':-16,'input_measurement':measured,'method':'two-pass measured loudnorm'}
+    verification=subprocess.run([imageio_ffmpeg.get_ffmpeg_exe(),'-hide_banner','-i',str(output),'-vn',
+        '-af','loudnorm=I=-16:TP=-1.5:LRA=11:print_format=json','-f','null','-'],capture_output=True,text=True,encoding='utf-8',errors='replace')
+    match=re.search(r'\{\s*"input_i".*?\}',verification.stderr,re.S)
+    if verification.returncode or not match:
+        raise RuntimeError("Cannot verify delivered loudness")
+    verified=json.loads(match.group())
+    integrated=finite(verified['input_i'],'delivered integrated LUFS')
+    if abs(integrated+16)>1:
+        if not allow_leveling:
+            raise ValueError(f"Delivered loudness {integrated:g} LUFS misses the -16 LUFS target after dynamics leveling; review audio")
+        # A loud clap beside quiet speech can make the true-peak ceiling prevent
+        # simple gain from reaching target. One transparent, bounded dynamics
+        # pass is allowed; no speech, room sound or samples are generated.
+        leveled=ws.out('work/'+uuid.uuid4().hex+'-audio-leveled.mp4')
+        recipe='acompressor=threshold=0.003:ratio=8:attack=0.01:release=50:makeup=1'
+        run_ffmpeg(ws,['-i',assembled,'-c:v','copy','-af',recipe,'-c:a','aac','-ar','48000','-ac','2',leveled])
+        result=normalize_delivery(ws,leveled,output,duration,allow_leveling=False)
+        result['dynamics_leveling']={'filter':recipe,'reason':'True-peak-limited program missed integrated target',
+                                     'before_lufs':integrated,'review':'Listen for altered room-noise/speech balance before publication.'}
+        return result
+    return {'target_lufs':-16,'input_measurement':measured,'measured_lufs':integrated,
+            'verification':verified,'method':'two-pass measured loudnorm, delivery remeasured'}
 
 
 def render(ws,edl,bindings,output,demo=False,preview=False):
@@ -164,6 +185,8 @@ def render(ws,edl,bindings,output,demo=False,preview=False):
     width,height,fps=(640,360,15) if preview else (1920,1080,30)
     job=uuid.uuid4().hex
     segments,audit=[],[]
+    mixed_secondary=False
+    planned_cursor=0.0
     for ordinal,shot in enumerate(shots):
         source=prepare_source(ws,shot,job,ordinal,demo)
         reader=Reader(source,demo)
@@ -178,12 +201,16 @@ def render(ws,edl,bindings,output,demo=False,preview=False):
                 raise ValueError("Secondary source has no admissible provenance")
             if not demo and plan.get('real_only',True) and secondary.meta['kind'] not in {'real','card'}:
                 raise ValueError("Real-demo secondary source must also be real, not a reconstruction")
+            mixed_secondary=mixed_secondary or secondary.meta['kind'] not in {'real','card'}
             if secondary.details['media']=='video' and not demo:
                 primary_epoch=reader.meta.get('start_time')
                 secondary_epoch=secondary.meta.get('start_time')
                 if primary_epoch is None or secondary_epoch is None or abs(primary_epoch+shot['in_s']-secondary_epoch-binding.get('secondary_in_s',0))>1/30:
                     raise ValueError("Dashboard/action composite must share a verified clock; align in points first")
-        count=round(shot['duration_s']*fps)
+        count=round((planned_cursor+shot['duration_s'])*fps)-round(planned_cursor*fps)
+        planned_cursor+=shot['duration_s']
+        if count<1:
+            raise ValueError("Shot is shorter than one output frame")
         def images():
             try:
                 for n in range(count):
@@ -229,17 +256,19 @@ def render(ws,edl,bindings,output,demo=False,preview=False):
     assembled=ws.out(f'work/{job}/assembled.mp4')
     run_ffmpeg(ws,['-f','concat','-safe','0','-i',concat,'-c','copy',assembled])
     output=ws.out(output)
-    loudness=normalize_delivery(ws,assembled,output,sum(a['duration_s'] for a in audit))
-    details=info(output)
+    candidate=ws.out(f'work/{job}/delivery-checked.mp4')
+    loudness=normalize_delivery(ws,assembled,candidate,sum(a['duration_s'] for a in audit))
+    details=info(candidate)
     expected=sum(a['frames'] for a in audit)
     if details['frames']!=expected or abs(details['fps']-fps)>.001:
         raise ValueError("Delivery frame count/rate differs from EDL; do not publish")
+    candidate.replace(output)
     report={'edl':str(Path(edl).resolve()),'edl_sha256':digest(edl),'bindings_sha256':digest(ws.source(bindings)),
         'output':str(output),'frames':expected,'fps':fps,'width':width,'height':height,
         'duration_s':expected/fps,'preview':preview,'synthetic':demo,'shots':audit,'loudness':loudness,
         'note':'DEMO FIXTURE / NOT REAL-ARM EVIDENCE' if demo else 'Only bound source footage and source-backed cards. Review before publishing.'}
     write_json(ws.out('renders/'+output.stem+'-report.json'),report)
-    kind='simulation' if demo else 'real' if all(s['meta']['kind'] in {'real','card'} for s in shots) else 'mixed'
+    kind='simulation' if demo else 'real' if not mixed_secondary and all(s['meta']['kind'] in {'real','card'} for s in shots) else 'mixed'
     save_provenance(output,kind=kind,synthetic=demo,frames=expected,fps=fps,
         operations=[{'command':'preview' if preview else 'render','edl':str(edl),'shots':audit}],
         continuous=plan.get('mode')=='continuous_arm',duration_s=expected/fps)

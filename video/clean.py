@@ -7,7 +7,7 @@ from urllib.request import urlopen
 import cv2
 import numpy as np
 
-from .common import encode, epoch_at, fit, frame_at, frames, info, provenance, save_provenance, stamp, text_bar, write_json
+from .common import encode, epoch_at, fit, frame_at, frames, info, provenance, save_provenance, speed_at, stamp, text_bar, write_json
 
 
 def motion_report(source, threshold=.6, min_idle_s=2):
@@ -206,7 +206,7 @@ def clean(ws, source, output, stabilize=False, reference=None, deflicker=False,
                             preview=ws.out('previews/'+output.stem+'-'+name+'.png')
                             cv2.imwrite(str(preview),stamp(comparison,meta))
                             previews.append(str(preview))
-                    yield stamp(image,meta,segment['speed'])
+                    yield stamp(image,meta,segment['speed']*speed_at(meta,t))
                     output_index+=1
                 if meta.get('start_time') is not None:
                     timeline.append({'output_start':start_out,'output_end':output_index/fps,
@@ -226,7 +226,8 @@ def clean(ws, source, output, stabilize=False, reference=None, deflicker=False,
         'idle_segments_reviewed':idle_confirmed,'source_segments':ranges,'audio_noise_reduction':audio_clean,
         'audio_target_lufs':-16,'audio_original_present':details['audio'],'previews':previews,
         'neural_upscale':'SKIPPED: no supported model configured; no generative pixel replacement' if upscale else 'off'}
-    return save_provenance(output,source,**encoded,time_map=timeline or meta.get('time_map'),
+    mapping=meta.get('time_map') if meta.get('time_map') and not (idle_speed or cut_idle) else timeline
+    return save_provenance(output,source,**encoded,time_map=mapping or None,
         operations=meta.get('operations',[])+[operation],continuous=meta.get('continuous',True) and not (idle_speed or cut_idle),
         time_altered=bool(meta.get('time_altered') or idle_speed or cut_idle),
         temporal_kind='compressed' if idle_speed else 'cut' if cut_idle else meta.get('temporal_kind','unchanged'))

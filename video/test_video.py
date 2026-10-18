@@ -205,6 +205,145 @@ class VideoTests(unittest.TestCase):
         self.assertEqual(report['duration_s'],1)
         self.assertEqual(report['frames'],15)
 
+    def test_pose_logs_preserve_observations_and_public_gripper_convention(self):
+        import json
+        from video.reconstruction import load_joints
+        path=self.ws.out('pose.jsonl')
+        rows=[{'t':100+i*.1,'joints_deg':[1,2,3,4,5],'gripper':i*.5} for i in range(3)]
+        path.write_text('\n'.join(json.dumps(r) for r in rows))
+        states,fps,doc=load_joints(path)
+        np.testing.assert_array_equal(states[:,5],[100,50,0])
+        self.assertAlmostEqual(fps,10)
+        self.assertEqual(doc['start_time'],100)
+        rows[-1]['t']=101
+        path.write_text('\n'.join(json.dumps(r) for r in rows))
+        with self.assertRaises(ValueError):
+            load_joints(path)
+
+    def test_texture_optical_flow_tracks_plane_not_four_ambiguous_pixels(self):
+        from video.geometry import tracked_points
+        rng=np.random.default_rng(41)
+        previous=rng.integers(0,255,(240,320),dtype=np.uint8)
+        current=cv2.warpAffine(previous,np.float32([[1,0,2],[0,1,1]]),(320,240))
+        points=np.float32([[30,30],[290,30],[290,210],[30,210]])
+        result=tracked_points(previous,current,points)
+        np.testing.assert_allclose(result,points+[2,1],atol=.5)
+
+    def test_clap_detection_uses_the_actual_audio_peak(self):
+        from video.ingest import detect_clap
+        from video.common import encode,run_ffmpeg
+        path=self.ws.out('quiet.mp4')
+        frame=np.zeros((120,160,3),np.uint8)
+        encode(self.ws,path,(frame for _ in range(60)))
+        output=self.ws.out('clap.mp4')
+        run_ffmpeg(self.ws,['-i',path,'-f','lavfi','-i',"aevalsrc=if(between(t\\,0.4\\,0.42)\\,0.8*sin(2*PI*1000*t)\\,0):s=16000:d=2",'-map','0:v','-map','1:a','-c:v','copy','-c:a','aac',output])
+        second,ratio=detect_clap(output)
+        self.assertAlmostEqual(second,.41,delta=.03)
+        self.assertGreater(ratio,6)
+
+    def test_appearance_cleanup_preserves_an_existing_compressed_time_map(self):
+        from video.clean import clean
+        from video.common import encode,save_provenance,epoch_at
+        source=self.ws.out('fixture.mp4')
+        encode(self.ws,source,(np.full((120,160,3),50,np.uint8) for _ in range(90)))
+        save_provenance(source,kind='simulation',synthetic=True,start_time=100)
+        first=clean(self.ws,source,'clean/fast.mp4',idle_speed=2,idle_confirmed=True)
+        second=clean(self.ws,'clean/fast.mp4','clean/appearance.mp4',denoise=True)
+        self.assertEqual(first['time_map'],second['time_map'])
+        self.assertEqual(epoch_at(first,1),epoch_at(second,1))
+
+    def test_lerobot_v3_reader_preserves_measured_states_and_order(self):
+        import pyarrow as pa
+        import pyarrow.parquet as pq
+        from video.common import write_json
+        from video.reconstruction import load_joints
+        root=self.ws.out('dataset/meta/info.json').parents[1]
+        names=['shoulder_pan.pos','shoulder_lift.pos','elbow_flex.pos','wrist_flex.pos','wrist_roll.pos','gripper.pos']
+        write_json(root/'meta/info.json',{'fps':30,'data_path':'data/chunk-{chunk_index:03d}/file-{file_index:03d}.parquet',
+            'features':{'observation.state':{'names':names}}})
+        eps=root/'meta/episodes/chunk-000/file-000.parquet'
+        eps.parent.mkdir(parents=True)
+        pq.write_table(pa.Table.from_pylist([{'episode_index':0,'length':2,'data/chunk_index':0,'data/file_index':0,'tasks':['pick the hemostat']}]),eps)
+        data=root/'data/chunk-000/file-000.parquet'
+        data.parent.mkdir(parents=True)
+        expected=[[1,2,3,4,5,40],[2,3,4,5,6,60]]
+        pq.write_table(pa.Table.from_pylist([{'observation.state':state,'action':[0]*6,'episode_index':0,'frame_index':i}
+                                           for i,state in enumerate(expected)]),data)
+        states,fps,doc=load_joints(root)
+        np.testing.assert_array_equal(states,expected)
+        self.assertEqual(fps,30)
+        self.assertEqual(doc['instruction'],'pick the hemostat')
+
+    def test_unedited_roll_refuses_a_previously_cut_source(self):
+        from video.edit import resolve_plan
+        from video.common import encode,save_provenance,write_json
+        path=self.ws.out('cut.mp4')
+        encode(self.ws,path,(np.zeros((120,160,3),np.uint8) for _ in range(3)))
+        save_provenance(path,kind='real',continuous=False)
+        binding=self.ws.out('arm-bindings.json')
+        write_json(binding,{'ARM_ROLL':{'source':'cut.mp4'}})
+        edl=self.ws.out('arm-edit.yaml')
+        edl.write_text('version: 1\nwidth: 1920\nheight: 1080\nfps: 30\nmode: continuous_arm\n')
+        with self.assertRaises(ValueError):
+            resolve_plan(self.ws,edl,binding)
+
+    def test_face_privacy_blurs_unknown_and_forgets_lost_team_faces(self):
+        from video.clean import Faces
+        tool=Faces.__new__(Faces)
+        tool.trusted=[[10,10,40,40]]
+        tool.boxes=lambda image:[[10,10,40,40],[90,10,40,40]]
+        rng=np.random.default_rng(12)
+        original=rng.integers(0,255,(100,160,3),dtype=np.uint8)
+        result=tool.apply(original.copy())
+        np.testing.assert_array_equal(original[10:50,10:50],result[10:50,10:50])
+        self.assertLess(float(result[10:50,90:130].var()),float(original[10:50,90:130].var()))
+        tool.boxes=lambda image:[]
+        tool.apply(original.copy())
+        self.assertEqual(tool.trusted,[])
+
+    def test_every_command_on_markerless_synthetic_assets(self):
+        import yaml
+        from video.synthetic import demo_assets
+        from video.geometry import corners
+        from video.ingest import ingest
+        from video.topdown import warp,photo_plate
+        from video.reconstruction import render_joints
+        from video.clean import clean
+        from video.takes import find
+        from video.overlay import overlay
+        from video.cards import cards
+        from video.edit import render
+        from video.common import write_json
+        demo_assets(self.ws,2)
+        ingest(self.ws)
+        corners(self.ws,'raw/demo.mp4','side',300,180,headless=True,accept_auto=True)
+        corners(self.ws,'photos/demo-00.png','photo',300,180,headless=True,accept_auto=True)
+        warp(self.ws,'raw/demo.mp4','side','topdown/plane.mp4')
+        photo_plate(self.ws,'photos/demo-00.png','photos','photo','topdown/plate.png',True)
+        render_joints(self.ws,self.root/'demo/joints.json',self.ws.out('topdown/reconstruction.mp4'),
+            width=640,height=480,plate=self.root/'topdown/plate.png',alignment=self.root/'demo/plate-alignment.json')
+        clean(self.ws,'raw/demo.mp4','clean/demo.mp4',stabilize=True,deflicker=True,denoise=True,audio_clean=True)
+        report=find(self.ws,'demo/events.jsonl',cut=True)
+        self.assertEqual(len(report['takes']),1)
+        overlay(self.ws,'clean/demo.mp4','demo/events.jsonl','overlays/demo.mp4',allow_synthetic=True)
+        report=cards(self.ws,'demo/events.jsonl',allow_synthetic=True)
+        self.assertEqual(report['table'][0]['attempts'],2)
+        edl=self.ws.out('short.yaml')
+        edl.write_text(yaml.safe_dump({'version':1,'width':1920,'height':1080,'fps':30,'duration_s':2,
+            'shots':[{'slot':'A','duration_s':1},{'slot':'B','duration_s':.5,'treatment':'side-by-side'},
+                     {'slot':'C','duration_s':.5}]}))
+        bindings=self.ws.out('short.json')
+        write_json(bindings,{'A':{'source':'overlays/demo.mp4'},'B':{'source':'topdown/reconstruction.mp4','secondary':'clean/demo.mp4'},
+                             'C':{'source':'cards/end.png'},'ARM_ROLL':{'source':'raw/demo.mp4'}})
+        result=render(self.ws,edl,bindings,'renders/test.mp4',demo=True)
+        self.assertEqual(result['frames'],60)
+        result=render(self.ws,edl,bindings,'renders/preview.mp4',demo=True,preview=True)
+        self.assertEqual(result['duration_s'],2)
+        arm=self.ws.out('arm.yaml')
+        arm.write_text(yaml.safe_dump({'version':1,'width':1920,'height':1080,'fps':30,'mode':'continuous_arm','end_card_s':1}))
+        result=render(self.ws,arm,bindings,'renders/arm.mp4',demo=True)
+        self.assertEqual(result['frames'],90)
+
 
 if __name__ == "__main__":
     unittest.main()
