@@ -276,6 +276,7 @@ def guard_joints() -> None:
                     if hot:
                         try:
                             import arm_ui
+                            arm_ui.note(f"{m} too hot, holding")
                             arm_ui.discard_episode(f"{m} too hot")
                         except ImportError:
                             pass
@@ -703,7 +704,8 @@ def main() -> None:
                f"--dataset.episode_time_s={a.episode_s}", f"--dataset.reset_time_s={a.reset_s}",
                "--dataset.push_to_hub=false",
                # encode video while recording: ~11 s between episodes instead of ~18, loop stays 30 Hz
-               "--dataset.streaming_encoding=true", "--dataset.encoder_threads=2"]
+               "--dataset.streaming_encoding=true", "--dataset.encoder_threads=2",
+               "--play_sounds=false"]  # arm_voice speaks instead of LeRobot's robotic `say`
         if (Path(a.root) / "meta" / "info.json").exists():
             cmd.append("--resume=true")
     else:
