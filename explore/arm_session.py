@@ -211,6 +211,9 @@ def clamp_follower() -> None:
     SOFollower.send_action = clamped
 
 
+GENTLE_ACCEL = 40      # STS3215 Acceleration (x8.7 deg/s^2; 0 = instant): smooth starts and stops
+GENTLE_SPEED = 1200    # Goal_Velocity cap in steps/s (~105 deg/s, ~40% of max); LeRobot leaves both at max
+DEADBAND_DEG = 0.4     # leader jitter below this is ignored, so a still arm stops chasing noise (heat)
 EASE_DEG_S = 45.0     # catch-up speed for a big gap, about 20% of the STS3215's ~270 deg/s
 GAP_DEG = 25.0        # a joint further than this from its goal catches up at EASE_DEG_S, not full speed
 JOINT_LOAD_MAX = 250  # |Present_Load| (0.1% of max torque) a joint may push without moving
@@ -227,7 +230,7 @@ def guard_joints() -> None:
     moves it back the other way."""
     from lerobot.robots.so_follower.so_follower import SOFollower
     send = SOFollower.send_action
-    st = {"since": {}, "hold": {}, "dir": {}, "temp": {}, "temp_t": 0.0, "limp": set(), "slew": {}}
+    st = {"since": {}, "hold": {}, "dir": {}, "temp": {}, "temp_t": 0.0, "limp": set(), "slew": {}, "last": {}}
 
     def guarded(self, action):
         now = time.perf_counter()
@@ -248,6 +251,10 @@ def guard_joints() -> None:
             if k not in action or m not in pos:
                 continue
             goal, here, load = action[k], pos[m], abs(int(loads.get(m, 0)))
+            last = st["last"].get(m)
+            if last is not None and abs(goal - last) < DEADBAND_DEG:
+                goal = action[k] = last  # leader jitter: keep the previous goal
+            st["last"][m] = goal
             push = goal - here
             if m == "wrist_flex":
                 # Wrapped past its calibrated end (the reading jumps to the far side): holding "here"
@@ -318,6 +325,20 @@ def guard_joints() -> None:
         return send(self, action)
     SOFollower.send_action = guarded
 
+    configure = SOFollower.configure
+
+    def gentle_configure(self):
+        """After LeRobot's motor setup: softer acceleration and a speed cap on every motor."""
+        configure(self)
+        try:
+            for m in self.bus.motors:  # RAM registers: no torque cycling (a raised arm would drop)
+                self.bus.write("Acceleration", m, GENTLE_ACCEL)
+                self.bus.write("Goal_Velocity", m, GENTLE_SPEED)
+            print(f"gentle mode: acceleration {GENTLE_ACCEL}, speed cap {GENTLE_SPEED} steps/s", flush=True)
+        except Exception as e:  # noqa: BLE001 - LeRobot's defaults still work
+            print(f"gentle mode not applied ({type(e).__name__})", flush=True)
+    SOFollower.configure = gentle_configure
+
     disconnect = SOFollower.disconnect
 
     def safe_disconnect(self, *a, **kw):
@@ -331,7 +352,8 @@ def guard_joints() -> None:
             else:
                 raw = self.bus.sync_read("Present_Position", normalize=False)
                 self.bus.sync_write("Goal_Position", raw, normalize=False)
-                print("exit: arm raised, holding where it is", flush=True)
+                print(f"exit: arm raised (lift {p['shoulder_lift']:.0f}, elbow {p['elbow_flex']:.0f}), holding where it is",
+                      flush=True)
         except Exception:  # noqa: BLE001 - the original disconnect still runs
             pass
         return disconnect(self, *a, **kw)
