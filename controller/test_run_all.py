@@ -9,9 +9,11 @@ import os
 import signal
 import subprocess
 import sys
+import tempfile
 import threading
 import time
 import unittest
+from pathlib import Path
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from unittest import mock
 
@@ -321,6 +323,97 @@ class TestChildren(unittest.TestCase):
         st.start(ch)
         self.assertFalse(st.wait_healthy(ch, 10))
         st.stop()
+
+
+class TestPhoneCall(unittest.TestCase):
+    """--real: a tunnel by default, the sim when the arm is busy, the agent pointed at each new URL, the number shown."""
+    ok_arm = dict(holders=lambda p: [], exists=lambda p: True)
+
+    def test_real_starts_a_tunnel_by_default(self):
+        a = R.parse(["--real"])
+        self.assertEqual(R.prepare_start(a, {"SO101_PORT": "/dev/tty.usbmodem1"}, **self.ok_arm), [])
+        self.assertIn(a.tunnel, ("cf", "pinggy"))
+        self.assertEqual((a.arm, a.vision), ("real", "real"))
+        a = R.parse(["--real", "--tunnel", "ngrok"])
+        R.prepare_start(a, {"SO101_PORT": "/dev/x"}, **self.ok_arm)
+        self.assertEqual(a.tunnel, "ngrok")
+        for argv in (["--real", "--no-tunnel"], ["--real", "--no-voice"], []):
+            a = R.parse(argv)
+            R.prepare_start(a, {"SO101_PORT": "/dev/x"}, **self.ok_arm)
+            self.assertIsNone(a.tunnel, argv)
+
+    def test_busy_or_missing_arm_runs_the_sim(self):
+        for wiring, holders, exists, want in (({"SO101_PORT": ""}, [], True, "SO101_PORT is empty"),
+                                              ({"SO101_PORT": "/dev/tty.usbmodem1"}, [], False, "not found"),
+                                              ({"SO101_PORT": "/dev/tty.usbmodem1"}, [4242], True, "held by PID 4242")):
+            a = R.parse(["--real"])
+            notes = R.prepare_start(a, wiring, holders=lambda p, h=holders: h, exists=lambda p, e=exists: e)
+            self.assertEqual((a.arm, a.vision), ("sim", "none"), want)
+            self.assertTrue(any(want in n and "SIM arm" in n for n in notes), notes)
+            self.assertIn(want, a.arm_note)
+            with mock.patch.object(R, "voice_skip_reason", return_value=None):
+                kids, _ = R.plan(a, judge_ok=True)
+            self.assertIn("--sim-arm", kids[0].cmd)
+            self.assertNotIn("vision", [k.name for k in kids])
+        a = R.parse(["--arm", "real", "--vision", "fake"])  # an explicit vision choice is kept
+        R.prepare_start(a, {"SO101_PORT": ""}, **self.ok_arm)
+        self.assertEqual((a.arm, a.vision), ("sim", "fake"))
+
+    def fake_agent(self, body):
+        path = Path(tempfile.mkdtemp()) / "agent.py"
+        path.write_text(body)
+        return f"{sys.executable} {path}"
+
+    def test_agent_update_gets_the_url_and_reads_the_phone(self):
+        cmd = self.fake_agent("import sys\nprint('[agent] updated: Custom LLM ' + sys.argv[1] + '/v1')\n"
+                              "print('AGENT agent_x')\nprint('PHONE +15550001111  (Scrub Photon, sip_trunk)')\n")
+        a, out = R.parse(["--tunnel", "--agent-cmd", cmd]), Quiet()
+        self.assertEqual(R.agent_update(a, "https://x.trycloudflare.com", out), ["+15550001111"])
+        self.assertIn("[agent] updated: Custom LLM https://x.trycloudflare.com/v1", out.lines)
+        st = R.Stack(Quiet())
+        st.public_url = "https://x.trycloudflare.com"
+        with mock.patch.object(R, "agent_update", wraps=R.agent_update) as up:
+            R.sync_agent(a, st)
+            R.sync_agent(a, st)  # same URL: not again
+            st.public_url = "https://y.trycloudflare.com"
+            R.sync_agent(a, st)
+        self.assertEqual([c.args[1] for c in up.call_args_list], ["https://x.trycloudflare.com", "https://y.trycloudflare.com"])
+        self.assertEqual(R.phone_number(a, st, {"PHOTON_LINE": ""}), "+15550001111")
+        self.assertEqual(R.phone_number(a, st, {"PHOTON_LINE": "+12065550100"}), "+12065550100")
+        st.public_url = "https://z.trycloudflare.com"
+        with mock.patch.object(R, "agent_update") as up:
+            R.sync_agent(R.parse(["--tunnel", "--no-agent"]), st)
+        up.assert_not_called()
+
+    def test_agent_failure_is_reported_not_fatal(self):
+        out = Quiet()
+        a = R.parse(["--agent-cmd", self.fake_agent("print('[agent] HTTP 401')\nraise SystemExit(1)\n")])
+        self.assertEqual(R.agent_update(a, "https://x.trycloudflare.com", out), [])
+        self.assertTrue(any("agent update failed (exit 1)" in l and "https://x.trycloudflare.com/v1" in l for l in out.lines))
+
+    def test_phone_row_in_the_url_table(self):
+        with mock.patch.object(R, "voice_skip_reason", return_value=None):
+            t = dict(R.url_table(R.parse(["--tunnel"]), public_url="https://x.trycloudflare.com", phone="+15550001111"))
+            self.assertEqual(t["phone (call it)"], "+15550001111")
+            self.assertIn("Call setup", dict(R.url_table(R.parse(["--tunnel"])))["phone (call it)"])
+            self.assertNotIn("phone (call it)", dict(R.url_table(R.parse([]))))
+
+    def test_expired_tunnel_restarts_and_quick_death_does_not(self):
+        out = Quiet()
+        st = R.Stack(out)
+        ch = st.start(R.Child("tunnel", [sys.executable, "-u", "-c", "print('https://old-1.a.free.pinggy.link')"], R.ROOT, {}, None))
+        ch.proc.wait()
+        self.assertIsNone(R.restart_tunnel(st, ch))  # died within 20 s of starting: a broken tunnel, not an expired one
+        ch.started -= 60
+        st.public_url = "https://old-1.a.free.pinggy.link"
+        new = R.restart_tunnel(st, ch)
+        try:
+            self.assertIsNotNone(new)
+            self.assertIs(st.children[-1], new)
+            self.assertEqual(st.wait_tunnel(new, 10), "https://old-1.a.free.pinggy.link")
+            self.assertTrue(any("restarting the tunnel" in l for l in out.lines))
+        finally:
+            st.stop()
 
 
 class TestReset(unittest.TestCase):

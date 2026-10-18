@@ -38,7 +38,7 @@ are marked "hardware".
 | Path | What |
 | --- | --- |
 | `pages/` | Single-file pages: track playbook, startup case, setup and test, overheating |
-| `prototypes/` | The idea gallery (`prototypes/index.html`, mock data, no server). Rebuild: `python3 explore/prototypes/build_gallery.py` |
+| `prototypes/` | The idea gallery (`prototypes/index.html`, mock data, no server). Rebuild: `python3 team/prototypes/build_gallery.py` |
 | `research/` | Surgeon research, tracks, workshop notes. Check each stat against its source before it goes on a slide |
 | `status-board/` | Status board mockups |
 | `IDEAS-BACKLOG.md` | Feature ideas written before the repo plan; ideas only |

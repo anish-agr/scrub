@@ -13,7 +13,7 @@
     pip install -r controller/requirements.txt -r <your folder>/requirements.txt
     ```
     The controller is needed by everyone for testing, since it runs the fake arm.
-5. Open the repo in your tool and paste the start prompt from `docs/PROMPTS.md`.
+5. Open the repo in your tool and paste the start prompt from `team/PROMPTS.md`.
 
 ## Per person
 

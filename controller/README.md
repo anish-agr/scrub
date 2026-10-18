@@ -1,6 +1,6 @@
 # controller
 
-Owner: Caiden. Tasks C1, C2, C5, C6, C8 in `docs/TASKS.md`.
+Owner: Caiden. Tasks C1, C2, C5, C6, C8 in `team/LEFT.md`.
 
 FastAPI on port 8000. Owns the arm and every safety rule. Endpoints and messages are in `docs/CONTRACTS.md`. Serves `dashboard/` at `/` (a placeholder page with item buttons until `dashboard/index.html` exists).
 
@@ -40,7 +40,7 @@ websocat ws://localhost:8000/events      # or open http://localhost:8000/
 | `demo.html`, `nurse.html`, `ops.html` | the judging console (`/demo`), the nurse console (`/nurse`), the ops page (`/ops`) |
 | `run_all.py` | the whole stack in one command, the between-judges reset, the sim backup and the full-stack check |
 | `smoke.py` | full runs against a live controller (C5, C8) |
-| `trials.py` | operator-gated PLAN.md trials over HTTP, written to the ledger |
+| `trials.py` | operator-gated trial matrix over HTTP, written to the ledger |
 | `doctor.py` | one-command health check of every service, key, log and the arm port |
 | `test_flows.py`, `test_doctor.py`, `test_run_all.py` | tests (see Tests) |
 
@@ -93,9 +93,9 @@ websocat ws://localhost:8000/events      # or open http://localhost:8000/
 - `POST /alias` with `{"item": "hemostat", "alias": "clamp"}` (X6 clinic words): teaches a word for an item on the current tray. Always 200 with `{"ok", "say", "reason"}`: "Got it: clamp means the hemostat.", or `ok: false` with "Crile already means the X." (the word names another item on this tray), "That's not on this tray." or "I didn't catch the word." The word is lowercased, articles dropped ("The Clamp" -> "clamp"). Saved to `settings/<id>.local.json` (temp file + rename), then the current setting is reloaded in memory, so `GET /setting` (voice's Gemini list and alias match) has it at once. Works mid-handover; never touches the arm, `out` or the case.
 - `POST /restock` with `{"item", "qty", "setting", "from", "heard"}`: a restock texted to the Photon thread (voice F3), logged to the ledger with the `case_id`. Returns `{"ok": false}` when the ledger isn't loaded (voice then keeps it in `voice/restocks.jsonl`).
 - `POST /fake/pull`: simulate the clinician tugging the item (sim arm), otherwise the same as `got_it`.
-- `GET /demo`: the judging console (P4). Keys 1/2 load the surgical and bench trays (dental is not offered), J toggles judge mode (amber "judge mode" badge in the header), R resets and clears the count, Space or Esc stops (latched), C sends the current cue's request, G is got it. A 3:00 clock with the PITCH.md beats and who does what, and a rehearsal log for P5. `demo.html` is a copy of `explore/prototypes/48-judge-run.html`.
+- `GET /demo`: the judging console (P4). Keys 1/2 load the surgical and bench trays (dental is not offered), J toggles judge mode (amber "judge mode" badge in the header), R resets and clears the count, Space or Esc stops (latched), C sends the current cue's request, G is got it. A 3:00 clock with the PITCH.md beats and who does what, and a rehearsal log for P5. `demo.html` is a copy of `team/prototypes/48-judge-run.html`.
 - `GET /ops`: the ops page (`controller/ops.html`, on `/design/scrub.css`): step and events, skill source per item, arm temperatures and loads, latencies. A placeholder until that file exists. `/design/*` serves the shared `design/` folder.
-- `GET /nurse`: the nurse console, a live port of `explore/prototypes/24-scrub-nurse.html`. Tray slots (on tray, out, held, plus the camera's view from TrayState), item chips and typed or browser-mic requests matched against the setting's aliases, the step track for the running request, request-to-hand time per request (`?target=10` sets the line), the queue, hand lamps (seen, open, path), stop that turns into reset, got it, count, return per item, fake-arm pull and forced failures, and the event log. Space or Esc stops (Esc also from the text box), G is got it, / types.
+- `GET /nurse`: the nurse console, a live port of `team/prototypes/24-scrub-nurse.html`. Tray slots (on tray, out, held, plus the camera's view from TrayState), item chips and typed or browser-mic requests matched against the setting's aliases, the step track for the running request, request-to-hand time per request (`?target=10` sets the line), the queue, hand lamps (seen, open, path), stop that turns into reset, got it, count, return per item, fake-arm pull and forced failures, and the event log. Space or Esc stops (Esc also from the text box), G is got it, / types.
 - `controller/armview.py` (read-only, nothing moves): `GET /arm/pose` gives `joints_deg`, `gripper` (0 open, 1 closed), `tip_m` from `arm/rig.json` forward kinematics and `tip_px`, the tip projected into the overhead image with `vision/calibration.json` (table-plane homography, so approximate above the table). `available: false` with a `reason` on the fake arm. On the real arm it also has `counters` (`accepted` and `late` model chunks, `holds`, `ticks`, `overruns` of the 30 Hz loop, `api_errors`) and `last_reason` (why the last skill or move ended): watch `late` and `overruns` on first contact. `GET /arm/camera/side|wrist` (one JPEG) and `GET /arm/stream/side|wrist` (MJPEG, about 10 fps) need `Arm.camera_jpeg(name)` in `arm/real_arm.py` (Anish), else 404 with the reason. `GET /camera/overhead` proxies vision's `/snapshot` (`VISION_URL`, default `http://localhost:8001`) so pages on :8000 get it same-origin. `GET /calibration` returns `vision/calibration.json` or 404.
 - `GET /vision`: the last TrayState and Hand as posted, with `tray_age_s` and `hand_age_s` (for the nurse console).
 - `GET /tray_check` (X3): "check the tray". Calls vision's `GET {VISION_URL}/tray_check` (default `http://localhost:8001`, 3 s timeout, in a thread so `stop` never waits) and returns vision's fields plus `say`, `available`, `label` (the setting's label) and `items` (its item names). Always 200. Vision must answer, for the controller's current setting (item ids from `settings/<id>.json`):
@@ -117,7 +117,7 @@ websocat ws://localhost:8000/events      # or open http://localhost:8000/
 
 ```
 .venv/bin/python -m controller.run_all                    # fake stack: fake arm, vision --fake, voice, opens the dashboard
-.venv/bin/python -m controller.run_all --real --tunnel     # judging
+.venv/bin/python -m controller.run_all --real              # judging (tunnel, agent update and phone number included)
 .venv/bin/python -m controller.run_all reset               # between judges: clear the count, surgical tray, normal light
 .venv/bin/python -m controller.run_all backup [--offline] [--loop] [--pause 2]   # the arm failed: sim arm plus a scripted demo
 .venv/bin/python -m controller.run_all check               # full-stack check on its own fake stack
@@ -125,10 +125,12 @@ websocat ws://localhost:8000/events      # or open http://localhost:8000/
 
 `--real` is `--arm real --vision real --ledger --judge --skills auto`; each can still be overridden. `--skills model|taught|auto` is passed to the controller, and `--real-arm` is the same as `--arm real`. At start it prints the dashboard, judge console, nurse console, ops page (`/ops`), tablet, `/state`, vision preview and stream, voice health, ledger page and tunnel URLs. Ctrl-C stops every child. `--base-port N` moves every port together for a test stack beside the live one; `--help` lists the rest.
 
+Phone call: `--real` also starts a tunnel (cloudflared when `voice/.bin/cloudflared` exists, else Pinggy; `--no-tunnel` skips it), points the ElevenLabs agent's Custom LLM at each new tunnel URL (`cd voice && npm run agent -- <url>`; `--no-agent` skips it), restarts a tunnel that dies after running a while, and prints `phone (call it)` from `PHOTON_LINE` in `.env` (else the agent's phone numbers). If the real arm can't be used (`SO101_PORT` empty, the device missing, or the port held by another program, from `arm.backends.port_holders`), it runs the sim arm instead (vision `none` unless `--vision` was given) and the table title says so in a `**` line.
+
 ## Trials (`trials.py`)
 
 ```
-.venv/bin/python -m controller.trials --plan-only                     # print the PLAN.md matrix, no HTTP
+.venv/bin/python -m controller.trials --plan-only                     # print the trial matrix, no HTTP
 .venv/bin/python -m controller.trials --settings surgical --items hemostat --lighting normal --actions handover --tries 2
 .venv/bin/python -m controller.trials --practice --yes --items hemostat --actions handover --tries 2   # fake or sim controller
 ```

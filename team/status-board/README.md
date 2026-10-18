@@ -10,13 +10,13 @@ Against the controller (default `http://localhost:8000`, start it with `python -
 
 ```
 python3 -m http.server 8098        # from the repo root
-open "http://localhost:8098/explore/status-board/index.html?api=http://localhost:8000"
+open "http://localhost:8098/team/status-board/index.html?api=http://localhost:8000"
 ```
 
 Without the controller (scripted fake events, same shapes; STOP only stops the fake run):
 
 ```
-open "http://localhost:8098/explore/status-board/index.html?mock=1"
+open "http://localhost:8098/team/status-board/index.html?mock=1"
 ```
 
 URL options: `?api=<controller url>` (default: same origin, so it works unchanged when served by the controller), `?mock=1`, `?cam=<stream url>` (replaces the vision stream URL).
@@ -24,7 +24,7 @@ URL options: `?api=<controller url>` (default: same origin, so it works unchange
 ## Drop into dashboard/ (Evan)
 
 ```
-cp explore/status-board/{index.html,app.js,style.css} dashboard/
+cp team/status-board/{index.html,app.js,style.css} dashboard/
 ```
 
 The controller mounts `dashboard/` at `/`, so `http://localhost:8000/` then uses the same origin automatically. The controller already sends CORS `*`, so the separate-origin run above works too.

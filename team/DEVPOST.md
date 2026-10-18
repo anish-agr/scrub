@@ -2,7 +2,7 @@
 
 Owner: Evan. Ready to paste before 10:30 PM Saturday. Plain words. No buzzwords. No em dashes.
 
-Paste into the Devpost form from **Project name** through **Built with**. Leave this note out. Leave the video sections out of the form. Evan submits the draft by 10:00 PM Saturday (see `team/PLAN.md`).
+Paste into the Devpost form from **Project name** through **Built with**. Leave this note out. Leave the video sections out of the form. Evan submits the draft by 10:00 PM Saturday (see `team/LEFT.md`).
 
 Measured arm numbers stay as `[measured]` until the tests are logged on Sunday morning. Do not invent a success rate.
 
@@ -64,13 +64,13 @@ The public page (hosted for judges) has the count, those tables, and a link to e
 
 Taken from a fake-arm case, with the overhead camera stand-in running. The real arm photos replace nothing here until Sunday. They are extra.
 
-![Dashboard during a case](media/dashboard.png)
+![Dashboard during a case](../docs/media/dashboard.png)
 
-![Tablet view](media/tablet.png)
+![Tablet view](../docs/media/tablet.png)
 
-![One case, played back](media/case.png)
+![One case, played back](../docs/media/case.png)
 
-![Public page for judges](media/public.png)
+![Public page for judges](../docs/media/public.png)
 
 ## Challenges
 
@@ -162,7 +162,7 @@ Edit notes:
 
 ## DEV post
 
-This section is the DEV.to post for the MLH DEV writing track. It is not part of the Devpost form. Publish steps are in `team/ACCOUNTS-TODO.md`. Fill every `[measured]` from the dashboard tables first, or cut the sentence.
+This section is the DEV.to post for the MLH DEV writing track. It is not part of the Devpost form. Publish steps are in `team/LEFT.md`. Fill every `[measured]` from the dashboard tables first, or cut the sentence.
 
 Post title: Building Scrub: a robot arm that passes surgical instruments by voice
 

@@ -84,7 +84,7 @@ curl -XPOST localhost:8032/scene/reset; curl -XPOST localhost:8031/reset
 <div class="flow"><span>heard</span><span>finding</span><span>picking</span><span>checking</span><span>moving_to_hand</span><span>waiting_for_pull</span><span>releasing</span><span>homing</span><span>idle</span></div>
 <div class="tw"><table>
 <tr><th>Tool</th><th>What it shows</th></tr>
-<tr><td><code>explore/status-board/</code></td><td>Live step, item, what was heard, what Scrub said, Stop and Clear stop. Open <code>index.html?api=http://localhost:8031</code>.</td></tr>
+<tr><td><code>team/status-board/</code></td><td>Live step, item, what was heard, what Scrub said, Stop and Clear stop. Open <code>index.html?api=http://localhost:8031</code>.</td></tr>
 <tr><td><code>controller.smoke</code></td><td>Prints every spoken line per item, the request-to-hand time and the clean streak. <code>--runs 10 --human --return</code> is the C8 ten-in-a-row check.</td></tr>
 <tr><td>Prototype 40, failure drills</td><td>Forces each failure with <code>POST /fake/force</code> and checks the steps and lines (12/12 pass, incl. hold-until-reset and no-load "got it"). Not during live vision.</td></tr>
 <tr><td><code>GET /state</code>, <code>/events/recent</code>, <code>/stats</code></td><td>Raw truth for scripts and the dashboard.</td></tr>

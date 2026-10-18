@@ -1,6 +1,6 @@
 # Scrub: the whole project in one document
 
-Read this first. It explains every idea, decision and part of the project, and where everything lives. Other docs go deeper; this one ties them together. If another doc disagrees with this one on **what we're building**, this one wins. For **current status**, `team/STATUS.md` wins. For what each outside tool does today, `docs/INTEGRATION.md` wins.
+Read this first. It explains every idea, decision and part of the project, and where everything lives. Other docs go deeper; this one ties them together. If another doc disagrees with this one on **what we're building**, this one wins. For **current status**, `team/LEFT.md` wins. For what each outside tool does today, `docs/INTEGRATION.md` wins.
 
 DubHacks '26, Oct 17 to 18, 2026. Team: Anish, Caiden, Brandon, Evan.
 
@@ -12,7 +12,7 @@ Scrub is a robot arm that works as a surgeon's second pair of hands. The surgeon
 
 ## 2. The problem
 
-- Operating rooms depend on scrub techs who pass instruments and keep the count. There aren't enough of them: surgical tech jobs stay open for months, and turnover is high.
+- Operating rooms depend on scrub techs who pass instruments and keep the count. There aren't enough of them: a surgical tech job takes about 120 days to fill (Periop Leader, 2024).
 - When nobody is there to pass, the surgeon stops, looks away from the patient, puts down what they're holding and searches the tray.
 - Counts are a safety step: an instrument or sponge left inside a patient (a "retained surgical item") is a serious, costly error, and manual counts miss things.
 - Sharps injuries happen during hand-to-hand passing, which is why operating rooms pass sharps hands-free.
@@ -93,7 +93,7 @@ Every pick and return carries a skill source on its events, `model` (the fine-tu
 
 - **Dental.** No tools, no recordings, hidden everywhere a judge looks.
 - **A third setting.** The proposal's three trays are two.
-- **The idea prototypes.** The gallery in `explore/prototypes/` is inspiration only and moves out before the repo goes public.
+- **The idea prototypes.** The gallery in `team/prototypes/` is inspiration only and moves out before the repo goes public.
 - **Claims with no real use behind them.** Any track claim that `docs/INTEGRATION.md` cannot prove with a command is cut.
 
 ## 5. How the system fits together
@@ -203,7 +203,7 @@ Start with surgery centers and training labs. Sell per operating room per month,
 | `explore/research/SURGEON_RESEARCH.md` | Retained items, staffing, prior robotic scrub nurses, judging, risky claims | **Reference** for the pitch. Check every number |
 | `explore/research/01-04` | Startup tracks, medical go-to-market and FDA path, competitors and market, 30 build-out ideas | **Reference** for NEXT and Q&A. Ideas, not plans |
 | `explore/research/perceptron-mk15-notes.md`, `TRACKS.md` | Perception API notes, track descriptions | Reference |
-| `explore/prototypes/` (66 files), `status-board/`, `pages/`, `IDEAS-BACKLOG.md` | Clickable mockups and idea lists from brainstorming, many for ideas we didn't build (kitchen, pills, telepresence, surgical skills) | Inspiration only. Planned for removal before the repo goes public |
+| `team/prototypes/` (66 files), `status-board/`, `pages/`, `IDEAS-BACKLOG.md` | Clickable mockups and idea lists from brainstorming, many for ideas we didn't build (kitchen, pills, telepresence, surgical skills) | Inspiration only. Planned for removal before the repo goes public |
 
 ## 12. Which doc to read for what
 
@@ -211,10 +211,10 @@ Start with surgery centers and training labs. Sell per operating room per month,
 | --- | --- |
 | Rules for agents, who owns which files | `AGENTS.md` |
 | Message formats between parts | `docs/CONTRACTS.md` |
-| What's done and what's next | `team/STATUS.md`, `team/LEFT.md` |
+| What's done and what's next | `team/LEFT.md`, `team/LEFT.md` |
 | What each outside tool does today, with proof | `docs/INTEGRATION.md` |
-| Hardware steps left | `team/HARDWARE-TODO.md`, `docs/BRINGUP.md` |
-| Accounts and keys left | `team/ACCOUNTS-TODO.md`, `docs/SETUP.md` |
+| Hardware steps left | `team/LEFT.md`, `docs/BRINGUP.md` |
+| Accounts and keys left | `team/LEFT.md`, `docs/SETUP.md` |
 | Training | `docs/TRAINING.md`, `docs/PERCEPTRON-ROBOTICS.md`, `docs/TEACH.md` |
 | Tray recognition numbers | `docs/RECOGNITION.md` |
 | Shared look and the video tool | `docs/DESIGN-SYSTEM.md`, `docs/VIDEO-TOOL.md` |
@@ -223,7 +223,7 @@ Start with surgery centers and training labs. Sell per operating room per month,
 | Business case | `docs/BUSINESS.md` |
 | Original full proposal (some parts outdated: dental, three settings) | `team/PROPOSAL.md` |
 | Bugs found | `team/QA.md`, `team/AUDIT.md` |
-| The timeline | `team/PLAN.md` |
+| The timeline | `team/LEFT.md` |
 
 ## 13. Glossary
 

@@ -265,7 +265,7 @@ do not use a fresh key to retry a lost response. The state is in ignored
 
 Only **two successful jobs** are budgeted. Run 2 starts from the base model and
 must include all earlier episodes plus later settings/corrections in the same
-dataset. The old “run 3 if time allows” sentence in PLAN.md is superseded by the
+dataset. The old “run 3 if time allows” plan is superseded by the
 workshop quota. Do not spend a third job unless live capabilities/staff allow it.
 
 ## 9. Calibrate overhead vision with Brandon/Evan
@@ -382,7 +382,7 @@ release. Sending a request here can move a real connected arm: use only after
 the preceding checks. **If not:** keep the keyboard path demoable, let Caiden
 debug voice; do not redo account onboarding or send external texts as a test.
 
-Use PLAN.md's trial matrix: surgical 10/item/light (bright/normal/dim), dental
+Use the trial matrix (`python -m controller.trials --plan-only`): surgical 10/item/light (bright/normal/dim), dental
 and bench 5/item/light (normal/bright), and put-back 5/item. A human confirms
 physical success and restores the tray between attempts; failed attempts count.
 Simulation/fake results stay separate from measured hardware success tables.
@@ -441,7 +441,7 @@ rates, or capture handover-only dashboard tables before running returns. Returns
 have ledger `seconds: null`; their duration is only `elapsed_s` in the journal,
 not falsely labeled request-to-hand time. Sharp timing is request-to-neutral-zone.
 
-For PLAN.md's bench-adoption row, add
+For the trial matrix's bench-adoption row, add
 `--bench-start <FIRST_BENCH_DEMO_ISO_WITH_TIMEZONE>` using the actual recorded
 first-demo time. The first physically confirmed bench handover writes a separate
 `bench_adoption` journal entry in minutes; it is not another instrument trial

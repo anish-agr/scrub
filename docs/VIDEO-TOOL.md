@@ -1,6 +1,6 @@
 # Video tool spec (`video/`)
 
-A command-line pipeline that turns our real footage, photos and logs into the demo video and the Perceptron arm video: a virtual **top-down view** of the table, **cleanup** (stabilize, denoise, even out lighting, blur bystanders, trim dead time), **overlays** from the ledger, and a scripted **edit** to a finished 1080p file. Shot list and timings come from `docs/VIDEO.md` and the "Video edit plan" in `docs/DEVPOST.md`. Visual style for overlays and cards comes from `docs/DESIGN-SYSTEM.md`.
+A command-line pipeline that turns our real footage, photos and logs into the demo video and the Perceptron arm video: a virtual **top-down view** of the table, **cleanup** (stabilize, denoise, even out lighting, blur bystanders, trim dead time), **overlays** from the ledger, and a scripted **edit** to a finished 1080p file. Shot list and timings come from `team/VIDEO.md` and the "Video edit plan" in `team/DEVPOST.md`. Visual style for overlays and cards comes from `docs/DESIGN-SYSTEM.md`.
 
 ## Honesty rule (non-negotiable)
 
@@ -39,7 +39,7 @@ Judges watch this video to decide whether the robot works. The tool may change h
 6. **`overlay`**: burn in, in the design-system style (Archivo + IBM Plex Mono, square, no shadows): the spoken request as a caption, a lower third ("HEMOSTAT · request to hand 6.4 s"), the step strip, the lighting tag, the `SIMULATION` label where needed, and a small live count.
 7. **`cards`**: renders title cards, section cards and the end card (success table, team, tracks) from HTML with the design system, through a headless browser, to 1920x1080 PNGs.
 8. **`render`**: reads an edit decision list and produces the final file: 1920x1080, 30 fps, H.264 + AAC, -16 LUFS. Two lists ship with the tool:
-    - `video/edl/demo.yaml`: the 2-minute demo, following the timings in `docs/DEVPOST.md`, with slots for each shot (A1 to A8, N1 to N8) and treatment per shot (clean, topdown, side-by-side, picture-in-picture with the dashboard)
+    - `video/edl/demo.yaml`: the 2-minute demo, following the timings in `team/DEVPOST.md`, with slots for each shot (A1 to A8, N1 to N8) and treatment per shot (clean, topdown, side-by-side, picture-in-picture with the dashboard)
     - `video/edl/perceptron-arm.yaml`: the unedited arm roll for the Perceptron track, cleaned only, with the success table end card
 9. **`preview`**: a low-resolution fast render of any EDL so the team can check the cut in seconds.
 10. **`export-ledger`**: writes `data/video/events.jsonl` from the ledger (Atlas through `MONGODB_URI`, plus `ledger/buffer.jsonl`), so `find`, `overlay` and `render` read our real events.

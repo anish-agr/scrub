@@ -1,12 +1,12 @@
 # Pitch
 
-Three minutes, spoken over the live demo. The beats and times match the demo console (`http://localhost:8000/demo`) and the table in `docs/DEMO.md`. Questions are in `docs/QNA.md`.
+Three minutes, spoken over the live demo. The beats and times match the demo console (`http://localhost:8000/demo`) and the table in `team/DEMO.md`. Questions are in `team/QNA.md`.
 
 Fill every `[measured]` from the dashboard tables (`GET /stats`) on Sunday morning. If a number is not on the dashboard yet, skip the sentence. Never guess a number.
 
 ## Which level this script is for
 
-This script is level 1 of `docs/DEMO.md`: the live real arm, the fine-tuned model for the items that passed their real tries, taught skills for the rest, every pick labeled on the dashboard. One line goes in everywhere: "The fine-tuned model picks; our code keeps it safe and carries it to the hand."
+This script is level 1 of `team/DEMO.md`: the live real arm, the fine-tuned model for the items that passed their real tries, taught skills for the rest, every pick labeled on the dashboard. One line goes in everywhere: "The fine-tuned model picks; our code keeps it safe and carries it to the hand."
 
 Every claim below must run at the table or be in the Perceptron video. Real-try success rates are "to fill from the ledger" until the ledger has them; skip the sentence if it is still empty.
 
@@ -83,7 +83,7 @@ Anish:
 
 ## If a beat fails
 
-Keep talking. The fix for each beat is in the "If it fails" column of `docs/DEMO.md`. A stop is a feature: say so.
+Keep talking. The fix for each beat is in the "If it fails" column of `team/DEMO.md`. A stop is a feature: say so.
 
 ## Sources
 
@@ -97,7 +97,7 @@ Every number above was checked against its source on Oct 17, 2026. Say only thes
 | Nurses and techs get cut most often while passing sharps | American Nurse, citing data from 87 US hospitals: injuries to nurses and technicians "most often occurred when they passed or disassembled devices." https://www.myamericannurse.com/practical-strategies-to-prevent-surgical-sharps-injuries/ |
 | An item left inside about once in 5,500 operations, most with a correct count | Cima et al., J Am Coll Surg 2008 (Mayo Clinic, 191,168 operations): "approximately 1:5,500 operations", and 21 of 34 (62%) had a count reported as correct. https://pubmed.ncbi.nlm.nih.gov/18589366/ and https://psnet.ahrq.gov/issue/incidence-and-characteristics-potential-and-actual-retained-foreign-object-events-surgical |
 
-Also checked, used in `docs/QNA.md` and `docs/NEXT-PASS-PROMPT.md` (section "Earlier next-steps notes") only:
+Also checked, used in `team/QNA.md` and `team/NEXT-PASS-PROMPT.md` (section "Earlier next-steps notes") only:
 
 | What we say | Source |
 | --- | --- |
@@ -110,4 +110,4 @@ Do not say on stage: that Scrub prevents retained items (it adds a second check)
 
 ## Demo video (2 to 3 minutes, required)
 
-The shot list and the edit plan are in `docs/DEVPOST.md` ("Video shot list" and "Video edit plan"). The spoken track can reuse this script. Anish records the separate Perceptron arm video: one unedited roll of picks and returns across items and lighting, with the success table at the end.
+The shot list and the edit plan are in `team/DEVPOST.md` ("Video shot list" and "Video edit plan"). The spoken track can reuse this script. Anish records the separate Perceptron arm video: one unedited roll of picks and returns across items and lighting, with the success table at the end.

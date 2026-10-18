@@ -4,7 +4,7 @@ Start this after the full pass (`NEXT-PASS-PROMPT.md`) gives its final report. S
 
 ---
 
-I'm Caiden on team Scrub at DubHacks '26. The full pass is done. This pass makes Scrub read and understand everything the cameras see, and turns it into data the product uses. Pull first. Read `docs/OVERVIEW.md`, `docs/RECOGNITION.md`, `docs/PERCEPTRON.md` (the vision API: detect, OCR, captions, video and event clipping through `/v1/chat/completions`), `docs/INTEGRATION.md`, `docs/CONTRACTS.md`, and `vision/README.md`.
+I'm Caiden on team Scrub at DubHacks '26. The full pass is done. This pass makes Scrub read and understand everything the cameras see, and turns it into data the product uses. Pull first. Read `docs/OVERVIEW.md`, `docs/RECOGNITION.md`, `docs/PERCEPTRON-ROBOTICS.md` (the vision API: detect, OCR, captions, video and event clipping through `/v1/chat/completions`), `docs/INTEGRATION.md`, `docs/CONTRACTS.md`, and `vision/README.md`.
 
 ## How to work
 
@@ -53,11 +53,11 @@ Use Perceptron's video and caption endpoints:
 
 - Perceptron has two tracks: robotics (ours) and perceptive (their vision models: localization, OCR, captioning, tracking, video events). Write in `docs/INTEGRATION.md` exactly which perceptive capabilities Scrub now uses, with the proof command for each, so Anish can decide whether to also enter the perceptive track (we can enter at most 3 sponsored tracks).
 - Add rows to `docs/INTEGRATION.md` for each new feature, with PASS or FAIL from running it now.
-- Update `docs/OVERVIEW.md` (what Scrub does), `docs/DEMO.md` (a 20-second "Scrub reads the count sheet" beat, only if it works on the real sheet), and `docs/RECOGNITION.md`. List Devpost and pitch lines that can now be added, with the measured numbers, in the final report.
+- Update `docs/OVERVIEW.md` (what Scrub does), `team/DEMO.md` (a 20-second "Scrub reads the count sheet" beat, only if it works on the real sheet), and `docs/RECOGNITION.md`. List Devpost and pitch lines that can now be added, with the measured numbers, in the final report.
 
 ## Before you stop
 
-Run every test. Push everything (`git status` clean, nothing ahead of `origin/main`). Update `team/LEFT.md` (or `docs/LEFT.md` if it hasn't moved): add what's left from this pass, remove what's done.
+Run every test. Push everything (`git status` clean, nothing ahead of `origin/main`). Update `team/LEFT.md` (or `team/LEFT.md` if it hasn't moved): add what's left from this pass, remove what's done.
 
 ## Final report
 

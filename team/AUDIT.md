@@ -1,6 +1,6 @@
 # Audit (comb pass, Sat Oct 17 night)
 
-Every finding from the fine-toothed comb (`docs/COMB-PROMPT.md` Phase 2), by severity, with where it was and what happened to it. FIXED items are on `main` with tests. NOT FIXED items say why and who decides.
+Every finding from the fine-toothed comb (`team/COMB-PROMPT.md` Phase 2), by severity, with where it was and what happened to it. FIXED items are on `main` with tests. NOT FIXED items say why and who decides.
 
 Tests after the comb: `controller.test_flows` 66/66, `controller.test_run_all` 30, `controller.trials --self-test` 19, arm 94 (9 suites plus the new `arm/test_safety.py`), `vision.test_vision` 41, `ledger.test_ledger` 14, `deploy.test_check_env` 6, `sim/test_sim.py` 16/16, `cd voice && npm test` passes, `npx tsc --noEmit` clean.
 
@@ -31,7 +31,7 @@ Tests after the comb: `controller.test_flows` 66/66, `controller.test_run_all` 3
 | H12 | `vision/service.py` | Event clips were deduped by `command_id` alone, so no handover clip was ever saved live. | FIXED. Test |
 | H13 | `deploy/`, `ledger/` | Two installers fought over the server (port 80 vs 8080); the push copied the whole `.env` and `buffer.jsonl`. | FIXED: one path (`deploy/setup_public.sh`), server gets only `MONGODB_URI` and `SCRUB_PUBLIC_URL` |
 | H14 | `ledger/__init__.py` | Fake-arm runs counted in `/stats` rates and medians. | FIXED: `fake_arm`/`sim` rows left out (`?sim=1` includes them); the controller tags every event and restock. Tests |
-| H15 | `docs/NEXT-PASS-PROMPT.md` (section "Earlier next-steps notes") | The ROI table showed $560 to $800 saved minus $750 as a gain, from unsourced savings. | FIXED: one sourced number ($36 per OR minute, JAMA Surgery 2018), break-even 22 OR minutes a month per room |
+| H15 | `team/NEXT-PASS-PROMPT.md` (section "Earlier next-steps notes") | The ROI table showed $560 to $800 saved minus $750 as a gain, from unsourced savings. | FIXED: one sourced number ($36 per OR minute, JAMA Surgery 2018), break-even 22 OR minutes a month per room |
 | H17 | `voice/src/turn.ts` | Lines spoken while no turn was open piled up and were all read at the next turn (20 lines from 15 minutes before "Mayo scissors coming"). | FIXED: lines over 10 s old dropped, at most 2 read. Test |
 | H18 | `controller/core.py` | A controller restart mid-case forgot `out`: "what's out" said everything was on the tray. | FIXED: count and case saved per port and restored within 6 h on the same tray. Test |
 | H19 | `controller/__main__.py`, `server.py` | With a WebSocket client connected, SIGTERM or Ctrl-C never exited, so `arm.disconnect()` never ran and the real arm's serial port stayed held. | FIXED: graceful timeout, SIGTERM acts like Ctrl-C, the arm always disconnects. Checked by hand on fake and sim |
@@ -98,7 +98,7 @@ Tests after the comb: `controller.test_flows` 66/66, `controller.test_run_all` 3
 
 ## Facts the comb checked that matter on stage
 
-- **Statistics:** every number in the pitch, slides, Devpost and QNA was opened at its source (list in `docs/PITCH.md`). Dropped as unconfirmed: 42.9% turnover, $200 to $400 per shift, $35 to $50 an hour agency, Class II at $2 to 6M, the lux values (computed, not measured), "under $500".
+- **Statistics:** every number in the pitch, slides, Devpost and QNA was opened at its source (list in `team/PITCH.md`). Dropped as unconfirmed: 42.9% turnover, $200 to $400 per shift, $35 to $50 an hour agency, Class II at $2 to 6M, the lux values (computed, not measured), "under $500".
 - **Don't say on stage:** "Instrument handoffs take 7.7% of OR time." That line in `explore/research/SURGEON_RESEARCH.md` section 2 misreads a study of scrub nurse shift handoffs.
 - **Repo going public:** history scanned for keys (no hits), no file over 300 KB in history, `.env` never committed.
 

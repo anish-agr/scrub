@@ -10,7 +10,7 @@ The full notes from the workshop deck are in `explore/research/isaac-workshop-no
 - One dataset can hold several instructions, and the model follows the instruction text. We use one dataset, `<hf user>/scrub`.
 - The model gives positions only, no gripper load. We read load from the Feetech bus.
 - Predict latency per chunk is about 283 ms at p95. A 1,000-step run takes about 45 minutes plus export.
-- Open: image augmentation in their pipeline, whether the arm comes to judging (see the message for Perceptron staff in `docs/DEMO.md`), and whether LeRobot's end-effector control works on the SO-101 (we use our own IK in `arm/kinematics.py`).
+- Open: image augmentation in their pipeline, whether the arm comes to judging (see the message for Perceptron staff in `team/DEMO.md`), and whether LeRobot's end-effector control works on the SO-101 (we use our own IK in `arm/kinematics.py`).
 
 ## Perceptron's format
 

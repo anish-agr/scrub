@@ -1,6 +1,6 @@
 # What's left (Sun Oct 18, 1:45 AM)
 
-The one list of what is left before judging. It replaces STATUS, WORKING-NOW, NEXT, TASKS, PLAN, HARDWARE-TODO and ACCOUNTS-TODO. What exists and works now is in `docs/STATE.md`. If something is done, it is not here; delete an item when it is done.
+The one list of what is left before judging. It replaces STATUS, WORKING-NOW, NEXT, TASKS, PLAN, HARDWARE-TODO and ACCOUNTS-TODO. What exists and works now is in `team/STATE.md`. If something is done, it is not here; delete an item when it is done.
 
 Commands are bash on the arm Mac, from the repo root. `.venv/bin/python` is the Python. One process owns the arm ports and the cameras at a time: stop teleop, the recorder or station, `arm.teach`, the controller and `python -m vision` before the next step. Follower `/dev/tty.usbmodem5C821089781`, leader `/dev/tty.usbmodem5C821067211`, calibration ids `scrub_follower` and `scrub_leader`. Never paste a key into chat, a doc or a commit.
 
@@ -34,7 +34,7 @@ Vision on :8001 is an older `--fake` build: its `/health` has no `fps` or `detec
 `vision/models/` is empty, so the first `python -m vision` downloads the hand model. Run `.venv/bin/python -m vision` once on internet (the restart above does it), then `ls vision/models` should list the model file. After that vision starts offline.
 
 ### Devpost draft check (Evan, by 2:30)
-STATUS never confirmed the Saturday draft. Open https://devpost.com, the DubHacks '26 project, Edit: confirm the team, the draft text from `docs/DEVPOST.md` and the tracks. Per `docs/INTEGRATION.md`, do not tick MLH Tiger Data or MLH Backboard unless their keys land (see below).
+STATUS never confirmed the Saturday draft. Open https://devpost.com, the DubHacks '26 project, Edit: confirm the team, the draft text from `team/DEVPOST.md` and the tracks. Per `docs/INTEGRATION.md`, do not tick MLH Tiger Data or MLH Backboard unless their keys land (see below).
 
 ### Arm night run (Anish, Evan, Brandon, Caiden, 1:45 to 8:15)
 The ordered run is "Tonight's plan" below: cameras, tape, teleop test, poses, run 1 data, gates, run 1, more data and taught skills, real tries, run 2, more tries, filming. Each step names who and which process owns the arm.
@@ -61,16 +61,16 @@ Check without the arm: `.venv/bin/python -m arm.taught --check --setting surgica
 With the real overhead camera: `.venv/bin/python -m vision.lighting --all-conditions --csv ~/scrub-lighting.csv` (bright, normal, dim in turn). Post the hand, detect and stale rates per light in the chat.
 
 ### Backup video (Evan or Caiden, by 7:00)
-Screen-record the sim backup with the dashboard open: `.venv/bin/python -m controller.run_all backup --offline --loop --pause 2`. Stop any stack on :8000 first. Label it as the sim in the video. Used for demo level 3 (`docs/DEMO.md`).
+Screen-record the sim backup with the dashboard open: `.venv/bin/python -m controller.run_all backup --offline --loop --pause 2`. Stop any stack on :8000 first. Label it as the sim in the video. Used for demo level 3 (`team/DEMO.md`).
 
 ### Perceptron staff message (Anish, by 8:00)
-Send the message in `docs/DEMO.md` ("Message for Anish to send the Perceptron staff"): can the arm come to the Ballroom, is there an outlet, live or video only. Adjust it to what is true (do not say a fine-tuned model runs until a deployment passes tries).
+Send the message in `team/DEMO.md` ("Message for Anish to send the Perceptron staff"): can the arm come to the Ballroom, is there an outlet, live or video only. Adjust it to what is true (do not say a fine-tuned model runs until a deployment passes tries).
 
 ### Backup slide deck (Caiden, by 8:00)
-Build the 5-slide Google Slides deck from `docs/SLIDES.md` (diagram `docs/media/system.png`) and paste the link in `docs/SLIDES.md` and the chat. Leave the success-table slide marked "to fill from the ledger" until plan step 13.
+Build the 5-slide Google Slides deck from `team/SLIDES.md` (diagram `docs/media/system.png`) and paste the link in `team/SLIDES.md` and the chat. Leave the success-table slide marked "to fill from the ledger" until plan step 13.
 
 ### Perceptron arm video and demo video (Anish operates, Evan films and edits, Caiden runs `video/`, 7:15 to 8:15)
-Plan step 12 and procedure 14. Real tries only. Write ledger events for the cut with `.venv/bin/python -m video export-ledger`, then render `.venv/bin/python -m video render --edl video/edl/perceptron-arm.yaml --bindings edit.json --output renders/perceptron-arm.mp4` (`video/README.md`, `docs/VIDEO-TOOL.md`). The demo video (2 to 3 minutes) uses `video/edl/demo.yaml` and the shot list in `docs/DEVPOST.md`. Upload both. Say "cleaned" if a failed try is cut. Never call it clinically validated.
+Plan step 12 and procedure 14. Real tries only. Write ledger events for the cut with `.venv/bin/python -m video export-ledger`, then render `.venv/bin/python -m video render --edl video/edl/perceptron-arm.yaml --bindings edit.json --output renders/perceptron-arm.mp4` (`video/README.md`, `docs/VIDEO-TOOL.md`). The demo video (2 to 3 minutes) uses `video/edl/demo.yaml` and the shot list in `team/DEVPOST.md`. Upload both. Say "cleaned" if a failed try is cut. Never call it clinically validated.
 
 ### Domain and HTTPS (Evan or Brandon, by 8:30)
 No domain is bought, so `SCRUB_PUBLIC_URL` is empty and the replay link in the summary text has no host. Steps in `deploy/README.md` (GoDaddy, HTTPS):
@@ -81,16 +81,16 @@ No domain is bought, so `SCRUB_PUBLIC_URL` is empty and the replay link in the s
 If not done by 8:30, the QR card and Devpost use `http://144.202.95.111/` and MLH GoDaddy is dropped from the tracks.
 
 ### Make the repo public (Anish, the repo owner, at 8:30)
-`docs/README-PUBLIC.md` becomes `README.md` (commit it), then on GitHub `anish-agr/dubhacks-2026`, Settings, Change visibility, Public (or `gh repo edit anish-agr/dubhacks-2026 --visibility public --accept-visibility-change-consequences`). The history was scanned for keys on Oct 17 (no hits, `.env` never committed); rerun `git log -p | grep -iE "api_key|secret|mongodb\+srv"` on anything added since.
+Run the commands in `team/HIDE.md` (README-PUBLIC becomes README, `team/`, `AGENTS.md` and `CLAUDE.md` are removed, push), then on GitHub `anish-agr/dubhacks-2026`, Settings, Change visibility, Public (or `gh repo edit anish-agr/dubhacks-2026 --visibility public --accept-visibility-change-consequences`). The history was scanned for keys on Oct 17 (no hits, `.env` never committed); rerun `git log -p | grep -iE "api_key|secret|mongodb\+srv"` on anything added since.
 
 ### Tiger Data and Backboard: keys or drop (Evan, by 9:15)
-`TIGER_DATABASE_URL`, `BACKBOARD_API_KEY` and `BACKBOARD_ASSISTANT_ID` are missing; the pages run from the local ledger. Either add them (Tiger: https://console.cloud.timescale.com, new service, copy the `postgresql://...` URL into `TIGER_DATABASE_URL`; Backboard: https://app.backboard.io, API key plus an assistant named Scrub; then `.venv/bin/python -m deploy` PASS), or remove both from Devpost and `docs/DEVPOST.md` (lines 25 and 26 and the built-with list at line 116, per `docs/INTEGRATION.md`).
+`TIGER_DATABASE_URL`, `BACKBOARD_API_KEY` and `BACKBOARD_ASSISTANT_ID` are missing; the pages run from the local ledger. Either add them (Tiger: https://console.cloud.timescale.com, new service, copy the `postgresql://...` URL into `TIGER_DATABASE_URL`; Backboard: https://app.backboard.io, API key plus an assistant named Scrub; then `.venv/bin/python -m deploy` PASS), or leave them out. `team/DEVPOST.md` already leaves both out; add them back only after `deploy` shows PASS.
 
 ### Fill the measured numbers and pick the demo level (Evan for Devpost, Caiden for docs, Anish reviews, 8:15 to 9:15)
-Plan step 13. Fill every `[measured]` and "to fill from the ledger" in `docs/PITCH.md`, `docs/DEVPOST.md` and the slides from `curl -s localhost:8080/api/stats` (real-arm tries only). Mark anything unproven as unproven; claim "fine-tuned" only for items whose model picks passed. Anish picks the demo level from `docs/DEMO.md` (level 1 `--skills auto`, level 2 `--skills taught`, level 3 sim backup next to the real video).
+Plan step 13. Fill every `[measured]` and "to fill from the ledger" in `team/PITCH.md`, `team/DEVPOST.md` and the slides from `curl -s localhost:8080/api/stats` (real-arm tries only). Mark anything unproven as unproven; claim "fine-tuned" only for items whose model picks passed. Anish picks the demo level from `team/DEMO.md` (level 1 `--skills auto`, level 2 `--skills taught`, level 3 sim backup next to the real video).
 
 ### Final Devpost (Evan, by 9:30)
-Upload the demo video, paste the final text from `docs/DEVPOST.md`, link the public repo, check the tracks, submit. Screenshot in the chat.
+Upload the demo video, paste the final text from `team/DEVPOST.md`, link the public repo, check the tracks, submit. Screenshot in the chat.
 
 ### Pack for the Ballroom (everyone, 9:15 to 9:30)
 Arm, power strip, spare USB cable, laptop, tape, trays, towel, lamp, phone. In the HUB Ballroom by 10:20.
@@ -99,16 +99,23 @@ Arm, power strip, spare USB cable, laptop, tape, trays, towel, lamp, phone. In t
 https://mlh.link/commit-fellowship-form.
 
 ### Rehearsal (everyone, 9:30 to 10:20 and in line)
-Three runs of `docs/DEMO.md`, under 3 minutes twice in a row. Anish speaks, Brandon is the clinician hand, Caiden runs the stack and the stop key (Space), Evan swaps trays and the lamp. Judging command on the real arm: `.venv/bin/python -m controller.run_all --real --tunnel`. Between judges: `.venv/bin/python -m controller.run_all reset`.
+Three runs of `team/DEMO.md`, under 3 minutes twice in a row. Anish speaks, Brandon is the clinician hand, Caiden runs the stack and the stop key (Space), Evan swaps trays and the lamp. Judging command on the real arm: `.venv/bin/python -m controller.run_all --real --tunnel`. Between judges: `.venv/bin/python -m controller.run_all reset`.
 
-### Phone call
-Steps being finalized: see voice/README.md Call setup.
+### Phone call (Anish, by 4:00, so it can be rehearsed)
+Built and tested from code: the ElevenLabs agent "Scrub" exists (`ELEVENLABS_AGENT_ID` and `VOICE_LLM_SECRET` are in `.env`), its Custom LLM reaches `voice/` through a cloudflared tunnel, Photon voice is on with inbound SIP to `sips:sip.rtc.elevenlabs.io:5061`, and a "hemostat" turn sent through the tunnel moved the sim arm. What is missing is a phone number: the Photon project is on the shared plan with 0 users, and a line comes from Photon's pool once a user's phone is added. Full steps are in `voice/README.md` ("Anish: the steps left").
+1. On the arm Mac: `cd voice && npm run photon -- setup +1<Anish's mobile>`. You should see `LINE +1...`, `[env] wrote PHOTON_LINE in .env`, `[agent] imported +1... and assigned the agent` and `PHONE +1...`. If the import prints HTTP 4xx, import the number by hand in ElevenLabs (Deploy, Phone Numbers, Import number, From SIP Trunk; values in `voice/README.md`) and set its Agent to Scrub.
+2. Add `PHOTON_SUMMARY_TO=+1<Anish's mobile>` to `.env` so the end-of-case text has a fallback recipient.
+3. Stop the voice server and tunnel that are running now (voice node PID 81245 and npm PID 81196, tunnel PID 79751; `kill <pid>`, never `pkill`), then `.venv/bin/python -m controller.run_all --real`. The table shows the tunnel URL, `[agent] updated: Custom LLM .../v1` and `phone (call it) +1...`. If the arm is busy or `SO101_PORT` is empty, a `**` line says it runs the sim.
+4. Call the number from the registered phone (the shared line routes by caller). Scrub says "Scrub here. What do you need?" Say "hemostat": the log shows `[heard] hemostat` and `[command] handover hemostat`, the arm (or sim) moves, and Scrub says "Hemostat coming."
+5. Say "end of case": Scrub says "Closing the case." and the summary arrives as an iMessage in the same thread (log: `[photon] texted +1...`). iMessage needs an iPhone.
+6. If the call never reaches Scrub: app.photon.codes, project Dubhacks, Voice, Lines, the line, Set up default, SIP, Inbound calls, Enable inbound, address `sips:sip.rtc.elevenlabs.io:5061`, TLS, no credentials, Save. No `[heard]` in the log means the agent has an old tunnel URL; `[server] 401` means a secret mismatch. Either way rerun `cd voice && npm run agent -- <tunnel url>`.
+If the shared pool won't give a voice line or ElevenLabs refuses the import, the fallback is a dedicated Photon line (Business plan). Without a line, the demo drives the same voice server with `cd voice && npm run say -- "hemostat"`, and Photon is not claimed.
 
 ### Thermal baseline experiment (Caiden, only when the arm is free; not needed for the demo)
 TH2 in `explore/research/overheating/HANDOFF.md`: baseline experiment 1, then fan-only experiment 2, every follower motor at or under 47 C at the start, up to 10 minutes of the fixed routine, never bypass the 60 C cooldown. Analyze with `.venv/bin/python explore/thermal_analyze.py --session <id>` and append the C/min per motor to HANDOFF Results.
 
 ### DEV post (Anish, after the event)
-https://dev.to, New Post, the writeup from the last section of `docs/DEVPOST.md`, the MLH hackathon tag, link it in Devpost.
+https://dev.to, New Post, the writeup from the last section of `team/DEVPOST.md`, the MLH hackathon tag, link it in Devpost.
 
 ## Tonight's plan
 
@@ -135,7 +142,7 @@ Facts at 00:50: `arm.train deployments` returns an empty list, `status deploymen
 | 06:00 | Feature freeze: only fixes and tests from here | all | |
 | 06:30 to 07:15 | 11. Run 2 ready: 10 tries per item with `--skills model` (hemostat, scissors, scalpel). An item goes to `model` only if it passes its last 3 tries; `--skills auto` then picks per item. If run 2 is not ready by 07:15, use run 1 only | all four | the controller only |
 | 07:15 to 08:15 | 12. Film with `video/`: real tries only, cleaned only, the ledger success table as the end card, `video/edl/perceptron-arm.yaml` | Anish operates, Evan films and edits, Caiden runs `video/` | the controller for filming, then nothing |
-| 08:15 to 09:15 | 13. Devpost: video, measured numbers from the ledger, unproven marked unproven. Fill `docs/PITCH.md` and `docs/SLIDES.md` blanks. Choose the demo level (`docs/DEMO.md`) | Evan, Caiden, Anish | none |
+| 08:15 to 09:15 | 13. Devpost: video, measured numbers from the ledger, unproven marked unproven. Fill `team/PITCH.md` and `team/SLIDES.md` blanks. Choose the demo level (`team/DEMO.md`) | Evan, Caiden, Anish | none |
 | 09:15 to 09:30 | 14. Submit on Devpost. Pack for the Ballroom | everyone | none |
 
 What to cut if time runs short, first to last: sleep stays; drop the dim and extra-light batches; drop run 2 and use run 1 plus taught skills (level 1 still says which source each item used); the bench tray is not in this plan; 10 tries per item becomes 5 and the table says 5. Never cut QA before an upload and never film with a failed try removed without saying "cleaned" in the video.
@@ -192,15 +199,15 @@ Kept from the old hardware list. Commands and what you should see.
 
 | Decision | Why it matters | Decide by |
 | --- | --- | --- |
-| May the real arm use the saved spot when vision is down? | After 5 s with no Hand posts, the arm goes to the saved spot without a hand check. "Only toward an open hand" holds only while vision runs (`docs/AUDIT.md` Low) | before plan step 8 (4:20) |
-| Is the 400 ms deadline measured from the right moment? | It is measured after the frame is grabbed and encoded, so image age at execution can reach about 580 ms. Decide from the `counters.late` reading in plan step 8 (`docs/AUDIT.md` M6, M7) | 6:00 feature freeze |
+| May the real arm use the saved spot when vision is down? | After 5 s with no Hand posts, the arm goes to the saved spot without a hand check. "Only toward an open hand" holds only while vision runs (`team/AUDIT.md` Low) | before plan step 8 (4:20) |
+| Is the 400 ms deadline measured from the right moment? | It is measured after the frame is grabbed and encoded, so image age at execution can reach about 580 ms. Decide from the `counters.late` reading in plan step 8 (`team/AUDIT.md` M6, M7) | 6:00 feature freeze |
 
 ## Code
 
-Nearly empty. Everything planned is built and its tests pass (`docs/STATE.md`). What is left is doc text, kept here because each file has an owner.
+Everything planned is built and its tests pass (`team/STATE.md`). These three are open because each sits in a folder another session or owner was editing during this pass.
 
 | What | Who | Why it is still open |
 | --- | --- | --- |
-| `docs/OVERVIEW.md` section 2: "and turnover is high" has no source. Use "a surgical tech job takes about 120 days to fill (Periop Leader, 2024)", the line the pitch already uses | Anish | a one-line doc fix nobody has made |
-| `docs/DEMO.md` "Flag check on Oct 18 00:55" says `run_all` and the controller have no `--skills`. Both have it now (`--skills {model,taught,auto}`), and `run_all --real` is the judging preset. Drop the long-form fallback note | Caiden | written before `--skills` landed |
-| `video/` test `test_every_command_on_markerless_synthetic_assets` fails in a fresh worktree because the Playwright browser is not installed under `data/video/browser`. Install it once: `PLAYWRIGHT_BROWSERS_PATH=$PWD/data/video/browser .venv/bin/python -m playwright install chromium` | Caiden | environment setup, not a code bug; only matters on a new checkout |
+| `vision/profile_loop.py` `rss_bytes()` only works on Windows, so on the Mac it returns 0 and `vision.test_pipeline` `test_short_sim_source_loop_stays_bounded` fails. Fix: when `sys.platform != "win32"`, return `resource.getrusage(resource.RUSAGE_SELF).ru_maxrss` (bytes on macOS, KiB on Linux, so multiply by 1024 there) | Brandon | vision changed 30 minutes before this pass ended |
+| Paths to files moved into `team/`: `arm/README.md` line 3 and `ledger/README.md` line 3 name `docs/TASKS.md` (now `team/LEFT.md`); `ledger/README.md` line 86 and `controller/nurse.html` line 8 name `explore/prototypes/` (now `team/prototypes/`); `design/README.md` line 4 names `explore/status-board/` (now `team/status-board/`); `controller/demo.html` lines 10, 13, 145 and 157 name `docs/PITCH.md` (now `team/PITCH.md`) and line 120 and 157 name `PLAN.md` (deleted; the beats are in `team/PITCH.md`). Comments and doc text only, nothing reads these paths | Caiden's pages session (owns those folders and pages tonight) | this pass was told not to touch `arm/`, `ledger/`, `design/` or page HTML |
+| `video/` test `test_every_command_on_markerless_synthetic_assets` fails in a fresh worktree because the Playwright browser is not installed under `data/video/browser`. Install it once: `PLAYWRIGHT_BROWSERS_PATH=$PWD/data/video/browser .venv/bin/python -m playwright install chromium` | Caiden | environment setup, only on a new checkout |
