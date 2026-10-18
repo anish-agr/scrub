@@ -1,4 +1,6 @@
-Handoff from Anish's laptop session, Sun Oct 18 about 7 AM. You are taking over everything below. Final Devpost by 9:30 AM (it locks at 10:00), the video on YouTube unlisted by 9:00, everyone in the HUB Ballroom by 10:20, judging from 10:30. Work without asking me; anything only a person can do goes to me as one short line with the exact command. Use a lot of subagents: split every small task (each doc, each claim check, each sim fix, each video slot, each test run) into its own agent and run them in parallel, so the work finishes fast. You only coordinate and verify. Commit small, `git pull --rebase` before every push, never print or commit a key.
+You are starting fresh with no history. This file is all the context you need, plus the files it tells you to read. The project is Scrub, an SO-101 robot arm that passes surgical instruments by voice, built by Anish, Caiden, Brandon and Evan at DubHacks '26 (UW, Oct 17 to 18, 2026). It's Sunday morning: the video goes up on YouTube (unlisted) by 9:00 AM, the final Devpost by 9:30 (it locks at 10:00), everyone in the HUB Ballroom by 10:20, judging from 10:30.
+
+Do all of it yourself, start to finish. Use a lot of subagents: split every small task (each doc, each claim check, each sim fix, each video slot, each test run) into its own agent and run them in parallel. You coordinate and verify. Commit small, `git pull --rebase` before every push, never print or commit a key. When something needs a person (filming, a key, the arm), write it in your final report.
 
 ## Read first, in this order
 
@@ -17,7 +19,7 @@ Handoff from Anish's laptop session, Sun Oct 18 about 7 AM. You are taking over 
 - `d557181` `team/LEFT.md` top item: the Gemini `.env` lines and the redeploy command.
 - `3a92b17` `video/simdemo.py`: a scripted sim demo (IK keyframes, eased moves, the jaw closes on the item, the held item rides the gripper). `python -m video.simdemo sheet --out x.png` for a contact sheet, `render --draft --fps 15` for a quick look, `render --out ...` for 1080p 30 fps.
 
-## The scope as of now (Anish decided these; build to them)
+## What Scrub does in the demo (build everything to this)
 
 - Three instruments only: scalpel, hemostat, Mayo scissors.
 - The demo video is a hard-coded, recorded routine. Each clip is labeled with what really ran it (model or taught skill). No claim we can't show.
