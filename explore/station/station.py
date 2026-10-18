@@ -1,7 +1,7 @@
 """Persistent SO-101 recording station: one process, cameras/arms/dataset opened once, teleop always live.
 
-  .venv/bin/python explore/station/station.py --task "pick the spatula"
-  .venv/bin/python explore/station/station.py --task "pick the spatula" --root ~/scrub-dataset --port 8090
+  .venv/bin/python explore/station/station.py --task "pick the hemostat" --root ~/scrub-surgical --port 8090
+  .venv/bin/python explore/station/station.py --any-task --task "wave hello"     # play only: NOT FOR TRAINING
 
 Page: http://localhost:8090 (teammates can watch on http://<this Mac>:8090; buttons only work on this Mac).
 Enter in the terminal = start / save toggle. Ctrl-C = discard any open episode, park, finalize, exit.
@@ -20,6 +20,7 @@ import json
 import logging
 import os
 import queue
+import subprocess
 import sys
 import threading
 import time
@@ -45,6 +46,162 @@ COOL_PLATEAU_S = 180                             # cooled but stuck <= 55 C this
 ERROR_AFTER = 10                                 # consecutive failed loops before the state is "error"
 HTML = HERE / "station.html"
 LOCAL = ("127.0.0.1", "::1", "::ffff:127.0.0.1")
+USE_DEGREES = True                               # follower and leader; cadence entries record what the configs say
+MIN_CAM_FPS = 29.0                               # a camera under this in an episode: re-record it
+MAX_EPISODE_S = 20.0                             # longer episodes: re-record (short clean demos train better)
+QA_TIMEOUT_S = 180
+# Video repeats. Calibrated on ~/scrub-dataset (Oct 18): a frame whose mean |diff| to the one before is under
+# REPEAT_SAME is a repeat; good 30 fps cameras showed 1-10% repeats, the 18-20 fps wrist 17-23%, a 15 fps side 44-49%.
+REPEAT_SAME = 0.05
+REPEAT_SHARE = 0.15                              # more repeats than this: "repeated frames" (camera under ~25 fps)
+FROZEN_RUN_S = 1.0                               # one identical frame this long: "frozen" (real data max 0.5 s)
+# Recording targets. Run 1: hemostat only, 30-40 episodes, about 2/3 pick. Then 25-30 per item.
+TARGETS = [
+    {"label": "Run 1: hemostat", "min": 30, "max": 40,
+     "tasks": {"pick the hemostat": 24, "return the hemostat": 12}},
+    {"label": "Mayo scissors", "min": 25, "max": 30,
+     "tasks": {"pick the mayo scissors": 17, "return the mayo scissors": 9}},
+    {"label": "Scalpel", "min": 25, "max": 30, "tasks": {"pick the scalpel": 25, "return the scalpel": None}},
+]
+
+
+# ------------------------------------------------------------------------------------------------ tasks
+
+def allowed_tasks() -> list[str]:
+    """Exact pick/return instructions from settings/*.json (arm.record's recordable settings), surgical first,
+    each item's pick before its return; the run-1 hemostat pair leads."""
+    from arm import record
+    rows = record.instructions()
+    order = {"surgical": 0}
+    first = {"hemostat": 0, "mayo_scissors": 1, "scalpel": 2}
+    rows = [x for _, x in sorted(enumerate(rows), key=lambda ix: (
+        order.get(ix[1]["setting"], 1), first.get(ix[1]["item"], 9) if ix[1]["setting"] == "surgical" else 0, ix[0]))]
+    out = []
+    for x in rows:
+        if x["task"] not in out:
+            out.append(x["task"])
+    return out
+
+
+def check_task(task: str, any_task: bool = False) -> tuple[bool, str | None]:
+    """(ok, why not). Training data needs the exact instruction the model is told later."""
+    t = (task or "").strip()
+    if not t:
+        return False, "task: empty"
+    if any_task:
+        return True, None
+    if task in allowed_tasks():
+        return True, None
+    try:
+        from arm import record
+        record.resolve_task(task)
+    except SystemExit as e:
+        return False, f"task refused: {e} (or start with --any-task for play, NOT FOR TRAINING)"
+    return False, f"task refused: {task!r} is not a recordable instruction"
+
+
+# ------------------------------------------------------------------------------------------------ QA
+
+def quick_flags(cad: dict) -> list[str]:
+    """Flags that need no video: camera fps under MIN_CAM_FPS, or an episode over MAX_EPISODE_S."""
+    out = []
+    for role in ("side", "wrist"):
+        fps = (cad.get("camera_fps") or {}).get(role)
+        if fps is None:
+            out.append(f"{role} camera fps unknown")
+        elif fps < MIN_CAM_FPS:
+            out.append(f"{role} camera {fps:g} fps (under {MIN_CAM_FPS:g})")
+    sec = cad.get("seconds")
+    if sec is not None and sec > MAX_EPISODE_S:
+        out.append(f"{sec:g} s long (over {MAX_EPISODE_S:g} s)")
+    return out
+
+
+def episode_videos(ds, index: int) -> dict | None:
+    """qa_video's episode dict for an episode just saved: LeRobot keeps its video file and span in
+    meta.latest_episode until the episodes parquet is flushed."""
+    lat = getattr(ds.meta, "latest_episode", None) or {}
+    one = lambda v: v[0] if isinstance(v, (list, tuple)) else v  # noqa: E731
+    if one(lat.get("episode_index")) != index:
+        return None
+    vids = {}
+    for key in ds.meta.video_keys:
+        try:
+            p = ds.meta.video_path.format(video_key=key, chunk_index=int(one(lat[f"videos/{key}/chunk_index"])),
+                                          file_index=int(one(lat[f"videos/{key}/file_index"])))
+            vids[key] = {"path": str(Path(ds.root) / p), "from_s": float(one(lat[f"videos/{key}/from_timestamp"])),
+                         "to_s": float(one(lat[f"videos/{key}/to_timestamp"]))}
+        except (KeyError, TypeError, ValueError):
+            return None
+    return {"episode_index": index, "tasks": list(one(lat.get("tasks")) or []) if lat.get("tasks") else [],
+            "length": int(one(lat.get("length")) or 0), "videos": vids}
+
+
+def repeat_check(video: dict, fps: float, same: float = REPEAT_SAME) -> dict:
+    """Decode the episode's whole span: share of frames identical to the one before (a camera delivering
+    under 30 fps makes the recorder repeat frames), the longest identical run, and distinct frames per second."""
+    import cv2
+    first = int(round(video["from_s"] * fps))
+    last = max(first, int(round(video["to_s"] * fps)) - 1)
+    cap = cv2.VideoCapture(video["path"])
+    if not cap.isOpened():
+        return {"frames": 0}
+    cap.set(cv2.CAP_PROP_POS_FRAMES, first)
+    prev, n, rep, run, longest = None, 0, 0, 0, 0
+    for _ in range(last - first + 1):
+        ok, f = cap.read()
+        if not ok:
+            break
+        g = cv2.cvtColor(f, cv2.COLOR_BGR2GRAY)
+        if prev is not None:
+            if float(cv2.absdiff(g, prev).mean()) < same:
+                rep, run = rep + 1, run + 1
+                longest = max(longest, run)
+            else:
+                run = 0
+        prev, n = g, n + 1
+    cap.release()
+    sec = n / fps if fps else 0
+    return {"frames": n, "repeated": rep, "repeated_share": round(rep / max(n - 1, 1), 3), "longest_run": longest + (1 if longest else 0),
+            "distinct_fps": round((n - rep) / sec, 1) if sec else None}
+
+
+def video_qa(ep: dict, fps: float = FPS) -> dict:
+    """qa_video's local check (dark, unreadable; no API call) plus frozen / repeated frames per camera."""
+    sys.path.insert(0, str(EXPLORE / "dataset"))
+    import qa_video
+    row = qa_video.check_episode(ep, fps, None, 0)
+    reasons = list(row.get("reasons") or [])
+    flags = set(row.get("flags") or [])
+    for cam, video in ep["videos"].items():
+        name = cam.split(".")[-1]
+        r = repeat_check(video, fps)
+        row["cameras"].setdefault(name, {}).update(r)
+        if not r.get("frames"):
+            continue
+        if r["frames"] > 1 and r["repeated"] >= r["frames"] - 1:
+            flags.add("frozen")
+            reasons.append(f"{name}: frozen (every frame the same)")
+            continue
+        if r["longest_run"] >= FROZEN_RUN_S * fps:
+            flags.add("frozen")
+            reasons.append(f"{name}: frozen for {r['longest_run'] / fps:.1f} s")
+        if r["repeated_share"] > REPEAT_SHARE:
+            # the camera delivered fewer new frames than the 30 Hz recorder asked for (camera fps under 29)
+            flags.add("repeated_frames")
+            reasons.append(f"{name}: repeated frames {100 * r['repeated_share']:.0f}% "
+                           f"(camera about {r['distinct_fps']} fps, under {MIN_CAM_FPS:g})")
+    return {"flags": sorted(flags), "reasons": reasons, "cameras": row["cameras"]}
+
+
+def video_qa_subprocess(ep: dict, fps: float = FPS, timeout: float = QA_TIMEOUT_S) -> dict:
+    """video_qa in its own process (.venv python), so decoding never holds this process's GIL."""
+    out = subprocess.run([sys.executable, str(Path(__file__).resolve()), "--qa-episode", json.dumps(ep),
+                          "--qa-fps", str(fps)], capture_output=True, text=True, timeout=timeout)
+    lines = [x for x in out.stdout.splitlines() if x.startswith("{")]
+    if out.returncode != 0 or not lines:
+        raise RuntimeError((out.stderr or out.stdout).strip().splitlines()[-1:] or f"exit {out.returncode}")
+    return json.loads(lines[-1])
 
 
 # --------------------------------------------------------------------------------------------- hardware
@@ -67,9 +224,9 @@ def make_hardware(follower: str, leader: str, side: str, wrist: str):
         cams[role] = OpenCVCameraConfig(index_or_path=idx, width=640, height=480, fps=30)
         print(f"{role} camera: index {idx} ({spec})", flush=True)
     robot = SOFollower(SO101FollowerConfig(
-        port=follower, id="scrub_follower", use_degrees=True, disable_torque_on_disconnect=False,
+        port=follower, id="scrub_follower", use_degrees=USE_DEGREES, disable_torque_on_disconnect=False,
         max_relative_target=15.0, cameras=cams))  # LeRobot only accepts a float (int -> TypeError)
-    teleop = SOLeader(SO101LeaderConfig(port=leader, id="scrub_leader", use_degrees=True))
+    teleop = SOLeader(SO101LeaderConfig(port=leader, id="scrub_leader", use_degrees=USE_DEGREES))
     return robot, teleop
 
 
@@ -205,11 +362,23 @@ class Station:
     (fakes in the test). All robot/dataset calls happen on the loop thread; controls are queued to it."""
 
     def __init__(self, robot, teleop, dataset, task: str, root, fps: int = FPS, reconnect=reconnect_hardware,
-                 cooling_factory=None):
+                 cooling_factory=None, any_task: bool = False, video_qa_fn=None):
         from lerobot.processor import make_default_processors
         from lerobot.utils.constants import ACTION, OBS_STR
+        ok, why = check_task(task, any_task)
+        if not ok:
+            raise ValueError(why)
+        self.any_task = any_task
+        self.allowed = allowed_tasks()
         self.robot, self.teleop, self.ds = robot, teleop, dataset
         self.task, self.root, self.fps = task, Path(root).expanduser(), fps
+        self.counts_base = self._dataset_counts()  # per task, from the dataset's meta at start
+        self.counts_session: dict = {}
+        self.qa: list = []                       # one row per episode saved this session
+        self.qa_lock = threading.Lock()
+        self.qa_q: queue.Queue = queue.Queue()
+        self.video_qa_fn = video_qa_fn or video_qa_subprocess
+        threading.Thread(target=self._qa_worker, daemon=True, name="video-qa").start()
         self.reconnect_fn = reconnect
         self.cooling_factory = cooling_factory or (lambda: A.thermal.Cooling(
             resume=COOL_RESUME, trip=COOL_TRIP, plateau_s=COOL_PLATEAU_S))
@@ -252,6 +421,104 @@ class Station:
         self._install_hooks()
         thermal_log.get({"source": "station", "pid": os.getpid(), "task": task, "root": str(self.root),
                          "mode": "station", "settings": {"COOL_TRIP": COOL_TRIP, "COOL_RESUME": COOL_RESUME}})
+
+    # ---- counts and QA
+    def _dataset_counts(self) -> dict:
+        out: dict = {}
+        try:
+            eps = self.ds.meta.episodes
+            rows = eps["tasks"] if eps is not None else []
+        except Exception:  # noqa: BLE001
+            rows = []
+        for tasks in rows:
+            for t in (tasks if isinstance(tasks, (list, tuple)) else [tasks])[:1]:
+                out[t] = out.get(t, 0) + 1
+        return out
+
+    def counts(self) -> dict:
+        tasks = list(dict.fromkeys([*self.allowed, *self.counts_base, *self.counts_session]))
+        by = {t: {"dataset": self.counts_base.get(t, 0), "session": self.counts_session.get(t, 0),
+                  "total": self.counts_base.get(t, 0) + self.counts_session.get(t, 0)} for t in tasks}
+        groups = []
+        for g in TARGETS:
+            done = sum(by.get(t, {}).get("total", 0) for t in g["tasks"])
+            groups.append({"label": g["label"], "min": g["min"], "max": g["max"], "done": done,
+                           "tasks": {t: {"target": n, "done": by.get(t, {}).get("total", 0)} for t, n in g["tasks"].items()}})
+        return {"by_task": by, "targets": groups,
+                "flagged_session": [r["episode"] for r in self._qa_rows() if r["status"] == "FAIL"]}
+
+    def _qa_rows(self) -> list:
+        with self.qa_lock:
+            return [dict(r, reasons=list(r["reasons"])) for r in self.qa]
+
+    def _qa_begin(self, index: int, task: str, cad: dict, ep) -> None:
+        quick = quick_flags(cad)
+        row = {"episode": index, "task": task, "status": "FAIL" if quick else "checking", "reasons": list(quick),
+               "quick": quick, "video": None, "video_done": False, "acked": False, "seconds": cad.get("seconds"),
+               "camera_fps": cad.get("camera_fps")}
+        with self.qa_lock:
+            self.qa.append(row)
+        if quick:
+            self.note(f"RE-RECORD episode {index}: {'; '.join(quick)}")
+        if ep is None:
+            self._qa_finish(index, None, "video span unknown, video QA skipped")
+        else:
+            self.qa_q.put((index, ep))
+
+    def _qa_finish(self, index: int, res, error: str | None = None) -> None:
+        with self.qa_lock:
+            row = next((r for r in self.qa if r["episode"] == index), None)
+            if row is None:
+                return
+            row["video_done"] = True
+            if error:
+                row["video"] = {"error": error}
+            else:
+                row["video"] = res
+                row["reasons"] += list(res.get("reasons") or [])
+            row["status"] = "FAIL" if row["reasons"] else "PASS"
+            status, reasons = row["status"], list(row["reasons"])
+        self.event("episode_qa", episode=index, status=status, reasons=reasons, error=error)
+        self.note(f"QA episode {index}: " + ("PASS" if status == "PASS" else "RE-RECORD: " + "; ".join(reasons))
+                  + (f" ({error})" if error else ""))
+        self._write_qa_file()
+
+    def _write_qa_file(self) -> None:
+        """<root>-station-qa.json: every episode's QA this and earlier sessions (outside the dataset)."""
+        path = Path(f"{self.root}-station-qa.json")
+        try:
+            data = json.loads(path.read_text()) if path.exists() else {"episodes": []}
+        except ValueError:
+            data = {"episodes": []}
+        rows = {e["episode"]: e for e in data.get("episodes", [])}
+        for r in self._qa_rows():
+            if r["video_done"]:
+                rows[r["episode"]] = {k: r[k] for k in ("episode", "task", "status", "reasons", "seconds", "camera_fps")}
+        try:
+            path.write_text(json.dumps({"episodes": [rows[k] for k in sorted(rows)]}, indent=1))
+        except OSError:
+            pass
+
+    def _qa_worker(self) -> None:
+        while True:
+            index, ep = self.qa_q.get()
+            try:
+                res = self.video_qa_fn(ep, self.fps)
+                if "unreadable" in (res.get("flags") or []):
+                    # the next save may be rewriting the shared mp4 (LeRobot concatenates, then copies it
+                    # over the old file): look again once it is done
+                    time.sleep(3)
+                    while self.saving:
+                        time.sleep(0.5)
+                    res = self.video_qa_fn(ep, self.fps)
+                self._qa_finish(index, res)
+            except Exception as e:  # noqa: BLE001 - QA never stops recording
+                self._qa_finish(index, None, f"video QA failed: {type(e).__name__}: {str(e)[:160]}")
+            finally:
+                self.qa_q.task_done()
+
+    def qa_idle(self) -> bool:
+        return self.qa_q.unfinished_tasks == 0 and all(r["video_done"] for r in self._qa_rows())
 
     # ---- hooks the guards call (they look these up on arm_ui / arm_session at call time)
     def _install_hooks(self) -> None:
@@ -364,13 +631,20 @@ class Station:
         if action == "wake":
             return self._wake()
         if action == "task":
-            t = (task or "").strip()
-            if not t:
-                return False, "task: empty"
+            t = (task or "").strip() if self.any_task else (task or "")
+            ok, why = check_task(t, self.any_task)
+            if not ok:
+                return False, why
             if self.state == "recording":
                 return False, "task: finish this episode first"
             self.task = t
-            return True, f"task: {t!r}"
+            return True, f"task: {t!r}" + (" (NOT FOR TRAINING)" if t not in self.allowed else "")
+        if action == "qa_ack":
+            with self.qa_lock:
+                for r in self.qa:
+                    if r["status"] == "FAIL" and r["video_done"]:
+                        r["acked"] = True
+            return True, "QA flags noted"
         if action == "reconnect":
             return self._reconnect()
         return False, f"unknown action {action!r}"
@@ -431,7 +705,7 @@ class Station:
         if self.frames == 0:
             self._discard("empty")
             return False
-        idx, n = self.ep_index, self.frames
+        idx, n, task = self.ep_index, self.frames, self.task
         cad = self._end("saved")
         self.saving = True
         self.note(f"saving episode {idx} ({n} frames, {cad['seconds']} s)...")
@@ -443,7 +717,9 @@ class Station:
                 stamps = [float(t) for t in buf.get("timestamp", [])]
                 self.ds.save_episode()
                 self.session_saved += 1
-                self._write_cadence(idx, cad)
+                self.counts_session[task] = self.counts_session.get(task, 0) + 1
+                self._write_cadence(idx, {**cad, "use_degrees": self.use_degrees(), "task": task})
+                self._qa_begin(idx, task, cad, episode_videos(self.ds, idx))
                 self.event("episode_saved", episode=idx, frames=n, duration_s=cad["seconds"], cadence=cad,
                            session_done=self.session_saved, total=self.ds.meta.total_episodes)
                 self.note(f"episode {idx} saved ({self.ds.meta.total_episodes} in the dataset)")
@@ -452,7 +728,7 @@ class Station:
                     import to_mongo
                     names = self.ds.features["action"]["names"]
                     threading.Thread(target=to_mongo.upload_episode, daemon=True, name="to_mongo", args=(
-                        self.root, idx, self.task, self.ds.fps, names, joints["observation.state"],
+                        self.root, idx, task, self.ds.fps, names, joints["observation.state"],
                         joints["action"], stamps)).start()
                 except Exception as e:  # noqa: BLE001
                     self.note(f"MongoDB episode upload skipped ({type(e).__name__})")
@@ -468,6 +744,12 @@ class Station:
         self.save_thread = threading.Thread(target=run, daemon=True, name="save")
         self.save_thread.start()
         return True
+
+    def use_degrees(self) -> bool:
+        """What the follower and leader configs say (both must be in degrees), USE_DEGREES if a config is missing."""
+        vals = [getattr(getattr(d, "config", None), "use_degrees", None) for d in (self.robot, self.teleop)]
+        vals = [USE_DEGREES if v is None else bool(v) for v in vals]
+        return all(vals)
 
     def _write_cadence(self, index: int, entry: dict) -> None:
         """<root>-cadence.json, the per-episode timing file arm.train's check reads (same as arm_ui)."""
@@ -747,6 +1029,9 @@ class Station:
                 warn.append(f"{k} camera {c['fps']:.0f} fps (needs 30)")
         if self.saving:
             warn.append("Saving the last episode...")
+        if self.task not in self.allowed:
+            warn.append(f"NOT FOR TRAINING: task {self.task!r} is not a settings instruction (--any-task)")
+        qa = self._qa_rows()
         try:
             total = self.ds.meta.total_episodes
         except Exception:  # noqa: BLE001
@@ -759,6 +1044,11 @@ class Station:
                 "parked": bool(arm_ui.S.get("parked")), "killed": self.killed, "error": self.error,
                 "cooling": self.cooling is not None, "guard": arm_ui.S.get("guard"),
                 "grip_health": arm_ui.S.get("grip_health"), "root": str(self.root), "warnings": warn,
+                "any_task": self.any_task, "task_ok": self.task in self.allowed, "allowed_tasks": self.allowed,
+                "use_degrees": self.use_degrees(), "counts": self.counts(), "qa": qa,
+                "last_qa": qa[-1] if qa else None,
+                "rerecord": [f"RE-RECORD episode {r['episode']}: {'; '.join(r['reasons'])}" for r in qa
+                             if r["status"] == "FAIL" and not r["acked"]],
                 "log": list(self.log), "now": time.time()}
 
     def jpeg(self, name: str):
@@ -885,9 +1175,17 @@ def wait_for_devices(a) -> None:
         time.sleep(1)
 
 
-def main() -> None:
+def main(argv=None) -> None:
+    argv = sys.argv[1:] if argv is None else argv
+    if argv[:1] == ["--qa-episode"]:             # the background video QA (video_qa_subprocess)
+        fps = float(argv[argv.index("--qa-fps") + 1]) if "--qa-fps" in argv else FPS
+        print(json.dumps(video_qa(json.loads(argv[1]), fps), default=str), flush=True)
+        return
     p = argparse.ArgumentParser(description=__doc__.split("\n")[0])
-    p.add_argument("--task", default="pick the spatula", help="instruction stored with each frame")
+    p.add_argument("--task", default="pick the hemostat",
+                   help="exact pick/return instruction from settings/*.json, stored with each frame")
+    p.add_argument("--any-task", action="store_true",
+                   help="allow any task text (play, demos): the page says NOT FOR TRAINING")
     p.add_argument("--root", default=str(Path.home() / "scrub-dataset"))
     p.add_argument("--repo", default=REPO)
     p.add_argument("--port", type=int, default=8090)
@@ -897,7 +1195,10 @@ def main() -> None:
     p.add_argument("--leader", default=A.LEADER)
     p.add_argument("--ease-s", type=float, default=3.0)
     p.add_argument("--no-browser", action="store_true")
-    a = p.parse_args()
+    a = p.parse_args(argv)
+    ok, why = check_task(a.task, a.any_task)
+    if not ok:
+        raise SystemExit(f"{why}\nAllowed: " + "; ".join(allowed_tasks()))
     start_log()
     A.lenient_motor_check()
     A.retry_bus_reads()
@@ -929,9 +1230,11 @@ def main() -> None:
         robot.disconnect()
         teleop.disconnect()
         raise
-    st = Station(robot, teleop, ds, a.task, a.root)
+    st = Station(robot, teleop, ds, a.task, a.root, any_task=a.any_task)
     st.killed, st.state = True, "off"  # motors start off; Motors on wakes in place and follows the leader
     srv = serve(st, a.port)
+    if a.any_task:
+        st.note("--any-task: free text allowed. Episodes with a non-settings task are NOT FOR TRAINING")
     st.note(f"station ready: http://localhost:{a.port}  task {a.task!r}  dataset {a.root} "
             f"({ds.meta.total_episodes} episodes). Enter = start/save, Ctrl-C = exit")
     threading.Thread(target=stdin_loop, args=(st,), daemon=True, name="stdin").start()
