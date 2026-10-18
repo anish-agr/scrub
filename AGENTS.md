@@ -6,7 +6,7 @@ This repo is vibe coded: agents write the code, people test it on the hardware a
 
 The person will tell you their name (Anish, Caiden, Brandon or Evan). Then:
 
-1. Read `README.md` (the system), `docs/CONTRACTS.md` (the messages every part uses) and your person's section of `docs/TASKS.md`.
+1. Read `docs/OVERVIEW.md` (every idea and decision in one place), `README.md` (the system), `docs/CONTRACTS.md` (the messages every part uses) and your person's section of `docs/TASKS.md`.
 2. Run `git pull --rebase`. Open `docs/STATUS.md`. Your person's next task is the first unchecked box in their section.
 3. Read the README in the folder that task lives in, and the files already there.
 4. Build it. You have full permission inside your person's files: install packages, create files, run commands and servers, commit and push. Don't ask for approval or plans. Only stop for something only a human can do (a key, plugging in a device, testing on the arm, the camera or a phone).

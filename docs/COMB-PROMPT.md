@@ -21,7 +21,7 @@ Use a multi-agent workflow. You are the orchestrator.
 ## Phase 0: understand everything (read before changing anything)
 
 Read all of these, fully:
-- `README.md`, `AGENTS.md`, every file in `docs/` (CONTRACTS, PLAN, TASKS, STATUS, LEFT, QA, BRINGUP, TRAINING, TRAINING-HANDOFF-PROMPT, ARM, PERCEPTRON-ROBOTICS, PERCEPTRON, PITCH, SLIDES, NEXT, DEVPOST, DEV-POST, README-PUBLIC, DATA-LOG, SETUP, PROPOSAL, PROMPTS), and every folder README.
+- `docs/OVERVIEW.md` first (it explains every idea, decision and folder, including how to treat `explore/`), then `README.md`, `AGENTS.md`, every file in `docs/` (CONTRACTS, PLAN, TASKS, STATUS, LEFT, QA, BRINGUP, TRAINING, TRAINING-HANDOFF-PROMPT, ARM, PERCEPTRON-ROBOTICS, PERCEPTRON, PITCH, SLIDES, NEXT, DEVPOST, DEV-POST, README-PUBLIC, DATA-LOG, SETUP, PROPOSAL, PROMPTS), and every folder README.
 - Every source file in `controller/`, `voice/`, `vision/`, `arm/`, `ledger/`, `dashboard/`, `settings/`, `deploy/`, and the parts of `explore/` that the build uses (`explore/arm_session.py`, `explore/arm_ui.*`, `explore/dataset/`, `explore/research/isaac-workshop-notes.md`).
 - `git log --since="18 hours ago" --stat` to see who changed what.
 
