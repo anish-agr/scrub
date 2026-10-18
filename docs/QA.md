@@ -17,9 +17,9 @@ Stack under test:
 | QA-01 | Missing Reset / Clear-Stop button locks UI after Stop | `dashboard/` | Evan | Critical |
 | QA-02 | Camera stream never displays; stuck on fallback text | `dashboard/` | Evan | High |
 | QA-03 | Camera stream URL hardcoded to `localhost:8001` breaks remote and HTTPS use | `dashboard/` | Evan | Medium |
-| QA-04 | `vision --fake` synthetic hand has `target: null`, causing handover timeouts | `vision/` | Brandon | High |
-| QA-05 | `vision --fake` detector only detects hemostat, breaking other 8 items | `vision/` | Brandon | High |
-| QA-06 | `vision --fake` never marks slot empty after pick, causing false grasp failures | `vision/` | Brandon | Medium |
+| QA-04 | `vision --fake` synthetic hand has `target: null`, causing handover timeouts | `vision/` | Brandon (Fixed) | High |
+| QA-05 | `vision --fake` detector only detects hemostat, breaking other 8 items | `vision/` | Brandon (Fixed) | High |
+| QA-06 | `vision --fake` never marks slot empty after pick, causing false grasp failures | `vision/` | Brandon (Fixed) | Medium |
 | QA-07 | Ledger `_out()` never clears on Reset or Setting change, polluting public page | `ledger/` | Evan | High |
 | QA-08 | Dashboard setting state overwritten by polling; server settings never loaded | `dashboard/` | Evan | Medium |
 | QA-09 | Empty Results tables render blank table headers alongside empty note | `dashboard/`, `ledger/` | Evan | Low |
@@ -97,6 +97,7 @@ Stack under test:
   In `controller/core.py`, `_tracking()` sees Hand packets arriving and waits for `_hand_ready()`, which rejects any Hand where `target` is not a 3-element list of floats. It times out after 10 seconds and diverts to the safe spot.
 - **Expected behavior**:
   In `--fake` mode, `vision` should supply synthetic calibration points or default hand target coordinates (e.g. `[0.22, -0.10, 0.18]`) so simulated end-to-end handovers can complete without physical calibration.
+- **Status**: Fixed. Added `synthetic_calibration()` to `vision/calibrate.py` and enabled `fake_calibration=True` in `--fake` mode, providing `[0.22, -0.10, 0.18]` handoff target.
 
 ---
 
@@ -115,6 +116,7 @@ Stack under test:
   All other items across all three settings are reported as `present: false`.
 - **Expected behavior**:
   In `--fake` mode, `_ScriptedDetector` should return detections for the items belonging to the currently active setting, allowing full testing of all 9 instruments.
+- **Status**: Fixed. Implemented `FakeDetector` in `vision/tray.py` which emits detections for all active items across all three settings (surgical, dental, and bench).
 
 ---
 
@@ -131,6 +133,7 @@ Stack under test:
   `_ScriptedDetector` always reports `hemostat` present in its slot. After picking, `controller/core.py` checks `_lifted()`, which looks at whether the slot is empty in fresh TrayState messages. Because fake vision still reports the hemostat in the slot, `_lifted()` returns `False`, causing the controller to assume the grasp failed and trigger a retry.
 - **Expected behavior**:
   Fake vision should simulate slot depletion when an item is picked, or the fake detector should accept simulated scene state.
+- **Status**: Fixed. `FakeDetector` checks controller state (`GET /state`) during picks and marks picked items as depleted from their slots, allowing `_lifted()` checks to pass cleanly on the first attempt. Also supports `empty_slot()`, `fill_slot()`, and `set_return_spot()`.
 
 ---
 

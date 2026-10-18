@@ -149,22 +149,102 @@ class _FlakyDetector:
         return []
 
 
+def run_lighting_test(
+    grabber,
+    detector,
+    tracker,
+    categories: list[str],
+    label: str = "normal",
+    duration_s: float = 2.0,
+    out_csv: Path | None = None,
+) -> dict:
+    """Record detection rate, hand-tracking rate, and stale rate for one lighting condition."""
+    total_frames = 0
+    detection_ok = 0
+    hand_ok = 0
+    stale_count = 0
+    brightnesses = []
+
+    deadline = time.monotonic() + duration_s
+    while time.monotonic() < deadline:
+        latest = grabber.latest()
+        if latest is None:
+            time.sleep(0.02)
+            continue
+
+        frame = latest[0]
+        total_frames += 1
+        brightnesses.append(float(frame.mean()))
+
+        # Check detection
+        try:
+            detections = detector.detect(frame, categories)
+            if detections:
+                detection_ok += 1
+        except Exception:
+            stale_count += 1
+
+        # Check hand tracking
+        try:
+            hands = tracker.detect(frame)
+            if hands:
+                hand_ok += 1
+        except Exception:
+            pass
+
+        time.sleep(0.05)
+
+    if total_frames == 0:
+        total_frames = 1
+
+    det_rate = detection_ok / total_frames
+    hand_rate = hand_ok / total_frames
+    stale_rate = stale_count / total_frames
+    mean_b = sum(brightnesses) / len(brightnesses) if brightnesses else 0.0
+
+    result = {
+        "lighting": label,
+        "brightness": round(mean_b, 1),
+        "samples": total_frames,
+        "detection_rate": round(det_rate, 3),
+        "hand_tracking_rate": round(hand_rate, 3),
+        "stale_rate": round(stale_rate, 3),
+    }
+
+    if out_csv is not None:
+        out_csv.parent.mkdir(parents=True, exist_ok=True)
+        write_header = not out_csv.exists() or out_csv.stat().st_size == 0
+        with out_csv.open("a", encoding="utf-8") as handle:
+            if write_header:
+                handle.write("lighting,brightness,samples,detection_rate,hand_tracking_rate,stale_rate\n")
+            handle.write(
+                f"{label},{mean_b:.1f},{total_frames},{det_rate:.3f},{hand_rate:.3f},{stale_rate:.3f}\n"
+            )
+
+    return result
+
+
 def main(argv: list[str] | None = None) -> None:
     import argparse
     import os
+    from pathlib import Path
 
     from dotenv import load_dotenv
 
-    from vision.camera import FrameGrabber
+    from vision.camera import FakeCapture, FrameGrabber, lock_controls, open_capture
+    from vision.hand import HandTracker, synthetic_landmarks
     from vision.service import ROOT
+    from vision.tray import FakeDetector, categories_for, fallback_setting
 
     load_dotenv(ROOT / ".env")
-    parser = argparse.ArgumentParser(description="Brightness check, or a lighting-test row in a CSV")
+    parser = argparse.ArgumentParser(description="Measure lighting or run lighting test mode")
     parser.add_argument("--fake", action="store_true")
     parser.add_argument("--seconds", type=float, default=2.0)
-    parser.add_argument("--label", default="now", help="bright, normal, or dim")
+    parser.add_argument("--label", default="normal", help="bright, normal, or dim")
     parser.add_argument("--test", action="store_true", help="record hand, detect, and stale rates")
-    parser.add_argument("--csv", default="vision/lighting_tests.csv")
+    parser.add_argument("--test-mode", action="store_true", help="record hand, detect, and stale rates")
+    parser.add_argument("--all-conditions", action="store_true", help="test bright, normal, and dim sequentially")
+    parser.add_argument("--csv", default="vision/lighting_tests.csv", help="output CSV path")
     parser.add_argument("--check-api", action="store_true", help="one live /v1/detect call; prints status only")
     args = parser.parse_args(argv)
 
@@ -180,11 +260,7 @@ def main(argv: list[str] | None = None) -> None:
         )
         return
 
-    if args.test:
-        from vision.camera import FrameGrabber
-        from vision.hand import synthetic_landmarks
-        from vision.tray import categories_for, fallback_setting
-
+    if args.test or args.test_mode:
         if args.fake:
             capture = FakeCapture()
             lock_controls(capture, exposure=-6)
@@ -199,11 +275,11 @@ def main(argv: list[str] | None = None) -> None:
 
             detector = PerceptronDetector(os.environ.get("PERCEPTRON_API_KEY", ""))
             hand_source = None
+
         grabber = FrameGrabber(capture).start()
         try:
             if hand_source is None:
-                from vision.hand import HandTracker, ensure_model
-                from vision.service import ROOT
+                from vision.hand import ensure_model
 
                 tracker = HandTracker(ensure_model(ROOT))
 

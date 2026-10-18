@@ -61,6 +61,10 @@ def create_app(runtime: Runtime) -> FastAPI:
     def latest_tray():
         return runtime.tray or {}
 
+    @app.get("/lighting")
+    def latest_lighting():
+        return runtime.lighting or {"lighting": "normal", "lux": 450.0, "brightness": 128.0}
+
     @app.post("/clinician")
     def clinician(body: dict):
         name = str(body["name"])

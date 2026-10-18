@@ -34,10 +34,6 @@ From `docs/PROPOSAL.md` (tracks section) and the demo. All of these are in the p
 | F2 | **Count from the camera:** "count" reconciles the controller's `out` list with the latest TrayState (empty slots plus the return spot) and says if they disagree. `GET /state` gains an optional `out_camera` field | Perceptron Perception | Caiden phase 2 |
 | F3 | **Photon texts in:** the same Photon thread accepts texts. "add a second hemostat to the surgical tray" logs a restock to the ledger and replies; "what's out?" replies with the count. Gemini parses it with the same item list | Photon | Caiden phase 2 |
 | F4 | **Call to text memory:** the end-of-case text goes to the number that called and names the case (setting, start time, items used, anything still out, median request-to-hand time). Optional `case_id` on events | Photon | Caiden phase 2 |
-| F5 | **Lighting from the camera:** vision measures scene brightness, tags bright, normal or dim, and posts it to `POST /lighting` with an estimated lux, so the tables tag lighting without anyone clicking | Perceptron Perception, lighting tables | Antigravity |
-| F6 | **Live boxes on every instrument:** the stream draws each detected item with its name and confidence, highlights the return spot when occupied, and shows the palm dot with the handoff target | Perceptron Perception, demo | Antigravity |
-| G3 | `docs/NEXT.md`: the DubHacks NEXT business case (dental offices first, price per chair per month, the cost of an unfilled assistant shift, what we changed this weekend), from `explore/research` and `explore/pages/startup-case.html`. Check every number against its source | DubHacks NEXT | Antigravity |
-| G4 | `docs/DEV-POST.md`: a draft of the DEV post (data collection, lighting tests, what we learned), with blanks for measured results | MLH DEV | Antigravity |
 
 ## Blockers only people can clear
 
