@@ -16,12 +16,14 @@ from pathlib import Path
 
 import uvicorn
 from fastapi import FastAPI
+from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import HTMLResponse
 
 import thermal_log as T
 
 KINDS = ["sample", "cooling", "idle", "experiment"]
 app = FastAPI()
+app.add_middleware(CORSMiddleware, allow_origins=["*"], allow_methods=["GET"])  # controller/ops.html reads /api/data
 LOCAL = False
 
 
