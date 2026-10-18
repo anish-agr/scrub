@@ -13,7 +13,7 @@ The checklist for the operator (the person or agent helping at the arm) is the s
 
 ## Rules that matter
 
-- **Only 2 training runs, ever** (the workshop limit; the live API reported 5 successful jobs per team on Oct 18, and we keep to two until staff confirm). Run 1 is the operating room tray. Run 2 is everything. Don't start a run until the dataset check passes.
+- **5 successful training jobs per team** (the live API reported this at 2:05 AM Oct 18; 0 used). Run 1 is the hemostat, pick and return, 30 to 40 episodes. Run 2 is all surgical items, started as soon as its data passes `python -m arm.train preflight`. A run 3 only to fix something runs 1 or 2 showed. Record with `explore/station/station.py` into `~/scrub-surgical` (not `~/scrub-dataset`, which holds spatula episodes), episodes under 20 s. Don't start a run until the dataset check passes.
 - **One dataset for everything.** Same repo, same calibration, cameras never moved. Later batches add to it with `--resume=true`.
 - **Use the exact instruction text** from `settings/surgical.json` and `settings/bench.json`: `pick the hemostat`, `return the hemostat`, and so on. The model is told the same words later.
 - **Each episode is about 10 to 20 seconds.** "Pick" ends with the arm holding the item still at the carry pose. "Return" ends with the item in its slot and the arm back home.

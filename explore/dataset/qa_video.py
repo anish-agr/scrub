@@ -11,6 +11,13 @@ Per episode and camera it reads 3 frames (start, middle, end) and flags:
   dropped        Perceptron says an instrument falls or is dropped during the episode
 The API part is one chat completions call per episode on the brightest camera, capped by --max-calls.
 Writes <report>.md and <report>.json, one row per episode.
+
+Callable from other modules (writes no report; the dataset is only read):
+  video_failures(root, episode=None, use_api=False, max_calls=30) -> list[str]
+      one "episode N: camera: reason" string per problem; [] means clean. episode=None checks every episode, an
+      int checks only that episode_index. Local checks only (dark, unreadable) unless use_api=True, which also
+      needs PERCEPTRON_API_KEY in the repo .env and adds grasp_failed / dropped reasons.
+      An unreadable dataset returns one "dataset: ..." reason instead of raising.
 """
 from __future__ import annotations
 
@@ -278,6 +285,35 @@ def write_report(path_md: str, dataset: str, rows: list[dict], summary: dict) ->
     with open(path_json, "w") as f:
         json.dump({"dataset": dataset, "summary": summary, "episodes": rows}, f, indent=2)
     return path_json
+
+
+def video_failures(root: str, episode: int | None = None, use_api: bool = False, max_calls: int = 30) -> list[str]:
+    """Plain entry point for `python -m arm.train preflight`; see the module docstring."""
+    try:
+        root = resolve_dataset(str(root))
+        info, episodes = load_episodes(root)
+        if episode is not None:
+            episodes = [e for e in episodes if e["episode_index"] == int(episode)]
+            if not episodes:
+                return [f"dataset: no episode {episode}"]
+        if not episodes:
+            return ["dataset: no episodes"]
+        key = None
+        if use_api:
+            from dotenv import load_dotenv
+            load_dotenv(os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "..", ".env"))
+            key = os.environ.get("PERCEPTRON_API_KEY", "").strip() or None
+        fps = float(info.get("fps") or 30)
+        out, calls = [], 0
+        for ep in episodes:
+            row = check_episode(ep, fps, key, max_calls - calls)
+            calls += 1 if row["api"] else 0
+            out += [f"episode {row['episode']}: {r}" for r in row["reasons"]]
+        return out
+    except SystemExit as e:
+        return [f"dataset: {e.code}"]
+    except Exception as e:  # noqa: BLE001 - missing meta, corrupt files
+        return [f"dataset: cannot be read ({type(e).__name__}: {e})"]
 
 
 def main(argv=None) -> int:
