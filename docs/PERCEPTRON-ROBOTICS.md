@@ -85,7 +85,7 @@ The model uses the `side` and `wrist` cameras, and LeRobot opens them. Brandon's
 - How many deployments can a team have at once?
 - Typical predict latency per chunk.
 
-## Part 2: Vision API (detect and captions)
+## Part 2: Vision API (detect, captions, OCR)
 
 Owner: Brandon. Docs: https://docs.perceptron.inc/capabilities/detect (checked Oct 17, 2026). Training and inference for the arm are Part 1.
 
@@ -154,39 +154,67 @@ When a call fails or exceeds the timeout, the last good TrayState is posted agai
 
 ### Chat completions: captions and video
 
-Perceptron has an OpenAI-compatible Chat Completions API for image captions, video understanding and temporal clipping (checked from `docs.perceptron.inc` Oct 17, 2026).
+Perceptron has an OpenAI-compatible Chat Completions API for image captions, video understanding and text reading (checked from `docs.perceptron.inc` Oct 17 and 18, 2026).
 
 - `POST https://api.perceptron.inc/v1/chat/completions`, same headers and key as detect.
-- Model: `perceptron-mk1.5` (or `perceptron-mk1`). `vision/clips.py` uses `perceptron-mk1.5`.
-- Concise caption, SDK helper `caption(style="concise")`, prompt `"Provide a concise, human-friendly caption for the upcoming image."` We use it for short event lines in the case log, like `"scalpel set at the safe spot, 14:02"`.
+- Model: `perceptron-mk1.5` (or `perceptron-mk1`). `vision/clips.py` and `vision/reading.py` use `perceptron-mk1.5`.
+- Concise caption, SDK helper `caption(style="concise")`, prompt `"Provide a concise, human-friendly caption for the upcoming image."`
 - Detailed caption, `caption(style="detailed")`, prompt `"Provide a detailed caption describing key objects, relationships, and context in the upcoming image."`
-- Video input (`video/mp4`, `video/webm`) goes in as a hosted `video_url`, the SDK `video()` helper, or sampled frames as `image_url` data URLs. A request with clipping and thinking:
+- Video input (`video/mp4`, `video/webm`) goes in as a hosted `video_url`, the SDK `video()` helper, or sampled frames. Scrub sends frames, see "Captions for event clips".
+- `vision_config.enable_thinking` is deprecated. Use `reasoning_effort`.
 
-```json
-{
-  "model": "perceptron-mk1.5",
-  "messages": [
-    {
-      "role": "user",
-      "content": [
-        {"type": "video_url", "video_url": {"url": "https://example.com/clip.mp4"}},
-        {"type": "text", "text": "Identify and label the key action in this clip (e.g. 'scalpel set at the safe spot')."}
-      ]
-    }
-  ],
-  "vision_config": {"annotation_format": "clip", "enable_thinking": true}
-}
+### OCR (text reading)
+
+There is no separate OCR endpoint. Text reading uses `POST https://api.perceptron.inc/v1/chat/completions`, model `perceptron-mk1.5`, with the same Bearer key as `/v1/detect`. Source: `docs.perceptron.inc/perceptron-mk1.5/capabilities/ocr`, checked Oct 18, 2026.
+
+Request:
+
+- `messages[0].content`: an `image_url` part (data URL) plus a `text` part.
+- Top-level `reasoning_effort`: `none`, `minimal`, `low`, `medium` or `high`.
+- `max_completion_tokens`: 2048.
+- `temperature`: 0.
+- `response_format`: `{"type": "json_schema", "json_schema": {"name": "...", "strict": true, "schema": {..., "additionalProperties": false}}}`.
+
+The answer is a JSON string in `choices[0].message.content`. Treat a `finish_reason` other than `"stop"` as a failure. The strict schema accepts string enums and the types `["integer", "null"]` and `["string", "null"]`.
+
+Other output forms: a Markdown table, or grounded spans with `vision_config` `{"annotation_format": "box"}` (boxes on a 0 to 1000 grid, the text in `mention`). Neither can be combined with `json_schema`, and `json_schema` cannot be combined with tools.
+
+The schema controls structure, not truth. Validate the values yourself (counts in range, item names in the setting, dates that parse).
+
+Scrub's use is `vision/reading.py`, with routes `POST /read/count_sheet`, `POST /read/tray_tag` and `POST /read/pack_label`. Environment:
+
+| Variable | Default |
+| --- | --- |
+| `READ_PERCEPTRON_TIMEOUT_S` | 8 |
+| `READ_GEMINI_TIMEOUT_S` | 15 |
+| `READ_PERCEPTRON_REASONING` | low |
+| `READ_MAX_SIDE` | 1600 (px, longest side) |
+
+Measured results on rendered props are in `docs/RECOGNITION.md`.
+
+### Captions for event clips
+
+Several frames go in one `video_frames` content part: a list of `{"image_url": {"url": "<data URL>"}, "timestamp_ms": <int>}`. At least 2 frames are required. Scrub sends 5 frames over the 3 s clip, `reasoning_effort` `low`, and `max_completion_tokens` 1024 (256 ran out once and returned an empty answer).
+
+The prompt does not name the controller's event, because naming it made the caption repeat it. It lists the tray's item names and asks for JSON with `caption`, `item_seen` and `action`. Vision stores `label`, `label_source`, `caption_item`, `caption_action`, `agrees` and `caption_latency_ms` on each clip.
+
+Measured: 1.4 to 2.3 s per caption. A still-arm clip labeled "handed" now returns `agrees` false.
+
+### Dataset QA
+
+One Perceptron call per episode checks the recorded videos:
+
+```
+python -m explore.dataset.qa_video --dataset ~/scrub-dataset [--no-api] [--max-calls 30] --report qa.md
 ```
 
-- `vision_config.annotation_format` `"clip"` asks the model to localize moments and return clip annotations in seconds.
-- `vision_config.enable_thinking` `true` turns on reasoning traces (`<think>` blocks).
-- Without public video hosting, send key frames as `{"type": "image_url", "image_url": {"url": "data:image/jpeg;base64,..."}}`.
+`--no-api` runs local checks only. `--max-calls` (default 30) caps the calls. Median 2.2 s per episode.
 
 ### Case replay clips (X4)
 
 1. `vision/clips.py` keeps an in-memory ring buffer of recent overhead frames at 640 px wide.
 2. For each controller event of type `picked`, `handed`, `set_down`, `released`, `returned`, `stopped` or `missed`, `vision/service.py` saves a 3 second `.mp4` (`pre_s=1.5`, `post_s=1.5`) under `vision/clips/<case_id>/`.
-3. `POST /clips/label` asks the chat completions endpoint to describe each clip's key frame. With no key, or when the call fails, it writes a fallback label (`"<item> <action>, HH:MM"`).
+3. `POST /clips/label` sends 5 frames of each clip to the chat completions endpoint for a caption (see "Captions for event clips"). With no key, or when the call fails, it writes a fallback label (`"<item> <action>, HH:MM"`).
 4. Endpoints on port 8001:
    - `GET /clips?case_id=<case_id>`: clips and labels for a case.
    - `POST /clips/record`: capture a clip around an event by hand.
