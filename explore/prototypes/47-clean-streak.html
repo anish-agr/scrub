@@ -1,0 +1,846 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Clean Streak Board</title>
+<meta name="description" content="Overnight integration board for C8: segments controller events into full runs, judges each run with the controller/smoke.py rule, and counts ten clean runs in a row with no code fix.">
+<!--
+STYLE: OR wall whiteboard. Aluminium-framed dry-erase board with pre-printed vinyl grid tape (blue-grey rules, small-caps
+Archivo Narrow labels), marker entries in Kalam (black, blue, red, green markers only), round tally magnets for the
+streak, IBM Plex Mono tabular numbers. Square corners, 1px rules, no shadows. Semantic color only: green clean, red
+not clean / STOP, blue in progress, amber MOCK.
+FEATURES:
+- Live: GET /state, GET /setting, GET /events/recent?n=500 on load (replays history), then WS /events; reconnects
+- Segments events by command_id into trials (command -> step... -> released / set_down / returned / missed / error / stopped)
+  and trials into full runs that close on a count, the way controller/smoke.py runs (every item, optional put-backs, count)
+- Judges each trial with smoke.py's rule: clean if it reached released or set_down (returned for put-backs) and saw no
+  missed, error or stopped. Rejected commands and items cleared by STOP are not clean. A run is clean if every trial is.
+- Streak N/10 resets on a not-clean run and on a logged code fix (C8 says "no code fix")
+- Per-trial step timeline with durations in s (arm time vs time waiting on the person), request_to_hand_s, retries,
+  every line Scrub said, the failure reason, and a caution when a non-sharp item was set down (smoke counts it clean)
+- Start run: every item in the setting, or one chosen item, then count; optional put-backs; simulated pull via
+  POST /fake/pull (as smoke.py does without --human); repeat until 10 in a row; "person takes each item" mode
+- Latched STOP (POST /stop, Space key) stays latched until Reset (POST /reset)
+- Note + owner per not-clean run (what broke, whose part), saved in this browser; Copy summary for the group chat
+- Run unit toggle: full run (smoke.py) or single command
+- Mock mode when :8000 is down: a JS copy of the controller step machine with fake_arm.py timings (1.0 s per motion,
+  0.3 s gripper, 30 s pull wait) and occasional misses, hand losses, no-pulls and a serial error. Labeled MOCK everywhere.
+SPONSORS: Perceptron Robotics (the run log is the evidence the fine-tuned pick holds up over many runs)
+BACKEND HOOKS: GET /state, GET /setting, GET /events/recent?n=500, WS /events, POST /command, POST /stop, POST /reset,
+  POST /fake/pull, POST /sim/return_spot (sim only, ignored elsewhere). Override base with ?api=http://host:8000
+-->
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Archivo+Narrow:wght@400;600;700&family=IBM+Plex+Mono:wght@400;600&family=Kalam:wght@400;700&display=swap" rel="stylesheet">
+<style>
+:root{
+  --wall:#cfd2d0; --frame:#a9adb0; --frame2:#8f9396; --board:#f4f5f1; --tape:#9fb3c6; --tape2:#d6dfe7;
+  --ink:#1e2428; --blue:#1d4f9e; --red:#c3261f; --green:#2a7a35; --amber:#b7791f; --amberbg:#fbefd6; --muted:#5d666d;
+  --hand:'Kalam',cursive; --lab:'Archivo Narrow',sans-serif; --mono:'IBM Plex Mono',monospace;
+}
+*{box-sizing:border-box}
+html,body{margin:0}
+body{background:var(--wall);color:var(--ink);font:15px/1.4 var(--lab);font-variant-numeric:tabular-nums}
+.board{max-width:1360px;margin:12px auto;background:var(--board);border:10px solid var(--frame);outline:1px solid var(--frame2);min-height:calc(100vh - 24px)}
+.lab{font:600 11px/1.2 var(--lab);letter-spacing:.09em;text-transform:uppercase;color:var(--muted)}
+.mk{font-family:var(--hand)}
+.num{font-family:var(--mono)}
+button,select,input,textarea{font:inherit;color:inherit}
+button{min-height:44px;padding:0 14px;border:2px solid var(--ink);background:var(--board);cursor:pointer;border-radius:2px;font-weight:600}
+button:disabled{opacity:.4;cursor:not-allowed}
+button.pri{background:var(--blue);border-color:var(--blue);color:#fff}
+select,input[type=number],input[type=text]{min-height:44px;border:1px solid var(--tape);background:#fff;padding:0 8px;border-radius:2px}
+label.ck{display:flex;gap:8px;align-items:center;min-height:36px;cursor:pointer}
+label.ck input{width:20px;height:20px;accent-color:var(--blue)}
+/* header */
+header{display:grid;grid-template-columns:1fr auto;gap:10px;align-items:center;padding:10px 16px;border-bottom:2px solid var(--tape)}
+.title{display:flex;flex-wrap:wrap;align-items:baseline;gap:6px 16px}
+.title h1{margin:0;font:700 30px/1 var(--hand)}
+.title .form{font:11px var(--mono);color:var(--muted)}
+.conn{display:flex;flex-wrap:wrap;gap:8px;align-items:center;margin-top:6px}
+.badge{font:700 12px var(--mono);padding:3px 8px;border:2px solid currentColor;letter-spacing:.05em}
+.badge.live{color:var(--green)} .badge.mock{color:var(--amber);background:var(--amberbg)} .badge.lost{color:var(--red)}
+.conn input{min-height:32px;width:220px;font:12px var(--mono)}
+.conn button{min-height:32px;padding:0 8px;border-width:1px;font-size:12px}
+#stop{min-height:64px;min-width:140px;background:var(--red);border-color:var(--red);color:#fff;font:700 24px var(--lab);letter-spacing:.06em}
+#stop.latched{background:#fff;color:var(--red);outline:4px solid var(--red)}
+.mockbar{display:none;background:var(--amberbg);border-bottom:1px solid var(--amber);padding:8px 16px;font-size:14px}
+body.mock .mockbar{display:block}
+.latchbar{display:none;background:var(--red);color:#fff;padding:10px 16px;font:700 16px var(--lab);align-items:center;gap:12px;flex-wrap:wrap}
+body.latched .latchbar{display:flex}
+.latchbar button{background:#fff;color:var(--red);border-color:#fff}
+/* layout */
+main{display:grid;grid-template-columns:400px 1fr;min-width:0}
+aside{border-right:2px solid var(--tape);padding:14px 16px;min-width:0}
+section.log{padding:14px 16px;min-width:0}
+.box{border:1px solid var(--tape);margin-bottom:14px}
+.box>.hd{display:flex;justify-content:space-between;align-items:center;padding:5px 10px;border-bottom:1px solid var(--tape);background:var(--tape2)}
+.box>.bd{padding:10px}
+/* streak */
+.streak{display:flex;align-items:flex-end;gap:12px;flex-wrap:wrap}
+.big{font:700 72px/0.9 var(--hand)}
+.big small{font-size:34px;color:var(--muted)}
+.mags{display:grid;grid-template-columns:repeat(10,1fr);gap:6px;margin:12px 0 6px}
+.mag{aspect-ratio:1;border-radius:50%;border:2px dashed var(--tape);display:grid;place-items:center;font:600 11px var(--mono);color:var(--muted)}
+.mag.on{border:2px solid #1b5e26;background:var(--green);color:#fff}
+.mag.on.new{animation:pop .5s}
+@keyframes pop{0%{transform:scale(.4)}70%{transform:scale(1.15)}100%{transform:scale(1)}}
+.done10{display:none;font:700 22px var(--hand);color:var(--green);border:3px solid var(--green);padding:2px 10px;transform:rotate(-3deg);width:max-content}
+.done10.show{display:block}
+.kv{display:grid;grid-template-columns:repeat(3,1fr);gap:8px;margin-top:10px}
+.kv div{border-top:1px solid var(--tape);padding-top:4px}
+.kv b{display:block;font:600 18px var(--mono)}
+.tally{display:flex;flex-wrap:wrap;gap:3px;margin-top:8px}
+.tally i{width:10px;height:18px;display:block}
+.tally i.c{background:var(--green)} .tally i.d{background:var(--red)} .tally i.f{background:var(--ink);width:3px}
+/* controls */
+.row{display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin-bottom:8px}
+.row>select{flex:1;min-width:0}
+.hint{font-size:13px;color:var(--muted)}
+.statebox{display:grid;grid-template-columns:auto 1fr;gap:3px 12px;font:13px var(--mono)}
+.statebox .k{color:var(--muted);font:600 11px var(--lab);text-transform:uppercase;letter-spacing:.08em;padding-top:2px}
+#stepNow{font:700 20px var(--hand);color:var(--blue)}
+.seg{display:flex;border:1px solid var(--tape)}
+.seg button{flex:1;border:0;border-radius:0;min-height:40px;font-size:13px;background:#fff}
+.seg button.on{background:var(--ink);color:#fff}
+/* run log */
+.loghd{display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:8px;margin-bottom:10px}
+.loghd h2{margin:0;font:700 24px var(--hand)}
+.run{border:1px solid var(--tape);margin-bottom:12px;background:#fbfbf8}
+.run.dirty{border-color:#d9a19c}
+.rhd{display:flex;flex-wrap:wrap;gap:4px 14px;align-items:center;padding:6px 10px;border-bottom:1px solid var(--tape)}
+.rhd .rn{font:700 22px/1 var(--hand)}
+.stamp{font:700 15px var(--lab);letter-spacing:.08em;border:2px solid currentColor;padding:1px 8px;transform:rotate(-2deg)}
+.stamp.c{color:var(--green)} .stamp.d{color:var(--red)} .stamp.p{color:var(--blue)}
+.rhd .meta{font:12px var(--mono);color:var(--muted)}
+.rhd .sk{margin-left:auto;font:700 16px var(--hand)}
+.trial{display:grid;grid-template-columns:150px 1fr;gap:4px 12px;padding:8px 10px;border-bottom:1px dashed var(--tape2)}
+.trial:last-of-type{border-bottom:0}
+.tname{font:600 14px var(--lab)}
+.tname .res{display:block;font:12px var(--mono)}
+.res.ok{color:var(--green)} .res.bad{color:var(--red)} .res.open{color:var(--blue)}
+.tl{display:flex;height:16px;border:1px solid var(--ink);background:#fff;min-width:0;overflow:hidden}
+.tl span{height:100%;border-right:1px solid #fff;min-width:2px}
+.tl .arm{background:var(--blue)} .tl .wait{background:repeating-linear-gradient(135deg,#fff 0 3px,#7d8a94 3px 5px)}
+.tl .bad{background:var(--red)} .tl .home{background:#6f8fbf}
+.chips{display:flex;flex-wrap:wrap;gap:2px 10px;margin-top:4px;font:12px var(--mono)}
+.chips em{font-style:normal;color:var(--muted)}
+.tstats{display:flex;flex-wrap:wrap;gap:2px 14px;font:12px var(--mono);margin-top:3px}
+.says{font:15px var(--hand);color:var(--blue);margin-top:2px}
+.why{font:700 15px var(--hand);color:var(--red)}
+.caution{font:13px var(--lab);color:var(--amber)}
+.note{padding:8px 10px;border-top:1px solid var(--tape);background:#fff;display:grid;grid-template-columns:1fr 200px;gap:8px}
+.note textarea{min-height:56px;border:1px solid var(--tape);font:16px var(--hand);padding:6px;resize:vertical;width:100%;background:repeating-linear-gradient(#fff 0 23px,var(--tape2) 23px 24px)}
+.note select{width:100%}
+.note .saved{font-size:11px;color:var(--muted)}
+.fix{display:flex;gap:10px;align-items:center;border:2px solid var(--ink);padding:6px 10px;margin-bottom:12px;font:15px var(--hand)}
+.fix b{font:700 12px var(--lab);letter-spacing:.08em}
+.fix button{margin-left:auto;min-height:32px;font-size:12px;border-width:1px}
+.empty{font:18px var(--hand);color:var(--muted);padding:20px;border:1px dashed var(--tape)}
+footer{border-top:2px solid var(--tape);padding:10px 16px;font-size:12px;color:var(--muted);display:flex;flex-wrap:wrap;gap:6px 18px}
+footer a{color:var(--blue)}
+@media (max-width:900px){
+  main{grid-template-columns:1fr}
+  aside{border-right:0;border-bottom:2px solid var(--tape)}
+}
+@media (max-width:560px){
+  .board{margin:0;border-width:5px}
+  header{grid-template-columns:1fr;padding:10px 12px}
+  #stop{width:100%}
+  aside,section.log{padding:12px}
+  .trial{grid-template-columns:1fr}
+  .note{grid-template-columns:1fr}
+  .conn input{width:100%}
+  .big{font-size:60px}
+  .rhd .sk{margin-left:0}
+}
+</style>
+</head>
+<body>
+<div class="board">
+<header>
+  <div>
+    <div class="title"><h1>Clean streak</h1><span class="lab">C8 · Ten full runs in a row, no code fix</span><span class="form">Board INT-08 · Scrub SO-101</span></div>
+    <div class="conn">
+      <span id="badge" class="badge mock">MOCK</span>
+      <span id="connTxt" class="hint">probing controller</span>
+      <input id="api" type="text" spellcheck="false" aria-label="Controller base URL">
+      <button id="apiGo">Connect</button>
+    </div>
+  </div>
+  <button id="stop" title="Space">STOP</button>
+</header>
+<div class="mockbar"><b>MOCK.</b> Controller at <span class="num" id="mockApi"></span> did not answer. Everything below is simulated in this page (fake_arm.py timings, random misses). Nothing here is a real run. Start the controller with <span class="num">.venv/bin/python -m controller</span> and this board switches to live by itself.</div>
+<div class="latchbar"><span>STOPPED. Latched until you press Reset. Starting runs is blocked.</span><button id="reset2">Reset (POST /reset)</button></div>
+<main>
+<aside>
+  <div class="box">
+    <div class="hd"><span class="lab">Clean in a row</span><span class="lab" id="unitLab">unit: full run</span></div>
+    <div class="bd">
+      <div class="streak"><div class="big" id="streakN">0<small>/10</small></div><div class="done10" id="done10">C8 done</div></div>
+      <div class="mags" id="mags"></div>
+      <div class="hint">Resets on a not-clean run or a logged code fix.</div>
+      <div class="kv">
+        <div><span class="lab">Best</span><b id="best">0</b></div>
+        <div><span class="lab">Runs</span><b id="runsN">0</b></div>
+        <div><span class="lab">Median to hand</span><b id="med">-</b></div>
+      </div>
+      <div class="tally" id="tally" aria-label="every run, oldest first"></div>
+    </div>
+  </div>
+
+  <div class="box">
+    <div class="hd"><span class="lab">Start a run</span><span class="lab" id="setLab">setting</span></div>
+    <div class="bd">
+      <div class="row"><select id="itemSel" aria-label="Items for the run"></select></div>
+      <label class="ck"><input type="checkbox" id="simPull" checked> Simulate the pull (POST /fake/pull, fake or sim arm)</label>
+      <label class="ck"><input type="checkbox" id="human"> A person takes each item (real arm; no simulated pull)</label>
+      <label class="ck"><input type="checkbox" id="doReturn"> Also put back each non-sharp item</label>
+      <label class="ck"><input type="checkbox" id="repeat"> Repeat until 10 in a row</label>
+      <div class="row"><span class="hint">Gap between runs</span><input type="number" id="gap" value="5" min="0" max="120" style="width:80px"><span class="hint">s</span><label class="ck"><input type="checkbox" id="stopDirty" checked> stop on not clean</label></div>
+      <div class="row">
+        <button class="pri" id="startBtn">Start run</button>
+        <button id="nextBtn" style="display:none">Tray reset, next run</button>
+        <button id="abortBtn" disabled>End after this item</button>
+        <button id="resetBtn">Reset</button>
+      </div>
+      <div class="hint" id="driverTxt">Sends handover for each item (source dashboard), waits for each to finish, then count. Same order as controller/smoke.py.</div>
+    </div>
+  </div>
+
+  <div class="box">
+    <div class="hd"><span class="lab">Arm now</span><span class="lab" id="armKind">-</span></div>
+    <div class="bd">
+      <div id="stepNow">idle</div>
+      <div class="statebox">
+        <span class="k">Item</span><span id="sItem">-</span>
+        <span class="k">Queue</span><span id="sQueue">-</span>
+        <span class="k">Out</span><span id="sOut">-</span>
+        <span class="k">Hand</span><span id="sHand">-</span>
+        <span class="k">Last line</span><span id="sSay" class="mk" style="color:var(--blue)">-</span>
+      </div>
+    </div>
+  </div>
+
+  <div class="box">
+    <div class="hd"><span class="lab">Run unit</span></div>
+    <div class="bd">
+      <div class="seg" role="group"><button id="uFull" class="on">Full run (ends on count)</button><button id="uOne">Single command</button></div>
+      <p class="hint" style="margin:8px 0 0">Full run matches smoke.py: every handover until a count. Runs from smoke.py itself show up here too.</p>
+    </div>
+  </div>
+
+  <div class="box">
+    <div class="hd"><span class="lab">Code fix log</span></div>
+    <div class="bd">
+      <div class="row"><input type="text" id="fixTxt" placeholder="core.py: pull delta 80 to 60" style="flex:1;min-width:0"><button id="fixBtn">Log fix</button></div>
+      <div class="hint">C8 needs ten in a row with no code fix. Logging a fix resets the streak from that moment.</div>
+    </div>
+  </div>
+</aside>
+
+<section class="log">
+  <div class="loghd"><h2>Runs, newest first</h2><div class="row" style="margin:0"><button id="copyBtn">Copy summary</button><button id="clearBtn">Clear board</button></div></div>
+  <div id="runs"></div>
+</section>
+</main>
+<footer>
+  <span>Rule source: controller/smoke.py. Owners: controller and voice Caiden, vision Brandon, arm Anish, dashboard and ledger Evan.</span>
+  <a href="40-failure-drills.html">Failure drills</a><a href="41-demo-coach.html">Demo coach</a><a href="43-inference-monitor.html">Inference monitor</a><a href="44-servo-health.html">Servo health</a>
+  <span>Terms</span><span>Privacy</span>
+</footer>
+</div>
+
+<script>
+'use strict';
+const $ = id => document.getElementById(id);
+const qs = new URLSearchParams(location.search);
+let API = (qs.get('api') || 'http://localhost:8000').replace(/\/$/, '');
+const OWNERS = ['', 'Caiden: controller', 'Caiden: voice', 'Brandon: vision', 'Anish: arm / real_arm.py', 'Evan: dashboard / ledger / settings', 'Hardware (not code)', 'Unknown'];
+const ARM_STEPS = {finding:1, picking:1, checking:1, moving_to_hand:1, setting_down:1, releasing:1, returning:1};
+const nowS = () => Date.now() / 1000;
+const uid = () => (crypto.randomUUID ? crypto.randomUUID().replace(/-/g, '') : Math.random().toString(16).slice(2) + Date.now().toString(16));
+const esc = s => String(s ?? '').replace(/[&<>"]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
+const fmt = (x, d = 1) => x == null ? '-' : Number(x).toFixed(d);
+const hms = t => new Date(t * 1000).toLocaleTimeString([], {hour12: false});
+const sleep = ms => new Promise(r => setTimeout(r, ms));
+
+/* ---------------- state ---------------- */
+let mode = 'probe';            // 'live' | 'mock' | 'lost' | 'probe'
+let unit = 'full';
+let setting = null;
+let armState = {};
+let log = [];                  // every event, in arrival order
+let seen = new Set();
+let model;                     // rebuilt from log
+let fixes = [];                // {t, text}
+let notes = {};                // key -> {text, owner}
+let latched = false;
+let lastSay = null;
+let ws = null;
+let driving = false, abortReq = false, nextResolve = null;
+let prevStreak = 0;
+let epoch = 0;              // bumped when the board is cleared or the source changes; a running driver exits
+
+function store(k, v) { try { localStorage.setItem(k, JSON.stringify(v)); } catch (e) {} }
+function load(k, d) { try { const v = localStorage.getItem(k); return v ? JSON.parse(v) : d; } catch (e) { return d; } }
+function nsKey(k) { return (mode === 'live' ? 'scrub47:' + API + ':' : 'scrub47:mock:') + k; }
+
+/* ---------------- segmenter (same judging rule as controller/smoke.py) ---------------- */
+function newModel() { return {trials: new Map(), all: [], runs: [], open: null, noId: 0}; }
+
+function openRun(m, t) {
+  const r = {n: m.runs.length + 1, trials: [], tStart: t, tEnd: null, closed: false, closing: false, stopped: false, countSay: null, key: null};
+  m.runs.push(r); m.open = r; return r;
+}
+function closeRun(m, r, t) {
+  r.closed = true; r.tEnd = t; r.clean = r.trials.length > 0 && r.trials.every(x => x.ok) && !r.stopped;
+  if (m.open === r) m.open = null;
+}
+function finishTrial(m, tr, t, why) {
+  if (tr.end != null) return;
+  tr.end = t;
+  const kinds = tr.events.map(e => e.type);
+  const want = tr.action === 'return' ? ['returned'] : ['released', 'set_down'];
+  const bad = kinds.filter(k => k === 'missed' || k === 'error' || k === 'stopped');
+  tr.ok = tr.accepted && kinds.some(k => want.includes(k)) && !bad.length && !why;
+  if (!tr.ok) {
+    const miss = tr.events.find(e => e.type === 'missed');
+    const err = tr.events.find(e => e.type === 'error');
+    tr.why = why || (!tr.accepted ? 'rejected: ' + tr.reason : err ? 'error: ' + (err.error || err.say) : kinds.includes('stopped') ? 'stopped mid-flow' :
+      miss ? 'missed: ' + (miss.say || 'no line') + (kinds.some(k => want.includes(k)) ? ' (recovered, still not clean)' : '') : 'never reached ' + want.join(' or '));
+  }
+  const sd = tr.events.find(e => e.type === 'set_down');
+  const sharp = setting && (setting.items.find(i => i.id === tr.item) || {}).sharp;
+  if (sd && !sharp && tr.action === 'handover') tr.caution = 'Set down instead of handed (' + (sd.say || 'no line') + '). smoke.py counts this clean.';
+  const r = tr.run;
+  if (r && unit === 'one') closeRun(m, r, t);
+  else if (r && r.closing && r.trials.every(x => x.end != null)) closeRun(m, r, t);
+}
+
+function apply(m, ev) {
+  const t = ev.t || nowS();
+  if (ev.say) lastSay = ev.say;
+  if (ev.type === 'command') {
+    const a = ev.action;
+    if (a === 'handover' || a === 'return') {
+      let r = m.open;
+      if (unit === 'one' || !r) r = openRun(m, t);
+      const tr = {cid: ev.command_id, action: a, item: ev.item, source: ev.source, heard: ev.heard, accepted: ev.accepted !== false,
+        reason: ev.reason, tCmd: t, events: [], steps: [], end: null, ok: null, why: null, says: ev.say ? [ev.say] : [], run: r};
+      r.trials.push(tr); if (!r.key) r.key = tr.cid;
+      if (tr.cid) m.trials.set(tr.cid, tr); else m.noId++;
+      m.all.push(tr);
+      if (!tr.accepted) finishTrial(m, tr, t);
+    } else if (a === 'count' && unit === 'full' && m.open) {
+      const r = m.open; r.closing = true; r.countCid = ev.command_id;
+      if (r.trials.every(x => x.end != null)) closeRun(m, r, t);
+    }
+    return;
+  }
+  if (ev.type === 'count') {
+    const r = m.runs.find(x => x.countCid && x.countCid === ev.command_id);
+    if (r) r.countSay = ev.say;
+    return;
+  }
+  // Commands posted without an id come back with command_id null (core.submit's setdefault keeps the None);
+  // the worker runs jobs in order, so match those events to the oldest unfinished accepted command.
+  const tr = ev.command_id ? m.trials.get(ev.command_id) : m.all.find(x => x.end == null && x.accepted && !x.cid);
+  if (tr && tr.end == null) {
+    tr.events.push(ev);
+    if (ev.say) tr.says.push(ev.say);
+    if (ev.type === 'step') tr.steps.push({step: ev.step, t});
+    if (ev.request_to_hand_s != null && tr.rth == null) tr.rth = ev.request_to_hand_s;
+    if (ev.retries != null) tr.retries = Math.max(tr.retries || 0, ev.retries);
+    if (ev.type === 'stopped' || ev.type === 'error' || (ev.type === 'step' && ['idle', 'stopped', 'error'].includes(ev.step) && tr.events.length > 1)) finishTrial(m, tr, t);
+  }
+  if (ev.type === 'stopped') {
+    const r = m.open;
+    if (r) {
+      r.trials.filter(x => x.end == null).forEach(x => finishTrial(m, x, t, x.events.length ? 'stopped mid-flow' : 'cleared from the queue by STOP'));
+      r.stopped = true;
+      if (!r.closed) closeRun(m, r, t);
+    }
+  }
+}
+function rebuild() { model = newModel(); log.forEach(e => apply(model, e)); }
+
+function ingest(ev) {
+  const k = [ev.t, ev.type, ev.command_id, ev.step, ev.say].join('|');
+  if (seen.has(k)) return;
+  seen.add(k); log.push(ev); apply(model, ev);
+  if (ev.type === 'stopped') setLatch(true);
+  if (ev.type === 'step' && ev.say === 'Reset. Ready.') setLatch(false);
+  if (ev.step) armState.step = ev.step;
+  if ('item' in ev && ev.type === 'step') armState.item = ev.item;
+  if (ev.out) armState.out = ev.out;
+  schedule();
+}
+
+/* streak over closed runs and code-fix markers, in time order */
+function streakInfo() {
+  const closed = model.runs.filter(r => r.closed);
+  const items = closed.map(r => ({t: r.tEnd, r})).concat(fixes.map(f => ({t: f.t, f}))).sort((a, b) => a.t - b.t);
+  let s = 0, best = 0;
+  const after = new Map();
+  for (const it of items) {
+    if (it.f) s = 0; else { s = it.r.clean ? s + 1 : 0; after.set(it.r, s); }
+    best = Math.max(best, s);
+  }
+  const times = model.runs.flatMap(r => r.trials).map(x => x.rth).filter(x => x != null).sort((a, b) => a - b);
+  return {streak: s, best, after, med: times.length ? times[Math.floor(times.length / 2)] : null, closed, items};
+}
+
+/* ---------------- transport: live or mock ---------------- */
+async function call(method, path, body) {
+  if (mode === 'mock') return mock.http(method, path, body);
+  const r = await fetch(API + path, {method, headers: body ? {'content-type': 'application/json'} : {}, body: body ? JSON.stringify(body) : undefined});
+  let j = null; try { j = await r.json(); } catch (e) {}
+  return {status: r.status, json: j};
+}
+
+async function probe() {
+  try {
+    const ctl = new AbortController(); const to = setTimeout(() => ctl.abort(), 1500);
+    const r = await fetch(API + '/state', {signal: ctl.signal}); clearTimeout(to);
+    if (!r.ok) throw new Error(r.status);
+    armState = await r.json();
+    return true;
+  } catch (e) { return false; }
+}
+
+async function goLive() {
+  mock.halt();
+  mode = 'live'; document.body.classList.remove('mock');
+  resetBoard();
+  fixes = load(nsKey('fixes'), []); notes = load(nsKey('notes'), {});
+  setting = (await (await fetch(API + '/setting')).json());
+  fillItems();
+  const recent = await (await fetch(API + '/events/recent?n=500')).json();
+  recent.forEach(ingest);
+  setLatch(armState.step === 'stopped');
+  $('simPull').checked = !!armState.fake_arm;
+  openWS();
+  setBadge();
+  schedule();
+}
+function openWS() {
+  try { ws && ws.close(); } catch (e) {}
+  ws = new WebSocket(API.replace(/^http/, 'ws') + '/events');
+  ws.onmessage = m => { try { ingest(JSON.parse(m.data)); } catch (e) {} };
+  ws.onopen = () => { if (mode === 'lost') { mode = 'live'; setBadge(); } };
+  ws.onclose = () => { if (mode === 'live' || mode === 'lost') { mode = 'lost'; setBadge(); setTimeout(reconnect, 3000); } };
+}
+async function reconnect() {
+  if (mode !== 'lost') return;
+  if (await probe()) {
+    const recent = await (await fetch(API + '/events/recent?n=500')).json().catch(() => []);
+    recent.forEach(ingest); mode = 'live'; openWS(); setBadge();
+  } else setTimeout(reconnect, 3000);
+}
+function goMock() {
+  mode = 'mock'; document.body.classList.add('mock');
+  resetBoard(); fixes = []; notes = {};
+  setting = mock.setting; fillItems();
+  mock.seed();
+  setBadge(); schedule();
+  $('simPull').checked = true; $('repeat').checked = true; $('stopDirty').checked = false; $('gap').value = 4;
+  setTimeout(() => { if (mode === 'mock' && !driving && !latched) startRun(); }, 1200);
+}
+async function connect() {
+  mode = 'probe'; setBadge();
+  if (await probe()) await goLive(); else goMock();
+}
+// while in mock, keep checking for the real controller
+setInterval(async () => { if (mode === 'mock' && await probe()) goLive(); }, 6000);
+setInterval(async () => { if (mode === 'live' && await probe()) { schedule(); } }, 1000);
+
+function setBadge() {
+  const b = $('badge');
+  b.className = 'badge ' + (mode === 'live' ? 'live' : mode === 'lost' ? 'lost' : 'mock');
+  b.textContent = mode === 'live' ? 'LIVE' : mode === 'lost' ? 'LINK LOST' : mode === 'probe' ? 'PROBING' : 'MOCK';
+  $('connTxt').textContent = mode === 'live' ? 'WS ' + API.replace(/^http/, 'ws') + '/events' : mode === 'lost' ? 'socket closed, retrying every 3 s (board kept)' : mode === 'mock' ? 'simulated controller in this page' : 'probing ' + API;
+  $('mockApi').textContent = API;
+}
+function resetBoard() { epoch++; if (nextResolve) { const r = nextResolve; nextResolve = null; r(); } log = []; seen = new Set(); model = newModel(); prevStreak = 0; }
+
+/* ---------------- STOP / reset ---------------- */
+function setLatch(on) { latched = on; document.body.classList.toggle('latched', on); $('stop').classList.toggle('latched', on); $('stop').textContent = on ? 'STOPPED' : 'STOP'; schedule(); }
+async function doStop() {
+  setLatch(true); abortReq = true;
+  if (nextResolve) { nextResolve(); nextResolve = null; }
+  try { await call('POST', '/stop'); } catch (e) { $('driverTxt').textContent = 'STOP did not reach the controller. Use the hardware stop.'; }
+}
+async function doReset() {
+  try {
+    const r = await call('POST', '/reset');
+    if (r.status === 409) { $('driverTxt').textContent = 'Reset refused (409 busy). Press STOP first.'; return; }
+    setLatch(false); abortReq = false;
+  } catch (e) { $('driverTxt').textContent = 'Reset did not reach the controller.'; }
+}
+$('stop').onclick = doStop; $('resetBtn').onclick = doReset; $('reset2').onclick = doReset;
+document.addEventListener('keydown', e => { if (e.code === 'Space' && !/INPUT|TEXTAREA|SELECT/.test(e.target.tagName)) { e.preventDefault(); doStop(); } });
+
+/* ---------------- run driver (smoke.py order) ---------------- */
+function fillItems() {
+  const sel = $('itemSel'); const prev = sel.value;
+  sel.innerHTML = '<option value="*">Every item in ' + esc(setting.id) + ' (' + setting.items.length + ')</option>' +
+    setting.items.map(i => `<option value="${esc(i.id)}">${esc(i.name)}${i.sharp ? ' (sharp, safe spot)' : ''}</option>`).join('');
+  if ([...sel.options].some(o => o.value === prev)) sel.value = prev;
+  $('setLab').textContent = setting.id + ' · ' + (setting.label || '');
+}
+async function waitTrial(cid, timeoutS) {
+  const e0 = epoch;
+  const end = Date.now() + timeoutS * 1000; let pulled = false;
+  while (Date.now() < end) {
+    if (epoch !== e0) return null;
+    const tr = model.trials.get(cid);
+    if (tr && tr.end != null) return tr;
+    if (tr && !pulled && $('simPull').checked && !$('human').checked && tr.steps.length && tr.steps[tr.steps.length - 1].step === 'waiting_for_pull') {
+      pulled = true; call('POST', '/fake/pull').catch(() => {});
+    }
+    await sleep(200);
+  }
+  return model.trials.get(cid);
+}
+async function one(action, item) {
+  const cid = uid();
+  const r = await call('POST', '/command', {id: cid, action, item, source: 'dashboard', t: nowS()});
+  if (!r.json || !r.json.accepted) { await sleep(300); return; }
+  $('driverTxt').textContent = `${action} ${item}: waiting for it to finish (timeout 90 s)`;
+  await waitTrial(cid, 90);
+}
+async function runOnce() {
+  const e0 = epoch; const gone = () => abortReq || latched || epoch !== e0;
+  const sel = $('itemSel').value;
+  const items = sel === '*' ? setting.items.map(i => i.id) : [sel];
+  const sharp = new Set(setting.items.filter(i => i.sharp).map(i => i.id));
+  for (const it of items) { if (gone()) return false; await one('handover', it); }
+  if ($('doReturn').checked) {
+    for (const it of items.filter(i => !sharp.has(i))) {
+      if (gone()) return false;
+      if ($('human').checked) { $('driverTxt').textContent = `Put the ${it} in the return spot, then press the button.`; await waitNext(); if (latched) return false; }
+      else { const s = await call('POST', '/sim/return_spot', {item: it}).catch(() => ({status: 0})); if (s.status === 200) await sleep(1500); }
+      await one('return', it);
+    }
+  }
+  if (gone()) return false;
+  await call('POST', '/command', {id: uid(), action: 'count', source: 'dashboard', t: nowS()});
+  await sleep(400);
+  return true;
+}
+function waitNext() { $('nextBtn').style.display = ''; return new Promise(r => { nextResolve = r; }).then(() => { $('nextBtn').style.display = 'none'; }); }
+$('nextBtn').onclick = () => { if (nextResolve) { const r = nextResolve; nextResolve = null; r(); } };
+async function startRun() {
+  if (driving || latched || !setting) return;
+  driving = true; abortReq = false; schedule();
+  const e0 = epoch;
+  try {
+    while (true) {
+      const done = await runOnce();
+      const info = streakInfo(); const last = info.closed[info.closed.length - 1];
+      if (!done || abortReq || latched || epoch !== e0 || !$('repeat').checked || info.streak >= 10) break;
+      if (last && !last.clean && ($('stopDirty').checked || mode === 'live' && armState.step === 'error')) { $('driverTxt').textContent = 'Stopped repeating: run ' + last.n + ' was not clean. Note what broke below.'; break; }
+      if (mode === 'mock' && armState.step === 'error') { await sleep(800); await call('POST', '/reset'); await sleep(2600); }
+      if ($('human').checked) { $('driverTxt').textContent = 'Reset the tray, then press the button for the next run.'; await waitNext(); }
+      else { const g = Math.max(0, +$('gap').value || 0); $('driverTxt').textContent = `Next run in ${g} s`; await sleep(g * 1000); }
+      if (abortReq || latched || epoch !== e0) break;
+    }
+  } finally {
+    driving = false; schedule();
+    if ($('driverTxt').textContent.startsWith('Next run') || $('driverTxt').textContent.includes('waiting')) $('driverTxt').textContent = 'Idle. ' + (latched ? 'Latched by STOP.' : 'Ready for a run.');
+  }
+}
+$('startBtn').onclick = startRun;
+$('abortBtn').onclick = () => { abortReq = true; $('driverTxt').textContent = 'Ending after the current item. No count will be sent; the run stays open.'; };
+$('human').onchange = () => { if ($('human').checked) $('simPull').checked = false; };
+
+/* ---------------- notes, fixes, unit, copy ---------------- */
+$('fixBtn').onclick = () => {
+  const text = $('fixTxt').value.trim() || 'code fix (no description)';
+  fixes.push({t: nowS(), text}); $('fixTxt').value = '';
+  if (mode === 'live') store(nsKey('fixes'), fixes);
+  schedule();
+};
+function setUnit(u) { unit = u; $('uFull').classList.toggle('on', u === 'full'); $('uOne').classList.toggle('on', u === 'one'); $('unitLab').textContent = 'unit: ' + (u === 'full' ? 'full run' : 'single command'); rebuild(); schedule(); }
+$('uFull').onclick = () => setUnit('full'); $('uOne').onclick = () => setUnit('one');
+$('clearBtn').onclick = () => { if (confirm('Clear the board in this browser? Controller history is not touched.')) { resetBoard(); schedule(); } };
+$('copyBtn').onclick = async () => {
+  const info = streakInfo();
+  const lines = [`Scrub C8 board (${mode === 'live' ? 'LIVE ' + API : 'MOCK, not real'}) ${new Date().toLocaleString()}`];
+  for (const it of info.items) {
+    if (it.f) { lines.push(`  code fix ${hms(it.t)}: ${it.f.text} (streak reset)`); continue; }
+    const r = it.r;
+    lines.push(`run ${r.n}: ${r.clean ? 'CLEAN' : 'NOT CLEAN'}  (streak ${info.after.get(r)})`);
+    r.trials.forEach(x => lines.push(`  ${x.ok ? 'ok  ' : 'FAIL'}  ${x.action} ${x.item}  ${x.rth != null ? fmt(x.rth) + 's' : ''}  ${x.ok ? '' : x.why}`));
+    const n = notes[r.key]; if (n && (n.text || n.owner)) lines.push(`  note: ${n.text || ''}${n.owner ? ' [' + n.owner + ']' : ''}`);
+  }
+  lines.push(`\n${info.streak} clean in a row now, best ${info.best}` + (info.med != null ? `, median request-to-hand ${fmt(info.med)}s` : ''));
+  try { await navigator.clipboard.writeText(lines.join('\n')); $('copyBtn').textContent = 'Copied'; } catch (e) { $('copyBtn').textContent = 'Copy blocked'; }
+  setTimeout(() => $('copyBtn').textContent = 'Copy summary', 1500);
+};
+document.addEventListener('input', e => {
+  const k = e.target.dataset.note; if (!k) return;
+  notes[k] = notes[k] || {};
+  notes[k][e.target.tagName === 'SELECT' ? 'owner' : 'text'] = e.target.value;
+  if (mode === 'live') store(nsKey('notes'), notes);
+  const s = e.target.closest('.note').querySelector('.saved'); if (s) s.textContent = mode === 'live' ? 'saved in this browser' : 'mock: kept until reload';
+});
+document.addEventListener('click', e => {
+  const i = e.target.dataset.delfix; if (i == null) return;
+  fixes.splice(+i, 1); if (mode === 'live') store(nsKey('fixes'), fixes); schedule();
+});
+
+/* ---------------- render ---------------- */
+let raf = 0;
+function schedule() { if (!raf) raf = requestAnimationFrame(() => { raf = 0; render(); }); }
+function stepChips(tr) {
+  const pts = [{step: 'command', t: tr.tCmd}].concat(tr.steps);
+  const endT = tr.end ?? nowS();
+  const segs = [];
+  for (let i = 0; i < pts.length; i++) {
+    const t1 = i + 1 < pts.length ? pts[i + 1].t : endT;
+    if (['idle', 'stopped', 'error'].includes(pts[i].step) && i === pts.length - 1) continue;
+    segs.push({step: pts[i].step === 'command' ? 'queued' : pts[i].step, d: Math.max(0, t1 - pts[i].t)});
+  }
+  return segs;
+}
+function trialHTML(tr) {
+  const segs = stepChips(tr); const tot = segs.reduce((a, s) => a + s.d, 0) || 1;
+  const bar = segs.map(s => `<span class="${s.step === 'waiting_for_pull' ? 'wait' : s.step === 'homing' ? 'home' : ARM_STEPS[s.step] ? 'arm' : 'home'}" style="width:${(s.d / tot * 100).toFixed(2)}%" title="${esc(s.step)} ${fmt(s.d, 2)} s"></span>`).join('');
+  const missedMarks = tr.events.filter(e => e.type === 'missed').length;
+  const chips = segs.filter(s => s.d >= 0.05 || s.step !== 'queued').map(s => `<span><em>${esc(s.step)}</em> ${fmt(s.d, s.d < 10 ? 2 : 1)} s</span>`).join('');
+  const resKind = tr.end == null ? 'open' : tr.ok ? 'ok' : 'bad';
+  const last = tr.events.filter(e => e.type !== 'step').map(e => e.type);
+  const resTxt = tr.end == null ? (tr.steps.length ? tr.steps[tr.steps.length - 1].step + '...' : 'queued') : (tr.ok ? 'ok · ' : 'FAIL · ') + (last.join(', ') || (tr.accepted ? 'no events' : 'rejected'));
+  return `<div class="trial">
+    <div class="tname">${esc(tr.action)} ${esc(tr.item || '')}<span class="res ${resKind}">${esc(resTxt)}</span></div>
+    <div>
+      <div class="tl" aria-label="step timeline">${bar}</div>
+      <div class="chips">${chips}<span><em>total</em> ${fmt((tr.end ?? nowS()) - tr.tCmd, 1)} s</span></div>
+      <div class="tstats"><span>request_to_hand_s <b>${tr.rth != null ? fmt(tr.rth, 2) + ' s' : '-'}</b></span><span>retries <b>${tr.retries ?? 0}</b></span><span>missed events <b>${missedMarks}</b></span><span>source ${esc(tr.source || '-')}</span>${tr.heard ? `<span>heard "${esc(tr.heard)}"</span>` : ''}</div>
+      ${tr.says.length ? `<div class="says">"${tr.says.map(esc).join('" / "')}"</div>` : ''}
+      ${tr.why ? `<div class="why">${esc(tr.why)}</div>` : ''}
+      ${tr.caution ? `<div class="caution">Caution: ${esc(tr.caution)}</div>` : ''}
+    </div></div>`;
+}
+function runHTML(r, info) {
+  const st = !r.closed ? ['p', unit === 'full' ? 'IN PROGRESS' : 'RUNNING'] : r.clean ? ['c', 'CLEAN'] : ['d', 'NOT CLEAN'];
+  const dur = ((r.tEnd ?? nowS()) - r.tStart);
+  const n = notes[r.key] || {};
+  const sk = info.after.get(r);
+  const note = r.closed && !r.clean ? `<div class="note">
+      <div><span class="lab">What broke</span><textarea data-note="${esc(r.key)}" placeholder="e.g. hemostat grasp closed on nothing twice, pad slipped on slot 2">${esc(n.text || '')}</textarea></div>
+      <div><span class="lab">Whose part</span><select data-note="${esc(r.key)}">${OWNERS.map(o => `<option${o === (n.owner || '') ? ' selected' : ''}>${esc(o)}</option>`).join('')}</select><div class="saved">${n.text || n.owner ? (mode === 'live' ? 'saved in this browser' : 'mock note') : ''}</div></div>
+    </div>` : '';
+  return `<div class="run ${r.closed && !r.clean ? 'dirty' : ''}">
+    <div class="rhd"><span class="rn">Run ${r.n}</span><span class="stamp ${st[0]}">${st[1]}</span>
+      <span class="meta">${hms(r.tStart)} · ${fmt(dur, 1)} s · ${r.trials.length} cmd${r.trials.length === 1 ? '' : 's'}${r.countSay ? ' · count: "' + esc(r.countSay) + '"' : ''}${r.stopped ? ' · STOP' : ''}</span>
+      ${sk != null ? `<span class="sk" style="color:${r.clean ? 'var(--green)' : 'var(--red)'}">streak ${sk}</span>` : ''}</div>
+    ${r.trials.map(trialHTML).join('')}${note}</div>`;
+}
+function render() {
+  if (!model) return;
+  const info = streakInfo();
+  // streak
+  $('streakN').innerHTML = `${Math.min(info.streak, 99)}<small>/10</small>`;
+  $('streakN').style.color = info.streak >= 10 ? 'var(--green)' : 'var(--ink)';
+  $('done10').classList.toggle('show', info.streak >= 10);
+  $('mags').innerHTML = Array.from({length: 10}, (_, i) => `<div class="mag ${i < info.streak ? 'on' : ''} ${i < info.streak && i >= prevStreak ? 'new' : ''}">${i + 1}</div>`).join('');
+  prevStreak = info.streak;
+  $('best').textContent = info.best; $('runsN').textContent = info.closed.length;
+  $('med').textContent = info.med != null ? fmt(info.med) + ' s' : '-';
+  $('tally').innerHTML = info.items.map(it => it.f ? '<i class="f" title="code fix"></i>' : `<i class="${it.r.clean ? 'c' : 'd'}" title="run ${it.r.n}"></i>`).join('');
+  // arm now
+  const s = mode === 'mock' ? mock.state() : armState;
+  $('stepNow').textContent = s.step || '-';
+  $('stepNow').style.color = s.step === 'stopped' || s.step === 'error' ? 'var(--red)' : s.step === 'idle' ? 'var(--ink)' : 'var(--blue)';
+  $('sItem').textContent = s.item || '-'; $('sQueue').textContent = (s.queue || []).join(', ') || '-';
+  $('sOut').textContent = (s.out || []).join(', ') || '-'; $('sHand').textContent = s.hand_seen == null ? '-' : s.hand_seen ? 'seen' : 'not seen (saved spot)';
+  $('sSay').textContent = lastSay ? '"' + lastSay + '"' : '-';
+  $('armKind').textContent = mode === 'mock' ? 'mock arm' : s.fake_arm ? 'fake / sim arm' : s.fake_arm === false ? 'real arm' : '-';
+  // controls
+  $('startBtn').disabled = driving || latched || mode === 'probe' || mode === 'lost';
+  $('startBtn').textContent = driving ? 'Running...' : 'Start run';
+  $('abortBtn').disabled = !driving;
+  // runs
+  const items = info.items.slice();
+  const open = model.runs.filter(r => !r.closed);
+  let html = open.reverse().map(r => runHTML(r, info)).join('');
+  for (let i = items.length - 1; i >= 0; i--) {
+    const it = items[i];
+    if (it.f) { const fi = fixes.indexOf(it.f); html += `<div class="fix"><b>CODE FIX</b><span>${hms(it.t)} · ${esc(it.f.text)} · streak reset</span><button data-delfix="${fi}">Remove</button></div>`; }
+    else html += runHTML(it.r, info);
+  }
+  const box = $('runs');
+  const focused = document.activeElement && document.activeElement.dataset && document.activeElement.dataset.note;
+  if (focused) return; // do not rebuild under the cursor while typing a note
+  if (model.noId) html = `<div class="caution" style="margin-bottom:10px">${model.noId} command(s) arrived without an id (command_id null). Their events are matched by order, which holds because the controller runs one job at a time.</div>` + html;
+  box.innerHTML = html || `<div class="empty">No runs yet. ${mode === 'live' ? 'Start one on the left, or run controller.smoke; it shows up here.' : ''}</div>`;
+}
+setInterval(() => { if (model && (driving || model.open)) schedule(); }, 500);
+
+/* ---------------- mock controller (JS copy of core.py's flow, fake_arm.py timings) ---------------- */
+const mock = (() => {
+  const S = {id: 'surgical', label: 'Operating room', _source: 'built-in default', return_spot: null, items: [
+    {id: 'scalpel', name: 'scalpel', aliases: ['blade', 'knife', 'ten blade', 'number ten'], sharp: true},
+    {id: 'hemostat', name: 'hemostat', aliases: ['kelly', 'clamp', 'hemo'], sharp: false},
+    {id: 'mayo_scissors', name: 'Mayo scissors', aliases: ['mayo', 'scissors'], sharp: false}]};
+  const cap = s => s[0].toUpperCase() + s.slice(1);
+  const L = {retry: n => `Missed the ${n}, trying again.`, couldnt: n => `I couldn't pick the ${n}.`, sharp: n => `${cap(n)} down.`,
+    noPull: n => `Setting the ${n} down.`, coming: n => `${cap(n)} coming.`, queued: n => `${cap(n)} next.`, returned: n => `${cap(n)} back in its slot.`,
+    count: ns => ns.length ? 'Out: ' + ns.join(', ') + '.' : "Everything's on the tray."};
+  let st = {step: 'idle', item: null, out: [], queue: [], gen: 0, busy: false, cur: null, pulled: false, halted: false};
+  const name = id => (S.items.find(i => i.id === id) || {name: id}).name;
+  function emit(type, extra, t) {
+    ingest(Object.assign({type, item: st.item, step: st.step, say: null, request_to_hand_s: null, retries: null, setting: 'surgical', lighting: 'normal',
+      command_id: st.cur ? st.cur.id : null, out: st.out.slice(), t: t ?? nowS()}, extra));
+  }
+  function outcome(sharp) {
+    const r = Math.random();
+    if (r < 0.04) return 'miss1'; if (r < 0.05) return 'miss2'; if (r < 0.07 && !sharp) return 'handLost';
+    if (r < 0.08 && !sharp) return 'noPull'; if (r < 0.087) return 'error'; return 'ok';
+  }
+  // generator of [dt seconds, event spec] in the order core.py emits them; yields {pull} and receives whether a pull came
+  function* handover(it, o) {
+    yield [0.02, {step: 'finding', item: it.id}];
+    yield [0.02, {step: 'picking'}]; yield [1.0, {step: 'checking'}];
+    let retries = 0;
+    if (o === 'error') { yield [0.4, {type: 'error', say: 'Something went wrong. Holding.', error: "SerialException('[Errno 5] Input/output error: /dev/tty.usbmodem5A7A0185621')", setStep: 'error'}]; return; }
+    if (o === 'miss1' || o === 'miss2') {
+      yield [0.05, {type: 'missed', say: L.retry(it.name), retries: 1}];
+      yield [2.3, {step: 'picking'}]; yield [1.0, {step: 'checking'}]; retries = 1;
+      if (o === 'miss2') { yield [0.05, {type: 'missed', say: L.couldnt(it.name), retries: 1}]; yield [0.3, {step: 'homing'}]; yield [1.0, {step: 'idle', item: null}]; return; }
+    }
+    yield [0.05, {type: 'picked', retries}];
+    if (it.sharp) { yield [0.02, {step: 'setting_down'}]; yield [1.0, {type: 'set_down', say: L.sharp(it.name), rth: true, retries, outAdd: it.id}]; yield [0.02, {step: 'homing'}]; yield [1.0, {step: 'idle', item: null}]; return; }
+    yield [0.02, {step: 'moving_to_hand'}];
+    if (o === 'handLost') { yield [1.6, {type: 'missed', say: 'Lost your hand. Holding.'}]; yield [0.4, {type: 'step', say: 'Hand open, please.'}]; yield [2.2, null]; }
+    else yield [3.0, null];
+    yield [0.0, {step: 'waiting_for_pull'}]; yield [0.01, {type: 'handed', rth: true, retries}];
+    const pulled = yield {pull: o !== 'noPull'};
+    if (!pulled) { yield [0.0, {step: 'setting_down'}]; yield [1.0, {type: 'set_down', say: L.noPull(it.name), retries, outAdd: it.id}]; yield [0.02, {step: 'homing'}]; yield [1.0, {step: 'idle', item: null}]; return; }
+    yield [0.0, {step: 'releasing'}]; yield [0.3, {type: 'released', outAdd: it.id}]; yield [0.02, {step: 'homing'}]; yield [1.0, {step: 'idle', item: null}];
+  }
+  function* ret(it) {
+    yield [0.02, {step: 'returning', item: it.id}]; yield [1.0, {type: 'returned', say: L.returned(it.name), retries: 0, outRemove: it.id}];
+    yield [0.02, {step: 'homing'}]; yield [1.0, {step: 'idle', item: null}];
+  }
+  function fire(spec, t, received) {
+    if (!spec) return;
+    if (spec.step) { st.step = spec.step; if ('item' in spec) st.item = spec.item; }
+    if (spec.setStep) st.step = spec.setStep;
+    if (spec.outAdd && !st.out.includes(spec.outAdd)) st.out.push(spec.outAdd);
+    if (spec.outRemove) st.out = st.out.filter(x => x !== spec.outRemove);
+    const ex = {};
+    if (spec.say) ex.say = spec.say; if (spec.retries != null) ex.retries = spec.retries; if (spec.error) ex.error = spec.error;
+    if (spec.rth) ex.request_to_hand_s = Math.round((t - received) * 100) / 100;
+    if ('item' in spec) ex.item = spec.item;
+    emit(spec.type || 'step', ex, t);
+  }
+  async function play(cmd) {
+    st.busy = true; st.cur = cmd; const g = st.gen;
+    const it = S.items.find(i => i.id === cmd.item) || S.items.find(i => i.id === st.out[st.out.length - 1]);
+    const flow = cmd.action === 'handover' ? handover(it, cmd._o || outcome(it.sharp)) : ret(it);
+    let r = flow.next();
+    try {
+      while (!r.done) {
+        const v = r.value; let send;
+        if (v.pull !== undefined) {
+          st.pulled = false; const human = Date.now() + 1500 + Math.random() * 2500, end = Date.now() + 30000;
+          while (Date.now() < end) {
+            if (st.gen !== g || st.halted) throw 0;
+            if (v.pull && (st.pulled || (!$('simPull').checked && Date.now() > human))) break;
+            await sleep(50);
+          }
+          send = v.pull && Date.now() < end;
+        } else {
+          await sleep(v[0] * 1000);
+          if (st.gen !== g || st.halted) throw 0;
+          fire(v[1], nowS(), cmd.received);
+        }
+        r = flow.next(send);
+      }
+    } catch (e) { /* stopped */ }
+    st.busy = false; st.cur = null;
+    if (!st.halted && st.queue.length) play(st.queue.shift());
+  }
+  function command(c) {
+    c.id = c.id || uid(); c.received = nowS();
+    const prevCur = st.cur; st.cur = c;
+    if (c.action === 'count') {
+      const say = L.count(st.out.map(name));
+      emit('command', {item: null, action: 'count', source: c.source, accepted: true, reason: null}); emit('count', {say, item: null});
+      st.cur = prevCur; return {accepted: true, reason: null, say};
+    }
+    const it = S.items.find(i => i.id === c.item);
+    let ok = true, reason = null, say = null;
+    if (c.action === 'handover' && !it) { ok = false; reason = `'${c.item}' is not in surgical`; say = "That's not on this tray."; }
+    else if (st.queue.length >= 3) { ok = false; reason = 'queue full'; say = "One moment, I've got three waiting."; }
+    else if (c.action === 'handover') say = (st.busy ? L.queued : L.coming)(it.name);
+    emit('command', {item: c.item, action: c.action, heard: c.heard || null, source: c.source, accepted: ok, reason, say});
+    st.cur = prevCur;
+    if (ok) { if (st.busy) st.queue.push(c); else play(c); }
+    return {accepted: ok, reason, say};
+  }
+  async function http(method, path, body) {
+    await sleep(20);
+    if (path === '/command') return {status: 200, json: command(Object.assign({}, body))};
+    if (path === '/stop') { st.gen++; st.queue = []; st.step = 'stopped'; emit('stopped', {say: 'Stopped.'}); return {status: 200, json: {accepted: true}}; }
+    if (path === '/reset') {
+      for (let i = 0; i < 40 && st.busy; i++) await sleep(50);
+      if (st.busy || !['idle', 'stopped', 'error'].includes(st.step)) return {status: 409, json: {detail: 'busy: stop first'}};
+      st.out = []; st.step = 'homing'; st.item = null; emit('step', {item: null});
+      setTimeout(() => { st.step = 'idle'; emit('step', {say: 'Reset. Ready.', item: null}); }, 1300);
+      return {status: 200, json: {ok: true}};
+    }
+    if (path === '/fake/pull') { st.pulled = true; return {status: 200, json: {ok: true}}; }
+    if (path === '/state') return {status: 200, json: state()};
+    if (path === '/setting') return {status: 200, json: S};
+    return {status: 404, json: {detail: 'Not Found'}};
+  }
+  function state() { return {step: st.step, item: st.item, queue: st.queue.map(q => q.item), out: st.out.slice(), setting: 'surgical', lighting: 'normal', fake_arm: true, hand_seen: true, t: nowS()}; }
+  // instant replay of past runs for a board that is alive on open
+  function seed() {
+    st = {step: 'idle', item: null, out: [], queue: [], gen: 0, busy: false, cur: null, pulled: false, halted: false};
+    const plan = [
+      ['ok', 'ok', 'ok'], ['ok', 'miss1', 'ok'], ['ok', 'ok', 'ok'], ['ok', 'ok', 'ok'], ['ok', 'ok', 'noPull'], ['ok', 'ok', 'handLost'],
+      ['ok', 'ok', 'ok'], ['ok', 'ok', 'ok'], ['ok', 'ok', 'ok']];
+    let t = nowS() - plan.length * 52 - 20;
+    plan.forEach((outs, ri) => {
+      S.items.forEach((it, k) => {
+        const c = {id: uid(), action: 'handover', item: it.id, source: 'dashboard', received: t};
+        st.cur = c;
+        emit('command', {item: it.id, action: 'handover', source: 'dashboard', accepted: true, reason: null, say: L.coming(it.name)}, t);
+        const flow = handover(it, outs[k]); let r = flow.next();
+        while (!r.done) {
+          let send;
+          if (r.value.pull !== undefined) { send = r.value.pull; t += send ? 2.1 + Math.random() * 1.6 : 30; }
+          else { t += r.value[0] * (0.97 + Math.random() * 0.08); fire(r.value[1], t, c.received); }
+          r = flow.next(send);
+        }
+        st.cur = null; t += 0.25;
+      });
+      const c = {id: uid()}; st.cur = c;
+      emit('command', {item: null, action: 'count', source: 'dashboard', accepted: true, reason: null}, t);
+      emit('count', {say: L.count(st.out.map(name)), item: null}, t + 0.01);
+      st.cur = null;
+      st.out = []; t += 18 + Math.random() * 6;
+    });
+    const dirty = model.runs.filter(r => r.closed && !r.clean);
+    if (dirty[0]) notes[dirty[0].key] = {text: 'Hemostat closed on nothing first try (gripper 1.00). Slot 2 pad slid 5 mm toward the scalpel. Re-taped, no code change.', owner: 'Hardware (not code)'};
+    fixes.push({t: (model.runs[3].tEnd + model.runs[4].tStart) / 2, text: 'voice/: debounce "got it" (mock example)'});
+    st.step = 'idle'; st.item = null; st.out = [];
+  }
+  return {setting: S, http, state, seed, halt() { st.halted = true; st.gen++; }};
+})();
+
+/* ---------------- boot ---------------- */
+$('api').value = API;
+$('apiGo').onclick = () => { API = $('api').value.trim().replace(/\/$/, ''); const u = new URL(location.href); u.searchParams.set('api', API); history.replaceState(null, '', u); connect(); };
+model = newModel();
+setBadge();
+connect();
+</script>
+</body>
+</html>

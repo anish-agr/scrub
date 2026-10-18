@@ -1,0 +1,506 @@
+<!doctype html>
+<!--
+FEATURES:
+- Overhead frame from the vision service (GET :8001/stream, or a frozen GET :8001/snapshot), else a drawn MOCK frame at the
+  real requested camera size (1280x720, camera.py) or the fake camera size (640x480), projected from sim/layout.json
+  (overhead_cam at z 0.75 m, fovy 55 deg, image up = arm +x, assumed)
+- Drag on the frame to draw an [x1,y1,x2,y2] pixel box for the selected item or the return spot; drag a box to move it,
+  drag its corner to resize; arrow keys nudge 1 px (Shift 10 px), Alt+arrow grows the far edge, S snaps the box to its
+  detection plus padding, Del clears, Tab / 1-4 pick the target, auto-advance to the next unmarked target
+- Checks: box outside the image, zero size, overlaps another slot (vision would mark two slots present), return spot
+  overlapping a slot (IoU >= 0.15 or center inside, the exact rule in vision/tray.py), box smaller than the item footprint
+  (catalog length x width in mm times px/mm), detection not inside its slot
+- Coverage sheet across all three settings: 3 x 3 items + 3 return spots = 12 boxes
+- Output per setting: settings/<id>.json fragment (items[].slot and return_spot), the full file merged, the
+  mark_slots.py printout for Evan, and the --clicks string that reproduces it with python -m vision.mark_slots
+- Diff against GET :8000/setting (only the loaded setting; a guarded POST /setting switch for the others)
+- Detection overlay: live GET :8001/vision/tray when the browser is allowed to read it, pasted TrayState or Perceptron
+  /v1/detect JSON, or animated mock detections (a lift every few seconds) run through the same present test
+SPONSORS: Perceptron Perception (tray detections map onto these boxes), Perceptron Robotics (the arm picks from these slots)
+BACKEND HOOKS: GET vision :8001/stream, GET :8001/snapshot, GET :8001/vision/tray, GET controller :8000/setting,
+  GET :8000/state, POST :8000/setting {"setting": id} (409 if busy, clears out), WS :8000/events (step events refetch the
+  setting), POST :8000/stop. Overrides: ?api= ?vision= (base URLs), ?mock=1 forces mock.
+STYLE: Technical drafting sheet. Cream drawing paper, black ink rules, red markup for errors, amber for warnings,
+  title block in the corner, IBM Plex Mono for numbers and Archivo Narrow for labels.
+-->
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Scrub Slot Marker</title>
+<meta name="description" content="Draw the pixel box for every tray slot and return spot on the overhead camera frame, check them, and copy the settings JSON for Evan.">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Archivo+Narrow:wght@400;600;700&family=IBM+Plex+Mono:wght@400;500;600&family=Caveat:wght@500&display=swap" rel="stylesheet">
+<style>
+:root{--paper:#f2eee3;--paper2:#e9e4d6;--ink:#1c1b18;--ink2:#55524a;--rule:#b9b2a0;--red:#c3261c;--amber:#b77800;--ok:#2f6b3a;--cyan:#1f6f8b;--cam:#101312}
+*{box-sizing:border-box}
+html,body{margin:0;background:var(--paper);color:var(--ink)}
+body{font:14px/1.4 "Archivo Narrow",sans-serif;font-variant-numeric:tabular-nums}
+.mono{font-family:"IBM Plex Mono",monospace}
+button{font:600 13px "Archivo Narrow",sans-serif;letter-spacing:.04em;text-transform:uppercase;background:var(--paper);color:var(--ink);border:1.5px solid var(--ink);border-radius:2px;min-height:44px;padding:0 14px;cursor:pointer}
+button:focus-visible,select:focus-visible,textarea:focus-visible{outline:2px solid var(--red);outline-offset:2px}
+button.on{background:var(--ink);color:var(--paper)}
+button:disabled{opacity:.4;cursor:not-allowed}
+select{font:500 13px "IBM Plex Mono",monospace;min-height:44px;border:1.5px solid var(--ink);background:var(--paper);border-radius:2px;padding:0 8px;color:var(--ink)}
+header{display:flex;flex-wrap:wrap;align-items:stretch;border-bottom:2px solid var(--ink)}
+header .h{padding:10px 16px;border-right:1px solid var(--ink);display:flex;flex-direction:column;justify-content:center}
+header h1{margin:0;font-size:22px;letter-spacing:.02em}
+header small,.lbl{font-size:11px;text-transform:uppercase;letter-spacing:.12em;color:var(--ink2)}
+.src{font:500 12px "IBM Plex Mono",monospace}
+.tag{display:inline-block;padding:1px 6px;border:1.5px solid currentColor;font:600 11px "IBM Plex Mono",monospace;letter-spacing:.06em}
+.tag.mock{color:var(--amber)} .tag.live{color:var(--ok)} .tag.off{color:var(--ink2)}
+header .grow{flex:1}
+#stop{background:var(--red);color:#fff;border-color:var(--red);margin:8px 16px;min-width:110px;font-size:16px}
+main{display:grid;grid-template-columns:minmax(0,1fr) 400px;gap:0}
+.sheet{padding:14px 16px;min-width:0}
+.side{border-left:2px solid var(--ink);padding:14px 16px;min-width:0}
+.tabs{display:flex;gap:0;border:1.5px solid var(--ink);width:max-content;max-width:100%;overflow:auto}
+.tabs button{border:0;border-right:1.5px solid var(--ink);border-radius:0}
+.tabs button:last-child{border-right:0}
+.bar{display:flex;flex-wrap:wrap;gap:8px;align-items:center;margin:10px 0}
+.stage{position:relative;background:var(--cam);border:1.5px solid var(--ink);width:100%;touch-action:none;user-select:none}
+.stage{overflow:hidden}.stage .zin{position:absolute;inset:0;transform-origin:50% 50%}
+.stage img,.stage canvas{display:block;width:100%;height:100%;position:absolute;inset:0}
+.stage [hidden]{display:none}
+.stage svg{position:absolute;inset:0;width:100%;height:100%;cursor:crosshair}
+.stamp{position:absolute;top:8px;right:8px;font:600 12px "IBM Plex Mono",monospace;color:var(--amber);border:2px solid var(--amber);padding:2px 8px;background:rgba(16,19,18,.75);pointer-events:none;transform:rotate(-2deg)}
+.stamp.live{color:#8fd19e;border-color:#8fd19e;transform:none}
+.readout{display:flex;flex-wrap:wrap;gap:4px 18px;font:500 12px "IBM Plex Mono",monospace;padding:6px 0;border-bottom:1px solid var(--rule)}
+table{border-collapse:collapse;width:100%}
+th,td{border-bottom:1px solid var(--rule);padding:5px 6px;text-align:left;vertical-align:middle}
+th{font-size:11px;text-transform:uppercase;letter-spacing:.1em;color:var(--ink2);font-weight:600;border-bottom:1.5px solid var(--ink)}
+td.mono{font-size:12px}
+tr.sel td{background:var(--paper2)}
+tr.tgt{cursor:pointer}
+.sw{display:inline-block;width:12px;height:12px;border:1.5px solid var(--ink);vertical-align:-1px;margin-right:6px}
+h2{font-size:13px;text-transform:uppercase;letter-spacing:.14em;margin:18px 0 6px;padding-bottom:4px;border-bottom:1.5px solid var(--ink);display:flex;justify-content:space-between;align-items:baseline;gap:8px}
+h2 span{font:500 11px "IBM Plex Mono",monospace;letter-spacing:0;text-transform:none;color:var(--ink2)}
+.warns{list-style:none;margin:0;padding:0}
+.warns li{padding:6px 0 6px 10px;border-bottom:1px solid var(--rule);font-size:13px;position:relative}
+.warns li b{font:600 11px "IBM Plex Mono",monospace;margin-right:6px}
+.warns li.err b{color:var(--red)} .warns li.warn b{color:var(--amber)} .warns li.info b{color:var(--cyan)}
+.cov{display:grid;grid-template-columns:76px repeat(4,1fr);border-top:1.5px solid var(--ink);border-left:1px solid var(--rule)}
+.cov div{border-right:1px solid var(--rule);border-bottom:1px solid var(--rule);padding:4px 5px;font-size:12px;min-height:40px;display:flex;flex-direction:column;justify-content:center}
+.cov .hd{font-weight:600;text-transform:uppercase;letter-spacing:.08em;font-size:11px;color:var(--ink2)}
+.cov .c{cursor:pointer;font-family:"IBM Plex Mono",monospace;font-size:11px}
+.cov .c.miss{color:var(--red)}
+.cov .c.miss::before{content:"NO BOX";font-weight:600}
+.cov .c.done{color:var(--ok)}
+.cov .c.warned{color:var(--amber)}
+.cov .c .n{color:var(--ink);font-family:"Archivo Narrow";font-size:12px}
+.hand{font-family:Caveat,cursive;font-size:20px;color:var(--ink);line-height:1}
+pre,textarea{font:12px/1.45 "IBM Plex Mono",monospace;background:#fbf9f3;border:1.5px solid var(--ink);border-radius:2px;padding:10px;margin:0;white-space:pre-wrap;overflow-wrap:anywhere;overflow:auto;max-height:340px;width:100%;color:var(--ink)}
+textarea{white-space:pre-wrap;min-height:90px}
+.add{color:var(--ok)} .del{color:var(--red);text-decoration:line-through} .chg{color:var(--amber)}
+.note{font-size:12px;color:var(--ink2);margin:6px 0}
+.titleblock{display:grid;grid-template-columns:repeat(4,auto);border:1.5px solid var(--ink);margin-top:16px;font-size:11px}
+.titleblock div{border-right:1px solid var(--ink);padding:4px 8px}
+.titleblock div:last-child{border-right:0}
+.titleblock b{display:block;font:600 12px "IBM Plex Mono",monospace}
+footer{border-top:2px solid var(--ink);padding:10px 16px;font-size:12px;color:var(--ink2);display:flex;flex-wrap:wrap;gap:16px}
+footer a{color:var(--ink)}
+.keys{font:12px "IBM Plex Mono",monospace;color:var(--ink2)}
+.keys kbd{border:1px solid var(--ink2);padding:0 4px;border-radius:2px;font:inherit;color:var(--ink)}
+@media (max-width:1000px){main{grid-template-columns:1fr}.side{border-left:0;border-top:2px solid var(--ink)}}
+@media (max-width:560px){header .h{border-right:0;width:100%;border-bottom:1px solid var(--rule)}#stop{width:calc(100% - 32px)}.titleblock{grid-template-columns:1fr 1fr}.titleblock div:nth-child(2){border-right:0}.titleblock div:nth-child(-n+2){border-bottom:1px solid var(--ink)}.cov{grid-template-columns:62px repeat(4,1fr)}.keys{display:none}}
+</style>
+</head>
+<body>
+<header>
+  <div class="h"><small>Form SCR-B5 rev. 1 / tray slot marking</small><h1>Slot marker</h1></div>
+  <div class="h"><span class="lbl">Camera</span><span class="src" id="camSrc"><span class="tag off">PROBING</span></span></div>
+  <div class="h"><span class="lbl">Controller</span><span class="src" id="ctlSrc"><span class="tag off">PROBING</span></span></div>
+  <div class="h grow"><span class="lbl">Marked</span><span class="src" id="covSum">0 of 12 boxes</span></div>
+  <button id="stop" title="POST /stop. This page never moves the arm, but STOP is always here.">STOP</button>
+</header>
+<main>
+<section class="sheet">
+  <div class="bar">
+    <div class="tabs" id="tabs" role="tablist"></div>
+    <select id="res" title="Image size the boxes are drawn in" aria-label="mock frame size">
+      <option value="1280x720">1280 x 720 (camera.py request)</option>
+      <option value="640x480">640 x 480 (vision --fake)</option>
+    </select>
+    <button id="freeze" title="Live stream or a frozen /snapshot">Freeze frame</button>
+    <button id="zoom" title="Zoom on the frame center, where the camera looks at the tray">Zoom 1x</button>
+    <button id="detBtn" class="on" title="Overlay detections">Detections</button>
+  </div>
+  <div class="stage" id="stage">
+    <div class="zin" id="zin">
+    <canvas id="mockCv"></canvas>
+    <img id="camImg" alt="overhead camera frame" hidden>
+    <svg id="ov" xmlns="http://www.w3.org/2000/svg"></svg>
+    </div>
+    <div class="stamp" id="stamp">MOCK FRAME</div>
+  </div>
+  <div class="readout" id="readout"><span>cursor -, -</span></div>
+  <div class="keys">Drag empty frame: new box for the target. Drag box: move. Drag corner: resize. <kbd>Arrows</kbd> nudge 1 px, <kbd>Shift</kbd> 10 px, <kbd>Alt</kbd> grow. <kbd>S</kbd> snap to detection. <kbd>Del</kbd> clear. <kbd>Tab</kbd> or <kbd>1</kbd>-<kbd>4</kbd> target.</div>
+  <h2>Targets <span><span id="setLbl"></span>, <span id="scaleLbl"></span></span></h2>
+  <table id="tgtTbl"><thead><tr><th>Target</th><th>Box [x1, y1, x2, y2] px</th><th>Size</th><th>Det.</th></tr></thead><tbody></tbody></table>
+  <div class="bar">
+    <button id="copyFrom">Copy boxes from surgical</button>
+    <button id="clearSet">Clear this setting</button>
+    <label class="note">px/mm <input id="pxmm" class="mono" type="number" step="0.01" min="0.1" style="width:80px;min-height:36px;border:1.5px solid var(--ink);background:var(--paper)"></label>
+  </div>
+  <p class="note" id="scaleNote"></p>
+  <h2>Detections to check against <span id="detSrc">mock</span></h2>
+  <textarea id="paste" placeholder='Paste a TrayState or a Perceptron /v1/detect body here, e.g. {"detections":[{"mention":"hemostat","point_box":{"top_left":{"x":130,"y":90},"bottom_right":{"x":240,"y":130}}}]}'></textarea>
+  <div class="bar"><button id="usePaste">Overlay pasted</button><button id="useMock">Back to auto</button></div>
+</section>
+<aside class="side">
+  <h2>Checks <span id="chkCount"></span></h2>
+  <ul class="warns" id="warns"></ul>
+  <h2>Coverage, all trays <span>3 x 3 items + return spots</span></h2>
+  <div class="cov" id="cov"></div>
+  <h2>For Evan <span id="outFor"></span></h2>
+  <div class="bar" style="margin-top:0">
+    <select id="fmt" aria-label="output format">
+      <option value="frag">settings fragment</option>
+      <option value="full">full settings file</option>
+      <option value="print">mark_slots printout</option>
+      <option value="clicks">--clicks string</option>
+      <option value="all">all three fragments</option>
+    </select>
+    <button id="copy">Copy</button>
+  </div>
+  <pre id="out"></pre>
+  <h2>Diff vs GET /setting <span id="diffSrc"></span></h2>
+  <div id="diff"></div>
+  <div class="bar"><button id="switchCtl" disabled>Load on controller</button><button id="refetch">Refetch</button></div>
+  <p class="note">POST /setting clears the out list and is refused (409) unless the arm is idle, stopped or in error. It does not move the arm.</p>
+  <div class="titleblock">
+    <div>Drawn by<b class="hand">Brandon</b></div><div>Commit<b class="hand">Evan</b></div>
+    <div>Task<b>B5, E1</b></div><div>Units<b>px, mm</b></div>
+  </div>
+</aside>
+</main>
+<footer><span>Scrub, DubHacks 2026. Prototype 49.</span><a href="42-calibration.html">Calibration (B6)</a><a href="45-table-template.html">Table template</a><a href="#">Terms</a><a href="#">Privacy</a></footer>
+<script>
+const Q=new URLSearchParams(location.search);
+const API=(Q.get('api')||'http://localhost:8000').replace(/\/$/,'');
+const VISION=(Q.get('vision')||'http://localhost:8001').replace(/\/$/,'');
+const FORCE_MOCK=Q.get('mock')==='1';
+const $=id=>document.getElementById(id);
+const SVGNS='http://www.w3.org/2000/svg';
+
+// controller/settings.py built-in defaults (what GET /setting returns until Evan's files land)
+const DEFAULTS={
+  surgical:{label:'Operating room',items:[['scalpel','scalpel',['blade','knife','ten blade','number ten'],true],['hemostat','hemostat',['kelly','clamp','hemo'],false],['mayo_scissors','Mayo scissors',['mayo','scissors'],false]]},
+  dental:{label:'Dental office',items:[['mouth_mirror','mouth mirror',['mirror'],false],['explorer','explorer',['probe','pick'],false],['cotton_pliers','cotton pliers',['pliers','tweezers','cotton forceps'],false]]},
+  bench:{label:'Robotics bench',items:[['needle_nose_pliers','needle-nose pliers',['needle nose','pliers'],false],['wire_cutters','wire cutters',['cutters','snips','flush cutters'],false],['hex_key','hex key',['allen key','allen wrench','hex'],false]]}
+};
+const IDS=['surgical','dental','bench'];
+function defaultDoc(id){const d=DEFAULTS[id];return{id,label:d.label,items:d.items.map(([i,n,a,s])=>({id:i,name:n,aliases:a,sharp:s,slot:null,pick_instruction:'pick the '+n.toLowerCase(),return_instruction:'return the '+n.toLowerCase()})),return_spot:null};}
+const DOCS={};IDS.forEach(id=>DOCS[id]=defaultDoc(id));
+
+// sim/layout.json
+const LAYOUT={table:{center:[0.25,0],size:[0.9,0.8]},tray:{center:[0.24,0],size:[0.10,0.26]},slots:[[0.24,-0.08],[0.24,0],[0.24,0.08]],
+  setting_items:{surgical:['hemostat','scalpel','mayo_scissors'],dental:['mouth_mirror','explorer','cotton_pliers'],bench:['needle_nose_pliers','wire_cutters','hex_key']},
+  return_spot:[0.17,0.17],safe_spot:[0.17,-0.18],hand_zone:[0.28,-0.14,0.14],overhead_cam:{pos:[0.24,0,0.75],fovy:55}};
+// Approximate catalog footprints, length x width in mm (Kelly 5.5 in, Mayo 6.75 in, #3 handle + #10 blade, ...)
+const FOOT={scalpel:[160,12],hemostat:[140,50],mayo_scissors:[170,55],mouth_mirror:[170,22],explorer:[170,12],cotton_pliers:[150,12],needle_nose_pliers:[150,50],wire_cutters:[125,50],hex_key:[90,30]};
+
+let W=1280,H=720,live=false,frozen=false,ctlLive=false,ctlDoc=null,ctlStep=null;
+let cur='surgical',target=0,showDet=true,detMode='auto',pasted=null,liveTray=null,liveTrayOk=null;
+let zoom=1,pxmmOverride=null,drag=null,lifted=null,mockDets={};
+
+// ---------- draft storage (per viewer convenience only) ----------
+let draft={};
+function blankDraft(){const o={};IDS.forEach(id=>{o[id]={res:null,boxes:{}};});return o;}
+try{draft=JSON.parse(localStorage.getItem('scrub49')||'null')||blankDraft();}catch(e){draft=blankDraft();}
+IDS.forEach(id=>{if(!draft[id])draft[id]={res:null,boxes:{}};});
+function save(){try{localStorage.setItem('scrub49',JSON.stringify(draft));}catch(e){}}
+
+function targets(id){return DOCS[id].items.map(i=>i.id).concat(['return_spot']);}
+function tname(id,t){if(t==='return_spot')return'return spot';const it=DOCS[id].items.find(i=>i.id===t);return it?it.name:t;}
+function boxOf(id,t){return draft[id].boxes[t]||null;}
+function setBox(id,t,b){delete draft[id].seed;if(b){b=norm(b);draft[id].boxes[t]=b;draft[id].res=[W,H];}else delete draft[id].boxes[t];save();}
+function norm(b){return[Math.round(Math.min(b[0],b[2])),Math.round(Math.min(b[1],b[3])),Math.round(Math.max(b[0],b[2])),Math.round(Math.max(b[1],b[3]))];}
+
+// ---------- projection: arm meters to mock image px ----------
+function pxPerM(){const f=(H/2)/Math.tan(LAYOUT.overhead_cam.fovy*Math.PI/360);return f/LAYOUT.overhead_cam.pos[2];}
+function pxmm(){return pxmmOverride||pxPerM()/1000;}
+function proj(x,y){const k=pxPerM(),c=LAYOUT.overhead_cam.pos;return[W/2-(y-c[1])*k,H/2-(x-c[0])*k];}
+
+// ---------- mock frame ----------
+function rnd(seed){let s=seed;return()=>{s=(s*16807)%2147483647;return s/2147483647;};}
+function itemRect(id,item){const idx=LAYOUT.setting_items[id].indexOf(item);if(idx<0)return null;const s=LAYOUT.slots[idx];const[u,v]=proj(s[0],s[1]);const f=FOOT[item],k=pxPerM()/1000;return[u-f[1]*k/2,v-f[0]*k/2,u+f[1]*k/2,v+f[0]*k/2];}
+function drawInstrument(g,item,r){
+  const k=pxPerM()/1000,cx=(r[0]+r[2])/2,top=r[1],bot=r[3],len=bot-top;
+  g.strokeStyle='#d9dddc';g.fillStyle='#c9cecd';g.lineWidth=Math.max(1.5,2.2*k);g.lineCap='round';
+  const ring=(x,y,rr)=>{g.beginPath();g.arc(x,y,rr,0,7);g.stroke();};
+  const line=(x1,y1,x2,y2)=>{g.beginPath();g.moveTo(x1,y1);g.lineTo(x2,y2);g.stroke();};
+  if(['hemostat','mayo_scissors','needle_nose_pliers','wire_cutters'].includes(item)){
+    const w=(r[2]-r[0])/2,rr=w*0.42,jaw=item==='mayo_scissors'?0.45:item==='hemostat'?0.38:0.3;const pivot=top+len*jaw;
+    line(cx,top,cx-w*0.12,pivot);line(cx,top,cx+w*0.12,pivot);
+    if(item.includes('pliers')||item==='wire_cutters'){g.lineWidth*=2.2;line(cx-w*0.1,pivot,cx-w*0.62,bot-2);line(cx+w*0.1,pivot,cx+w*0.62,bot-2);}
+    else{line(cx-w*0.12,pivot,cx-w*0.5,bot-rr*2);line(cx+w*0.12,pivot,cx+w*0.5,bot-rr*2);ring(cx-w*0.55,bot-rr,rr);ring(cx+w*0.55,bot-rr,rr);}
+    g.fillStyle='#e9ecec';g.beginPath();g.arc(cx,pivot,3*k+1,0,7);g.fill();
+  }else if(item==='scalpel'){g.lineWidth=10*k;line(cx,top+len*0.27,cx,bot);g.fillStyle='#eef1f1';g.beginPath();g.moveTo(cx-4*k,top+len*0.27);g.quadraticCurveTo(cx+7*k,top+len*0.1,cx,top);g.lineTo(cx-4*k,top+len*0.27);g.fill();}
+  else if(item==='mouth_mirror'){g.lineWidth=6*k;line(cx,top+22*k,cx,bot);g.fillStyle='#aeb9c2';g.beginPath();g.arc(cx,top+11*k,11*k,0,7);g.fill();g.stroke();}
+  else if(item==='explorer'){g.lineWidth=7*k;line(cx,top+30*k,cx,bot-25*k);g.lineWidth=1.6*k+1;line(cx,top+30*k,cx+5*k,top);line(cx,bot-25*k,cx-5*k,bot);}
+  else if(item==='cotton_pliers'){g.lineWidth=3*k+1;line(cx,bot,cx-5*k,top);line(cx,bot,cx+5*k,top);}
+  else if(item==='hex_key'){g.lineWidth=5*k+1;g.strokeStyle='#4a4e52';g.beginPath();g.moveTo(cx+12*k,top);g.lineTo(cx-12*k,top+4*k);g.lineTo(cx-12*k,bot);g.stroke();}
+}
+function drawMock(){
+  const cv=$('mockCv');cv.width=W;cv.height=H;const g=cv.getContext('2d');const k=pxPerM()/1000;
+  g.fillStyle='#17191a';g.fillRect(0,0,W,H);
+  const tc=LAYOUT.table.center,ts=LAYOUT.table.size;const a=proj(tc[0]+ts[0]/2,tc[1]+ts[1]/2),b=proj(tc[0]-ts[0]/2,tc[1]-ts[1]/2);
+  g.fillStyle='#2c4a46';g.fillRect(a[0],a[1],b[0]-a[0],b[1]-a[1]);
+  const R=rnd(49);g.fillStyle='rgba(255,255,255,.035)';for(let i=0;i<2600;i++){g.fillRect(a[0]+R()*(b[0]-a[0]),a[1]+R()*(b[1]-a[1]),1+R()*2,1);}
+  g.strokeStyle='rgba(0,0,0,.25)';g.lineWidth=2;for(let i=1;i<4;i++){const x=a[0]+(b[0]-a[0])*i/4;g.beginPath();g.moveTo(x,Math.max(0,a[1]));g.lineTo(x+6,Math.min(H,b[1]));g.stroke();}
+  // tray
+  const trc=LAYOUT.tray.center,trs=LAYOUT.tray.size;const p=proj(trc[0]+trs[0]/2,trc[1]+trs[1]/2),q=proj(trc[0]-trs[0]/2,trc[1]-trs[1]/2);
+  g.fillStyle='#7f8789';g.fillRect(p[0],p[1],q[0]-p[0],q[1]-p[1]);g.strokeStyle='#a9b0b2';g.lineWidth=4*k+1;g.strokeRect(p[0],p[1],q[0]-p[0],q[1]-p[1]);
+  // return spot and safe spot tape
+  const tape=(c,lbl,col)=>{const[u,v]=proj(c[0],c[1]);const s=80*k;g.strokeStyle=col;g.lineWidth=12*k;g.setLineDash([]);g.strokeRect(u-s,v-s,2*s,2*s);g.fillStyle=col;g.font=`600 ${Math.round(14*k+6)}px "IBM Plex Mono",monospace`;g.fillText(lbl,u-s+4,v+s+18*k+6);};
+  tape(LAYOUT.return_spot,'RETURN','#3f7fb0');tape(LAYOUT.safe_spot,'SAFE','#c9a13a');
+  // arm base and first link
+  const[bu,bv]=proj(0,0);g.fillStyle='#2b2b2b';g.beginPath();g.arc(bu,bv,55*k,0,7);g.fill();g.fillStyle='#e8e6df';g.fillRect(bu-22*k,bv-150*k,44*k,150*k);g.fillStyle='#1d1d1d';g.fillRect(bu-30*k,bv-175*k,60*k,40*k);
+  // items
+  LAYOUT.setting_items[cur].forEach(it=>{if(it===lifted)return;const r=itemRect(cur,it);if(r)drawInstrument(g,it,r);});
+  if(lifted){const[hu,hv]=proj(LAYOUT.hand_zone[0],LAYOUT.hand_zone[1]);g.fillStyle='#d8b49a';g.beginPath();g.ellipse(hu,hv,45*k,55*k,0.4,0,7);g.fill();}
+  g.fillStyle='rgba(16,19,18,.75)';g.fillRect(0,H-26,W,26);g.fillStyle='#d8a23a';g.font='500 13px "IBM Plex Mono",monospace';
+  g.fillText(`MOCK ${W}x${H}  drawn from sim/layout.json, cam z 0.75 m, fovy 55 deg, image up = arm +x  ${new Date().toLocaleTimeString()}`,10,H-9);
+}
+function mockDetections(){
+  const out=[],R=Math.random;
+  LAYOUT.setting_items[cur].forEach(it=>{
+    let r=itemRect(cur,it);if(!r)return;
+    if(it===lifted){const[hu,hv]=proj(LAYOUT.hand_zone[0],LAYOUT.hand_zone[1]);const w=r[2]-r[0],h=r[3]-r[1];r=[hu-w/2,hv-h/2,hu+w/2,hv+h/2];}
+    const j=()=>(R()-0.5)*6;const name=(DOCS[cur].items.find(i=>i.id===it)||{name:it.replace(/_/g,' ')}).name;
+    out.push({mention:name.toLowerCase(),point_box:{top_left:{x:+(r[0]+j()).toFixed(1),y:+(r[1]+j()).toFixed(1)},bottom_right:{x:+(r[2]+j()).toFixed(1),y:+(r[3]+j()).toFixed(1)}}});
+  });return out;
+}
+
+// ---------- vision/geometry.py and vision/tray.py, ported ----------
+const normLabel=t=>t.toLowerCase().replace(/[_-]/g,' ').split(/\s+/).filter(Boolean).join(' ');
+const center=b=>[(b[0]+b[2])/2,(b[1]+b[3])/2];
+const centerInside=(b,s)=>{if(!b||!s)return false;const[cx,cy]=center(b);return s[0]<=cx&&cx<=s[2]&&s[1]<=cy&&cy<=s[3];};
+function iou(a,b){if(!a||!b)return 0;const x1=Math.max(a[0],b[0]),y1=Math.max(a[1],b[1]),x2=Math.min(a[2],b[2]),y2=Math.min(a[3],b[3]);const i=Math.max(0,x2-x1)*Math.max(0,y2-y1);if(i<=0)return 0;const u=(a[2]-a[0])*(a[3]-a[1])+(b[2]-b[0])*(b[3]-b[1])-i;return u>0?i/u:0;}
+const slotHit=(d,s)=>s?centerInside(d,s)||iou(d,s)>=0.15:false;
+function matchItem(mention,id){const k=normLabel(mention||'');if(!k)return null;for(const it of DOCS[id].items){const labs=[it.id,it.name].concat(it.aliases||[]).map(normLabel);if(labs.includes(k))return it.id;}return null;}
+function detBox(d){const p=d.point_box;if(!p||!p.top_left||!p.bottom_right)return null;return[+p.top_left.x,+p.top_left.y,+p.bottom_right.x,+p.bottom_right.y];}
+
+// detections for the current setting: {item: [box,...]} plus present flags from a TrayState if that is all we have
+function currentDetections(){
+  let src='mock',dets=null,tray=null;
+  if(detMode==='paste'&&pasted){src='pasted';if(pasted.detections)dets=pasted.detections;else if(pasted.slots)tray=pasted;}
+  else if(live){if(liveTray){src='live /vision/tray';tray=liveTray;}else src='none (browser cannot read :8001/vision/tray)';}
+  else dets=mockDets[cur]||[];
+  const by={};if(dets)dets.forEach(d=>{const id=matchItem(d.mention,cur),b=detBox(d);if(id&&b)(by[id]=by[id]||[]).push(b);});
+  return{src,by,tray,has:!!dets};
+}
+
+// ---------- checks ----------
+function checks(id){
+  const out=[],T=targets(id),res=draft[id].res,k=pxmm();
+  const D=id===cur?currentDetections():{by:{},has:false};
+  if(res&&(res[0]!==W||res[1]!==H))out.push(['err',id,null,`boxes were drawn on a ${res[0]}x${res[1]} frame, this frame is ${W}x${H}. Re-mark or switch the size.`]);
+  T.forEach(t=>{
+    const b=boxOf(id,t);if(!b)return;const nm=tname(id,t);
+    if(b[2]-b[0]<4||b[3]-b[1]<4){out.push(['err',id,t,`${nm}: box is ${b[2]-b[0]}x${b[3]-b[1]} px, too thin to use.`]);return;}
+    if(b[0]<0||b[1]<0||b[2]>W||b[3]>H)out.push(['err',id,t,`${nm}: box runs outside the ${W}x${H} image.`]);
+    let need=null;
+    if(t==='return_spot'){const big=DOCS[id].items.map(i=>FOOT[i.id]||[0,0]).reduce((m,f)=>f[0]>m[0]?f:m,[0,0]);need=big;}
+    else need=FOOT[t];
+    if(need){const L=Math.max(b[2]-b[0],b[3]-b[1]),S=Math.min(b[2]-b[0],b[3]-b[1]);const nL=need[0]*k,nS=need[1]*k;
+      if(L<nL*0.85||S<nS*0.85)out.push(['warn',id,t,`${nm}: ${b[2]-b[0]}x${b[3]-b[1]} px is smaller than ${t==='return_spot'?'the longest item':'the item'} (${need[0]}x${need[1]} mm = ${Math.round(nL)}x${Math.round(nS)} px at ${k.toFixed(3)} px/mm).`]);}
+    T.forEach(u=>{if(u<=t)return;const c=boxOf(id,u);if(!c)return;const v=iou(b,c);
+      if(v>0){const ret=t==='return_spot'||u==='return_spot';out.push([ret&&v>=0.15?'err':'warn',id,t,`${nm} overlaps ${tname(id,u)} (IoU ${v.toFixed(2)}). ${ret?'An item in its slot can read as returned.':'One detection can mark both slots present.'}`]);}});
+    if(id===cur&&t!=='return_spot'&&D.has){const ds=D.by[t]||[];
+      if(!ds.length)out.push(['info',id,t,`${nm}: no detection right now (lifted, or not matched).`]);
+      else if(!ds.some(d=>slotHit(d,b)))out.push(['warn',id,t,`${nm}: detected at ${ds[0].map(Math.round).join(', ')} but the box does not catch it (center inside or IoU 0.15).`]);
+      else{const d=ds[0];if(d[0]<b[0]-8||d[1]<b[1]-8||d[2]>b[2]+8||d[3]>b[3]+8)out.push(['info',id,t,`${nm}: the detection pokes out of the box by more than 8 px. Press S to snap.`]);}
+      T.forEach(u=>{if(u===t||u==='return_spot')return;const c=boxOf(id,u);if(c&&ds.some(d=>slotHit(d,c)))out.push(['err',id,u,`${tname(id,u)} box also catches the ${nm} detection, so it would read present when it is out.`]);});
+    }
+  });
+  return out;
+}
+
+// ---------- overlay ----------
+const ov=$('ov');
+function el(tag,attrs,parent){const e=document.createElementNS(SVGNS,tag);for(const a in attrs)e.setAttribute(a,attrs[a]);(parent||ov).appendChild(e);return e;}
+function render(){
+  ov.setAttribute('viewBox',`0 0 ${W} ${H}`);ov.innerHTML='';
+  $('stage').style.aspectRatio=`${W} / ${H}`;
+  const T=targets(cur),D=currentDetections(),sw=Math.max(1.5,W/640)/zoom;
+  const present={};if(D.tray)(D.tray.slots||[]).forEach(s=>present[s.item]=s.present);
+  if(showDet){Object.entries(D.by).forEach(([it,bs])=>bs.forEach(d=>{el('rect',{x:d[0],y:d[1],width:d[2]-d[0],height:d[3]-d[1],fill:'none',stroke:'#f0b429','stroke-width':sw,'stroke-dasharray':`${4*sw} ${3*sw}`});const t=el('text',{x:d[0],y:d[3]+9*sw,fill:'#f0b429','font-size':8*sw,'font-family':'IBM Plex Mono'});t.textContent='det '+it;}));}
+  T.forEach((t,i)=>{
+    const b=boxOf(cur,t);if(!b)return;const sel=i===target,ret=t==='return_spot';
+    let pres=null;if(!ret){if(D.has)pres=(D.by[t]||[]).some(d=>slotHit(d,b));else if(t in present)pres=present[t];}
+    const col=sel?'#ff5a4e':ret?'#7fc4ff':'#f4f1e8';
+    el('rect',{x:b[0],y:b[1],width:b[2]-b[0],height:b[3]-b[1],fill:sel?'rgba(255,90,78,.10)':'rgba(255,255,255,.04)',stroke:col,'stroke-width':sel?sw*1.6:sw,'stroke-dasharray':ret?`${8*sw} ${4*sw}`:'none','data-t':t,'data-h':'move',style:'cursor:move'});
+    const lab=el('text',{x:b[0]+2*sw,y:b[1]-4*sw,fill:col,'font-size':(sel?10:8)*sw,'font-family':'IBM Plex Mono','font-weight':600});
+    lab.textContent=`${i+1} ${ret?'return_spot':t}${pres===null?'':pres?' present':' OUT'}`;
+    if(sel){[[0,1,'nw'],[2,1,'ne'],[0,3,'sw'],[2,3,'se']].forEach(([xi,yi,h])=>el('rect',{x:b[xi]-6*sw,y:b[yi]-6*sw,width:12*sw,height:12*sw,fill:'#ff5a4e','data-t':t,'data-h':h,style:`cursor:${h}-resize`}));}
+  });
+  if(drag&&drag.mode==='new'&&drag.box){const b=norm(drag.box);el('rect',{x:b[0],y:b[1],width:b[2]-b[0],height:b[3]-b[1],fill:'none',stroke:'#ff5a4e','stroke-width':sw,'stroke-dasharray':`${3*sw} ${3*sw}`});}
+  renderSide(D);
+}
+function renderSide(D){
+  D=D||currentDetections();
+  $('tabs').innerHTML='';IDS.forEach(id=>{const b=document.createElement('button');b.textContent=id;b.setAttribute('role','tab');b.className=id===cur?'on':'';b.onclick=()=>selectSetting(id);$('tabs').appendChild(b);});
+  $('setLbl').textContent=`${cur} (${DOCS[cur].label})`;
+  $('scaleLbl').textContent=`${pxmm().toFixed(3)} px/mm`;
+  if(document.activeElement!==$('pxmm'))$('pxmm').value=pxmm().toFixed(3);
+  $('scaleNote').textContent=pxmmOverride?'px/mm set by hand. Measure the tray (260 mm wide) in px and divide.':`px/mm from the camera at 0.75 m with a 55 deg vertical field (sim/layout.json). Replace it with the real tray width in px / 260 mm once the camera is mounted.`;
+  const tb=$('tgtTbl').tBodies[0];tb.innerHTML='';
+  targets(cur).forEach((t,i)=>{const b=boxOf(cur,t),tr=document.createElement('tr');tr.className='tgt'+(i===target?' sel':'');tr.onclick=()=>{target=i;render();};
+    const ds=D.by[t]||[];const det=t==='return_spot'?'-':!D.has?'-':!ds.length?'none':b&&ds.some(d=>slotHit(d,b))?'in box':'missed';
+    tr.innerHTML=`<td><span class="sw" style="background:${i===target?'var(--red)':t==='return_spot'?'#7fc4ff':'transparent'}"></span>${i+1} ${tname(cur,t)}</td><td class="mono">${b?'['+b.join(', ')+']':'<span style="color:var(--red)">null</span>'}</td><td class="mono">${b?(b[2]-b[0])+'x'+(b[3]-b[1]):'-'}</td><td class="mono">${det}</td>`;tb.appendChild(tr);});
+  $('detSrc').textContent=D.src;
+  $('copyFrom').textContent=cur==='surgical'?'Copy boxes from dental':'Copy boxes from surgical';
+  // checks across all settings
+  const all=[];IDS.forEach(id=>all.push(...checks(id)));
+  const w=$('warns');w.innerHTML='';
+  if(!all.length){w.innerHTML='<li class="info"><b>CLEAR</b>No problems in the marked boxes.</li>';}
+  all.sort((a,b)=>({err:0,warn:1,info:2}[a[0]]-{err:0,warn:1,info:2}[b[0]])).forEach(([lv,id,t,msg])=>{const li=document.createElement('li');li.className=lv;li.innerHTML=`<b>${lv==='err'?'HIGH':lv==='warn'?'CHECK':'NOTE'} ${id}</b>`;li.appendChild(document.createTextNode(msg));w.appendChild(li);});
+  $('chkCount').textContent=`${all.filter(a=>a[0]==='err').length} high, ${all.filter(a=>a[0]==='warn').length} check`;
+  // coverage
+  const cov=$('cov');cov.innerHTML='<div class="hd">Tray</div><div class="hd">Slot 1</div><div class="hd">Slot 2</div><div class="hd">Slot 3</div><div class="hd">Return</div>';
+  let n=0;IDS.forEach(id=>{const hd=document.createElement('div');hd.className='hd';hd.textContent=id;cov.appendChild(hd);
+    const warned=new Set(checks(id).filter(c=>c[0]!=='info').map(c=>c[2]));
+    targets(id).forEach((t,i)=>{const b=boxOf(id,t);if(b)n++;const c=document.createElement('div');c.className='c '+(b?(warned.has(t)?'warned':'done'):'miss');c.innerHTML=`<span class="n">${t==='return_spot'?'return':tname(id,t)}</span>${b?(b[2]-b[0])+'x'+(b[3]-b[1])+(warned.has(t)?' check':' ok'):''}`;c.onclick=()=>{selectSetting(id);target=i;render();};cov.appendChild(c);});});
+  $('covSum').textContent=`${n} of 12 boxes${n===12?', ready for Evan':''}`;
+  renderOut();renderDiff();
+}
+
+// ---------- output ----------
+function fragment(id){return{id,items:DOCS[id].items.map(i=>({id:i.id,slot:boxOf(id,i.id)})),return_spot:boxOf(id,'return_spot')};}
+function fullDoc(id){const base=JSON.parse(JSON.stringify(ctlDoc&&ctlDoc.id===id?ctlDoc:DOCS[id]));delete base._source;base.items.forEach(i=>i.slot=boxOf(id,i.id));base.return_spot=boxOf(id,'return_spot');return base;}
+function compact(o){return JSON.stringify(o,null,2).replace(/\[\s+(-?\d+),\s+(-?\d+),\s+(-?\d+),\s+(-?\d+)\s+\]/g,'[$1, $2, $3, $4]').replace(/\[\s+("[^"]*"(?:,\s+"[^"]*")*)\s+\]/g,(m,a)=>'['+a.replace(/,\s+/g,', ')+']');}
+function outText(){
+  const f=$('fmt').value,id=cur;
+  if(f==='frag')return compact(fragment(id));
+  if(f==='full')return compact(fullDoc(id));
+  if(f==='all')return compact(IDS.map(fragment));
+  const T=targets(id);
+  if(f==='print'){const L=[`Send these boxes to Evan for settings/${id}.json`,''];T.forEach(t=>{const b=boxOf(id,t);L.push(`${t} ${b?'['+b.join(', ')+']':'null'}`);});return L.join('\n');}
+  const miss=T.filter(t=>!boxOf(id,t));if(miss.length)return `# still missing: ${miss.join(', ')}\n# mark_slots needs every slot plus the return spot`;
+  return `python -m vision.mark_slots --setting ${id} --clicks "${T.map(t=>{const b=boxOf(id,t);return b.join(',');}).join(',')}"`;
+}
+function renderOut(){$('out').textContent=outText();$('outFor').textContent=$('fmt').value==='all'?'settings/*.json':`settings/${cur}.json`;}
+async function copyOut(){const t=outText();let ok=false;try{await navigator.clipboard.writeText(t);ok=true;}catch(e){const ta=document.createElement('textarea');ta.value=t;document.body.appendChild(ta);ta.select();try{ok=document.execCommand('copy');}catch(_){}ta.remove();}
+  $('copy').textContent=ok?'Copied':'Select and copy';setTimeout(()=>$('copy').textContent='Copy',1400);}
+
+// ---------- diff ----------
+function renderDiff(){
+  const d=$('diff'),btn=$('switchCtl');
+  const doc=ctlLive?ctlDoc:DOCS[cur];const loaded=ctlLive?(ctlDoc&&ctlDoc.id):cur;
+  $('diffSrc').innerHTML=ctlLive?`<span class="tag live">LIVE</span> ${API}, ${ctlDoc&&ctlDoc._source||''}`:'<span class="tag mock">MOCK</span> built-in default';
+  btn.disabled=!ctlLive||loaded===cur;btn.textContent=ctlLive&&loaded!==cur?`Load ${cur} on controller`:'Loaded on controller';
+  if(!doc||loaded!==cur){d.innerHTML=`<p class="note">The controller has <b>${loaded||'nothing'}</b> loaded. GET /setting only returns the loaded tray, so ${cur} cannot be compared until it is loaded.</p>`;return;}
+  const rows=targets(cur).map(t=>{const was=t==='return_spot'?doc.return_spot:((doc.items||[]).find(i=>i.id===t)||{}).slot;const now=boxOf(cur,t);
+    const same=JSON.stringify(was||null)===JSON.stringify(now||null);let cls=same?'':'chg',delta='';
+    if(!same&&was&&now)delta=now.map((v,j)=>{const x=v-was[j];return(x>0?'+':'')+x;}).join(' ');else if(!same&&!was)cls='add';else if(!same&&!now)cls='del';
+    return`<tr><td>${t}</td><td class="mono">${was?'['+was.join(', ')+']':'null'}</td><td class="mono ${cls}">${now?'['+now.join(', ')+']':'null'}</td><td class="mono">${same?'same':delta||(cls==='add'?'new':'removed')}</td></tr>`;});
+  const missing=((doc.items||[]).map(i=>i.id)).filter(i=>!DEFAULTS[cur].items.some(x=>x[0]===i));
+  d.innerHTML=`<table><thead><tr><th>Field</th><th>Controller</th><th>Draft</th><th>Change px</th></tr></thead><tbody>${rows.join('')}</tbody></table>${missing.length?`<p class="note">Controller lists extra items: ${missing.join(', ')}</p>`:''}`;
+}
+
+// ---------- pointer editing ----------
+function toImg(e){const pt=ov.createSVGPoint();pt.x=e.clientX;pt.y=e.clientY;const m=ov.getScreenCTM();if(!m)return[0,0];const p=pt.matrixTransform(m.inverse());return[p.x,p.y];}
+ov.addEventListener('pointerdown',e=>{
+  const p=toImg(e),h=e.target.getAttribute&&e.target.getAttribute('data-h'),t=e.target.getAttribute&&e.target.getAttribute('data-t');
+  ov.setPointerCapture(e.pointerId);
+  if(h&&t){target=targets(cur).indexOf(t);drag={mode:h,start:p,orig:boxOf(cur,t).slice(),t};}
+  else{drag={mode:'new',start:p,box:null,t:targets(cur)[target]};}
+  render();e.preventDefault();
+});
+ov.addEventListener('pointermove',e=>{
+  const p=toImg(e);$('readout').innerHTML=`<span>cursor ${Math.round(p[0])}, ${Math.round(p[1])} px</span><span>frame ${W}x${H}</span><span>target ${targets(cur)[target]}</span>`;
+  if(!drag)return;const dx=p[0]-drag.start[0],dy=p[1]-drag.start[1];
+  if(drag.mode==='new'){drag.box=[drag.start[0],drag.start[1],p[0],p[1]];}
+  else{const o=drag.orig,b=o.slice();if(drag.mode==='move'){b[0]+=dx;b[2]+=dx;b[1]+=dy;b[3]+=dy;}else{if(drag.mode.includes('w'))b[0]+=dx;if(drag.mode.includes('e'))b[2]+=dx;if(drag.mode.includes('n'))b[1]+=dy;if(drag.mode.includes('s'))b[3]+=dy;}setBox(cur,drag.t,b);}
+  render();
+});
+ov.addEventListener('pointerup',()=>{
+  if(!drag)return;
+  if(drag.mode==='new'&&drag.box&&Math.abs(drag.box[2]-drag.box[0])>3&&Math.abs(drag.box[3]-drag.box[1])>3){setBox(cur,drag.t,drag.box);const T=targets(cur);const nxt=T.findIndex((t,i)=>i>target&&!boxOf(cur,t));if(nxt>=0)target=nxt;}
+  drag=null;render();
+});
+document.addEventListener('keydown',e=>{
+  if(['INPUT','TEXTAREA','SELECT'].includes(document.activeElement.tagName))return;
+  const T=targets(cur),t=T[target],b=boxOf(cur,t);
+  if(/^[1-4]$/.test(e.key)){target=Math.min(T.length-1,+e.key-1);render();return;}
+  if(e.key==='Tab'){e.preventDefault();target=(target+(e.shiftKey?T.length-1:1))%T.length;render();return;}
+  if(!b)return;
+  const s=e.shiftKey?10:1,mv={ArrowLeft:[-s,0],ArrowRight:[s,0],ArrowUp:[0,-s],ArrowDown:[0,s]}[e.key];
+  if(mv){e.preventDefault();const n=b.slice();if(e.altKey){n[2]+=mv[0];n[3]+=mv[1];}else{n[0]+=mv[0];n[2]+=mv[0];n[1]+=mv[1];n[3]+=mv[1];}setBox(cur,t,n);render();return;}
+  if(e.key==='Delete'||e.key==='Backspace'){e.preventDefault();setBox(cur,t,null);render();return;}
+  if(e.key==='s'||e.key==='S'){const ds=currentDetections().by[t]||[];if(!ds.length)return;const d=ds.reduce((m,x)=>iou(x,b)>iou(m,b)?x:m,ds[0]);const pad=Math.round(10*pxmm());setBox(cur,t,[d[0]-pad,d[1]-pad,d[2]+pad,d[3]+pad]);render();}
+});
+
+// ---------- controls ----------
+function selectSetting(id){cur=id;target=Math.min(target,targets(id).length-1);if(!live)drawMock();render();}
+$('res').onchange=()=>{if(live)return;[W,H]=$('res').value.split('x').map(Number);drawMock();render();};
+$('zoom').onclick=()=>{zoom=zoom>=3?1:zoom+1;$('zin').style.transform=`scale(${zoom})`;$('zoom').textContent=`Zoom ${zoom}x`;$('zoom').classList.toggle('on',zoom>1);render();};
+$('detBtn').onclick=()=>{showDet=!showDet;$('detBtn').classList.toggle('on',showDet);render();};
+$('freeze').onclick=()=>{if(!live){$('freeze').textContent='No camera';setTimeout(()=>$('freeze').textContent='Freeze frame',1200);return;}frozen=!frozen;$('camImg').src=frozen?`${VISION}/snapshot?t=${Date.now()}`:`${VISION}/stream`;$('freeze').textContent=frozen?'Back to live':'Freeze frame';$('freeze').classList.toggle('on',frozen);setStamp();};
+$('fmt').onchange=renderOut;$('copy').onclick=copyOut;
+$('pxmm').onchange=()=>{const v=parseFloat($('pxmm').value);pxmmOverride=v>0?v:null;render();};
+$('copyFrom').onclick=()=>{const from=cur==='surgical'?'dental':'surgical';const fb=draft[from].boxes;const mine=targets(cur),theirs=targets(from);theirs.forEach((t,i)=>{if(fb[t])setBox(cur,mine[i],fb[t].slice());});render();};
+$('clearSet').onclick=()=>{if(confirm(`Clear all ${cur} boxes?`)){draft[cur]={res:null,boxes:{}};save();render();}};
+$('usePaste').onclick=()=>{try{pasted=JSON.parse($('paste').value);detMode='paste';render();}catch(e){$('detSrc').textContent='paste is not valid JSON';}};
+$('useMock').onclick=()=>{detMode='auto';pasted=null;render();};
+$('stop').onclick=async()=>{try{await fetch(API+'/stop',{method:'POST'});$('stop').textContent='STOP sent';}catch(e){$('stop').textContent='No controller';}setTimeout(()=>$('stop').textContent='STOP',1500);};
+$('refetch').onclick=()=>probeCtl();
+$('switchCtl').onclick=async()=>{if(!confirm(`POST /setting {"setting":"${cur}"} on ${API}? This clears the out list.`))return;
+  try{const r=await fetch(API+'/setting',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({setting:cur})});
+    if(r.status===409){alert('409: the arm is busy. Stop or wait for idle.');return;}if(!r.ok){alert('Refused: '+r.status);return;}ctlDoc=await r.json();mergeCtlDoc();render();}catch(e){alert('Controller did not answer');}};
+
+// ---------- live probes ----------
+function setStamp(){const s=$('stamp');if(live){s.className='stamp live';s.textContent=frozen?`SNAPSHOT ${W}x${H}`:`LIVE ${W}x${H}`;}else{s.className='stamp';s.textContent=`MOCK FRAME ${W}x${H}`;}
+  $('camSrc').innerHTML=live?`<span class="tag live">LIVE</span> ${VISION}/${frozen?'snapshot':'stream'} ${W}x${H}`:`<span class="tag mock">MOCK</span> drawn frame ${W}x${H}`;}
+function probeImg(url,ms){return new Promise(res=>{const im=new Image();let done=false;const fin=v=>{if(!done){done=true;res(v?im:null);}};im.onload=()=>fin(true);im.onerror=()=>fin(false);setTimeout(()=>fin(false),ms);im.src=url;});}
+async function probeVision(){
+  if(FORCE_MOCK||live)return;const im=await probeImg(`${VISION}/snapshot?t=${Date.now()}`,1800);if(!im)return;
+  live=true;W=im.naturalWidth;H=im.naturalHeight;if(draft.surgical.seed){draft.surgical={res:null,boxes:{}};save();}$('res').disabled=true;$('mockCv').hidden=true;const img=$('camImg');img.hidden=false;img.src=`${VISION}/stream`;
+  setStamp();render();pollTray();
+}
+async function pollTray(){
+  try{const c=new AbortController();setTimeout(()=>c.abort(),900);const r=await fetch(`${VISION}/vision/tray`,{signal:c.signal});const j=await r.json();liveTray=j&&j.slots?j:null;liveTrayOk=true;}
+  catch(e){liveTrayOk=false;liveTray=null;}
+  render();if(liveTrayOk)setTimeout(pollTray,1000);
+}
+function mergeCtlDoc(){if(ctlDoc&&ctlDoc.id&&DOCS[ctlDoc.id]){DOCS[ctlDoc.id]=JSON.parse(JSON.stringify(ctlDoc));
+  if(!draft[ctlDoc.id].res&&Object.keys(draft[ctlDoc.id].boxes).length===0){(ctlDoc.items||[]).forEach(i=>{if(i.slot)draft[ctlDoc.id].boxes[i.id]=i.slot.slice();});if(ctlDoc.return_spot)draft[ctlDoc.id].boxes.return_spot=ctlDoc.return_spot.slice();save();}}}
+async function probeCtl(){
+  if(FORCE_MOCK){ctlLive=false;$('ctlSrc').innerHTML='<span class="tag mock">MOCK</span> forced by ?mock=1';return;}
+  try{const c=new AbortController();setTimeout(()=>c.abort(),1500);const r=await fetch(API+'/setting',{signal:c.signal});ctlDoc=await r.json();ctlLive=true;
+    try{const s=await (await fetch(API+'/state')).json();ctlStep=s.step;}catch(e){}
+    mergeCtlDoc();$('ctlSrc').innerHTML=`<span class="tag live">LIVE</span> ${API}, ${ctlDoc.id} loaded, ${ctlStep||'?'}`;openWs();
+  }catch(e){ctlLive=false;$('ctlSrc').innerHTML='<span class="tag mock">MOCK</span> no answer at '+API;}
+  render();
+}
+let ws=null;
+function openWs(){if(ws)return;try{ws=new WebSocket(API.replace(/^http/,'ws')+'/events');ws.onmessage=m=>{try{const ev=JSON.parse(m.data);ctlStep=ev.step;if(ev.setting&&ctlDoc&&ev.setting!==ctlDoc.id)probeCtl();else $('ctlSrc').innerHTML=`<span class="tag live">LIVE</span> ${API}, ${ctlDoc&&ctlDoc.id} loaded, ${ctlStep}`;}catch(e){}};ws.onclose=()=>{ws=null;};}catch(e){ws=null;}}
+
+// ---------- mock life: a lift every few seconds, Perceptron-shaped detections ~1 Hz ----------
+let tick=0;
+function mockTick(){
+  if(live)return;tick++;
+  if(tick%7===0){const its=LAYOUT.setting_items[cur];lifted=its[Math.floor(Math.random()*its.length)];}
+  if(tick%7===3)lifted=null;
+  IDS.forEach(id=>{const save=cur;cur=id;mockDets[id]=mockDetections();cur=save;});
+  drawMock();if(!drag)render();
+}
+
+// seed a plausible half-done sheet the first time, so the checks have something to say
+if(!Object.keys(draft.surgical.boxes).length&&!draft.surgical.res){
+  const r=it=>norm(itemRect('surgical',it));const pad=b=>[b[0]-8,b[1]-8,b[2]+8,b[3]+8];
+  draft.surgical.boxes.hemostat=pad(r('hemostat'));draft.surgical.boxes.scalpel=[r('scalpel')[0]-6,r('scalpel')[1]+30,r('scalpel')[2]+6,r('scalpel')[3]-20];
+  const[u,v]=proj(LAYOUT.return_spot[0],LAYOUT.return_spot[1]);draft.surgical.boxes.return_spot=norm([u-74,v-74,u+74,v+74]);draft.surgical.res=[1280,720];draft.surgical.seed=true;
+}
+IDS.forEach(id=>{const s=cur;cur=id;mockDets[id]=mockDetections();cur=s;});
+drawMock();setStamp();render();
+// probe right away when an override is given or the page is served; from file:// wait a moment so the mock is up first
+const EAGER=Q.has('api')||Q.has('vision')||location.protocol!=='file:';
+setTimeout(()=>{probeVision();probeCtl();},EAGER?0:3500);
+setInterval(()=>{if(!live)probeVision();if(!ctlLive)probeCtl();},15000);
+setInterval(mockTick,1000);
+</script>
+</body>
+</html>

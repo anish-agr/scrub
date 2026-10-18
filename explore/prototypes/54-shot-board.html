@@ -1,0 +1,660 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Scrub Shot Board</title>
+<meta name="description" content="Call sheet and storyboard for Scrub's demo video and Perceptron arm video: SO-101 poses per shot, take logger with timer, running total and an exportable edit decision list.">
+<!--
+FEATURES:
+- Call sheet header for Sun Oct 18 (call 7:00, wrap 8:30, our Devpost submit 9:30, hard lock 10:00) with a live countdown, crew roles and props
+- Reel A: the 9 shots from docs/PITCH.md (demo video, E7). Reel B: the Perceptron arm video (A12), one unedited roll split into segments
+- Every shot card: side view (x-z) and top view (x-y) of the real SO-101 pose (planar fit of arm/so101_chain.urdf, joint limits) on the
+  sim/layout.json table, tray, slots, return spot, safe spot, hand zone and handoff region, all in mm, plus the camera position and field of view
+- Per shot: cut length in s (editable), camera, trigger (exact controller call), spoken line, who is in frame, props, status from the take log
+- Running total of Reel A against the 2:00 to 3:00 window; required-content checklist for the robotics track and the video (auto where the log can tell)
+- Take logger: slate, roll/cut timer, OK / NG / circle (keeper), notes, controller events stamped into the take while rolling
+- Export the edit decision list as plain text (copy or download .txt), timecodes at 30 fps
+- Keys: Space roll/cut, C circle last take, N mark NG, Esc STOP (controller)
+SPONSORS: Perceptron Robotics (required arm video, fine-tuned Isaac 0.5), Perceptron Perception and Photon (shots 5 and 7 show them), Devpost submission (video required to be judged)
+BACKEND HOOKS: WS /events (live step, stamps takes), GET /state, POST /command (Cue a shot on the arm), POST /setting, POST /lighting, POST /stop, GET /stats (link).
+  Base defaults to http://localhost:8000, override with ?api=http://host:port. Without the controller everything is plan data and labeled OFFLINE.
+STYLE: Film production call sheet and storyboard sheet. Cream production paper, Courier Prime typed entries, Archivo Narrow pre-printed labels,
+  1px ruled boxes, square corners, storyboard frames, circled takes in red grease pencil (the film convention for keepers). One accent: red.
+-->
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Archivo+Narrow:wght@400;600;700&family=Courier+Prime:wght@400;700&family=Nanum+Pen+Script&display=swap" rel="stylesheet">
+<style>
+:root{
+ --paper:#f3efe4; --paper2:#ebe5d6; --ink:#1e1d1a; --ink2:#55524a; --rule:#1e1d1a; --faint:#c9c2b0; --red:#b3261e; --blue:#24406b; --amber:#8a5a00;
+ --mono:'Courier Prime',ui-monospace,Menlo,monospace; --lab:'Archivo Narrow','Arial Narrow',sans-serif; --hand:'Nanum Pen Script',cursive;
+}
+*{box-sizing:border-box}
+html,body{margin:0;background:var(--paper);color:var(--ink);font-family:var(--mono);font-size:14px;line-height:1.35;font-variant-numeric:tabular-nums}
+body{padding:16px;max-width:1500px;margin:0 auto}
+button,input,select,textarea{font:inherit;color:inherit}
+button{min-height:44px;padding:0 14px;border:1px solid var(--rule);background:var(--paper);cursor:pointer;border-radius:2px}
+button:disabled{color:var(--ink2);border-color:var(--faint);cursor:not-allowed}
+button.blk{background:var(--ink);color:var(--paper)}
+input,select,textarea{border:1px solid var(--rule);background:#fbf9f3;border-radius:2px;min-height:36px;padding:4px 6px}
+.lab{font-family:var(--lab);font-size:11px;letter-spacing:.08em;text-transform:uppercase;color:var(--ink2)}
+h1,h2,h3{margin:0;font-family:var(--lab);text-transform:uppercase;letter-spacing:.06em}
+code{font-family:var(--mono);font-size:12px;background:var(--paper2);padding:0 3px;word-break:break-word}
+.box{border:1px solid var(--rule)}
+/* call sheet header */
+.sheet{display:grid;grid-template-columns:1.2fr 1fr 1fr 1fr;border:2px solid var(--rule)}
+.sheet>div{border-right:1px solid var(--rule);padding:8px 10px;min-width:0}
+.sheet>div:last-child{border-right:0}
+.prod{font-family:var(--lab);font-size:30px;font-weight:700;letter-spacing:.1em;line-height:1}
+.big{font-size:22px;font-weight:700}
+.formno{font-family:var(--lab);font-size:10px;color:var(--ink2);text-align:right}
+.crew{display:grid;grid-template-columns:auto 1fr;gap:1px 10px;font-size:12px}
+.topbar{display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin:10px 0;border-bottom:1px solid var(--rule);padding-bottom:10px}
+.stop{background:var(--red);color:#fff;border-color:var(--red);font-family:var(--lab);font-weight:700;letter-spacing:.1em;min-width:120px}
+.live{font-family:var(--lab);font-size:12px;padding:4px 8px;border:1px solid var(--rule)}
+.live.on{background:var(--ink);color:var(--paper)}
+.live.off{background:repeating-linear-gradient(135deg,transparent 0 6px,var(--paper2) 6px 12px)}
+.tabs{display:flex;gap:0}
+.tabs button{border-radius:0;margin-left:-1px}
+.tabs button[aria-pressed=true]{background:var(--ink);color:var(--paper)}
+/* main layout */
+.main{display:grid;grid-template-columns:minmax(0,1fr) 400px;gap:16px;align-items:start}
+.side{position:sticky;top:8px;display:flex;flex-direction:column;gap:12px;max-height:calc(100vh - 16px);overflow:auto}
+.board{display:grid;grid-template-columns:repeat(auto-fill,minmax(440px,1fr));gap:12px}
+.card{border:1px solid var(--rule);background:#f8f5ec;display:flex;flex-direction:column;min-width:0}
+.card.sel{outline:3px solid var(--ink);outline-offset:-1px}
+.chead{display:grid;grid-template-columns:auto 1fr auto;border-bottom:1px solid var(--rule)}
+.chead>div{padding:6px 8px;border-right:1px solid var(--rule)}
+.chead>div:last-child{border-right:0}
+.sno{font-family:var(--lab);font-weight:700;font-size:22px;letter-spacing:.04em}
+.ctitle{font-weight:700;align-self:center}
+.frames{display:grid;grid-template-columns:1fr 1fr;border-bottom:1px solid var(--rule)}
+.frames>div{padding:4px;min-width:0}
+.frames>div:first-child{border-right:1px solid var(--rule)}
+.frames svg{width:100%;height:auto;display:block;background:#fbf9f3}
+.fields{display:grid;grid-template-columns:96px 1fr;font-size:12.5px}
+.fields>div{padding:4px 8px;border-bottom:1px solid var(--faint);min-width:0}
+.fields>div:nth-child(odd){font-family:var(--lab);font-size:11px;letter-spacing:.06em;text-transform:uppercase;color:var(--ink2);border-right:1px solid var(--faint)}
+.cfoot{display:flex;gap:6px;flex-wrap:wrap;align-items:center;padding:6px 8px;margin-top:auto}
+.durin{width:64px;text-align:right}
+.status{font-family:var(--lab);font-weight:700;letter-spacing:.06em;font-size:12px;padding:3px 7px;border:1px solid var(--rule)}
+.status.kept{color:var(--red);border-color:var(--red)}
+.status.shot{color:var(--blue);border-color:var(--blue)}
+.tk{display:inline-flex;align-items:center;justify-content:center;min-width:30px;height:30px;font-size:13px;margin:0 2px;border:1px solid transparent}
+.tk.keep{border:2px solid var(--red);border-radius:50%;color:var(--red);font-weight:700}
+.tk.ng{text-decoration:line-through;color:var(--ink2)}
+.tk.sample{font-style:italic}
+.seg{display:flex;gap:6px;align-items:center;min-height:44px;font-family:var(--lab);font-size:13px}
+.seg input{width:22px;height:22px}
+/* side panels */
+.panel{border:1px solid var(--rule);background:#f8f5ec}
+.panel>h2{font-size:13px;padding:6px 10px;border-bottom:1px solid var(--rule);display:flex;justify-content:space-between;align-items:center}
+.pbody{padding:10px}
+.slate{display:grid;grid-template-columns:1fr 1fr 1fr;border:2px solid var(--ink);background:var(--ink);gap:2px}
+.slate>div{background:#fbf9f3;padding:4px 8px}
+.slate .v{font-size:26px;font-weight:700;line-height:1.1}
+.timer{font-size:44px;font-weight:700;text-align:center;padding:6px 0;letter-spacing:.04em}
+.timer.rec{color:var(--red)}
+.row{display:flex;gap:6px;flex-wrap:wrap;align-items:center}
+.row>*{flex:1 1 auto;min-width:0}
+#shotSel{max-width:100%;width:100%}
+table.tl td:nth-child(3){white-space:nowrap}
+.evlog{font-size:12px;max-height:120px;overflow:auto;border:1px solid var(--faint);padding:4px 6px;background:#fbf9f3;margin-top:8px}
+.evlog div{border-bottom:1px dotted var(--faint)}
+.meter{position:relative;height:34px;border:1px solid var(--rule);background:#fbf9f3;margin:6px 0 2px}
+.meter .win{position:absolute;top:0;bottom:0;background:repeating-linear-gradient(90deg,var(--paper2) 0 4px,transparent 4px 8px);border-left:1px solid var(--rule);border-right:1px solid var(--rule)}
+.meter .fill{position:absolute;top:8px;bottom:8px;left:0;background:var(--ink)}
+.meter .fill.over{background:var(--red)}
+.scale{display:flex;justify-content:space-between;font-size:11px;color:var(--ink2)}
+.ck{display:grid;grid-template-columns:28px 1fr auto;gap:4px 6px;align-items:center;font-size:12.5px;padding:3px 0;border-bottom:1px dotted var(--faint)}
+.ck .bx{width:22px;height:22px;border:1px solid var(--rule);display:flex;align-items:center;justify-content:center;font-weight:700}
+.ck .bx.y{background:var(--ink);color:var(--paper)}
+.ck .bx.n{color:var(--red)}
+.ck label{display:contents;cursor:pointer}
+.ck .how{font-family:var(--lab);font-size:10px;color:var(--ink2);text-transform:uppercase}
+.hand{font-family:var(--hand);font-size:22px;color:var(--blue);line-height:1}
+.stamp{display:inline-block;border:2px solid var(--red);color:var(--red);font-family:var(--lab);font-weight:700;letter-spacing:.12em;padding:2px 8px;transform:rotate(-3deg)}
+textarea.edl{width:100%;height:200px;font-size:11px;white-space:pre;overflow:auto}
+table.tl{width:100%;border-collapse:collapse;font-size:12px}
+table.tl td,table.tl th{border-bottom:1px solid var(--faint);padding:3px 4px;text-align:left}
+table.tl th{font-family:var(--lab);font-size:10px;text-transform:uppercase;color:var(--ink2);font-weight:600}
+footer{margin-top:20px;border-top:1px solid var(--rule);padding-top:8px;font-family:var(--lab);font-size:11px;color:var(--ink2);display:flex;justify-content:space-between;flex-wrap:wrap;gap:8px}
+footer a{color:inherit}
+.reelnote{border:1px solid var(--rule);padding:8px 10px;margin-bottom:12px;background:#f8f5ec;font-size:13px}
+@media (max-width:1100px){
+ .main{grid-template-columns:1fr}
+ .side{position:static;max-height:none;order:-1}
+ .sheet{grid-template-columns:1fr 1fr}
+ .sheet>div:nth-child(2){border-right:0}
+ .sheet>div:nth-child(-n+2){border-bottom:1px solid var(--rule)}
+}
+@media (max-width:560px){
+ body{padding:16px 12px}
+ .board{grid-template-columns:1fr}
+ .sheet{grid-template-columns:1fr}
+ .sheet>div{border-right:0;border-bottom:1px solid var(--rule)}
+ .prod{font-size:24px}
+ .fields{grid-template-columns:78px 1fr}
+ .timer{font-size:36px}
+}
+</style>
+</head>
+<body>
+
+<header class="sheet" aria-label="Call sheet">
+ <div>
+  <div class="lab">Production</div>
+  <div class="prod">SCRUB</div>
+  <div style="font-size:12px;margin-top:4px">SO-101 arm passing instruments by voice. Demo video (E7) and Perceptron arm video (A12).</div>
+  <div class="formno" style="text-align:left;margin-top:6px">Call sheet CS-02 rev. 1 · Day 2 of 2</div>
+ </div>
+ <div>
+  <div class="lab">Date / call / wrap</div>
+  <div class="big">SUN OCT 18 2026</div>
+  <div>Call 7:00 AM · Wrap 8:30 AM</div>
+  <div>Edit to 9:00 · Submit by <b>9:30</b> (lock 10:00)</div>
+  <div class="lab" style="margin-top:6px">Time to our submit</div>
+  <div class="big" id="countdown">--:--:--</div>
+ </div>
+ <div>
+  <div class="lab">Crew (from docs/PLAN.md)</div>
+  <div class="crew">
+   <b>Anish</b><span>voice of the pitch, A12 owner</span>
+   <b>Caiden</b><span>dashboard, STOP key</span>
+   <b>Brandon</b><span>clinician, hands in frame</span>
+   <b>Evan</b><span>trays, lamp, editor (E7)</span>
+  </div>
+  <div class="lab" style="margin-top:6px">Camera operator</div>
+  <div><input id="camop" value="Evan (phone on tripod)" style="width:100%" aria-label="Camera operator"></div>
+ </div>
+ <div>
+  <div class="lab">Set / props</div>
+  <div style="font-size:12px">HSEB work room. OR tray on the blue towel, dental tray, bench tray, desk lamp, phone on speaker on Scrub's number, second phone or laptop mic beside it, dashboard screen facing camera.</div>
+  <div class="lab" style="margin-top:6px">Table (sim/layout.json)</div>
+  <div style="font-size:12px">900 x 800 mm, tray 100 x 260 mm at x 240 mm, 3 slots at y -80 / 0 / +80 mm</div>
+  <div class="formno">Times Pacific</div>
+ </div>
+</header>
+
+<div class="topbar">
+ <button class="stop" id="stopBtn" title="POST /stop (Esc)">STOP</button>
+ <span class="live off" id="liveTag">OFFLINE · plan data only</span>
+ <span id="liveStep" style="font-size:12px"></span>
+ <span style="flex:1"></span>
+ <div class="tabs" role="group" aria-label="Reel">
+  <button id="tabA" aria-pressed="true">Reel A · Demo video (E7)</button>
+  <button id="tabB" aria-pressed="false">Reel B · Arm video (A12)</button>
+ </div>
+</div>
+
+<div class="main">
+ <section>
+  <div class="reelnote" id="reelNote"></div>
+  <div class="board" id="board"></div>
+ </section>
+
+ <aside class="side">
+  <div class="panel">
+   <h2>Slate and take log <span class="lab" id="slateMode">Reel A</span></h2>
+   <div class="pbody">
+    <div class="slate">
+     <div><div class="lab">Roll</div><div class="v" id="slRoll">A</div></div>
+     <div><div class="lab">Shot</div><div class="v" id="slShot">A02</div></div>
+     <div><div class="lab">Take</div><div class="v" id="slTake">1</div></div>
+    </div>
+    <div class="timer" id="timer">00:00.0</div>
+    <div class="row">
+     <select id="shotSel" aria-label="Shot to slate"></select>
+     <button class="blk" id="rollBtn" title="Space">ROLL</button>
+    </div>
+    <div class="row" style="margin-top:6px">
+     <button id="okBtn">Mark OK</button>
+     <button id="ngBtn" title="N">Mark NG</button>
+     <button id="keepBtn" title="C" style="color:var(--red);border-color:var(--red)">Circle (keeper)</button>
+    </div>
+    <div class="row" style="margin-top:6px">
+     <input id="noteIn" placeholder="note for last take, e.g. glare good, audio clipped" aria-label="Take note">
+    </div>
+    <div class="row" style="margin-top:6px">
+     <button id="cueBtn" disabled>Cue this shot on the arm</button>
+     <button id="gotBtn" disabled title="POST /command got_it">Got it</button>
+    </div>
+    <div class="evlog" id="evlog"><div class="lab">Controller events appear here while connected. While rolling they are stamped into the take.</div></div>
+    <div style="margin-top:8px">
+     <table class="tl"><thead><tr><th>Shot</th><th>Take</th><th>Len</th><th>Mark</th><th>Note / events</th></tr></thead><tbody id="takeRows"></tbody></table>
+     <div class="row" style="margin-top:6px"><button id="clearSample">Clear sample takes</button><button id="clearAll">Clear all takes</button></div>
+    </div>
+   </div>
+  </div>
+
+  <div class="panel">
+   <h2>Running total · Reel A</h2>
+   <div class="pbody">
+    <div style="display:flex;justify-content:space-between;align-items:baseline"><span class="big" id="totA">0:00</span><span id="totMsg" class="lab"></span></div>
+    <div class="meter" id="meter"><div class="win" id="win"></div><div class="fill" id="fill"></div></div>
+    <div class="scale"><span>0:00</span><span>1:00</span><span>2:00</span><span>3:00</span><span>3:30</span></div>
+    <div style="font-size:12px;margin-top:6px" id="totB"></div>
+   </div>
+  </div>
+
+  <div class="panel">
+   <h2>Required content</h2>
+   <div class="pbody" id="checks"></div>
+  </div>
+
+  <div class="panel">
+   <h2>Edit decision list <span class="lab">plain text</span></h2>
+   <div class="pbody">
+    <textarea class="edl" id="edl" readonly aria-label="Edit decision list"></textarea>
+    <div class="row" style="margin-top:6px"><button id="copyEdl">Copy</button><button id="dlEdl" class="blk">Download .txt</button></div>
+    <div class="lab" id="edlMsg" style="margin-top:4px"></div>
+   </div>
+  </div>
+ </aside>
+</div>
+
+<footer>
+ <span>Scrub · Shot board 54 · sources: docs/PITCH.md, docs/PLAN.md, sim/layout.json, arm/so101_chain.urdf · related: <a href="41-demo-coach.html">41 demo coach</a>, <a href="39-handoff-path.html">39 handoff path</a></span>
+ <span><a href="#">Terms</a> · <a href="#">Privacy</a></span>
+</footer>
+
+<script>
+/* ---------- config ---------- */
+const qs=new URLSearchParams(location.search);
+const API=(qs.get('api')||'http://localhost:8000').replace(/\/$/,'');
+const WSURL=API.replace(/^http/,'ws')+'/events';
+const FPS=30;
+const SUBMIT=new Date('2026-10-18T09:30:00-07:00');
+
+/* ---------- layout: embedded copy of sim/layout.json ---------- */
+const L={table:{center:[0.25,0],size:[0.9,0.8]},tray:{center:[0.24,0],size:[0.10,0.26]},slots:[[0.24,-0.08],[0.24,0],[0.24,0.08]],
+ setting_items:{surgical:['hemostat','scalpel','mayo_scissors'],dental:['mouth_mirror','explorer','cotton_pliers'],bench:['needle_nose_pliers','wire_cutters','hex_key']},
+ return_spot:[0.17,0.17],safe_spot:[0.17,-0.18],hand_zone:[0.28,-0.14,0.14],handoff_region:{min:[0.14,-0.25,0.06],max:[0.35,0.25,0.30]},
+ poses:{home:[0,-1.7,1.55,0.9,0,0],carry:[0,-0.9,0.35,1.48,0,0]}};
+const SHORT={hemostat:'HEMO',scalpel:'SCAL',mayo_scissors:'MAYO',mouth_mirror:'MIRR',explorer:'EXPL',cotton_pliers:'COTT',needle_nose_pliers:'NNPL',wire_cutters:'WCUT',hex_key:'HEX'};
+
+/* ---------- SO-101 planar model (same fit of the URDF as 39-handoff-path) ---------- */
+const AX=0.0388, P={x:0.0692,z:0.1166};
+const A=[[0.028,0.1126],[0.1349,0.0052],[0.1592,-0.0079]];
+const LEN=A.map(a=>Math.hypot(a[0],a[1]));
+const LIM={lift:1.74533,elbow:1.69,wrist:1.65806,pan:1.91986};
+const rot=(v,h)=>[v[0]*Math.cos(h)-v[1]*Math.sin(h),v[0]*Math.sin(h)+v[1]*Math.cos(h)];
+const add=(a,b)=>[a[0]+b[0],a[1]+b[1]];
+function fk(q1,q2,q3){const h1=-q1,h2=-(q1+q2),h3=-(q1+q2+q3);const e=add([P.x,P.z],rot(A[0],h1)),w=add(e,rot(A[1],h2)),t=add(w,rot(A[2],h3));return {p:[P.x,P.z],e,w,t};}
+function ik(xp,z){let best=null;const a1=Math.atan2(A[0][1],A[0][0]),a2=Math.atan2(A[1][1],A[1][0]);
+ for(let h3=-Math.PI;h3<Math.PI;h3+=0.02){const r3=rot(A[2],h3);const w=[xp-r3[0],z-r3[1]];const D=[w[0]-P.x,w[1]-P.z];const d=Math.hypot(D[0],D[1]);
+  if(d>LEN[0]+LEN[1]-1e-6||d<Math.abs(LEN[0]-LEN[1])+1e-6)continue;
+  const g=Math.acos((d*d-LEN[0]**2-LEN[1]**2)/(2*LEN[0]*LEN[1]));
+  for(const dl of [g,-g]){const phi1=Math.atan2(D[1],D[0])-Math.atan2(LEN[1]*Math.sin(dl),LEN[0]+LEN[1]*Math.cos(dl));
+   const h1=phi1-a1,h2=phi1+dl-a2;const q=[-h1,-(h2-h1),-(h3-h2)];
+   if(Math.abs(q[0])>LIM.lift||Math.abs(q[1])>LIM.elbow||Math.abs(q[2])>LIM.wrist)continue;
+   const tool=h3+Math.atan2(A[2][1],A[2][0]);const sc=Math.abs(Math.sin(tool)+0.8);
+   if(!best||sc<best.sc)best={q,sc};}}
+ return best?best.q:null;}
+/* pose -> 3D joint points [base, shoulder, elbow, wrist, tip] plus joint angles */
+function posePts(pose){
+ let q, az=0;
+ if(pose.k==='home'||pose.k==='carry'){const j=L.poses[pose.k];q=[j[1],j[2],j[3]];az=j[0];}
+ else{const [x,y,z]=pose.p;const r=Math.hypot(x-AX,y);az=Math.atan2(y,x-AX);q=ik(AX+r,z)||L.poses.carry.slice(1,4);}
+ const f=fk(...q);
+ const to3=pt=>{const r=pt[0]-AX;return [AX+r*Math.cos(az),r*Math.sin(az),pt[1]];};
+ return {pts:[[0,0,0],[AX,0,0.0624],to3(f.p),to3(f.e),to3(f.w),to3(f.t)],q,az};
+}
+const deg=r=>Math.round(r*180/Math.PI);
+
+/* ---------- cameras (arm base frame, m) ---------- */
+const CAMS={
+ A:{n:'Cam A wide, side',pos:[0.25,-0.62,0.32],aim:[0.24,0,0.10],fov:62,lens:'phone 1x on tripod'},
+ B:{n:'Cam B close-up, hand side',pos:[0.50,-0.40,0.22],aim:[0.28,-0.14,0.14],fov:40,lens:'phone 2x, handheld'},
+ C:{n:'Cam C insert, phone screen',pos:[0.55,0.05,0.30],aim:[0.55,0.20,0.02],fov:40,lens:'phone 2x over the shoulder'},
+ S:{n:'Screen capture',pos:null,lens:'OS screen recorder on the dashboard laptop'}
+};
+
+/* ---------- shot list (docs/PITCH.md) ---------- */
+const HZ=L.hand_zone, SS=[...L.safe_spot,0.03], RS=[...L.return_spot,0.03];
+const cmd=(action,item,heard)=>({m:'POST',u:'/command',b:{action,item:item||null,heard:heard||null,source:'voice'}});
+const SHOTS=[
+ {id:'A01',reel:'A',src:'shot 1',title:'Title card (slide 1)',dur:5,setting:'surgical',light:'normal',pose:{k:'home'},cams:['S'],
+  calls:[],voice:null,frame:['nobody; slide 1 full frame'],props:['slide 1'],note:'5 s hard. Put "fine-tuned Perceptron Isaac 0.5 on an SO-101" on the card.'},
+ {id:'A02',reel:'A',src:'shot 2',title:'"Hemostat": pick, handle first to the hand, release',dur:25,setting:'surgical',light:'normal',pose:{k:'pt',p:HZ},cams:['A','B'],
+  calls:[cmd('handover','hemostat','hemostat')],voice:'"Hemostat." Scrub: "hemostat coming"',frame:['Brandon (clinician, hands busy)','arm','phone on speaker'],
+  props:['OR tray','blue towel','phone','2nd mic'],note:'Three beats: B close-up of the pick, the hand receiving it handle first, the gripper letting go on the pull.'},
+ {id:'A03',reel:'A',src:'shot 3',title:'"Scalpel": to the safe spot',dur:15,setting:'surgical',light:'normal',pose:{k:'pt',p:SS},cams:['A'],
+  calls:[cmd('handover','scalpel','scalpel')],voice:'"Scalpel." Scrub: "scalpel down" (must be audible)',frame:['Brandon (hand stays out of the safe spot)','arm'],
+  props:['OR tray','phone','2nd mic'],note:'Sharps never go hand to hand. Hold on the scalpel resting in the safe spot 2 s.'},
+ {id:'A04',reel:'A',src:'shot 4',title:'Return: hemostat back to its slot',dur:20,setting:'surgical',light:'normal',pose:{k:'pt',p:RS},cams:['A'],
+  calls:[cmd('return',null,'return')],voice:'Scrub: "returning the hemostat"',frame:['Brandon sets it in the return spot','arm'],
+  props:['OR tray','hemostat in hand'],note:'Start with the hemostat out. End on it seated in slot 1 (y -80 mm).'},
+ {id:'A05',reel:'A',src:'shot 5',title:'Lamp on, glare, a request still works',dur:20,setting:'surgical',light:'bright',pose:{k:'pt',p:HZ},cams:['A','S'],
+  calls:[{m:'POST',u:'/lighting',b:{lighting:'bright',lux:null}},cmd('handover','mayo_scissors','scissors')],voice:'"Scissors." Scrub: "mayo scissors coming"',
+  frame:['Brandon','arm','lamp; Evan aims it, out of frame'],props:['desk lamp aimed at the tray'],note:'Get glare visibly on the steel. Cut to the lighting table on the dashboard (screen capture).'},
+ {id:'A06',reel:'A',src:'shot 6',title:'Dental tray (mirror), then bench tray (pliers)',dur:30,setting:'dental',light:'normal',pose:{k:'pt',p:HZ},cams:['A'],
+  calls:[{m:'POST',u:'/setting',b:{setting:'dental'}},cmd('handover','mouth_mirror','mirror'),{m:'POST',u:'/setting',b:{setting:'bench'}},cmd('handover','needle_nose_pliers','pliers')],
+  voice:'"Mirror." then "Pliers."',frame:['Brandon','arm','Evan swaps trays (hands only)'],props:['dental tray','bench tray'],
+  note:'POST /setting returns 409 unless the arm is idle or stopped: wait for home before the swap. Two clips joined by a cut.'},
+ {id:'A07',reel:'A',src:'shot 7',title:'"Count": readback, summary text on the phone',dur:20,setting:'surgical',light:'normal',pose:{k:'home'},cams:['A','C'],
+  calls:[cmd('count',null,'count')],voice:'"Count." Scrub reads back what is out',frame:['Brandon','phone screen (insert)'],props:['phone','2nd mic'],
+  note:'Insert on Cam C when the Photon summary text arrives. Check the thread shows no personal numbers.'},
+ {id:'A08',reel:'A',src:'shot 8',title:'Dashboard: system diagram and success tables',dur:20,setting:'surgical',light:'normal',pose:{k:'home'},cams:['S'],
+  calls:[{m:'GET',u:'/stats',b:null}],voice:'voice-over',frame:['nobody; screen'],props:['slide 3','dashboard tables'],
+  note:'Slide 3 then the success tables with measured numbers (A11). No .env, keys or terminal tokens on screen.'},
+ {id:'A09',reel:'A',src:'shot 9',title:'Close on the team and the arm',dur:10,setting:'surgical',light:'normal',pose:{k:'carry'},cams:['A'],
+  calls:[],voice:null,frame:['Anish','Caiden','Brandon','Evan','arm'],props:['all three trays on the table'],note:'Arm parked in carry. Camera op hands off the phone or uses a timer.'},
+ /* Reel B: the Perceptron arm video. One unedited roll; segments are checked off against the keeper roll */
+ {id:'B01',reel:'B',src:'arm video',title:'Slate card: what this is',dur:4,setting:'surgical',light:'normal',pose:{k:'home'},cams:['A'],calls:[],voice:null,
+  frame:['card held in frame'],props:['printed card'],note:'Card reads: Scrub, SO-101, fine-tuned Isaac 0.5, unedited.',seg:{}},
+ {id:'B02',reel:'B',src:'arm video',title:'Normal light: hemostat to the hand',dur:15,setting:'surgical',light:'normal',pose:{k:'pt',p:HZ},cams:['A'],
+  calls:[{m:'POST',u:'/lighting',b:{lighting:'normal',lux:null}},cmd('handover','hemostat','hemostat')],voice:'"Hemostat."',frame:['Brandon','arm'],props:['OR tray'],note:'',seg:{pick:'hemostat'}},
+ {id:'B03',reel:'B',src:'arm video',title:'Normal light: mayo scissors to the hand',dur:15,setting:'surgical',light:'normal',pose:{k:'pt',p:HZ},cams:['A'],
+  calls:[cmd('handover','mayo_scissors','scissors')],voice:'"Scissors."',frame:['Brandon','arm'],props:['OR tray'],note:'',seg:{pick:'mayo_scissors'}},
+ {id:'B04',reel:'B',src:'arm video',title:'Return: hemostat to its slot',dur:18,setting:'surgical',light:'normal',pose:{k:'pt',p:RS},cams:['A'],
+  calls:[cmd('return',null,'return')],voice:'Scrub: "returning the hemostat"',frame:['Brandon','arm'],props:['OR tray'],note:'',seg:{ret:'hemostat'}},
+ {id:'B05',reel:'B',src:'arm video',title:'Bright lamp: scalpel to the safe spot',dur:15,setting:'surgical',light:'bright',pose:{k:'pt',p:SS},cams:['A'],
+  calls:[{m:'POST',u:'/lighting',b:{lighting:'bright',lux:null}},cmd('handover','scalpel','scalpel')],voice:'"Scalpel."',frame:['arm','lamp'],props:['lamp on'],note:'',seg:{pick:'scalpel'}},
+ {id:'B06',reel:'B',src:'arm video',title:'Dim light: hemostat to the hand',dur:15,setting:'surgical',light:'dim',pose:{k:'pt',p:HZ},cams:['A'],
+  calls:[{m:'POST',u:'/lighting',b:{lighting:'dim',lux:null}},cmd('handover','hemostat','hemostat')],voice:'"Hemostat."',frame:['Brandon','arm'],props:['room lights down'],note:'',seg:{pick:'hemostat'}},
+ {id:'B07',reel:'B',src:'arm video',title:'Dental: mouth mirror',dur:15,setting:'dental',light:'normal',pose:{k:'pt',p:HZ},cams:['A'],
+  calls:[{m:'POST',u:'/setting',b:{setting:'dental'}},cmd('handover','mouth_mirror','mirror')],voice:'"Mirror."',frame:['Brandon','arm','Evan swaps tray'],props:['dental tray'],note:'',seg:{pick:'mouth_mirror'}},
+ {id:'B08',reel:'B',src:'arm video',title:'Bench: needle nose pliers',dur:15,setting:'bench',light:'normal',pose:{k:'pt',p:HZ},cams:['A'],
+  calls:[{m:'POST',u:'/setting',b:{setting:'bench'}},cmd('handover','needle_nose_pliers','pliers')],voice:'"Pliers."',frame:['Brandon','arm','Evan swaps tray'],props:['bench tray'],note:'',seg:{pick:'needle_nose_pliers'}},
+ {id:'B09',reel:'B',src:'arm video',title:'Success table at the end',dur:8,setting:'surgical',light:'normal',pose:{k:'home'},cams:['A','S'],
+  calls:[{m:'GET',u:'/stats',b:null}],voice:null,frame:['dashboard screen'],props:['dashboard'],note:'Tilt to the dashboard, or append a screen capture of GET /stats tables.',seg:{table:true}},
+];
+
+/* ---------- state (persisted per viewer) ---------- */
+const now=()=>Date.now()/1000;
+const SAMPLE=[ /* labeled sample takes so the board is not empty; Clear sample takes removes them */
+ {shot:'A02',n:1,dur:31.4,mark:'ng',note:'sample: hand entered late',events:[],sample:true},
+ {shot:'A02',n:2,dur:28.9,mark:'keep',note:'sample: clean release on the pull',events:[],sample:true},
+ {shot:'A03',n:1,dur:17.2,mark:'ok',note:'sample: "scalpel down" quiet',events:[],sample:true}];
+let S={reel:'A',sel:'A02',durs:{},takes:SAMPLE.slice(),manual:{},segs:{},camop:null};
+try{const s=JSON.parse(localStorage.getItem('sc54')||'null');if(s&&s.takes)S=Object.assign(S,s);}catch(e){}
+const save=()=>{try{localStorage.setItem('sc54',JSON.stringify(S));}catch(e){}};
+const dur=sh=>S.durs[sh.id]!=null?S.durs[sh.id]:sh.dur;
+const shotById=id=>SHOTS.find(s=>s.id===id);
+const takesOf=id=>S.takes.filter(t=>t.shot===id);
+const keeperOf=id=>takesOf(id).find(t=>t.mark==='keep');
+/* reel B is one roll: its takes are logged under 'B' */
+const logKey=id=>id[0]==='B'?'B':id;
+
+/* ---------- drawing ---------- */
+const esc=s=>String(s).replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
+function sideSVG(sh){
+ const W=300,H=190,x0=-0.15,x1=0.72,z0=-0.04,s=(W-16)/(x1-x0);
+ const X=x=>8+(x-x0)*s, Z=z=>H-14-(z-z0)*s;
+ const hr=L.handoff_region;let g='';
+ for(let x=-0.1;x<=0.7001;x+=0.1){g+=`<line x1="${X(x)}" y1="${Z(0)}" x2="${X(x)}" y2="${Z(0)+4}" stroke="#1e1d1a" stroke-width=".8"/>`;
+  g+=`<text x="${X(x)}" y="${H-2}" font-size="8" text-anchor="middle" fill="#55524a">${Math.round(x*1000)}</text>`;}
+ g+=`<rect x="${X(hr.min[0])}" y="${Z(hr.max[2])}" width="${(hr.max[0]-hr.min[0])*s}" height="${(hr.max[2]-hr.min[2])*s}" fill="none" stroke="#24406b" stroke-dasharray="4 3" stroke-width="1"/>`;
+ g+=`<text x="${X(hr.min[0])+2}" y="${Z(hr.max[2])+9}" font-size="7.5" fill="#24406b">handoff</text>`;
+ const tx0=L.table.center[0]-L.table.size[0]/2, tx1=L.table.center[0]+L.table.size[0]/2;
+ g+=`<rect x="${X(tx0)}" y="${Z(0)}" width="${(tx1-tx0)*s}" height="6" fill="#d9d2bf" stroke="#1e1d1a" stroke-width="1"/>`;
+ const tr=L.tray;g+=`<rect x="${X(tr.center[0]-tr.size[0]/2)}" y="${Z(0.02)}" width="${tr.size[0]*s}" height="${0.02*s}" fill="#fbf9f3" stroke="#1e1d1a"/>`;
+ g+=`<text x="${X(tr.center[0])}" y="${Z(0.02)-3}" font-size="8" text-anchor="middle">tray</text>`;
+ // hand
+ const hz=L.hand_zone; g+=`<circle cx="${X(hz[0])}" cy="${Z(hz[2])}" r="${0.03*s}" fill="none" stroke="#55524a" stroke-dasharray="2 2"/>`;
+ g+=`<path d="M${X(hz[0]+0.03)} ${Z(hz[2]-0.01)} l${0.09*s} ${0.02*s} l0 ${-0.03*s} l${-0.09*s} ${-0.01*s}z" fill="#ebe5d6" stroke="#55524a" stroke-width=".8"/>`;
+ g+=`<text x="${X(hz[0])+0.03*s+4}" y="${Z(hz[2])-0.025*s}" font-size="8" fill="#55524a">hand ${hz[2]*1000|0} mm</text>`;
+ g+=armSide(sh,X,Z);
+ const c=CAMS[sh.cams.find(k=>CAMS[k].pos)||'x'];
+ sh.cams.filter(k=>CAMS[k].pos).forEach(k=>{const c=CAMS[k];const cx=X(Math.min(Math.max(c.pos[0],x0+0.03),x1-0.03)),cy=Z(c.pos[2]);
+  g+=`<rect x="${cx-7}" y="${cy-5}" width="14" height="10" fill="#b3261e"/><text x="${cx}" y="${cy+3}" font-size="8" text-anchor="middle" fill="#fff" font-family="Archivo Narrow" font-weight="700">${k}</text>`;
+  g+=`<text x="${cx}" y="${cy-8}" font-size="7.5" text-anchor="middle" fill="#b3261e">y ${Math.round(c.pos[1]*1000)}, z ${Math.round(c.pos[2]*1000)}</text>`;});
+ g+=`<text x="10" y="12" font-size="9" font-weight="700" font-family="Archivo Narrow">SIDE (x-z), mm</text>`;
+ return `<svg viewBox="0 0 ${W} ${H}" role="img" aria-label="Side view of shot ${sh.id}" font-family="Courier Prime,monospace">${g}</svg>`;
+}
+function armSide(sh,X,Z){
+ const {pts,q,az}=posePts(sh.pose);let d='';
+ d+=`<rect x="${X(-0.03)}" y="${Z(0.0624)}" width="${X(0.06)-X(0)}" height="${Z(0)-Z(0.0624)}" fill="#1e1d1a"/>`;
+ const path=pts.slice(1).map((p,i)=>(i?'L':'M')+X(p[0]).toFixed(1)+' '+Z(p[2]).toFixed(1)).join(' ');
+ d+=`<path d="${path}" fill="none" stroke="#1e1d1a" stroke-width="5" stroke-linejoin="round" stroke-linecap="round"/>`;
+ d+=`<path d="${path}" fill="none" stroke="#f3efe4" stroke-width="1.2" stroke-dasharray="1 4"/>`;
+ pts.slice(2,5).forEach(p=>d+=`<circle cx="${X(p[0])}" cy="${Z(p[2])}" r="3.2" fill="#f3efe4" stroke="#1e1d1a" stroke-width="1.4"/>`);
+ const t=pts[5];d+=`<circle cx="${X(t[0])}" cy="${Z(t[2])}" r="2.5" fill="#b3261e"/>`;
+ d+=`<text x="${X(t[0])-5}" y="${Z(t[2])+12}" font-size="8" text-anchor="end" fill="#b3261e">tip ${Math.round(t[0]*1000)}, ${Math.round(t[2]*1000)}</text>`;
+ return d;
+}
+function topSVG(sh){
+ const W=300,H=354,x0=-0.22,x1=0.74,y0=-0.72,y1=0.42,s=(W-16)/(x1-x0);
+ const X=x=>8+(x-x0)*s, Y=y=>8+(y1-y)*s;
+ let g='';const t=L.table;
+ const tx=t.center[0]-t.size[0]/2,ty=t.center[1]+t.size[1]/2;
+ g+=`<rect x="${X(tx)}" y="${Y(ty)}" width="${t.size[0]*s}" height="${t.size[1]*s}" fill="#e3dccb" stroke="#1e1d1a"/>`;
+ g+=`<text x="${X(tx)+3}" y="${Y(ty)+10}" font-size="8" fill="#55524a">table 900 x 800</text>`;
+ const hr=L.handoff_region;
+ g+=`<rect x="${X(hr.min[0])}" y="${Y(hr.max[1])}" width="${(hr.max[0]-hr.min[0])*s}" height="${(hr.max[1]-hr.min[1])*s}" fill="none" stroke="#24406b" stroke-dasharray="4 3"/>`;
+ const tr=L.tray;g+=`<rect x="${X(tr.center[0]-tr.size[0]/2)}" y="${Y(tr.center[1]+tr.size[1]/2)}" width="${tr.size[0]*s}" height="${tr.size[1]*s}" fill="#fbf9f3" stroke="#1e1d1a"/>`;
+ const items=L.setting_items[sh.setting];
+ L.slots.forEach((sl,i)=>{g+=`<rect x="${X(sl[0]-0.035)}" y="${Y(sl[1]+0.03)}" width="${0.07*s}" height="${0.06*s}" fill="none" stroke="#55524a" stroke-width=".8"/>`;
+  g+=`<text x="${X(sl[0])}" y="${Y(sl[1])+3}" font-size="7.5" text-anchor="middle">${SHORT[items[i]]}</text>`;});
+ const sq=(p,lab,col)=>`<rect x="${X(p[0]-0.03)}" y="${Y(p[1]+0.03)}" width="${0.06*s}" height="${0.06*s}" fill="none" stroke="${col}" stroke-width="1.2"/><text x="${X(p[0])}" y="${Y(p[1]-0.03)+9}" font-size="7.5" text-anchor="middle" fill="${col}">${lab}</text>`;
+ g+=sq(L.return_spot,'RETURN','#24406b'); g+=sq(L.safe_spot,'SAFE','#b3261e');
+ const hz=L.hand_zone;g+=`<circle cx="${X(hz[0])}" cy="${Y(hz[1])}" r="${0.035*s}" fill="none" stroke="#55524a" stroke-dasharray="2 2"/><text x="${X(hz[0])+0.04*s}" y="${Y(hz[1])+3}" font-size="7.5" fill="#55524a">hand</text>`;
+ if(sh.light==='bright')g+=`<circle cx="${X(0.48)}" cy="${Y(0.30)}" r="6" fill="#fbf9f3" stroke="#8a5a00" stroke-width="1.5"/><text x="${X(0.48)}" y="${Y(0.30)-9}" font-size="7.5" text-anchor="middle" fill="#8a5a00">LAMP</text>`;
+ // arm
+ const {pts}=posePts(sh.pose);
+ g+=`<circle cx="${X(0)}" cy="${Y(0)}" r="${0.045*s}" fill="#1e1d1a"/>`;
+ const path=pts.slice(1).map((p,i)=>(i?'L':'M')+X(p[0]).toFixed(1)+' '+Y(p[1]).toFixed(1)).join(' ');
+ g+=`<path d="${path}" fill="none" stroke="#1e1d1a" stroke-width="5" stroke-linecap="round" stroke-linejoin="round"/>`;
+ const tp=pts[5];g+=`<circle cx="${X(tp[0])}" cy="${Y(tp[1])}" r="2.5" fill="#b3261e"/>`;
+ // cameras
+ sh.cams.forEach(k=>{const c=CAMS[k];if(!c.pos)return;const a=Math.atan2(-(c.aim[1]-c.pos[1]),c.aim[0]-c.pos[0]);const h=c.fov*Math.PI/360,r=0.32*s;
+  const cx=X(c.pos[0]),cy=Y(c.pos[1]);
+  g+=`<path d="M${cx} ${cy} L${cx+Math.cos(a-h)*r} ${cy+Math.sin(a-h)*r} M${cx} ${cy} L${cx+Math.cos(a+h)*r} ${cy+Math.sin(a+h)*r}" stroke="#b3261e" stroke-width=".8" stroke-dasharray="2 2"/>`;
+  g+=`<rect x="${cx-7}" y="${cy-5}" width="14" height="10" fill="#b3261e"/><text x="${cx}" y="${cy+3}" font-size="8" text-anchor="middle" fill="#fff" font-family="Archivo Narrow" font-weight="700">${k}</text>`;});
+ // scale bar and axes
+ g+=`<line x1="${X(0.5)}" y1="${H-10}" x2="${X(0.6)}" y2="${H-10}" stroke="#1e1d1a" stroke-width="2"/><text x="${X(0.55)}" y="${H-14}" font-size="8" text-anchor="middle">100 mm</text>`;
+ g+=`<text x="10" y="${H-6}" font-size="8" fill="#55524a">x right, y up, base at 0,0</text>`;
+ g+=`<text x="10" y="12" font-size="9" font-weight="700" font-family="Archivo Narrow">TOP (x-y), ${sh.setting.toUpperCase()} TRAY</text>`;
+ return `<svg viewBox="0 0 ${W} ${H}" role="img" aria-label="Top view of shot ${sh.id}" font-family="Courier Prime,monospace">${g}</svg>`;
+}
+
+/* ---------- rendering ---------- */
+const fmt=s=>{s=Math.max(0,s);const m=Math.floor(s/60),r=Math.round(s%60);return m+':'+String(r).padStart(2,'0');};
+const fmtT=s=>{const m=Math.floor(s/60),r=s%60;return String(m).padStart(2,'0')+':'+r.toFixed(1).padStart(4,'0');};
+function callText(c){return c.m+' '+c.u+(c.b?' '+JSON.stringify(c.m==='POST'&&c.u==='/command'?{action:c.b.action,item:c.b.item}:c.b):'');}
+function poseText(sh){const {q,az,pts}=posePts(sh.pose);const t=pts[5];
+ const name=sh.pose.k==='home'?'home':sh.pose.k==='carry'?'carry':'IK to '+sh.pose.p.map(v=>Math.round(v*1000)).join(', ')+' mm';
+ return `${name} · pan ${deg(az)}°, lift ${deg(q[0])}°, elbow ${deg(q[1])}°, wrist ${deg(q[2])}° · tip ${Math.round(t[0]*1000)}, ${Math.round(t[1]*1000)}, ${Math.round(t[2]*1000)} mm`;}
+function inOut(reel){let t=0;const m={};SHOTS.filter(s=>s.reel===reel).forEach(s=>{m[s.id]=[t,t+dur(s)];t+=dur(s);});return m;}
+function statusOf(sh){
+ if(sh.reel==='B'){const k=keeperOf('B');const c=S.segs[sh.id];return c?{cls:'kept',t:'IN KEEPER ROLL'}:k?{cls:'shot',t:'NOT CHECKED'}:takesOf('B').length?{cls:'shot',t:'ROLLED'}:{cls:'',t:'PLANNED'};}
+ const k=keeperOf(sh.id),n=takesOf(sh.id).length;
+ return k?{cls:'kept',t:'KEEPER T'+k.n}:n?{cls:'shot',t:'SHOT · '+n+' TAKE'+(n>1?'S':'')}:{cls:'',t:'PLANNED'};
+}
+function takeChips(id){return takesOf(id).map(t=>`<span class="tk ${t.mark==='keep'?'keep':t.mark==='ng'?'ng':''} ${t.sample?'sample':''}" title="${esc(t.note||'')}">${t.n}</span>`).join('')||'<span class="lab">no takes</span>';}
+function renderBoard(){
+ const io=inOut(S.reel);
+ document.getElementById('board').innerHTML=SHOTS.filter(s=>s.reel===S.reel).map(sh=>{
+  const st=statusOf(sh),[a,b]=io[sh.id];
+  const cams=sh.cams.map(k=>{const c=CAMS[k];return `<b>${k}</b> ${esc(c.n)}${c.pos?' at '+c.pos.map(v=>Math.round(v*1000)).join(', ')+' mm':''}, ${esc(c.lens)}`;}).join('<br>');
+  const trig=sh.calls.length?sh.calls.map(c=>`<code>${esc(callText(c))}</code>`).join('<br>'):'<span class="lab">none, no arm motion</span>';
+  const segRow=sh.reel==='B'?`<label class="seg"><input type="checkbox" data-seg="${sh.id}" ${S.segs[sh.id]?'checked':''}> covered in the keeper roll</label>`:'';
+  return `<article class="card ${S.sel===sh.id?'sel':''}" data-id="${sh.id}">
+   <div class="chead"><div class="sno">${sh.id}</div><div class="ctitle">${esc(sh.title)}</div><div style="text-align:right"><div class="lab">${S.reel==='A'?'Rec in / out':'In roll'}</div>${fmt(a)} to ${fmt(b)}</div></div>
+   <div class="frames"><div>${sideSVG(sh)}</div><div>${topSVG(sh)}</div></div>
+   <div class="fields">
+    <div>Arm pose</div><div>${esc(poseText(sh))}</div>
+    <div>Camera</div><div>${cams}</div>
+    <div>Trigger</div><div>${trig}</div>
+    <div>Spoken</div><div>${esc(sh.voice||'none')}</div>
+    <div>In frame</div><div>${sh.frame.map(esc).join(', ')}</div>
+    <div>Setting</div><div>${sh.setting}, lighting ${sh.light}, props: ${sh.props.map(esc).join(', ')}</div>
+    <div>Notes</div><div>${esc(sh.note||'')} <span class="lab">(${sh.src})</span></div>
+    <div>Takes</div><div>${sh.reel==='B'?'logged on the full roll, see slate':takeChips(sh.id)}</div>
+   </div>
+   <div class="cfoot">
+    <span class="status ${st.cls}">${st.t}</span>
+    <label class="lab" style="display:flex;align-items:center;gap:4px">Cut <input class="durin" type="number" min="1" max="90" step="1" value="${dur(sh)}" data-dur="${sh.id}" aria-label="Cut length in seconds for ${sh.id}"> s</label>
+    ${segRow}
+    <span style="flex:1"></span>
+    <button data-pick="${sh.id}">${S.sel===sh.id?'On slate':'Slate this'}</button>
+   </div>
+  </article>`;}).join('');
+ document.getElementById('reelNote').innerHTML=S.reel==='A'
+  ?`<b>Reel A, demo video (E7).</b> Shot list from docs/PITCH.md, in order. Record each shot several times, circle the best. Evan edits. Required on Devpost, 2 to 3 min, or the team is not judged. Phone audio: second mic beside the speakerphone.`
+  :`<b>Reel B, Perceptron arm video (A12).</b> Required for the robotics track: several picks and returns across items and lighting, <b>unedited</b>, success table shown at the end. Shoot B01 to B09 in one continuous roll on Cam A, locked off. Log each attempt of the whole roll as a take, circle the keeper, then tick the segments it covers. Judged on creativity, task difficulty, technical execution.`;
+}
+function renderSlate(){
+ const sh=shotById(S.sel),key=logKey(S.sel);
+ document.getElementById('slRoll').textContent=key==='B'?'B':'A';
+ document.getElementById('slShot').textContent=key==='B'?'B·ALL':S.sel;
+ const n=takesOf(key).length+(rolling?0:1);
+ document.getElementById('slTake').textContent=rolling?rolling.n:n;
+ document.getElementById('slateMode').textContent=key==='B'?'Reel B, one roll':'Reel A';
+ const sel=document.getElementById('shotSel');
+ sel.innerHTML=SHOTS.filter(s=>s.reel===S.reel).map(s=>`<option value="${s.id}" ${s.id===S.sel?'selected':''}>${s.id} · ${esc(s.title.slice(0,40))}</option>`).join('');
+ document.getElementById('cueBtn').textContent=sh.calls.some(c=>c.m==='POST')?`Cue ${sh.id} on the arm`:`${sh.id} has no arm cue`;
+ setLiveButtons();
+ const rows=S.takes.slice().reverse().slice(0,14).map(t=>`<tr><td>${t.shot==='B'?'B roll':t.shot}</td><td><span class="tk ${t.mark==='keep'?'keep':t.mark==='ng'?'ng':''} ${t.sample?'sample':''}">${t.n}</span></td><td>${t.dur.toFixed(1)} s</td><td>${t.mark==='keep'?'<span class="stamp" style="font-size:10px;padding:0 4px">KEEP</span>':t.mark.toUpperCase()}</td><td>${esc(t.note||'')}${t.events.length?' <span class="lab">'+t.events.length+' events</span>':''}</td></tr>`).join('');
+ document.getElementById('takeRows').innerHTML=rows||'<tr><td colspan="5" class="lab">no takes yet: press ROLL</td></tr>';
+}
+function renderTotals(){
+ const tA=SHOTS.filter(s=>s.reel==='A').reduce((a,s)=>a+dur(s),0), tB=SHOTS.filter(s=>s.reel==='B').reduce((a,s)=>a+dur(s),0);
+ const MAX=210;document.getElementById('totA').textContent=fmt(tA)+' planned';
+ const msg=tA<120?['under 2:00, add '+(120-tA)+' s','var(--red)']:tA>180?['over 3:00, cut '+(tA-180)+' s','var(--red)']:['inside 2:00 to 3:00, '+(180-tA)+' s spare','var(--ink)'];
+ const m=document.getElementById('totMsg');m.textContent=msg[0];m.style.color=msg[1];
+ const w=document.getElementById('win');w.style.left=(120/MAX*100)+'%';w.style.width=(60/MAX*100)+'%';
+ const f=document.getElementById('fill');f.style.width=Math.min(100,tA/MAX*100)+'%';f.classList.toggle('over',tA<120||tA>180);
+ const kA=SHOTS.filter(s=>s.reel==='A'&&keeperOf(s.id));const keptLen=kA.reduce((a,s)=>a+dur(s),0);
+ const kb=keeperOf('B');
+ document.getElementById('totB').innerHTML=`Keepers cover ${kA.length} of 9 shots (${fmt(keptLen)} of cut).<br>Reel B plan ${fmt(tB)} unedited${kb?`, keeper roll T${kb.n} runs ${fmt(kb.dur)}`:', no keeper roll yet'}. <span class="lab">No length rule found for the arm video; keep it short.</span>`;
+ return tA;
+}
+function checks(){
+ const tA=SHOTS.filter(s=>s.reel==='A').reduce((a,s)=>a+dur(s),0);
+ const covered=SHOTS.filter(s=>s.reel==='B'&&S.segs[s.id]);
+ const items=new Set(covered.filter(s=>s.seg&&s.seg.pick).map(s=>s.seg.pick));
+ const lights=new Set(covered.filter(s=>s.seg&&(s.seg.pick||s.seg.ret)).map(s=>s.light));
+ const kb=!!keeperOf('B');
+ const allA=SHOTS.filter(s=>s.reel==='A').every(s=>keeperOf(s.id));
+ const shortA=SHOTS.filter(s=>s.reel==='A').filter(s=>{const k=keeperOf(s.id);return k&&k.dur<dur(s);}).map(s=>s.id);
+ return [
+  ['A12 Perceptron arm video (robotics track)'],
+  ['b_roll','A keeper roll is circled',kb,'auto'],
+  ['b_items','Picks of at least 3 different items ('+items.size+')',kb&&items.size>=3,'auto'],
+  ['b_ret','At least one return to a slot',kb&&covered.some(s=>s.seg&&s.seg.ret),'auto'],
+  ['b_light','Bright, normal and dim all shown ('+[...lights].join(', ')+')',kb&&['bright','normal','dim'].every(l=>lights.has(l)),'auto'],
+  ['b_table','Success table shown at the end',kb&&!!S.segs.B09,'auto'],
+  ['b_unedit','One continuous roll, no cuts',null,'manual'],
+  ['b_isaac','Fine-tuned Isaac 0.5 named on the slate card',null,'manual'],
+  ['b_up','Arm video uploaded, link in Devpost',null,'manual'],
+  ['E7 Demo video (Devpost, required)'],
+  ['a_len','Cut length inside 2:00 to 3:00 ('+fmt(tA)+')',tA>=120&&tA<=180,'auto'],
+  ['a_keep','Every shot A01 to A09 has a keeper',allA,'auto'],
+  ['a_short','Keeper takes are at least as long as the cut'+(shortA.length?' (short: '+shortA.join(', ')+')':''),shortA.length===0,'auto'],
+  ['a_audio','Phone audio clean: second mic by the speakerphone',null,'manual'],
+  ['a_keys','No keys, .env or tokens visible in dashboard shots',null,'manual'],
+  ['a_nums','Measured numbers on the success tables (A11), no [measured] left',null,'manual'],
+  ['a_up','Uploaded and attached to Devpost by 9:30',null,'manual'],
+ ];
+}
+function renderChecks(){
+ document.getElementById('checks').innerHTML=checks().map(c=>{
+  if(c.length===1)return `<div class="lab" style="margin:8px 0 2px;color:var(--ink);font-weight:700">${c[0]}</div>`;
+  const [k,label,v,how]=c;const val=how==='manual'?!!S.manual[k]:v;
+  const box=`<span class="bx ${val?'y':how==='auto'?'n':''}">${val?'X':how==='auto'?'.':''}</span>`;
+  return how==='manual'?`<div class="ck"><label><button style="min-height:28px;padding:0;border:0;background:none" data-man="${k}" aria-pressed="${val}" aria-label="${esc(label)}">${box}</button><span>${esc(label)}</span><span class="how">tick</span></label></div>`
+   :`<div class="ck">${box}<span>${esc(label)}</span><span class="how">from log</span></div>`;}).join('');
+}
+function tc(s){const f=Math.round(s*FPS);const h=Math.floor(f/(3600*FPS)),m=Math.floor(f/(60*FPS))%60,se=Math.floor(f/FPS)%60,fr=f%FPS;return [h,m,se,fr].map(v=>String(v).padStart(2,'0')).join(':');}
+function edlText(){
+ const d=new Date(),pad=(s,n)=>String(s).padEnd(n);
+ let t=`SCRUB  DEMO VIDEO (E7)  EDIT DECISION LIST\nGenerated ${d.toLocaleString()}  30 fps  target 2:00 to 3:00\n\n`;
+ t+=pad('#',4)+pad('SHOT',6)+pad('TAKE',6)+pad('SOURCE',14)+pad('REC IN',13)+pad('REC OUT',13)+pad('DUR',8)+'DESCRIPTION / NOTE\n';
+ let rec=0,i=1;const missing=[];
+ SHOTS.filter(s=>s.reel==='A').forEach(s=>{const k=keeperOf(s.id),du=dur(s);if(!k)missing.push(s.id);
+  t+=pad(String(i++).padStart(3,'0'),4)+pad(s.id,6)+pad(k?'T'+k.n:'--',6)+pad(k?s.id+'_T'+k.n+'.mov':'(no keeper)',14)+pad(tc(rec),13)+pad(tc(rec+du),13)+pad(du.toFixed(1)+'s',8)+s.title+(k&&k.note?'  ['+k.note+']':'')+'\n';rec+=du;});
+ t+=`\nTOTAL ${fmt(rec)} (${rec.toFixed(1)} s)  ${rec<120?'UNDER 2:00':rec>180?'OVER 3:00':'inside the window'}\n`;
+ t+=missing.length?`MISSING KEEPERS: ${missing.join(', ')}\n`:'All shots have a keeper.\n';
+ const kb=keeperOf('B');
+ t+=`\nPERCEPTRON ARM VIDEO (A12)  unedited, one roll\n`;
+ t+=kb?`KEEPER  B_ROLL_T${kb.n}.mov  ${tc(0)} to ${tc(kb.dur)}  ${kb.dur.toFixed(1)} s  ${kb.note||''}\n`:'KEEPER  none circled yet\n';
+ SHOTS.filter(s=>s.reel==='B').forEach(s=>t+=`  [${S.segs[s.id]?'x':' '}] ${s.id} ${s.title} (${s.light})\n`);
+ if(kb&&kb.events.length){t+='  controller events in the keeper roll:\n';kb.events.forEach(e=>t+=`    +${e.dt.toFixed(1)}s ${e.type}${e.item?' '+e.item:''}${e.s!=null?' '+e.s+' s to hand':''}\n`);}
+ t+=`\nTAKE LOG\n`;S.takes.forEach(k=>t+=`  ${k.shot==='B'?'B roll':k.shot} T${k.n} ${k.dur.toFixed(1)}s ${k.mark.toUpperCase()}${k.sample?' (sample)':''} ${k.note||''}\n`);
+ return t;
+}
+function renderEdl(){document.getElementById('edl').value=edlText();}
+function renderAll(){renderBoard();renderSlate();renderTotals();renderChecks();renderEdl();}
+
+/* ---------- take logger ---------- */
+let rolling=null;
+function roll(){
+ const key=logKey(S.sel);
+ if(!rolling){rolling={shot:key,n:takesOf(key).length+1,t0:performance.now(),start:now(),events:[]};document.getElementById('rollBtn').textContent='CUT';document.getElementById('timer').classList.add('rec');}
+ else{const t={shot:rolling.shot,n:rolling.n,dur:(performance.now()-rolling.t0)/1000,mark:'ok',note:'',events:rolling.events};S.takes.push(t);rolling=null;
+  document.getElementById('rollBtn').textContent='ROLL';document.getElementById('timer').classList.remove('rec');save();renderAll();}
+ renderSlate();
+}
+function lastTake(){const key=logKey(S.sel);const ts=takesOf(key);return ts[ts.length-1];}
+function mark(m){const t=lastTake();if(!t)return;if(m==='keep')takesOf(t.shot).forEach(x=>{if(x.mark==='keep')x.mark='ok';});t.mark=m;save();renderAll();}
+setInterval(()=>{if(rolling)document.getElementById('timer').textContent=fmtT((performance.now()-rolling.t0)/1000);
+ const r=(SUBMIT-Date.now())/1000;const el=document.getElementById('countdown');
+ if(r<=0)el.textContent='past 9:30, submit now';else{const h=Math.floor(r/3600),m=Math.floor(r/60)%60,s=Math.floor(r)%60;el.textContent=(h>48?Math.floor(h/24)+' d ':'')+String(h%(h>48?24:1000)).padStart(2,'0')+':'+String(m).padStart(2,'0')+':'+String(s).padStart(2,'0');}},100);
+
+/* ---------- controller link (live, labeled) ---------- */
+let ws=null,live=false,lastStep=null;
+function setLive(on,msg){live=on;const t=document.getElementById('liveTag');t.className='live '+(on?'on':'off');t.textContent=on?'LIVE · '+WSURL:'OFFLINE · plan data only'+(msg?' · '+msg:'');setLiveButtons();}
+function setLiveButtons(){const sh=shotById(S.sel);document.getElementById('cueBtn').disabled=!live||!sh.calls.some(c=>c.m==='POST');document.getElementById('gotBtn').disabled=!live;}
+function showStep(st){if(!st)return;lastStep=st;document.getElementById('liveStep').innerHTML=`step <b>${esc(st.step||'?')}</b>${st.item?' · '+esc(st.item):''} · ${esc(st.setting||'')} · ${esc(st.lighting||'')}${st.out&&st.out.length?' · out: '+st.out.map(esc).join(', '):''}`;}
+function connect(){
+ try{ws=new WebSocket(WSURL);}catch(e){setLive(false);setTimeout(connect,5000);return;}
+ ws.onopen=()=>{setLive(true);fetch(API+'/state').then(r=>r.json()).then(showStep).catch(()=>{});};
+ ws.onmessage=m=>{let e;try{e=JSON.parse(m.data);}catch(x){return;}
+  showStep({step:e.step||(lastStep&&lastStep.step),item:e.item,setting:e.setting,lighting:e.lighting,out:e.out});
+  const line=document.createElement('div');const dt=rolling?(performance.now()-rolling.t0)/1000:null;
+  line.textContent=(dt!=null?'+'+dt.toFixed(1)+'s ':'')+e.type+(e.item?' '+e.item:'')+(e.say?' "'+e.say+'"':'')+(e.request_to_hand_s!=null?' '+e.request_to_hand_s+' s':'');
+  const log=document.getElementById('evlog');log.prepend(line);while(log.children.length>30)log.lastChild.remove();
+  if(rolling&&e.type!=='step')rolling.events.push({dt,type:e.type,item:e.item||null,s:e.request_to_hand_s??null});};
+ ws.onclose=()=>{setLive(false,'retrying every 5 s');setTimeout(connect,5000);};
+ ws.onerror=()=>{};
+}
+async function post(u,b){const r=await fetch(API+u,{method:'POST',headers:{'Content-Type':'application/json'},body:b?JSON.stringify(b):null});let j=null;try{j=await r.json();}catch(e){}return {status:r.status,j};}
+async function cue(){
+ const sh=shotById(S.sel);if(!live)return;
+ const log=document.getElementById('evlog');const note=s=>{const d=document.createElement('div');d.textContent=s;log.prepend(d);};
+ for(const c of sh.calls){if(c.m!=='POST')continue;let b=c.b;
+  if(c.u==='/command')b=Object.assign({},c.b,{id:(crypto.randomUUID?crypto.randomUUID():String(Math.random()).slice(2)),source:'dashboard',t:now()});
+  try{const r=await post(c.u,b);note(`cue ${c.u} -> ${r.status}${r.j&&r.j.reason?' '+r.j.reason:''}`);if(r.status>=400)break;
+   if(c.u==='/command'&&sh.calls.indexOf(c)<sh.calls.length-1)note('next call waits for you: press Cue again after home');
+   if(c.u==='/command')break;}catch(e){note('cue failed: '+e.message);break;}}
+}
+/* STOP: always visible. Live: POST /stop. Offline: says so honestly. */
+async function stop(){const b=document.getElementById('stopBtn');
+ if(!live){b.textContent='NO ARM LINKED';setTimeout(()=>b.textContent='STOP',1500);return;}
+ try{await post('/stop');b.textContent='STOPPED';}catch(e){b.textContent='STOP FAILED';}setTimeout(()=>b.textContent='STOP',1500);}
+
+/* ---------- events ---------- */
+document.getElementById('stopBtn').onclick=stop;
+document.getElementById('rollBtn').onclick=roll;
+document.getElementById('okBtn').onclick=()=>mark('ok');
+document.getElementById('ngBtn').onclick=()=>mark('ng');
+document.getElementById('keepBtn').onclick=()=>mark('keep');
+document.getElementById('cueBtn').onclick=cue;
+document.getElementById('gotBtn').onclick=()=>live&&post('/command',{id:String(Date.now()),action:'got_it',item:null,heard:null,source:'dashboard',t:now()});
+document.getElementById('noteIn').onchange=e=>{const t=lastTake();if(t){t.note=e.target.value;e.target.value='';save();renderAll();}};
+document.getElementById('shotSel').onchange=e=>{if(rolling)return;S.sel=e.target.value;save();renderAll();};
+document.getElementById('clearSample').onclick=()=>{S.takes=S.takes.filter(t=>!t.sample);save();renderAll();};
+document.getElementById('clearAll').onclick=()=>{if(confirm('Clear every logged take?')){S.takes=[];S.segs={};save();renderAll();}};
+document.getElementById('camop').value=S.camop||document.getElementById('camop').value;
+document.getElementById('camop').onchange=e=>{S.camop=e.target.value;save();};
+const setReel=r=>{if(rolling)return;S.reel=r;if(S.sel[0]!==r)S.sel=r==='A'?'A02':'B02';document.getElementById('tabA').setAttribute('aria-pressed',r==='A');document.getElementById('tabB').setAttribute('aria-pressed',r==='B');save();renderAll();};
+document.getElementById('tabA').onclick=()=>setReel('A');
+document.getElementById('tabB').onclick=()=>setReel('B');
+document.getElementById('board').addEventListener('click',e=>{const p=e.target.closest('[data-pick]');if(p&&!rolling){S.sel=p.dataset.pick;save();renderAll();}});
+document.getElementById('board').addEventListener('change',e=>{
+ if(e.target.dataset.dur){const v=Math.max(1,Math.min(90,+e.target.value||1));S.durs[e.target.dataset.dur]=v;save();renderAll();}
+ if(e.target.dataset.seg){S.segs[e.target.dataset.seg]=e.target.checked;save();renderAll();}});
+document.getElementById('checks').addEventListener('click',e=>{const b=e.target.closest('[data-man]');if(b){S.manual[b.dataset.man]=!S.manual[b.dataset.man];save();renderChecks();}});
+document.getElementById('copyEdl').onclick=()=>{const t=edlText();(navigator.clipboard?navigator.clipboard.writeText(t):Promise.reject()).then(()=>document.getElementById('edlMsg').textContent='copied').catch(()=>{const a=document.getElementById('edl');a.select();document.execCommand('copy');document.getElementById('edlMsg').textContent='copied (fallback)';});};
+document.getElementById('dlEdl').onclick=()=>{const blob=new Blob([edlText()],{type:'text/plain'});const a=document.createElement('a');a.href=URL.createObjectURL(blob);a.download='scrub-edl.txt';a.click();setTimeout(()=>URL.revokeObjectURL(a.href),1000);};
+document.addEventListener('keydown',e=>{if(/INPUT|TEXTAREA|SELECT/.test(e.target.tagName))return;
+ if(e.code==='Space'){e.preventDefault();roll();}else if(e.key==='c'||e.key==='C')mark('keep');else if(e.key==='n'||e.key==='N')mark('ng');else if(e.key==='Escape')stop();});
+
+if(S.reel!=='A'){document.getElementById('tabA').setAttribute('aria-pressed','false');document.getElementById('tabB').setAttribute('aria-pressed','true');}
+renderAll();
+connect();
+</script>
+</body>
+</html>
