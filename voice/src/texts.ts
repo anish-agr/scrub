@@ -7,7 +7,7 @@ import { GEMINI_API_KEY, GEMINI_MODEL, VOICE_DIR } from "./config.js";
 import { getState, postRestock, type State } from "./controller.js";
 import { isEndCase } from "./parse.js";
 import { currentSetting, type Setting } from "./settings.js";
-import { closeCase, getPhoton, photonConfigured } from "./summary.js";
+import { closeCase, closeCaseWithLink, getPhoton, photonConfigured } from "./summary.js";
 import { isTrayCheck } from "./parse.js";
 import { textTrayCheck } from "./tray.js";
 import { settingAsked, switchSetting } from "./cases.js";
@@ -128,7 +128,7 @@ export interface TextDeps {
   switchTo: (id: string) => Promise<string>;
 }
 const DEFAULTS: TextDeps = { state: getState, setting: currentSetting, parse: parseText, log: logRestock,
-  summary: () => closeCase(), trayCheck: () => textTrayCheck(), switchTo: (id) => switchSetting(id) };
+  summary: () => closeCaseWithLink(), trayCheck: () => textTrayCheck(), switchTo: (id) => switchSetting(id) };
 
 // One text in -> the reply text.
 export async function handleText(text: string, from: string | null, deps: Partial<TextDeps> = {}): Promise<string> {

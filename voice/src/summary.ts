@@ -2,7 +2,7 @@
 import { GoogleGenAI } from "@google/genai";
 import { Spectrum } from "spectrum-ts";
 import { imessage } from "spectrum-ts/providers/imessage";
-import { GEMINI_API_KEY, GEMINI_MODEL, PHOTON_PROJECT_ID, PHOTON_SECRET, SUMMARY_TO } from "./config.js";
+import { GEMINI_API_KEY, GEMINI_MODEL, PHOTON_PROJECT_ID, PHOTON_SECRET, PUBLIC_URL, SUMMARY_TO } from "./config.js";
 import { getStats, type ScrubEvent } from "./controller.js";
 
 const ai = GEMINI_API_KEY ? new GoogleGenAI({ apiKey: GEMINI_API_KEY }) : null;
@@ -151,10 +151,22 @@ export async function closeCase(write: () => Promise<string> = writeSummary): Pr
   return text;
 }
 
-// Write the summary, text it to the caller's thread, start a new case.
-export async function endCase(send: Send = sendText, write: () => Promise<string> = writeSummary):
-    Promise<{ text: string; to: string; sent: boolean; error?: string }> {
+// "Case replay: <SCRUB_PUBLIC_URL>/?case=<case_id>", or null with no public URL or no case_id.
+export const caseLink = (id: string | null | undefined, base = PUBLIC_URL): string | null =>
+  base && id ? `Case replay: ${base.replace(/\/+$/, "")}/?case=${encodeURIComponent(id)}` : null;
+
+// closeCase for a "summary" text: the case link (if any) on its own line after the summary.
+export async function closeCaseWithLink(write: () => Promise<string> = writeSummary, base = PUBLIC_URL): Promise<string> {
+  const link = caseLink(caseId, base);
+  const text = await closeCase(write);
+  return link ? `${text}\n\n${link}` : text;
+}
+
+// Write the summary, text it to the caller's thread, start a new case. Then a second short text with the case link.
+export async function endCase(send: Send = sendText, write: () => Promise<string> = writeSummary, base = PUBLIC_URL):
+    Promise<{ text: string; to: string; sent: boolean; error?: string; link?: string }> {
   const to = caller || SUMMARY_TO;
+  const link = caseLink(caseId, base);
   const text = await closeCase(write);
   let sent = false, error: string | undefined;
   if (!to) error = "no caller id and no PHOTON_SUMMARY_TO";
@@ -162,7 +174,11 @@ export async function endCase(send: Send = sendText, write: () => Promise<string
     try { sent = await send(to, text); } catch (e) { error = (e as Error).message; }
   }
   console.log(sent ? `[photon] texted ${to}` : `[photon] not sent: ${error ?? "no credentials"}`);
-  return { text, to, sent, error };
+  if (sent && link) {
+    try { await send(to, link); console.log(`[photon] ${link}`); }
+    catch (e) { console.log(`[photon] case link not sent: ${(e as Error).message}`); }
+  }
+  return { text, to, sent, error, ...(link ? { link } : {}) };
 }
 
 // A short text to the caller's thread (the X3 "tray ready" text): same sender and thread as the summary.
