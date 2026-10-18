@@ -55,7 +55,7 @@ BEATS = [
          film="\"Stop\" mid-move, the arm freezes, the red STOPPED banner, then reset and the pass finishes.",
          lines=[(None, "\"Stop.\""),
                 ("Caiden", "Say stop and the arm freezes where it is."),
-                ("Caiden", "It stays stopped until someone resets it. Then it finishes the pass.")]),
+                ("Caiden", "It holds still until you say continue. Then it finishes the pass.")]),
     dict(slot="V4", sim=[], title="Manual return", label="MANUAL RETURN",
          film="A tool put back in its slot by hand (or the arm jogged).",
          lines=[("Evan", "On the real arm, putting a tool back is manual for now. A person sets it back in its "
@@ -71,8 +71,8 @@ BEATS = [
     dict(slot="V6", sim=[], title="Thermal",
          film="Screen recording of the temperature graph during a hold, then the arm folding to rest, torque off.",
          lines=[("Brandon", "These motors heat up when they hold a pose."),
-                ("Brandon", "Scrub watches every motor's temperature, and between requests it folds to rest with "
-                            "the torque off.")]),
+                ("Brandon", "Scrub watches every motor's temperature. At 60 C it goes home and rests with "
+                            "the torque off until it cools.")]),
     dict(slot="V7", sim=[], title="Count and count sheet",
          film="Screen recording: the dashboard count, then the count-sheet OCR read (Perceptron, Gemini fallback) "
               "with the latency shown.",
@@ -91,8 +91,8 @@ BEATS = [
          film="Rendered by video/simdemo.py.", how=True,
          lines=[("Caiden", "How it works. Gemini turns what you said into one instrument from the tray."),
                 ("Caiden", "Perceptron's vision finds it, and the arm runs the skill we taught it."),
-                ("Caiden", "Our code keeps it in bounds: speed and joint limits, a grasp check before it carries, "
-                           "and release only on a pull."),
+                ("Caiden", "Our code keeps it in bounds: speed and joint limits on every move, "
+                           "and it lets go only when you pull or say let go."),
                 ("Anish", "Here is the same routine in simulation.")]),
     dict(slot="END", sim=[], title="Close", end=True,
          lines=[("Anish", "Scrub never touches the patient. It's a research prototype, not a medical device."),
@@ -163,14 +163,13 @@ def draw_cards():
         "2. Gemini turns what you said into one instrument from the tray.",
         "3. Perceptron's vision finds it on the tray.",
         "4. The arm runs a skill we taught it, at a capped speed, to a fixed handoff point.",
-        "5. It lets go when you pull and goes home on its own.",
+        "5. It lets go when you pull or say let go, then goes home on its own.",
         "6. Every try is logged."]).save(out / "how-1.png")
     _page("What keeps it in bounds", [
-        "Stop freezes the arm until someone resets it.",
+        "Stop freezes the arm where it is. Continue finishes the pass.",
         "Speed and joint limits on every move.",
-        "A grasp check before it carries anything.",
-        "Release only on a pull.",
-        "Motor temperatures watched; the arm rests with the torque off between requests."]).save(out / "how-2.png")
+        "It lets go only when you pull or say let go.",
+        "Motor temperatures watched; at 60 C it goes home and rests with the torque off."]).save(out / "how-2.png")
     return out
 
 
@@ -353,7 +352,7 @@ def build(out):
         speak = b["lines"] if (real or not b.get("if_real")) else []
         timed, need = plan_lines(speak, memos, numbers, bool(real))
         audio = [(m, t0) for _, _, t0, _, m in timed if m]
-        if b.get("label") and kind in ("REAL", "SIM"):
+        if b.get("label") and kind == "REAL":  # sim clips burn their own tag
             label = label_png(b["label"], tmp / f"label-{slot}.png")
 
         if b.get("how"):

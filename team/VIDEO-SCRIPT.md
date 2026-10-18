@@ -37,7 +37,7 @@ A real Photon call is unconfirmed. Don't say "on the phone" or "phone call" in n
 | --- | --- | --- |
 | (on camera) | lab coat | "Stop." |
 | V11-Caiden-3 | Caiden | Say stop and the arm freezes where it is. |
-| V11-Caiden-4 | Caiden | It stays stopped until someone resets it. Then it finishes the pass. |
+| V11-Caiden-4 | Caiden | It holds still until you say continue. Then it finishes the pass. |
 
 ## V4 Manual return (labeled "MANUAL RETURN")
 
@@ -64,7 +64,7 @@ Say this only after the bright, normal and dim tries are logged. The rough cut p
 | Memo | Speaker | Line |
 | --- | --- | --- |
 | V11-Brandon-1 | Brandon | These motors heat up when they hold a pose. |
-| V11-Brandon-2 | Brandon | Scrub watches every motor's temperature, and between requests it folds to rest with the torque off. |
+| V11-Brandon-2 | Brandon | Scrub watches every motor's temperature. At 60 C it goes home and rests with the torque off until it cools. |
 
 ## V7 Dashboard count and count sheet
 
@@ -93,7 +93,7 @@ Only if a Perceptron model is deployed and a real model pick is on video (0 depl
 | --- | --- | --- |
 | V11-Caiden-6 | Caiden | How it works. Gemini turns what you said into one instrument from the tray. |
 | V11-Caiden-7 | Caiden | Perceptron's vision finds it, and the arm runs the skill we taught it. |
-| V11-Caiden-8 | Caiden | Our code keeps it in bounds: speed and joint limits, a grasp check before it carries, and release only on a pull. |
+| V11-Caiden-8 | Caiden | Our code keeps it in bounds: speed and joint limits on every move, and it lets go only when you pull or say let go. |
 | V11-Anish-6 | Anish | Here is the same routine in simulation. |
 
 ## Close (end card)

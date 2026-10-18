@@ -458,7 +458,7 @@ def _plain(img, cap, tag, fonts):
 CAM = dict(lookat=(0.22, -0.1, 0.1), distance=1.45, azimuth=172, elevation=-29)
 
 
-def frames(width=1920, height=1080, fps=30, times=None):
+def frames(width=1920, height=1080, fps=30, times=None, captions=True):
     from PIL import Image
 
     P = Player()
@@ -477,7 +477,7 @@ def frames(width=1920, height=1080, fps=30, times=None):
         P.pose(t)
         r.update_scene(P.d, camera=cam)
         img = Image.fromarray(r.render())
-        img = _plain(img, P.caption(t), "SIMULATED RETURN (electromagnet)" if P.tag(t) else "SIMULATION", fonts)
+        img = _plain(img, P.caption(t) if captions else "", "SIMULATED RETURN (electromagnet)" if P.tag(t) else "SIMULATION", fonts)
         yield t, img, P.length
     r.close()
 
@@ -490,6 +490,7 @@ def main():
     s.add_argument("--start", type=float, default=0.0); s.add_argument("--end", type=float, default=None)
     s = sub.add_parser("render"); s.add_argument("--out", required=True); s.add_argument("--fps", type=int, default=30)
     s.add_argument("--draft", action="store_true", help="960x540, quick look")
+    s.add_argument("--no-captions", action="store_true", help="tag only; the rough cut burns its own captions")
     sub.add_parser("segments")
     a = ap.parse_args()
     if a.cmd == "segments":
@@ -522,7 +523,7 @@ def main():
         w = imageio_ffmpeg.write_frames(a.out, size, fps=a.fps, codec="libx264", quality=8,
                                         pix_fmt_out="yuv420p", macro_block_size=8)
         w.send(None)
-        for k, (t, img, L) in enumerate(frames(width=size[0], height=size[1], fps=a.fps)):
+        for k, (t, img, L) in enumerate(frames(width=size[0], height=size[1], fps=a.fps, captions=not a.no_captions)):
             w.send(np.ascontiguousarray(np.asarray(img.convert("RGB"))))
             if k % (a.fps * 5) == 0:
                 print(f"  {t:5.1f} / {L:.1f} s", flush=True)
