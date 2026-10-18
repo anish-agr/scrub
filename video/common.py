@@ -17,6 +17,8 @@ from PIL import Image, ImageDraw, ImageFont
 
 REPO = Path(__file__).resolve().parents[1]
 BASE = REPO / "data" / "video"
+DEFAULT_DATASET = Path.home() / "scrub-dataset"  # arm/record.py --root default
+EVENTS_NAME = "events.jsonl"  # written by `export-ledger`, read by find/overlay/cards when --events is omitted
 LABELS = {"simulation": "SIMULATION", "reconstructed": "RECONSTRUCTED FROM ARM JOINT DATA",
           "mixed": "MIXED FOOTAGE - NON-REAL SHOTS LABELED; NOT A CONTINUOUS REAL DEMO",
           "photo_plate": "PHOTO PLATE - STATIC BACKGROUND, NOT AN ACTION RECORDING",
@@ -320,6 +322,26 @@ def encode(ws, output, images, fps=30, audio=None, segments=None, audio_clean=Fa
     finally:
         temp.unlink(missing_ok=True)
     return {"frames": count, "fps": fps, "duration_s": duration, "width": w, "height": h}
+
+
+def default_events(ws):
+    path = ws.root / EVENTS_NAME
+    if not path.is_file():
+        raise ValueError(f"No --events and no {path}: run `python -m video export-ledger` first")
+    return path
+
+
+def export_ledger(ws, name=EVENTS_NAME):
+    """Write the ledger (Atlas plus ledger/buffer.jsonl) as {"kind","doc"} lines, the format ledger_rows reads."""
+    import ledger
+    ledger.warm(8)
+    event_rows, test_rows = ledger.stored_rows()
+    if not event_rows and not test_rows:
+        raise ValueError("The ledger returned no rows (MONGODB_URI unset or Atlas unreachable, and ledger/buffer.jsonl empty)")
+    out = ws.out(name)
+    lines = [json.dumps({"kind": kind, "doc": doc}, default=str) for kind, rows in (("event", event_rows), ("test", test_rows)) for doc in rows]
+    out.write_text("\n".join(lines) + "\n", encoding="utf-8")
+    return {"events_file": str(out), "events": len(event_rows), "tests": len(test_rows)}
 
 
 def ledger_rows(path):

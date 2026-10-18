@@ -5,6 +5,8 @@ Offline Python 3.10 tools for the demo edit and the Perceptron arm roll.
 explicit local recordings, photos, joint data and ledger exports. Never runs
 training, connects to the arm or imports the controller.
 
+Modules: `ingest` (index and clock sync), `geometry` (tray corners), `topdown` (plane warp, photo plate), `reconstruction` (joint replay in MuJoCo), `clean` (cleanup, privacy, idle review), `takes` (rank takes from the ledger), `overlay` and `cards` (ledger-backed captions and tables), `edit` (EDL render), `synthetic` (labeled fixtures), `common` and `style` (shared helpers). `edl/` holds `demo.yaml`, `perceptron-arm.yaml` and `bindings.example.json`. Tests: `python -m unittest video.test_video`.
+
 ## Install on this Windows laptop
 
 Run in PowerShell from `C:\Users\anish\Documents\GitHub\dubhacks-2026`:
@@ -30,6 +32,32 @@ Close other Python/OpenCV processes if Windows locks `cv2.pyd`; don't repeatedly
 reinstall packages or upgrade the hardware environment to solve a video install.
 MuJoCo reconstruction requires the existing SO-101 model; if missing, separately
 run `python -m sim.fetch_model`. Generated scenes go in `data/video/`, not `sim/`.
+
+### Install on the Mac (bash)
+
+From the repo root, with `.venv` already holding the repo requirements:
+
+```bash
+.venv/bin/python -m pip install -r video/requirements.txt
+export PLAYWRIGHT_BROWSERS_PATH="$PWD/data/video/browser"
+.venv/bin/python -m playwright install chromium
+.venv/bin/python -m unittest video.test_video
+.venv/bin/python -m video --help
+```
+
+Every `python -m video ...` below runs the same on the Mac as `.venv/bin/python -m video ...`.
+Only the shell lines (variables, `Read-Host`, `Test-Path`, `Copy-Item`, `notepad`) differ; each
+block is followed by its bash equivalent.
+
+## Where the real inputs come from
+
+| Input | Default | Where it is written |
+| --- | --- | --- |
+| Ledger events and trials (`--events` for `find`, `overlay`, `cards`) | `<root>/events.jsonl` | `python -m video export-ledger` writes it from `ledger.stored_rows()`: Atlas (needs `MONGODB_URI` in `.env`) plus `ledger/buffer.jsonl`. Lines are `{"kind":"event"|"test","doc":...}`, the same envelope the ledger buffer uses |
+| LeRobot dataset (`topdown --mode reconstruction`, no `--input`) | `~/scrub-dataset` | `python -m arm.record` writes there by default (`--root` changes it). On Anish's laptop pass `--input` with the actual path |
+
+`ledger/buffer.jsonl` only holds rows that have not reached Atlas yet, so run `export-ledger` rather than pointing at it.
+`export-ledger` overwrites `<root>/events.jsonl` and refuses to write an empty file. An explicit `--events` or `--input` always wins.
 
 ## Honesty and output boundaries
 
@@ -78,6 +106,14 @@ python -m video --root $Demo cards --events demo/events.jsonl --allow-synthetic
 python -m video --root $Demo preview --edl video/edl/demo.yaml --bindings demo/edit.json --output renders/preview.mp4 --demo
 python -m video --root $Demo render --edl video/edl/demo.yaml --bindings demo/edit.json --output renders/demo.mp4 --demo
 python -m video --root $Demo render --edl video/edl/perceptron-arm.yaml --bindings demo/edit.json --output renders/arm.mp4 --demo
+```
+
+Bash equivalent (Mac), the same commands with only the first line different:
+
+```bash
+D="data/video/rehearsal-$(date +%Y%m%d-%H%M%S)"
+V() { .venv/bin/python -m video --root "$D" "$@"; }
+V demo-assets --seconds 3     # then run each line above as V <command> ...
 ```
 
 The fixture has a blue towel/light tray with no markers, one overhead reference
@@ -148,6 +184,14 @@ $ClapInClip = [double](Read-Host "Clap position in A1-take3.mp4, seconds")
 python -m video ingest --kind real --clap-clip raw/A1-take3.mp4 --clap-ledger-time $ClapEpoch --clap-second $ClapInClip
 ```
 
+Bash:
+
+```bash
+read -p "Actual ledger epoch of the clap: " CLAP_EPOCH
+read -p "Clap position in A1-take3.mp4, seconds: " CLAP_S
+.venv/bin/python -m video ingest --kind real --clap-clip raw/A1-take3.mp4 --clap-ledger-time "$CLAP_EPOCH" --clap-second "$CLAP_S"
+```
+
 Omit `--clap-second` to detect the strongest isolated audio peak in the first
 minute. Review it: other loud transients can look like claps. Other clips still
 need their own mapping. No clock sync is inferred from when a file was copied.
@@ -155,14 +199,16 @@ need their own mapping. No clock sync is inferred from when a file was copied.
 ## Exact real-footage workflow
 
 From the repo root, after copying correctly named footage, a reference photo
-`photos/reference.jpg`, the other plate photos, and the genuine ledger export to
-`data/video/events.jsonl`:
+`photos/reference.jpg`, the other plate photos, and then run
+`python -m video export-ledger` (writes `data/video/events.jsonl`, see "Where the real
+inputs come from"):
 
 Run commands individually and stop on any failure. The binding template uses the
 generated `overlays/A1.mp4`, so the finished demo actually includes the sourced
 handoff overlay. Do not overwrite an existing custom `edit.json` with the template.
 
 ```powershell
+python -m video export-ledger
 python -m video ingest --kind real --sync sync.json
 $TrayWidthMm = [double](Read-Host "Measured LEFT-TO-RIGHT tray extent in millimeters")
 $TrayHeightMm = [double](Read-Host "Measured TOP-TO-BOTTOM tray extent in millimeters")
@@ -171,14 +217,24 @@ python -m video corners --input photos/reference.jpg --camera photo --width-mm $
 python -m video topdown --mode warp --input raw/A1-take3.mp4 --camera side --output topdown/A1.mp4
 python -m video topdown --mode plate --reference photos/reference.jpg --camera photo --empty-scene --output topdown/plate.png
 python -m video clean --input raw/A1-take3.mp4 --output clean/A1.mp4 --denoise --audio
-python -m video find --events events.jsonl --cut
-python -m video overlay --input clean/A1.mp4 --events events.jsonl --output overlays/A1.mp4
-python -m video cards --events events.jsonl
+python -m video find --cut
+python -m video overlay --input clean/A1.mp4 --output overlays/A1.mp4
+python -m video cards
 if (-not (Test-Path data/video/edit.json)) { Copy-Item video/edl/bindings.example.json data/video/edit.json }
 notepad data/video/edit.json
 python -m video preview --edl video/edl/demo.yaml --bindings edit.json --output renders/demo-preview.mp4
 python -m video render --edl video/edl/demo.yaml --bindings edit.json --output renders/scrub-demo.mp4
 python -m video render --edl video/edl/perceptron-arm.yaml --bindings edit.json --output renders/perceptron-arm.mp4
+```
+
+Bash equivalent of the PowerShell-only lines:
+
+```bash
+read -p "Measured LEFT-TO-RIGHT tray extent in millimeters: " TRAY_W
+read -p "Measured TOP-TO-BOTTOM tray extent in millimeters: " TRAY_H
+# then pass --width-mm "$TRAY_W" --height-mm "$TRAY_H" to the two corners commands
+[ -f data/video/edit.json ] || cp video/edl/bindings.example.json data/video/edit.json
+${EDITOR:-nano} data/video/edit.json
 ```
 
 Review/edit bindings **before** exporting: actual source names, measured in points,
@@ -207,13 +263,16 @@ uncovered pixels or unreliable transforms stop the operation; there is no inpain
 The real-demo and unedited-arm EDLs intentionally do not substitute reconstructions
 for actual arm evidence. Use them in a separately labeled explanation/backup edit.
 
-Explicitly select the real dataset root and episode (no broad dataset scans):
+Select the episode (no broad dataset scans). Without `--input` the dataset is
+`~/scrub-dataset`, where `arm.record` writes. Pass `--input` for any other root:
 
 ```powershell
-$Dataset = Read-Host "Absolute path to the actual LeRobot v3 dataset"
 $Episode = [int](Read-Host "Recorded episode index")
-python -m video topdown --mode reconstruction --input $Dataset --episode $Episode --output topdown/recorded-joints.mp4
+python -m video topdown --mode reconstruction --episode $Episode --output topdown/recorded-joints.mp4
+python -m video topdown --mode reconstruction --input "D:\path\to\dataset" --episode $Episode --output topdown/recorded-joints.mp4
 ```
+
+Bash: `.venv/bin/python -m video topdown --mode reconstruction --episode 0 --output topdown/recorded-joints.mp4`.
 
 This reuses `explore.dataset.replay.Dataset`, `sim.scene` and the SO-101 model.
 It does **not** replay the action column, clamp/smooth joint readings, solve new
