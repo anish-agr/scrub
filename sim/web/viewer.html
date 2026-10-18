@@ -1,28 +1,74 @@
 <!doctype html>
-<!-- Scrub sim viewer. Style: technical drafting / printed shop layout sheet. Plain HTML + ES modules, no build step.
-     Needs to be served (python -m sim, port 8002) because browsers block STL loading over file://. -->
+<!-- Scrub sim viewer. Paper theme of design/scrub.css (published here as style.css by design/sync.py).
+     Plain HTML + ES modules, no build step. Served by the sim (port 8002) because browsers block STL loading over file://. -->
 <html lang="en" data-theme="paper"><head>
 <meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
 <title>Scrub arm viewer</title>
-<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;600&family=IBM+Plex+Sans:wght@400;600&display=swap">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Archivo:wght@400;600;700;900&family=IBM+Plex+Mono:wght@400;500;600&display=swap">
 <link rel="icon" href="data:,">
 <link rel="stylesheet" href="style.css">
 <link rel="stylesheet" href="page.css">
 <style>
-main{display:grid;grid-template-columns:minmax(0,1fr) 320px;gap:10px;padding:10px;align-items:start}
-#stage{position:relative;border:1px solid var(--rule);background:var(--sheet);height:min(72vh,640px);min-height:320px}
-#stage canvas{display:block;width:100%;height:100%}
-#hud{position:absolute;left:0;bottom:0;font:11px/1.4 var(--mono);padding:4px 8px;background:var(--sheet);border-top:1px solid var(--rule);border-right:1px solid var(--rule)}
-#side{display:flex;flex-direction:column;gap:10px;min-width:0}
-.joint{display:grid;grid-template-columns:96px 1fr 62px;gap:6px;align-items:center;font:11px var(--mono);margin:5px 0}
-.joint input{width:100%;accent-color:var(--ink)}
-.joint span:last-child{text-align:right}
-#log{font:11px/1.45 var(--mono);height:140px;overflow:auto;border:1px solid var(--rule);padding:6px;background:var(--paper)}
-#log div{border-bottom:1px solid var(--faint)}
-#fileNotice{display:none;margin:10px}
-#err{display:none;margin:10px}
+body.scrub-ui{display:flex;flex-direction:column;min-height:100vh}
+.scrub-ui header.top{padding:12px 24px 10px;align-items:center}
+.top .title{display:flex;align-items:baseline;flex-wrap:wrap;gap:4px 16px}
+.top .title .wordmark{font-size:34px}
+.top h1{margin:0;font-size:22px}
+.top .sub{flex-basis:100%;margin-top:2px}
+.top .block{text-align:right}
+.scrub-ui main.viewer{flex:1;display:grid;grid-template-columns:minmax(0,1fr) 340px;gap:0 24px;padding:16px 24px 12px;max-width:none;width:100%;align-items:start}
+.stagecol{min-width:0}
+#strip{margin:0 0 10px}
+.scrub-ui #strip li{text-align:center;padding:7px 4px;letter-spacing:.06em}
+#stage{position:relative;border:1px solid var(--ink);background:var(--paper2);height:clamp(380px,calc(100vh - 214px),860px)}
+#stage canvas{display:block;width:100%;height:100%;touch-action:none}
+#hud{position:absolute;left:0;bottom:0;max-width:100%;font:11px/1.4 var(--m);padding:4px 8px;background:var(--paper);border-top:1px solid var(--ink);border-right:1px solid var(--ink)}
+.camtag{position:absolute;left:8px;top:8px;padding:2px 6px;background:#0f1110;color:#e8e6df;font:11px/1.4 var(--m);letter-spacing:.04em;pointer-events:none}
+.legend{position:absolute;right:8px;top:8px;display:flex;flex-wrap:wrap;justify-content:flex-end;gap:4px 12px;max-width:60%;padding:3px 8px;background:var(--paper);border:1px solid var(--hair);font:11px/1.4 var(--m);pointer-events:none}
+.legend i{display:inline-block;width:9px;height:9px;margin-right:5px;vertical-align:-1px;border:1px solid var(--ink)}
+#side{display:flex;flex-direction:column;min-width:0;max-height:calc(100vh - 170px);overflow:auto}
+.scrub-ui #side .panel{padding:8px 0 14px}
+.scrub-ui #side .panel h2{margin-bottom:8px}
+.scrub-ui #side button{min-height:40px;padding:8px 12px;font-size:13px}
+.scrub-ui #side select{min-height:40px}
+.seg{gap:0}
 .seg button+button{margin-left:-1px}
-@media (max-width:860px){main{grid-template-columns:minmax(0,1fr)}#stage{height:56vh}}
+.joint{display:grid;grid-template-columns:104px minmax(0,1fr) 60px;gap:8px;align-items:center;font:12px var(--m);margin:4px 0}
+.joint input{width:100%}
+.joint span:last-child{text-align:right}
+.joint span:first-child{white-space:nowrap;overflow:hidden;text-overflow:ellipsis;overflow-wrap:normal}
+#log{font:11px/1.45 var(--m);height:132px;overflow:auto;border-top:1px solid var(--hair);padding:4px 0}
+#log div{border-bottom:1px solid var(--hair);padding:2px 0}
+#evStep{margin-left:auto}
+#fileNotice{display:none;margin:10px 24px}
+#err{display:none;margin:10px 24px}
+.scrub-ui .sim-stop-dock{display:flex;align-items:center;gap:16px;padding:8px 24px;border-top:2px solid var(--ink)}
+.scrub-ui .sim-stop-dock #stopBtn{flex:1;min-height:52px;font-size:24px;letter-spacing:.12em}
+.scrub-ui .sim-stop-dock p{margin:0;flex:0 0 auto}
+.scrub-ui footer{padding:10px 24px}
+@media (max-width:980px){
+  .scrub-ui main.viewer{grid-template-columns:minmax(0,1fr)}
+  #side{max-height:none;overflow:visible;margin-top:16px}
+  #stage{height:clamp(320px,58vh,620px)}
+}
+@media (max-width:700px){
+  .scrub-ui header.top{padding:10px 16px 8px}
+  .top .title .wordmark{font-size:28px}
+  .top h1{font-size:18px}
+  .top .sub,.top .block{display:none}
+  .scrub-ui header.top nav{width:auto}
+  .scrub-ui header.top nav a{min-height:36px;font-size:13px}
+  .scrub-ui main.viewer{padding:10px 16px}
+  .scrub-ui #strip li{flex:1 1 0;min-width:0;padding:6px 1px;font-size:9px;letter-spacing:0}
+  #stage{height:min(52vh,460px);min-height:300px}
+  .legend{gap:2px 8px;padding:2px 6px;font-size:10px}
+  #hud{font-size:10px}
+  .camtag{font-size:10px}
+  .scrub-ui .sim-stop-dock{padding:8px 16px;gap:10px}
+  .scrub-ui .sim-stop-dock #stopBtn{min-height:48px;font-size:20px}
+  .scrub-ui .sim-stop-dock p{font-size:10px;max-width:84px}
+  .joint{grid-template-columns:92px minmax(0,1fr) 52px}
+}
 </style>
 <script type="importmap">{"imports":{
  "three":"https://cdn.jsdelivr.net/npm/three@0.164.1/build/three.module.js",
@@ -30,9 +76,9 @@ main{display:grid;grid-template-columns:minmax(0,1fr) 320px;gap:10px;padding:10p
  "urdf-loader":"https://unpkg.com/urdf-loader@0.12.3/src/URDFLoader.js"}}</script>
 </head><body class="scrub-ui" data-page="sim-viewer">
 <header class="top">
-  <div class="title"><b class="wordmark">Scrub</b><h1>Arm viewer</h1><div class="sub">SO-101 on the work table, base frame in mm</div></div>
+  <div class="title"><b class="wordmark">Scrub</b><h1>Arm viewer</h1><div class="sub">SO-101 sim on the work table, base frame in mm</div></div>
   <nav><a class="on" href="viewer.html">Viewer</a><a href="layout.html">Layout and kit</a></nav>
-  <div class="block">SHEET SC-01 REV A<br>SCALE 1:1 (m)<br><span id="srcline">source: starting</span></div>
+  <div class="block">SHEET SC-01 REV B<br><span id="srcline">source: starting</span></div>
 </header>
 
 <div id="fileNotice" class="notice"><b>This page was opened as a file.</b> Browsers block loading the STL meshes over <code>file://</code>.
@@ -41,26 +87,34 @@ main{display:grid;grid-template-columns:minmax(0,1fr) 320px;gap:10px;padding:10p
  (the page then looks for the sim API on port 8002 and the models under <code>/sim/models/</code>; add <code>?api=URL</code> to change it).</div>
 <div id="err" class="notice"></div>
 
-<main>
-  <div id="stage"><div id="hud">loading model</div></div>
+<main class="viewer">
+  <div class="stagecol">
+    <ol class="step-strip" id="strip" aria-label="Handover step">
+      <li data-s="finding">FIND</li><li data-s="picking">PICK</li><li data-s="checking">CHECK</li><li data-s="moving_to_hand setting_down">HAND</li><li data-s="waiting_for_pull">WAIT</li><li data-s="releasing returning">RELEASE</li><li data-s="homing">HOME</li>
+    </ol>
+    <div id="stage">
+      <div class="camtag" id="camtag">SIM ARM · ISO</div>
+      <div class="legend" aria-hidden="true"><span><i style="background:#1d6a38"></i>HAND</span><span><i style="background:#c8201a"></i>SAFE</span><span><i style="background:#0e6f86"></i>RETURN</span></div>
+      <div id="hud">loading model</div>
+    </div>
+  </div>
   <div id="side">
     <section class="panel"><h2>Mode</h2><div class="body">
       <div class="row seg" id="modes">
-        <button data-m="manual" class="on">Sliders</button><button data-m="live">Live /state</button><button data-m="event">Events</button></div>
-      <div id="modeInfo" class="mono" style="font-size:11px;margin-top:8px;color:var(--ink2)">Drag the sliders to pose the arm.</div>
+        <button data-m="live">Live sim</button><button data-m="event">Events</button><button data-m="manual" class="on">Sliders</button></div>
+      <div id="modeInfo" class="mono" style="font-size:12px;margin-top:8px;color:var(--mute)">Drag the sliders to pose the arm.</div>
     </div></section>
     <section class="panel"><h2>Camera</h2><div class="body"><div class="row seg" id="cams">
-      <button data-c="iso" class="on">Iso</button><button data-c="top">Top</button><button data-c="front">Front</button><button data-c="side">Side</button><button data-c="hand">Hand view</button></div></div></section>
-    <section class="panel"><h2>Joints</h2><div class="body" id="joints"></div></section>
-    <section class="panel"><h2>Handover script</h2><div class="body">
+      <button data-c="iso" class="on">Iso</button><button data-c="top">Top</button><button data-c="front">Front</button><button data-c="side">Side</button><button data-c="hand">Hand</button></div></div></section>
+    <section class="panel"><h2>Handover <span id="evStep" class="tag">idle</span></h2><div class="body">
       <div class="row"><select id="evItem" aria-label="Item"></select><button class="pri" id="runHandover">Run handover</button><button id="runPutBack">Put back</button></div>
-      <div class="row" style="margin-top:6px"><span id="evStep" class="tag">idle</span></div>
       <div id="log" style="margin-top:8px" aria-live="polite"></div>
     </div></section>
+    <section class="panel"><h2>Joints</h2><div class="body" id="joints"></div></section>
   </div>
 </main>
-<footer><span>Scrub sim viewer, DubHacks 2026</span><a href="#">Terms</a><a href="#">Privacy</a></footer>
-<div class="sim-stop-dock"><button id="stopBtn">Stop</button><p>Spacebar stops the simulation.</p></div>
+<div class="sim-stop-dock"><button id="stopBtn">Stop</button><p>Space stops the arm.</p></div>
+<footer><span>Scrub sim viewer, DubHacks 2026</span></footer>
 
 <script src="common.js"></script>
 <script type="module">
@@ -70,6 +124,7 @@ import URDFLoader from 'urdf-loader';
 const S = window.SCRUB, $ = id => document.getElementById(id);
 if (S.isFile) $('fileNotice').style.display = 'block';
 const showErr = m => { const e = $('err'); e.style.display = 'block'; e.textContent = m; };
+const C = { paper: '#ece8dd', paper2: '#e3dfd2', ink: '#14130f', hair: '#b9b4a4', red: '#c8201a', green: '#1d6a38', cyan: '#0e6f86', steel: '#8e979c' };
 
 /* ---------- scene (Z up, base frame = world) ---------- */
 THREE.Object3D.DEFAULT_UP.set(0, 0, 1);
@@ -77,79 +132,113 @@ const stage = $('stage');
 const renderer = new THREE.WebGLRenderer({ antialias: true });
 renderer.setPixelRatio(Math.min(devicePixelRatio, 2));
 stage.prepend(renderer.domElement);
-const scene = new THREE.Scene(); scene.background = new THREE.Color('#ebe6d6');
-const camera = new THREE.PerspectiveCamera(40, 1, 0.01, 10); camera.up.set(0, 0, 1);
+const scene = new THREE.Scene(); scene.background = new THREE.Color(C.paper2);
+const camera = new THREE.PerspectiveCamera(36, 1, 0.01, 10); camera.up.set(0, 0, 1);
 const controls = new OrbitControls(camera, renderer.domElement);
-scene.add(new THREE.HemisphereLight(0xffffff, 0x8a8470, 1.1));
-const dl = new THREE.DirectionalLight(0xffffff, 1.6); dl.position.set(0.5, -0.6, 1.2); scene.add(dl);
+controls.enableDamping = true; controls.dampingFactor = 0.12;
+scene.add(new THREE.HemisphereLight(0xffffff, 0x8a8470, 1.25));
+const dl = new THREE.DirectionalLight(0xffffff, 1.5); dl.position.set(0.5, -0.6, 1.2); scene.add(dl);
 
 // table: flat top at z = -0.012 (base plate sits on it), drafting grid in 50 mm squares
-const table = new THREE.Mesh(new THREE.BoxGeometry(0.9, 0.7, 0.012), new THREE.MeshLambertMaterial({ color: '#d9d2bb' }));
-table.position.set(0.28, 0.02, -0.006); scene.add(table);
-{ const g = new THREE.GridHelper(0.9, 18, 0x1d2024, 0xa59f88); g.rotation.x = Math.PI / 2; g.position.set(0.28, 0.02, 0.0005); g.scale.y = 1; scene.add(g); }
+const table = new THREE.Mesh(new THREE.BoxGeometry(0.9, 0.8, 0.012), new THREE.MeshLambertMaterial({ color: C.paper }));
+table.position.set(0.25, 0.0, -0.006); scene.add(table);
+{ const g = new THREE.GridHelper(0.9, 18, 0x14130f, 0xb9b4a4); g.rotation.x = Math.PI / 2; g.position.set(0.25, 0.0, 0.0005); g.material.transparent = true; g.material.opacity = 0.55; scene.add(g); }
 const world = new THREE.Group(); scene.add(world);   // layout items
 
+let camView = 'iso', userMoved = false;
+controls.addEventListener('start', () => { userMoved = true; });
 function resize() {
   const w = stage.clientWidth, h = stage.clientHeight; renderer.setSize(w, h, false);
   camera.aspect = w / h; camera.updateProjectionMatrix();
+  if (!userMoved && robot) setCam(camView);
 }
-new ResizeObserver(resize).observe(stage); resize();
+new ResizeObserver(resize).observe(stage);
 
-const CAMS = {
-  iso: [[0.75, -0.65, 0.5], [0.2, 0.02, 0.08]], top: [[0.22, 0.0, 1.25], [0.22, 0.0, 0]],
-  front: [[1.0, 0.0, 0.25], [0.15, 0, 0.12]], side: [[0.2, -1.0, 0.25], [0.2, 0, 0.12]] };
+/* ---------- camera: each preset is a direction; the distance is fitted so the arm, tray and hand zone fill the view ---------- */
+const CAMS = { iso: [0.62, -0.78, 0.55], top: [0, 0, 1], front: [1, 0, 0.32], side: [0.08, -1, 0.3] };
+const CAM_NAMES = { iso: 'ISO', top: 'TOP', front: 'FRONT', side: 'SIDE', hand: 'HAND VIEW' };
+function focusPoints() {
+  const L = layout, T = L.tray, hz = L.hand_zone, pts = [];
+  [[-0.05, -0.06, 0], [-0.05, 0.06, 0], [0.02, 0, 0.3]].forEach(p => pts.push(new THREE.Vector3(...p)));   // arm base and its height at home
+  [-1, 1].forEach(a => [-1, 1].forEach(b => pts.push(new THREE.Vector3(T.x + a * T.d / 2, T.y + b * T.w / 2, 0))));
+  pts.push(new THREE.Vector3(hz.x, hz.y - hz.r, hz.z + hz.r), new THREE.Vector3(hz.x + hz.r, hz.y, 0));
+  [L.return_spot, L.safe_spot].forEach(s => pts.push(new THREE.Vector3(s.x, s.y + Math.sign(s.y) * s.r, 0)));
+  return pts;
+}
+function fit(dir, up, pts, margin) {
+  const box = new THREE.Box3().setFromPoints(pts), c = box.getCenter(new THREE.Vector3()), d = new THREE.Vector3(...dir).normalize();
+  camera.up.copy(up); let lo = 0.1, hi = 6;
+  for (let i = 0; i < 24; i++) {
+    const m = (lo + hi) / 2; camera.position.copy(c).addScaledVector(d, m); camera.lookAt(c); camera.updateMatrixWorld(true);
+    const ok = pts.every(p => { const v = p.clone().project(camera); return Math.abs(v.x) < margin && Math.abs(v.y) < margin; });
+    if (ok) hi = m; else lo = m;
+  }
+  camera.position.copy(c).addScaledVector(d, hi); controls.target.copy(c);
+}
 function setCam(n) {
-  if (n === 'hand') { const hz = layout.hand_zone; camera.position.set(hz.x + 0.22, hz.y - 0.14, hz.z + 0.12); controls.target.set(0.15, 0.0, 0.06); }
-  else { camera.position.set(...CAMS[n][0]); controls.target.set(...CAMS[n][1]); }
-  if (n === 'top') camera.up.set(1, 0, 0); else camera.up.set(0, 0, 1);
+  camView = n; $('camtag').textContent = 'SIM ARM · ' + CAM_NAMES[n];
+  const margin = innerWidth < 700 ? 0.95 : 0.93;
+  if (n === 'hand') { const hz = layout.hand_zone; fit([0.9, -0.6, 0.35], new THREE.Vector3(0, 0, 1), [new THREE.Vector3(hz.x, hz.y, hz.z + hz.r), new THREE.Vector3(hz.x, hz.y, 0), new THREE.Vector3(hz.x - 0.1, hz.y + 0.08, hz.z), new THREE.Vector3(hz.x + hz.r, hz.y - hz.r, hz.z)], 0.85); }
+  else fit(CAMS[n], n === 'top' ? new THREE.Vector3(1, 0, 0) : new THREE.Vector3(0, 0, 1), focusPoints(), margin);
   controls.update();
 }
 document.querySelectorAll('#cams button').forEach(b => b.onclick = () => {
-  document.querySelectorAll('#cams button').forEach(x => x.classList.toggle('on', x === b)); setCam(b.dataset.c); });
+  document.querySelectorAll('#cams button').forEach(x => x.classList.toggle('on', x === b)); userMoved = false; setCam(b.dataset.c); });
 
-/* ---------- labels ---------- */
+/* ---------- labels: small mono tags, placed where they can't stack ---------- */
 function label(text, color) {
-  const c = document.createElement('canvas'); c.width = 256; c.height = 64; const g = c.getContext('2d');
-  g.fillStyle = '#f5f1e4'; g.fillRect(0, 0, 256, 64); g.strokeStyle = '#1d2024'; g.lineWidth = 3; g.strokeRect(1.5, 1.5, 253, 61);
-  g.fillStyle = color || '#1d2024'; g.font = '600 26px "IBM Plex Mono", monospace'; g.textAlign = 'center'; g.textBaseline = 'middle'; g.fillText(text, 128, 33);
-  const sp = new THREE.Sprite(new THREE.SpriteMaterial({ map: new THREE.CanvasTexture(c), depthTest: false })); sp.scale.set(0.09, 0.0225, 1); sp.renderOrder = 10; return sp;
+  const c = document.createElement('canvas'), w = 30 + text.length * 22; c.width = w; c.height = 56; const g = c.getContext('2d');
+  g.fillStyle = C.paper; g.fillRect(0, 0, w, 56); g.strokeStyle = color || C.ink; g.lineWidth = 4; g.strokeRect(2, 2, w - 4, 52);
+  g.fillStyle = color || C.ink; g.font = '600 32px "IBM Plex Mono", monospace'; g.textAlign = 'center'; g.textBaseline = 'middle'; g.fillText(text, w / 2, 30);
+  const tex = new THREE.CanvasTexture(c); tex.anisotropy = 4;
+  const sp = new THREE.Sprite(new THREE.SpriteMaterial({ map: tex, depthTest: false })); const hgt = 0.016; sp.scale.set(hgt * w / 56, hgt, 1); sp.renderOrder = 10; return sp;
 }
 
 /* ---------- layout objects ---------- */
 let layout = S.defaultLayout(), itemMeshes = {}, held = null;
-function disc(r, color, z) { const m = new THREE.Mesh(new THREE.CylinderGeometry(r, r, 0.003, 40), new THREE.MeshLambertMaterial({ color })); m.rotation.x = Math.PI / 2; m.position.z = z; return m; }
+function disc(r, color, z) {   // a spot on the table: light fill and a firm outline
+  const g = new THREE.Group(), f = new THREE.Mesh(new THREE.CircleGeometry(r, 48), new THREE.MeshBasicMaterial({ color, transparent: true, opacity: 0.22 }));
+  g.add(f, ring(r, 0.004, color, 0.0005)); g.position.z = z; return g; }
+function ring(r, w, color, z) { const m = new THREE.Mesh(new THREE.RingGeometry(r - w, r, 64), new THREE.MeshBasicMaterial({ color, side: THREE.DoubleSide })); m.position.z = z; return m; }
 function itemMesh(id) {
   const info = S.itemInfo(id), g = new THREE.Group();
-  const body = new THREE.Mesh(new THREE.BoxGeometry(0.012, 0.085, 0.008), new THREE.MeshLambertMaterial({ color: info.color }));
-  const tip = new THREE.Mesh(new THREE.BoxGeometry(0.016, 0.02, 0.008), new THREE.MeshLambertMaterial({ color: '#1d2024' })); tip.position.y = 0.0525;
+  const body = new THREE.Mesh(new THREE.BoxGeometry(0.011, 0.07, 0.007), new THREE.MeshLambertMaterial({ color: C.steel }));
+  const tip = new THREE.Mesh(new THREE.BoxGeometry(0.013, 0.018, 0.0075), new THREE.MeshLambertMaterial({ color: info.sharp ? C.red : C.ink })); tip.position.y = 0.044;
   g.add(body, tip); g.userData.id = id; return g;
 }
 function buildWorld() {
   world.clear(); itemMeshes = {};
   const T = layout.tray, tray = new THREE.Group(); tray.position.set(T.x, T.y, 0); tray.rotation.z = (T.yaw_deg || 0) * Math.PI / 180;
-  const base = new THREE.Mesh(new THREE.BoxGeometry(T.d, T.w, 0.006), new THREE.MeshLambertMaterial({ color: '#9aa3a8' })); base.position.z = 0.003; tray.add(base);
-  const wm = new THREE.MeshLambertMaterial({ color: '#7d878c' });
+  const base = new THREE.Mesh(new THREE.BoxGeometry(T.d, T.w, 0.006), new THREE.MeshLambertMaterial({ color: '#c3c7c6' })); base.position.z = 0.003; tray.add(base);
+  const wm = new THREE.MeshLambertMaterial({ color: '#8f9798' });
   [[0, T.w / 2, T.d, 0.004], [0, -T.w / 2, T.d, 0.004]].forEach(w => { const m = new THREE.Mesh(new THREE.BoxGeometry(w[2], w[3], 0.016), wm); m.position.set(w[0], w[1], 0.008); tray.add(m); });
   [T.d / 2, -T.d / 2].forEach(x => { const m = new THREE.Mesh(new THREE.BoxGeometry(0.004, T.w, 0.016), wm); m.position.set(x, 0, 0.008); tray.add(m); });
   world.add(tray);
   layout.slots.forEach((s, i) => {
-    const d = disc(0.022, '#c9c3ae', 0.0075); d.position.x = s.x; d.position.y = s.y; world.add(d);
-    const l = label('S' + (i + 1), '#1d2024'); l.position.set(s.x - 0.055, s.y, 0.03); world.add(l);
+    const d = ring(0.02, 0.0025, C.ink, 0.0065); d.position.x = s.x; d.position.y = s.y; world.add(d);
+    const l = label('S' + (i + 1)); l.position.set(T.x + T.d / 2 + 0.03, s.y, 0.02); world.add(l);
     if (s.item) { const m = itemMesh(s.item); m.position.set(s.x, s.y, 0.012); world.add(m); itemMeshes[s.item] = { mesh: m, home: m.position.clone(), slot: i }; }
   });
   const rs = layout.return_spot, sf = layout.safe_spot, hz = layout.hand_zone;
-  let d = disc(rs.r, '#46607a', 0.002); d.position.x = rs.x; d.position.y = rs.y; world.add(d);
-  let l = label('RETURN', '#46607a'); l.position.set(rs.x, rs.y, 0.04); world.add(l);
-  d = disc(sf.r, '#8c3b2e', 0.002); d.position.x = sf.x; d.position.y = sf.y; world.add(d);
-  l = label('SAFE', '#8c3b2e'); l.position.set(sf.x, sf.y, 0.04); world.add(l);
-  // hand zone: wireframe sphere at the hand height + floor ring
-  const hs = new THREE.Mesh(new THREE.SphereGeometry(hz.r, 16, 10), new THREE.MeshBasicMaterial({ color: '#c4501b', wireframe: true, transparent: true, opacity: 0.55 }));
+  let d = disc(rs.r, C.cyan, 0.002); d.position.x = rs.x; d.position.y = rs.y; world.add(d);
+  let l = label('RETURN', C.cyan); l.position.set(rs.x, rs.y + rs.r + 0.03, 0.012); world.add(l);
+  // safe zone: taped square (layout.safe_zone {center,size,yaw_deg} if present, else a 10 cm square at safe_spot)
+  const sz = layout.safe_zone || {}, zc = sz.center || [sf.x, sf.y], zs = sz.size || [0.10, 0.10], zy = (sz.yaw_deg || 0) * Math.PI / 180;
+  const zg = new THREE.Group(); zg.position.set(zc[0], zc[1], 0.002); zg.rotation.z = zy;
+  zg.add(new THREE.Mesh(new THREE.PlaneGeometry(zs[0], zs[1]), new THREE.MeshBasicMaterial({ color: C.red, transparent: true, opacity: 0.15, side: THREE.DoubleSide })));
+  const hx = zs[0] / 2, hy = zs[1] / 2;
+  zg.add(new THREE.Line(new THREE.BufferGeometry().setFromPoints([[-hx, -hy], [hx, -hy], [hx, hy], [-hx, hy], [-hx, -hy]].map(q => new THREE.Vector3(q[0], q[1], 0.001))), new THREE.LineBasicMaterial({ color: C.red })));
+  world.add(zg);
+  l = label('SAFE', C.red); l.position.set(zc[0], zc[1] - zs[1] / 2 - 0.025, 0.012); world.add(l);
+  // hand zone: thin wire sphere at hand height, its floor ring, and a drop line
+  const hs = new THREE.Mesh(new THREE.SphereGeometry(hz.r, 18, 10), new THREE.MeshBasicMaterial({ color: C.green, wireframe: true, transparent: true, opacity: 0.35 }));
   hs.position.set(hz.x, hz.y, hz.z); world.add(hs);
-  const ring = new THREE.Mesh(new THREE.RingGeometry(hz.r - 0.003, hz.r, 40), new THREE.MeshBasicMaterial({ color: '#c4501b', side: THREE.DoubleSide })); ring.position.set(hz.x, hz.y, 0.002); world.add(ring);
-  l = label('HAND', '#c4501b'); l.position.set(hz.x, hz.y, hz.z + hz.r + 0.03); world.add(l);
+  const fr = ring(hz.r, 0.003, C.green, 0.002); fr.position.set(hz.x, hz.y, 0.002); world.add(fr);
+  world.add(new THREE.Line(new THREE.BufferGeometry().setFromPoints([new THREE.Vector3(hz.x, hz.y, 0.002), new THREE.Vector3(hz.x, hz.y, hz.z - hz.r)]), new THREE.LineDashedMaterial({ color: C.green })));
+  l = label('HAND', C.green); l.position.set(hz.x + hz.r * 0.7, hz.y - hz.r - 0.02, hz.z + hz.r * 0.6); world.add(l);
   // reach ring on the table (estimate)
   const R = S.maxReach(), pts = []; for (let i = 0; i <= 96; i++) { const a = i / 96 * Math.PI * 2; pts.push(new THREE.Vector3(S.kin.panX + R * Math.cos(a), R * Math.sin(a), 0.001)); }
-  world.add(new THREE.Line(new THREE.BufferGeometry().setFromPoints(pts), new THREE.LineBasicMaterial({ color: '#1d2024' })));
+  const reach = new THREE.Line(new THREE.BufferGeometry().setFromPoints(pts), new THREE.LineDashedMaterial({ color: C.ink, dashSize: 0.01, gapSize: 0.008 })); reach.computeLineDistances(); world.add(reach);
   fillItemSelect();
 }
 function fillItemSelect() {
@@ -165,25 +254,27 @@ let robot = null, tcp = null, q = HOME.slice();
 function setQ(v) { q = v.slice(); JN.forEach((n, i) => robot && robot.joints[n] && robot.setJointValue(n, q[i])); syncSliders(); }
 const loader = new URDFLoader();
 loader.packages = S.modelsBase + 'so101/';
-const mat = new THREE.MeshStandardMaterial({ color: '#d9d4c3', roughness: 0.75, metalness: 0.05 });
+const mat = new THREE.MeshStandardMaterial({ color: '#d8d3c4', roughness: 0.8, metalness: 0.02 });
 const motorMat = new THREE.MeshStandardMaterial({ color: '#2a2d31', roughness: 0.7 });
 let meshCount = 0, meshLoaded = 0;
 loader.loadMeshCb = (path, manager, done) => {
   meshCount++;
   loader.defaultMeshLoader(path, manager, (obj, err) => {
     if (err) console.error('mesh failed', path, err);
-    else { meshLoaded++; obj.traverse(o => { if (o.isMesh) o.material = /sts3215/i.test(path) ? motorMat : mat; }); }
+    else { meshLoaded++; const m = /sts3215/i.test(path) ? motorMat : mat; obj.traverse(o => { if (o.isMesh) { o.material = m; o.userData.keepMat = m; } }); }
     done(obj, err);
   });
 };
 loader.load(S.urdfUrl, r => {
   robot = r; scene.add(robot); window.__robot = robot;
   tcp = robot.frames && robot.frames['gripper_frame_link'] || robot.frames['gripper_frame'] || null;
-  setQ(HOME); buildJointUi(); mode('manual');
-  $('hud').textContent = 'model loaded';
+  setQ(HOME); buildJointUi(); mode(S.api === location.origin || new URLSearchParams(location.search).has('controller') ? 'live' : 'manual');
+  $('hud').textContent = 'model loaded'; resize(); setCam(camView);
 }, null, e => { console.error(e); showErr('Could not load the URDF at ' + S.urdfUrl + '. ' + (S.isFile ? 'See the file:// note above.' : 'Is the models folder served?')); $('hud').textContent = 'model failed'; });
 setTimeout(() => { window.__meshes = [meshLoaded, meshCount]; }, 0);
 window.__meshStats = () => ({ loaded: meshLoaded, requested: meshCount });
+// the URDF's own colors (printed yellow) land after the mesh callback: put the drawing colors back each frame until they hold
+function keepMaterials() { if (robot) robot.traverse(o => { if (o.isMesh && o.userData.keepMat && o.material !== o.userData.keepMat) o.material = o.userData.keepMat; }); }
 
 function buildJointUi() {
   const box = $('joints'); box.innerHTML = '';
@@ -196,7 +287,9 @@ function buildJointUi() {
   });
   syncSliders();
 }
+let lastSync = 0;
 function syncSliders() {
+  const now = performance.now(); if (now - lastSync < 100) return; lastSync = now;   // the DOM at 10 Hz, the arm at frame rate
   document.querySelectorAll('#joints input').forEach((inp, i) => { inp.value = q[i]; const v = $('jv' + i); if (v) v.textContent = (q[i] * 180 / Math.PI).toFixed(0) + ' deg'; });
 }
 
@@ -235,7 +328,7 @@ async function ikPose(x, y, z, seed, pitch) {
   return { q: best.q, err: best.err, via: 'local IK' };
 }
 
-/* ---------- animation ---------- */
+/* ---------- animation (mock events) ---------- */
 const GRIP_OPEN = 1.1, GRIP_CLOSED = 0.05;
 let animToken = 0;
 const sleep = ms => new Promise(r => setTimeout(r, ms));
@@ -250,15 +343,25 @@ async function moveTo(target, ms, token) {
 }
 function updateHeld() {
   if (!held || !robot) return;
-  const p = tcpPos(new THREE.Vector3()); held.position.copy(p); held.position.z -= 0.0; held.rotation.set(0, 0, 0);
+  const p = tcpPos(new THREE.Vector3()); held.position.copy(p); held.rotation.set(0, 0, 0);
 }
 function setGrip(g) { q[5] = GRIP_OPEN + (GRIP_CLOSED - GRIP_OPEN) * g; setQ(q); }
 
-/* ---------- event handling (real or mock) ---------- */
+/* ---------- step strip ---------- */
 const logBox = $('log');
 function logLine(t) { const d = document.createElement('div'); d.textContent = t; logBox.prepend(d); while (logBox.children.length > 60) logBox.lastChild.remove(); }
 let chain = Promise.resolve(), tokenForEvents = 0;
-function setStep(s) { $('evStep').textContent = s; }
+function setStep(s) {
+  $('evStep').textContent = s.replace(/_/g, ' ');
+  $('evStep').className = 'tag' + (s === 'stopped' || s === 'error' ? ' bad' : s === 'waiting_for_pull' ? ' warn' : '');
+  document.querySelectorAll('#strip li').forEach(li => {
+    const on = li.dataset.s.split(' ').includes(s);
+    li.classList.toggle('current', on && s !== 'stopped' && s !== 'error');
+  });
+  if (s === 'stopped' || s === 'error') { const cur = document.querySelector('#strip li.was'); if (cur) cur.classList.add('failed'); }
+  else document.querySelectorAll('#strip li.failed').forEach(li => li.classList.remove('failed'));
+  document.querySelectorAll('#strip li').forEach(li => li.classList.toggle('was', li.classList.contains('current') || (li.classList.contains('was') && (s === 'stopped' || s === 'error'))));
+}
 const carryQ = () => [0, -0.9, 0.9, 0.9, 0, GRIP_CLOSED];
 async function doPick(id, tk) {
   const it = itemMeshes[id]; if (!it) { logLine('no such item on tray: ' + id); return; }
@@ -279,9 +382,9 @@ async function doHandover(id, tk) {
   } else {
     setStep('moving_to_hand'); const hz = layout.hand_zone, p = await ikPose(hz.x, hz.y, hz.z, q, -0.2);
     await moveTo(p.q.map((v, i) => i === 5 ? GRIP_CLOSED : v), 1300, tk); setStep('waiting_for_pull'); await sleep(900);
-    setStep('releasing'); setGrip(0); releaseHeld(hz.x, hz.y, 0.012); logLine(`released ${id} to hand (item shown on table below hand)`); 
+    setStep('releasing'); setGrip(0); releaseHeld(hz.x, hz.y, 0.012); logLine(`released ${id} to hand (item shown on table below hand)`);
   }
-  await moveTo(HOME, 1100, tk); setStep('idle');
+  setStep('homing'); await moveTo(HOME, 1100, tk); setStep('idle');
 }
 function releaseHeld(x, y, z) { if (!held) return; scene.remove(held); held.position.set(x, y, z); world.add(held); held = null; }
 async function doPutBack(id, tk) {
@@ -292,70 +395,97 @@ async function doPutBack(id, tk) {
   const up = await ikPose(it.home.x, it.home.y, it.home.z + 0.07, q); await moveTo(up.q.map((v, i) => i === 5 ? GRIP_CLOSED : v), 1100, tk);
   const dn = await ikPose(it.home.x, it.home.y, it.home.z + 0.012, q); await moveTo(dn.q.map((v, i) => i === 5 ? GRIP_CLOSED : v), 600, tk);
   setGrip(0); releaseHeld(it.home.x, it.home.y, it.home.z); logLine(`${id} back in slot ${it.slot + 1}`);
-  await moveTo(HOME, 1000, tk); setStep('idle');
+  setStep('homing'); await moveTo(HOME, 1000, tk); setStep('idle');
 }
-function resetItems() { held = null; Object.values(itemMeshes).forEach(i => { if (i.mesh.parent !== world) { i.mesh.parent && i.mesh.parent.remove(i.mesh); world.add(i.mesh); } i.mesh.position.copy(i.home); }); }
+function resetItems() { held = null; Object.values(itemMeshes).forEach(i => { i.mesh.visible = true; if (i.mesh.parent !== world) { i.mesh.parent && i.mesh.parent.remove(i.mesh); world.add(i.mesh); } i.mesh.position.copy(i.home); }); }
 let busy = false;
 function run(fn) {
   const tk = ++animToken; busy = true; chain = (async () => { try { await fn(tk); } catch (e) { if (e.message !== 'cancelled') { console.error(e); logLine('error: ' + e.message); } } finally { if (tk === animToken) busy = false; } })();
 }
-function stopAll() { animToken++; busy = false; setStep('stopped'); logLine('stop: arm frozen'); }
+// Stop freezes this view and, when a controller answers, sends it stop (fire and forget: it never waits on the network).
+let frozen = false;
+function stopAll() {
+  animToken++; busy = false; frozen = true; liveTarget = null; setStep('stopped');
+  if (curMode !== 'manual') fetch(S.controller + '/command', { method: 'POST', headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ action: 'stop', source: 'dashboard', t: Date.now() / 1000 }) }).then(() => logLine('stop sent to the controller'), () => {});
+  logLine('stop: view frozen (press a mode to resume)');
+}
 $('runHandover').onclick = () => { if (!robot) return; mode('event'); resetItems(); run(tk => doHandover($('evItem').value, tk)); };
 $('runPutBack').onclick = () => { if (!robot) return; mode('event'); run(tk => doPutBack($('evItem').value, tk)); };
 $('stopBtn').onclick = stopAll;
 addEventListener('keydown', e => { if (e.code === 'Space' && !/INPUT|SELECT|BUTTON|TEXTAREA/.test(document.activeElement.tagName)) { e.preventDefault(); stopAll(); } });
 
-/* controller events; if the socket can't open, offer the mock stream */
+/* controller events: the step strip and log in every mode; the scripted animation only in Events mode */
 let ws = null, wsOK = false;
 function handleEvent(ev) {
   logLine(`${ev.type}${ev.item ? ' ' + ev.item : ''}${ev.step ? ' [' + ev.step + ']' : ''}${ev.say ? ' "' + ev.say + '"' : ''}`);
-  if (ev.step) setStep(ev.step);
+  if (ev.step && !frozen) setStep(ev.step);
   const id = ev.item;
-  if (ev.type === 'stopped') { stopAll(); return; }
-  if (!id) return;
+  if (ev.type === 'stopped') { if (curMode === 'event') stopAll(); else setStep('stopped'); return; }
+  if (!id || curMode !== 'event') return;
   if (ev.type === 'command' || (ev.type === 'step' && ev.step === 'picking')) { if (!busy && itemMeshes[id]) { resetItems(); run(tk => doHandover(id, tk)); } }
   else if (ev.type === 'returned' && !busy) run(tk => doPutBack(id, tk));
 }
 function connectWS() {
   try { ws = new WebSocket(S.controller.replace(/^http/, 'ws') + '/events'); } catch (e) { return mockMode(); }
   const t = setTimeout(() => { if (!wsOK) { try { ws.close(); } catch (e) {} } }, 2000);
-  ws.onopen = () => { wsOK = true; clearTimeout(t); $('modeInfo').textContent = 'Connected to controller /events. Animating each event.'; $('srcline').textContent = 'source: controller events'; };
+  ws.onopen = () => { wsOK = true; clearTimeout(t); if (curMode === 'event') $('modeInfo').textContent = 'Connected to controller /events. Animating each event.'; if (curMode !== 'live') $('srcline').textContent = 'source: controller events'; };
   ws.onmessage = m => { try { handleEvent(JSON.parse(m.data)); } catch (e) {} };
-  ws.onclose = () => { if (curMode === 'event' && !wsOK) mockMode(); wsOK = false; };
+  ws.onclose = () => { if (curMode === 'event' && !wsOK) mockMode(); wsOK = false; setTimeout(() => { if (curMode !== 'manual') connectWS(); }, 3000); };
   ws.onerror = () => {};
 }
-function mockMode() { $('modeInfo').textContent = 'No controller on :8000, so the mock stream is used. Press "Run handover" or "Put back".'; $('srcline').textContent = 'source: mock events'; }
+function mockMode() { if (curMode !== 'event') return; $('modeInfo').textContent = 'No controller at ' + S.controller + ', so the mock stream is used. Press "Run handover" or "Put back".'; $('srcline').textContent = 'source: mock events'; }
 
-/* live polling of /state */
-let pollTimer = null;
+/* live: poll the sim's /state about 8 times a second and ease toward it every frame, so the arm never jumps */
+let pollTimer = null, liveTarget = null, liveItems = null, liveHolding = null, polling = false;
 async function poll() {
+  if (polling) return; polling = true;
   try {
     const s = await S.fetchJSON(S.api + '/state', null, 800);
-    if (curMode !== 'live') return;
-    if (Array.isArray(s.q)) { const qq = s.q.slice(0, 6); if (qq.length === 5 && typeof s.gripper === 'number') qq.push(GRIP_OPEN + (GRIP_CLOSED - GRIP_OPEN) * s.gripper); setQ(qq); }
-    $('modeInfo').textContent = 'Live from ' + S.api + '/state. holding: ' + (s.holding ?? 'nothing'); $('srcline').textContent = 'source: sim /state';
-  } catch (e) { $('modeInfo').textContent = 'No sim at ' + S.api + '/state yet. Start python -m sim; retrying every second.'; $('srcline').textContent = 'source: none (sim absent)'; }
+    if (curMode !== 'live' || frozen) return;
+    if (Array.isArray(s.q)) { const qq = s.q.slice(0, 6); if (qq.length === 5 && typeof s.gripper === 'number') qq.push(GRIP_OPEN + (GRIP_CLOSED - GRIP_OPEN) * s.gripper); if (!liveTarget) setQ(qq); liveTarget = qq; }
+    liveItems = s.items || null; liveHolding = s.holding || null;
+    $('modeInfo').textContent = 'Following the sim arm (' + S.api + '/state). Holding: ' + (s.holding ? S.itemInfo(s.holding).name : 'nothing') + '.';
+    $('srcline').textContent = 'source: sim /state' + (wsOK ? ' + controller events' : '');
+  } catch (e) { $('modeInfo').textContent = 'No sim at ' + S.api + '/state yet. Start python -m sim; retrying.'; $('srcline').textContent = 'source: none (sim absent)'; }
+  finally { polling = false; }
+}
+function followLive(dt) {
+  if (curMode !== 'live' || frozen || !robot || !liveTarget) return;
+  const k = 1 - Math.exp(-dt * 14);
+  setQ(q.map((v, i) => v + (liveTarget[i] - v) * k));
+  if (!liveItems) return;
+  for (const id in itemMeshes) {
+    const it = itemMeshes[id], p = liveItems[id];
+    if (id === liveHolding) { if (it.mesh.parent !== world) { /* already following */ } const t = tcpPos(new THREE.Vector3()); it.mesh.position.copy(t); continue; }
+    if (!p) continue;
+    const hz = layout.hand_zone; it.mesh.visible = !(p[2] < 0.03 && Math.hypot(p[0] - hz.x, p[1] - hz.y) < hz.r);   // dropped under the hand: the clinician has it
+    const goal = new THREE.Vector3(p[0], p[1], Math.max(0.006, p[2]));
+    it.mesh.position.lerp(goal, it.mesh.position.distanceTo(goal) > 0.25 ? 1 : k);
+  }
 }
 let curMode = 'manual';
 function mode(m) {
-  curMode = m; document.querySelectorAll('#modes button').forEach(b => b.classList.toggle('on', b.dataset.m === m));
-  clearInterval(pollTimer); animToken += (m === 'manual' || m === 'live') ? 1 : 0;
+  curMode = m; frozen = false; document.querySelectorAll('#modes button').forEach(b => b.classList.toggle('on', b.dataset.m === m));
+  clearInterval(pollTimer); liveTarget = null; animToken += (m === 'manual' || m === 'live') ? 1 : 0;
   document.querySelectorAll('#joints input').forEach(i => i.disabled = m !== 'manual');
-  if (m === 'live') { poll(); pollTimer = setInterval(poll, 500); }
-  else if (m === 'event') { if (!ws || ws.readyState > 1) connectWS(); else if (wsOK) {} else mockMode(); mockMode_if(); }
+  if (m !== 'manual' && (!ws || ws.readyState > 1)) connectWS();
+  if (m === 'live') { if (held) { held = null; } resetItems(); poll(); pollTimer = setInterval(poll, 125); setStep('idle'); }
+  else if (m === 'event') { if (wsOK) $('modeInfo').textContent = 'Connected to controller /events. Animating each event.'; else mockMode(); }
   else { $('modeInfo').textContent = 'Drag the sliders to pose the arm.'; $('srcline').textContent = 'source: sliders'; }
 }
-function mockMode_if() { if (!wsOK) mockMode(); }
 document.querySelectorAll('#modes button').forEach(b => b.onclick = () => mode(b.dataset.m));
 
 /* ---------- boot ---------- */
 (async () => {
   await S.loadKinematics();
-  const r = await S.getLayout(); layout = r.layout; if (layout._sim && layout._sim.poses && layout._sim.poses.home) { HOME = layout._sim.poses.home.slice(0, 6); } buildWorld(); setCam('iso'); if (robot) setQ(HOME);
+  try { await document.fonts.load('600 32px "IBM Plex Mono"'); } catch (e) {}
+  const r = await S.getLayout(); layout = r.layout; if (layout._sim && layout._sim.poses && layout._sim.poses.home) { HOME = layout._sim.poses.home.slice(0, 6); } buildWorld(); resize(); setCam('iso'); if (robot && curMode === 'manual') setQ(HOME);
   $('hud').textContent += ' | layout: ' + r.from;
   // layout changes made in layout.html arrive through localStorage
   addEventListener('storage', e => { if (e.key === 'scrub.layout') { layout = S.normalizeLayout(JSON.parse(e.newValue)); buildWorld(); } });
 })();
-renderer.setAnimationLoop(() => { controls.update(); renderer.render(scene, camera); });
+let lastT = performance.now();
+renderer.setAnimationLoop(() => { const now = performance.now(), dt = Math.min(0.1, (now - lastT) / 1000); lastT = now; followLive(dt); keepMaterials(); controls.update(); renderer.render(scene, camera); });
 </script>
 </body></html>

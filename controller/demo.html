@@ -7,10 +7,10 @@
 <meta name="description" content="Caiden's judging console for Scrub: 3:00 run clock with the PITCH.md beats as cue cards for Anish, Brandon, Evan and Caiden, one-key setting switches, judge mode, reset, latched stop, lamp tagging, rehearsal log and a backup-video switch.">
 <!--
 FEATURES:
-- Run clock (T+ m:ss.s, 3:00 limit) over a beat timeline built from docs/PITCH.md: 0:00 staffing, 0:30 "This is Scrub",
+- Run clock (T+ m:ss.s, 3:00 limit) over a beat timeline built from team/PITCH.md: 0:00 staffing, 0:30 "This is Scrub",
   0:50 sharps, 1:05 "Try it", 1:20 return, 1:40 lighting, 2:00 second setting (bench), 2:30 close. Short version (0:30, 1:05, 2:30)
   for a rushed judge with the K key.
-- Cue card per beat: the speaker's line (docs/PITCH.md), Brandon's request, Evan's tray or lamp move, Caiden's key, the judge's part. Each arm beat
+- Cue card per beat: the speaker's line (team/PITCH.md), Brandon's request, Evan's tray or lamp move, Caiden's key, the judge's part. Each arm beat
   has goals read from WS /events (released / set_down / returned / count, setting and lighting changes). When the goals
   are met and the arm is back to idle, the cue advances by itself. Speech-only beats advance on Enter.
 - P4 demo keys: 1 / 2 POST /setting surgical / bench (dental is hidden), J POST /judge {"on"} toggles judge mode (badge in the
@@ -254,7 +254,7 @@ STYLE: Swiss Design on an OR wall display. Charcoal ground, strict 12-column gri
       <ul id="evlog"></ul>
     </div>
     <div id="backup">
-      <div class="lab">Backup run, recorded Sunday 6:00 to 7:00 AM (PLAN.md)</div>
+      <div class="lab">Backup run, recorded Sunday morning (team/DEMO.md)</div>
       <div id="bvwrap" style="margin-top:8px">
         <video id="bv" controls playsinline muted></video>
         <div class="ph"><b>No backup video loaded</b> Load the clean full run file, or open with ?video=URL. The arm is not used while this is on; STOP still posts to the controller.</div>
@@ -279,7 +279,7 @@ STYLE: Swiss Design on an OR wall display. Charcoal ground, strict 12-column gri
   </section>
 </main>
 <footer>
-  <span>Roles (docs/PITCH.md): Anish and Caiden carry the pitch, Evan has the tables, Brandon is the clinician and has hand tracking. Caiden also runs this console and the stop key; Evan swaps trays and the lamp.</span>
+  <span>Roles (team/PITCH.md): Anish and Caiden carry the pitch, Evan has the tables, Brandon is the clinician and has hand tracking. Caiden also runs this console and the stop key; Evan swaps trays and the lamp.</span>
 <a href="#">Terms</a><a href="#">Privacy</a>
 </footer>
 
@@ -291,7 +291,7 @@ let API=(Q.get("api")||(location.protocol.startsWith("http")?location.origin:"ht
 const $=id=>document.getElementById(id);
 $("api").value=API; $("mockapi").textContent=API;
 
-/* ---------------- beats (docs/PITCH.md, docs/PLAN.md) ---------------- */
+/* ---------------- beats (team/PITCH.md) ---------------- */
 const ITEM_NAMES={scalpel:"scalpel",hemostat:"hemostat",mayo_scissors:"Mayo scissors",mouth_mirror:"mouth mirror",explorer:"explorer",
   cotton_pliers:"cotton pliers",needle_nose_pliers:"needle-nose pliers",wire_cutters:"wire cutters",hex_key:"hex key"};
 const SETTING_ITEMS={surgical:["hemostat","scalpel","mayo_scissors"],bench:["needle_nose_pliers","wire_cutters","hex_key"]};  // dental is hidden

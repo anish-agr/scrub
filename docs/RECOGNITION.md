@@ -95,6 +95,35 @@ A second live failure, also fixed (Oct 18, through voice, controller and vision)
 
 What still needs real photos: handwriting by a person with a pen (the filled sheets are rendered text), print and paper texture, glare, camera blur, a tray tag and labels under the overhead camera in dim light, and the angled shots in the list below. Rendered images are cleaner than any of these, so treat the times and the 100% correct rate as an upper bound.
 
+### Reading bench, renders and a simulated camera (Oct 18, SYNTHETIC)
+
+`explore/recognition/read_bench.py` runs `vision/reading.py` on every prop PNG and scores it against `explore/recognition/props/truth.json`: count sheet tray, rows and each expected, initial and closing cell; tray tag tray; pack label item, lot, expiry and the expired flag. `render` is the PNG as drawn. `camera` is the same PNG put on a table in a 1280x720 frame, turned 4 degrees, blurred, noisy, dimmed to 75% and saved as JPEG 70. Both are synthetic; neither is a photo.
+
+```
+.venv/bin/python -m explore.recognition.read_bench                       # 40 calls at most, about 2 min
+.venv/bin/python -m explore.recognition.read_bench --only tray_tag,pack_labels --no-qr --name read_bench_noqr
+.venv/bin/python -m unittest explore.recognition.test_read_bench          # scoring, no API
+```
+
+| Prop (images) | Variant | Perceptron exact, cells, median / max | Gemini exact, cells, median / max |
+| --- | --- | --- | --- |
+| Count sheet (5) | render | 5/5, 45/45, 1.6 / 2.5 s | 5/5, 45/45, 2.4 / 6.8 s |
+| Count sheet (5) | camera | 5/5, 45/45, 1.6 / 2.0 s | 5/5, 45/45, 1.7 / 2.2 s |
+| Pack labels, 4 per sheet (2) | render | 2/2, 32/32, 2.7 / 4.7 s | 2/2, 32/32, 1.7 / 1.7 s |
+| Pack labels, 4 per sheet (2) | camera | 2/2, 32/32, 2.7 / 3.5 s | 2/2, 32/32, 1.6 / 1.8 s |
+| Tray tag (2), QR | render and camera | 4/4 by QR, 30 to 52 ms, no API call | same |
+| Tray tag (2), OCR (`--no-qr`) | render and camera | 4/4, 0.7 to 1.2 s | 4/4, 1.3 to 1.8 s |
+
+Pack rows are from the second run, after the lot fix (the first run: Perceptron 1.9 to 2.3 s, Gemini 2.0 to 2.7 s). One real bug came out of it: on the camera-simulated angled pack sheet Perceptron returned the lot as `LOT SC-24-0917` (it copied the printed prefix), so 0 of 16 fields matched. `vision/reading.py` now strips a `LOT`, `Lot no.:` or `lot#` prefix; the rerun scored 16 of 16. Every count sheet read dropped nothing and invented no row. The expired mayo scissors label was flagged on every read.
+
+The same camera-simulated JPEGs posted to a vision on port 8601 (`POST /read/<kind>`, then worded by a controller layer on a fake arm): the filled surgical sheet in 1.6 s, the bench tray tag in 47 ms by QR (the controller switched to the bench tray), the angled pack sheet in 2.3 s with the expired mayo scissors flagged. The controller's own read path (`controller/reads.py`, `read_sheet` / `read_tray` / `read_pack`) reads the overhead frame instead; on the fake camera `read_tray` was accepted ("Reading the tray tag.").
+
+Run the same bench on photos: capture them with the `count_sheet_*`, `tray_tag` and `pack_label*` keys, write a `truth.json` in the props format beside them, and pass `--images data/recognition/tray1`.
+
+### Trying the capture tool without a camera
+
+`--frames DIR` loops the saved images in a folder as the camera, with the same window and keys, and opens no camera: `.venv/bin/python -m explore.recognition.capture --set try --frames explore/recognition/props --data /tmp/rec`. The tests drive the same loop with scripted keys (`explore/recognition/test_capture.py`).
+
 ## Photos to take
 
 About 15 minutes, one person, about 140 frames. Run every command from the repo root. Use one set name (`tray1` below) so everything lands in one folder.

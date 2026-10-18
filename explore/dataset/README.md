@@ -41,3 +41,7 @@ Run on Oct 18, 2026 (7 episodes in `~/scrub-dataset`, all "pick the spatula"):
 - Same check on `~/scrub-dataset-blackwrist-1820`: all 4 episodes flagged dark (wrist luminance 0.0 to 10.7).
 - With the API, 7 calls, median 2.2 s: grasp failed on 0, 2, 3, 5, 6; dropped on 2, 3. Episodes 0, 2 and 6 have under 1.2 deg of joint motion in the recorded state, so the arm never moved there. Episode 4 is 105 s long and its caption says the arm picked scissors, not the spatula; it was not flagged.
 - Tests: `.venv/bin/python -m explore.dataset.test_qa_video` (synthetic dataset, fake HTTP).
+
+The same check as an optional part of QA: `.venv/bin/python -m explore.dataset.qa --root <ds> --out qa.html --captions [--caption-episodes N] [--caption-max-calls 30] [--caption-no-api]` writes `qa_captions.md` and `qa_captions.json` next to `qa.html`. It only reads the dataset, holds no lock (a parquet still being written is skipped), and a failure in it is printed and never changes the QA result. Tests: `.venv/bin/python -m pytest -q explore/dataset/test_qa_captions.py` (the dataset is hashed before and after: unchanged).
+
+Live, Oct 18, `--captions --caption-episodes 3 --caption-max-calls 3` on `~/scrub-dataset` while the station was recording (file-008 skipped as still being written): 3 calls, 1.9 to 2.4 s. Episode 0 grasp_failed ("hovers with its gripper open"), episode 1 ok ("picks up a spatula"), episode 2 grasp_failed and dropped. QA itself says episode 1's gripper never closes, so the caption and the joint data disagree there; check that episode's video by eye.

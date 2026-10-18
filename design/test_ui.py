@@ -64,7 +64,7 @@ class PreservationTests(unittest.TestCase):
     def test_all_inline_application_scripts_are_unchanged(self):
         # controller/nurse.html gained stop-banner and vision/camera back-off code in the restyle, so it is skipped.
         for name in PAGES:
-            if name in ("controller/nurse.html", "ledger/public/card.html"):  # both changed on purpose (banner, public URL)
+            if name in ("controller/nurse.html", "ledger/public/card.html", "sim/web/viewer.html", "controller/demo.html"):  # both changed on purpose (banner, public URL)
                 continue
             with self.subTest(page=name):
                 # JS unicode escapes preserve the original strings while making

@@ -86,7 +86,7 @@ Live check, Oct 18, on OpenCV renders (a count sheet with 4 rows and handwritten
 | Pack label | 2/2, 1.2 to 2.2 s | 2/2, 0.6 to 0.8 s | 2/2, 1.7 to 12.1 s |
 | Tray tag (QR) | 2/2 by QR, 15 to 30 ms, no API call | | |
 
-Every reader dropped the invented "Army-Navy retractor" row. On the fake camera frame (no label in it) Perceptron once made up a pack label (item_text "null", lot 123456789); the empty-label rule above now drops that, and the same request then answered `ok: false`. These are renders, not photos of the real props; rerun on photos before quoting accuracy.
+A pack label's lot comes back without a printed `LOT` / `Lot no.:` prefix (Perceptron copied it once on a camera-simulated sheet). The scored bench on the printed props is `explore/recognition/read_bench.py`, results in `docs/RECOGNITION.md`. Every reader dropped the invented "Army-Navy retractor" row. On the fake camera frame (no label in it) Perceptron once made up a pack label (item_text "null", lot 123456789); the empty-label rule above now drops that, and the same request then answered `ok: false`. These are renders, not photos of the real props; rerun on photos before quoting accuracy.
 
 Settings in `.env`:
 
@@ -100,6 +100,11 @@ GEMINI_MODEL=gemini-3.5-flash-lite
 ```
 
 A backend whose key is not set is skipped. With neither key the result is `ok: false`, `error` "no OCR backend (no API key set)"; QR tags still read.
+
+## Smart pick: /locate and /safe_zone
+
+`GET /locate?item=<id>` (`locate.py`) returns where the item really is: `center_px`, `offset_px`/`offset_mm` from its slot, `yaw_deg` vs the slot's long axis, and `arm_xy`/`arm_offset` when `vision/calibration.json` exists. Local OpenCV check on the slot crop first, the tray loop's Perceptron boxes second (live detect only if they are stale), Gemini only when they disagree by more than 15 mm, one says absent, or confidence is under 0.5. Total budget 2.5 s; a miss is `found` false, `method` "none", never a 500. `offset_mm` uses `TRAY_MM` (400 x 300 mm) in `locate.py` unless the setting has `tray_mm`. The tray tag is read in the background and cached for 60 s (`tray`, `setting_ok`).
+`GET /safe_zone` says whether the set-down square is free of a hand and of instruments. Zone pixels come from `arm/rig.json` `safe_zone` through the calibration, or the setting's `safe_zone_px` `[x0, y0, x1, y1]`; with neither, `clear` is null and `method` "none". Tests: `python -m pytest -q vision/test_locate.py`.
 
 ## Detect timing
 

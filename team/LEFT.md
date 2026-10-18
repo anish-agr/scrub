@@ -93,15 +93,16 @@ https://mlh.link/commit-fellowship-form.
 ### Rehearsal (everyone, 9:30 to 10:20 and in line)
 Three runs of `team/DEMO.md`, under 3 minutes twice in a row. Anish speaks, Brandon is the clinician hand, Caiden runs the stack and the stop key (Space), Evan swaps trays and the lamp. Judging command on the real arm: `.venv/bin/python -m controller.run_all --real --tunnel`. Between judges: `.venv/bin/python -m controller.run_all reset`.
 
-### Phone call (Anish, by 4:00, so it can be rehearsed)
-Built and tested from code: the ElevenLabs agent "Scrub" exists (`ELEVENLABS_AGENT_ID` and `VOICE_LLM_SECRET` are in `.env`), its Custom LLM reaches `voice/` through a cloudflared tunnel, Photon voice is on with inbound SIP to `sips:sip.rtc.elevenlabs.io:5061`, and a "hemostat" turn sent through the tunnel moved the sim arm. What is missing is a phone number: the Photon project is on the shared plan with 0 users, and a line comes from Photon's pool once a user's phone is added. Full steps are in `voice/README.md` ("Anish: the steps left").
-1. On the arm Mac: `cd voice && npm run photon -- setup +1<Anish's mobile>`. You should see `LINE +1...`, `[env] wrote PHOTON_LINE in .env`, `[agent] imported +1... and assigned the agent` and `PHONE +1...`. If the import prints HTTP 4xx, import the number by hand in ElevenLabs (Deploy, Phone Numbers, Import number, From SIP Trunk; values in `voice/README.md`) and set its Agent to Scrub.
-2. Add `PHOTON_SUMMARY_TO=+1<Anish's mobile>` to `.env` so the end-of-case text has a fallback recipient.
-3. Stop the voice server and tunnel that are running now (voice node PID 81245 and npm PID 81196, tunnel PID 79751; `kill <pid>`, never `pkill`), then `.venv/bin/python -m controller.run_all --real`. The table shows the tunnel URL, `[agent] updated: Custom LLM .../v1` and `phone (call it) +1...`. If the arm is busy or `SO101_PORT` is empty, a `**` line says it runs the sim.
-4. Call the number from the registered phone (the shared line routes by caller). Scrub says "Scrub here. What do you need?" Say "hemostat": the log shows `[heard] hemostat` and `[command] handover hemostat`, the arm (or sim) moves, and Scrub says "Hemostat coming."
-5. Say "end of case": Scrub says "Closing the case." and the summary arrives as an iMessage in the same thread (log: `[photon] texted +1...`). iMessage needs an iPhone.
-6. If the call never reaches Scrub: app.photon.codes, project Dubhacks, Voice, Lines, the line, Set up default, SIP, Inbound calls, Enable inbound, address `sips:sip.rtc.elevenlabs.io:5061`, TLS, no credentials, Save. No `[heard]` in the log means the agent has an old tunnel URL; `[server] 401` means a secret mismatch. Either way rerun `cd voice && npm run agent -- <tunnel url>`.
-If the shared pool won't give a voice line or ElevenLabs refuses the import, the fallback is a dedicated Photon line (Business plan). Without a line, the demo drives the same voice server with `cd voice && npm run say -- "hemostat"`, and Photon is not claimed.
+### Phone call (Anish, by 4:00, so it can be rehearsed; must work before 6:00)
+Built and tested from code (Oct 18, 2:40 AM): the ElevenLabs agent "Scrub" answers every call phrase through the public tunnel ("hemostat" about 0.9 s to the first spoken line, "stop" about 0.1 s), a second call at once hears "Scrub is busy", any number may call, `run_all --real` re-points the agent on every tunnel URL and self-checks it. **Blocker: no number that can take calls.** Photon's docs say "Shared lines cannot take calls", and our project is on the shared plan, so the old `setup` step would never ring. Full steps with what you should see: `voice/README.md` "Anish: the steps left".
+1. app.photon.codes, Dubhacks, Voice, Lines: buy a US SMS number (confirm the price; may need Pro, $25/month). It shows in Lines.
+2. On that line: Inbound calls on, `sips:sip.rtc.elevenlabs.io:5061`, TLS, media encryption Auto, no credentials, Save.
+3. On the arm Mac: `cd voice && npm run photon -- use-line +1<the new number>`. You should see `[env] wrote PHOTON_LINE in .env` and `[agent] imported +1... and assigned the agent`.
+4. `npm run photon -- add-user +1<Anish's mobile>` and `PHOTON_SUMMARY_TO=+1<Anish's mobile>` in `.env` (the end-of-case iMessage; iPhone only).
+5. Stop the voice server on :3000 and the cloudflared tunnel (`kill <pid>`, never `pkill`), then `.venv/bin/python -m controller.run_all --real`. The table shows `public self-check OK` and `phone (call it) +1...`. (The voice on :3000 now is old code: no timings, no busy line, no `/talk`.)
+6. Call from any phone. Say "hemostat", "got it", "what's out", "read the count sheet", "take back the hemostat", "stop", "end of case". Then text the number "add a second hemostat to the surgical tray" from the phone in step 4.
+7. Record 30 s of a real call (screen and audio: QuickTime, New Screen Recording, with the phone on speaker) into `data/video/raw/`.
+If no number by 6:00: judges talk to the same agent at `https://elevenlabs.io/app/talk-to?agent_id=<ELEVENLABS_AGENT_ID>` in a browser, and `http://localhost:3000/talk` if the network fails. Photon is then claimed for texts only, if step 4 works.
 
 ### Photos for recognition and the printed props (Caiden or Brandon, at the arm when it is free, about 20 min, by 6:30)
 1. Print at 100% on US Letter from `explore/recognition/props/`: `count_sheet_surgical.html` twice, `tray_tag_surgical.html`, `pack_labels.html`. On one count sheet write a date, a case number, your name, Initial 1, 1, 1 and Closing 1, 0, 1.
@@ -127,6 +128,19 @@ TH2 in `explore/research/overheating/HANDOFF.md`: baseline experiment 1, then fa
 https://dev.to, New Post, the writeup from the last section of `team/DEVPOST.md`, the MLH hackathon tag, link it in Devpost.
 
 ## Tonight's plan
+
+### Training re-plan at 2:40 AM (Chat A, `team/RUN-TRAIN.md`; this replaces the training rows of the table below)
+
+Checked: 5 successful jobs per team, 0 used, 0 deployments. The station is stopped. Side camera (C920) 30.0 fps. Wrist camera (icspring) 22.6 fps in every mode (default, MJPG, YUY2) at brightness 147, so light is not the cause; ffmpeg gets 22.58 fps at 640x480@30 too. All four USB devices (both arm buses, both cameras) share one USB 2.0 hub on one Mac port, and the Mac's two other USB controllers are empty.
+
+| Clock | Step | Who |
+| --- | --- | --- |
+| now | Move the wrist camera (icspring) off the hub to a free Mac port (USB-C adapter), then `.venv/bin/python explore/camera_fps.py icspring`. If it still prints under 29, record anyway with the override below and say so | person at the arm |
+| 2:50 to 3:40 | Run 1 data: `.venv/bin/python explore/station/station.py --task "pick the hemostat" --root ~/scrub-surgical --port 8090`. 24 `pick the hemostat`, 12 `return the hemostat` (task buttons on the page), under 20 s each, hemostat shifted a little in its slot each time, normal and bright light. A red RE-RECORD banner means record that one again. Push each batch: `.venv/bin/python explore/dataset/to_mongo.py --root ~/scrub-surgical` | Anish drives, Evan resets |
+| 3:40 | Stop the station (Ctrl-C). `.venv/bin/python -m arm.train preflight ~/scrub-surgical` must print `PREFLIGHT PASS`. If the wrist stayed slow: `SCRUB_ACCEPT_CAMERA_FPS=wrist=22 .venv/bin/python -m arm.train preflight ~/scrub-surgical` (printed as a warning, written in `docs/TRAINING.md`) | Chat A |
+| 3:45 | Run 1: `.venv/bin/python -m arm.train pipeline ~/scrub-surgical --cadence-report ~/scrub-surgical-cadence.json --idempotency-key scrub-run-1` (direct upload, standard, expert_only, 1000 steps). Same env override if used | Chat A |
+| 3:50 to 4:40 | While run 1 trains: same station, same root, `pick/return the mayo scissors` and `pick the scalpel` (to the safe spot), 25 to 30 each. Run 2 on the whole root as soon as it passes preflight (key `scrub-run-2`) | Anish, Evan |
+| deployment ready | 10 real tries per item with `--skills model`, every try in the ledger with `skill_source: model` | all |
 
 Written 00:45 for 00:45 to 09:30. Goal: a fine-tuned model that passes real tries, and a Perceptron arm video. Training is the only thing on a clock, so the data steps come first and everything else runs while it trains. Times are targets; if a step slips, cut in the order at the end. At 1:45 nothing in the repo shows step 1 or later done, and no recorder holds the ports.
 
@@ -163,15 +177,15 @@ Tick every box before spending a training run. Perceptron allows 2 successful jo
 - [ ] The job ids from Anish are checked (`arm.train status job <id>`) and the quota left is known.
 - [ ] `PERCEPTRON_DEPLOYMENT_ID` is empty or names a real deployment.
 - [ ] `.venv/bin/python -m arm.train capabilities` answers HTTP 200: `standard`, `expert_only`, horizon 30, RTC and 1000 steps allowed. Result written in `docs/ARM.md`.
-- [ ] `.venv/bin/python -m deploy` shows Perceptron robotics PASS and Hugging Face PASS (`HF_TOKEN`, `HF_USER` set).
+- [ ] `.venv/bin/python -m deploy` shows Perceptron robotics PASS. Hugging Face also passes (`HF_USER=caidenm11`), but the default pipeline uploads straight to Perceptron and does not need it.
 - [ ] Counts meet the plan for this run, every episode logged in `docs/DATA-LOG.md`.
-- [ ] Every episode has a measured 29 to 31 Hz in the cadence file (no gaps, no duplicates, no filled-in 30.0).
+- [ ] Every episode has a measured 29 to 31 Hz loop and side and wrist cameras at 29 to 31 fps (the pipeline refuses otherwise; `SCRUB_ACCEPT_CAMERA_FPS=wrist=22` lowers the wrist floor on purpose and prints a warning). Every task is an exact `pick the <item>` or `return the <item>` from `settings/surgical.json` (the 13 "pick the spatula" episodes in `~/scrub-dataset` fail this).
 - [ ] A stable snapshot: encoding finished, nothing writing to the folder.
-- [ ] `.venv/bin/python -m explore.dataset.qa --root ~/scrub-dataset --out ~/qa.html` has no FAIL.
+- [ ] `.venv/bin/python -m explore.dataset.qa --root ~/scrub-surgical --out ~/qa.html --captions` has no FAIL (the pipeline runs the same QA and blocks on a FAIL; a gripper false alarm passes only with `--accept-qa-fail <eps>` after a person watched that episode). Read the caption report for failed grasps.
 - [ ] `.venv/bin/python -m arm.dataset_check ~/scrub-dataset --cadence-report ~/scrub-dataset-cadence.json` passes.
 - [ ] Episode 0 replayed on the real follower with a spotter (procedure 7.3); for run 2 also one episode of each new item.
 - [ ] `.venv/bin/python -m arm.train pipeline ~/scrub-dataset --cadence-report ~/scrub-dataset-cadence.json --check-only` exits 0 with fps 30.
-- [ ] The dataset is pushed to Hugging Face as `<HF_USER>/scrub` and the commit SHA of that revision is in hand for `--revision`.
+- [ ] Upload source chosen: the default `--source upload` sends the checked folder straight to Perceptron and saves the dataset id before any bytes move (registering counts against Perceptron's dataset quota, so run it once). Only with `--source hf`: the dataset is pushed as `caidenm11/scrub` and the 40-character commit SHA is passed as `--revision`.
 - [ ] The idempotency key is `scrub-run-1` or `scrub-run-2`, and the resume state file `.env.pipeline-<key>.json` is not deleted.
 - [ ] Anish says "approve" out loud and Caiden has read the full command.
 
@@ -213,10 +227,8 @@ Kept from the old hardware list. Commands and what you should see.
 
 ## Code
 
-Everything planned is built and its tests pass (`team/STATE.md`). These three are open because each sits in a folder another session or owner was editing during this pass.
+Everything planned is built and its tests pass (`team/STATE.md`). These are open because each sits in a folder another session or owner was editing during this pass.
 
 | What | Who | Why it is still open |
 | --- | --- | --- |
-| `vision/profile_loop.py` `rss_bytes()` only works on Windows, so on the Mac it returns 0 and `vision.test_pipeline` `test_short_sim_source_loop_stays_bounded` fails. Fix: when `sys.platform != "win32"`, return `resource.getrusage(resource.RUSAGE_SELF).ru_maxrss` (bytes on macOS, KiB on Linux, so multiply by 1024 there) | Brandon | vision changed 30 minutes before this pass ended |
-| Paths to files moved into `team/`: `arm/README.md` line 3 and `ledger/README.md` line 3 name `docs/TASKS.md` (now `team/LEFT.md`); `ledger/README.md` line 86 and `controller/nurse.html` line 8 name `explore/prototypes/` (now `team/prototypes/`); `design/README.md` line 4 names `explore/status-board/` (now `team/status-board/`); `controller/demo.html` lines 10, 13, 145 and 157 name `docs/PITCH.md` (now `team/PITCH.md`) and line 120 and 157 name `PLAN.md` (deleted; the beats are in `team/PITCH.md`). Comments and doc text only, nothing reads these paths | Caiden's pages session (owns those folders and pages tonight) | this pass was told not to touch `arm/`, `ledger/`, `design/` or page HTML |
 | `video/` test `test_every_command_on_markerless_synthetic_assets` fails in a fresh worktree because the Playwright browser is not installed under `data/video/browser`. Install it once: `PLAYWRIGHT_BROWSERS_PATH=$PWD/data/video/browser .venv/bin/python -m playwright install chromium` | Caiden | environment setup, only on a new checkout |

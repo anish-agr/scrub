@@ -1,6 +1,6 @@
 # arm
 
-Owner: Anish. Tasks A3, A6, A7 in `docs/TASKS.md`. Steps in `docs/ARM.md`.
+Owner: Anish. Tasks A3, A6, A7 in `team/LEFT.md`. Steps in `docs/ARM.md`.
 
 `real_arm.py` implements the arm interface in `docs/CONTRACTS.md` with LeRobot and the fine-tuned Isaac 0.5 policy. `rig.json` holds the home, carry and safe-spot poses and the handoff region. Only the controller imports this folder.
 

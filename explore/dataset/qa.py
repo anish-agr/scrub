@@ -7,6 +7,10 @@ Callable from other modules (no HTML unless html_out is given, nothing printed):
   qa_failures(root, html_out=None) -> list[str]
       one "episode N: reason" string per FAIL flag over the whole dataset; [] means no FAIL.
       A dataset that cannot be read at all returns one "dataset: ..." reason instead of exiting.
+
+--captions also runs the video/caption check (qa_video.py: dark camera locally; grasp failed and dropped from
+one Perceptron call per episode, with a caption) and writes its own report next to --out
+(<out>_captions.md and .json). It only reads the dataset, and a failure there never changes the QA result.
 """
 import argparse, base64, contextlib, glob, html, io, json, os, sys, tempfile
 import cv2
@@ -300,6 +304,11 @@ def main(argv=None):
     ap = argparse.ArgumentParser()
     ap.add_argument("--root", required=True)
     ap.add_argument("--out", default=os.path.join(tempfile.gettempdir(), "qa_report.html"))
+    ap.add_argument("--captions", action="store_true",
+                    help="also run the caption check (qa_video) and write <out>_captions.md/.json")
+    ap.add_argument("--caption-episodes", type=int, default=None, help="caption check: only the first N episodes")
+    ap.add_argument("--caption-max-calls", type=int, default=30, help="caption check: Perceptron calls at most")
+    ap.add_argument("--caption-no-api", action="store_true", help="caption check: local dark/unreadable only")
     a = ap.parse_args(argv)
     root = os.path.abspath(a.root)
     if os.path.commonpath([root, os.path.abspath(a.out)]) == root:
@@ -312,6 +321,27 @@ def main(argv=None):
     print(f"\n{counts['PASS']} pass, {counts['WARN']} warn, {counts['FAIL']} fail of {len(results)}")
     write_html(a.out, root, results, counts)
     print("report:", a.out)
+    if a.captions:
+        caption_check(root, a)
+
+
+def caption_report_path(out):
+    return os.path.splitext(os.path.abspath(out))[0] + "_captions.md"
+
+
+def caption_check(root, a):
+    """The optional caption check, read-only, with its own report. Never raises: QA above already stands."""
+    from explore.dataset import qa_video
+    args = ["--dataset", root, "--report", caption_report_path(a.out), "--max-calls", str(a.caption_max_calls)]
+    if a.caption_episodes:
+        args += ["--episodes", str(a.caption_episodes)]
+    if a.caption_no_api:
+        args.append("--no-api")
+    print("\ncaption check:")
+    try:
+        qa_video.main(args)
+    except (Exception, SystemExit) as e:  # noqa: BLE001
+        print(f"caption check failed: {type(e).__name__}: {e}")
 
 
 if __name__ == "__main__":

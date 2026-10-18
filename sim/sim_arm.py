@@ -8,12 +8,15 @@ from pathlib import Path
 import mujoco
 import numpy as np
 
+from arm import grasp
 from sim import ik, scene
 
 RIG = Path(__file__).parent.parent / "arm" / "rig.json"
 NAMES = ["shoulder_pan", "shoulder_lift", "elbow_flex", "wrist_flex", "wrist_roll", "gripper"]
 HOLD_ANGLE = 0.30  # jaw angle (rad) when squeezing an item
 ABOVE_Z, PICK_Z = 0.12, 0.02
+SOURCES = ("model", "taught", "taught_adjusted", "ik")
+MISS_M = 0.02  # a pick misses when the item is farther than this from where the arm grips
 
 
 class _Call:
@@ -45,6 +48,8 @@ class SimArm:
         self.holding = None
         self._pull_until = 0.0
         self.setting_override = None  # set by set_setting; layout.json is not touched
+        self.zone = None              # safe zone override (rig.json shape); None: from layout safe_spot
+        self._speed_scale = 1.0       # grasp.SHARP_SPEED while a sharp is held
         self._load()
 
     # ---- model -----------------------------------------------------------
@@ -83,6 +88,11 @@ class SimArm:
         # arm/rig.json poses are real-arm degrees in the real calibration; the sim's joint axes differ, so only layout.json poses apply
         p = self.layout["poses"].get(name)
         return np.array(p, float) if p else None
+
+    @property
+    def handoff_spot(self):
+        """Where the controller hands over when no hand is tracked: the layout's hand zone (x, y, z, m)."""
+        return [float(v) for v in self.layout["hand_zone"]]
 
     def _region(self):
         r = self.rig.get("handoff_region") or self.layout["handoff_region"]
@@ -135,7 +145,9 @@ class SimArm:
         """Straight line in joint space at `rate` rad/s (arm joints only)."""
         q0 = self._q()
         goal = np.array(goal, float)
-        T = max(float(np.abs(goal[:5] - q0[:5]).max()) / rate, 0.1)
+        r = self.model.jnt_range[:5]  # a pose out of range (e.g. degrees read as radians) never means a 90 s move
+        goal[:5] = np.clip(goal[:5], r[:, 0], r[:, 1])
+        T = max(float(np.abs(goal[:5] - q0[:5]).max()) / (rate * self._speed_scale), 0.1)
         t0 = time.time()
         while (f := (time.time() - t0) / T) < 1:
             if not call.alive():
@@ -163,7 +175,7 @@ class SimArm:
         if not ok:
             return False
         p0 = ik.fk(q)[0]
-        T = max(float(np.linalg.norm(target - p0)) / max(speed, 0.02), 0.1)
+        T = max(float(np.linalg.norm(target - p0)) / max(speed * self._speed_scale, 0.02), 0.1)
         t0 = time.time()
         while (f := (time.time() - t0) / T) < 1:
             if not call.alive():
@@ -183,9 +195,14 @@ class SimArm:
         return call.sleep(0.6)
 
     # ---- Arm interface ---------------------------------------------------
-    def run_skill(self, instruction, max_s=20.0, source="model"):
-        """source "model" or "taught": the sim plays the same scripted motion for both."""
+    def run_skill(self, instruction, max_s=20.0, source="model", located=None):
+        """model: the scripted pick at the item's slot (or its moved spot). taught / taught_adjusted: the
+        scripted pick at the tray slot (taught_adjusted shifted by located arm_offset); they close on nothing
+        when the item is more than 2 cm off. ik: at located arm_xy, else the item's actual pose."""
+        if source not in SOURCES:
+            raise ValueError(f"source must be one of {', '.join(SOURCES)}, got {source!r}")
         self.last_source = source
+        self.last_located = located
         call = _Call(self, max_s)
         m = re.match(r"\s*(pick|return)\s+(?:up\s+)?(?:the\s+|a\s+)?(.+?)\s*$", instruction.lower())
         if not m:
@@ -193,16 +210,43 @@ class SimArm:
         verb, item = m.group(1), re.sub(r"[\s-]+", "_", m.group(2))  # "needle-nose pliers"
         if verb == "return":
             return self._return_held(call, item)
+        if source != "model":
+            target = self._grasp_target(item, source, located)
+            if target is None or self.holding:
+                return False
+            return self._pick_at(call, item, target)
         slot = scene.slot_position(self.layout, item)
         if slot is None or self.holding or not self._at_slot(item, slot):
             return False
-        x, y = slot
+        return self._pick_at(call, item, slot)
+
+    def _grasp_target(self, item, source, located):
+        """Where a taught / taught_adjusted / ik pick grips (x, y), or None (not in this setting)."""
+        slot = scene.tray_slot(self.layout, item)
+        if slot is None:
+            return None
+        usable = grasp._usable(located) is None
+        if source == "ik":
+            if usable and located.get("arm_xy"):
+                return [float(v) for v in located["arm_xy"][:2]]
+            with self.lock:
+                return [float(v) for v in self.data.mocap_pos[self._mocap[item]][:2]]
+        off = located.get("arm_offset") if source == "taught_adjusted" and usable else None
+        if off is not None and np.hypot(off[0], off[1]) <= grasp.MAX_SHIFT_M:
+            return [slot[0] + float(off[0]), slot[1] + float(off[1])]
+        return list(slot)
+
+    def _pick_at(self, call, item, xy):
+        """Top-down pick at xy. When the item is not within MISS_M the jaw closes on nothing (still True:
+        the arm played the motion; gripper_position reads shut, as on the real arm)."""
+        x, y = xy
         steps = [(x, y, ABOVE_Z), (x, y, PICK_Z)]
+        there = self._at_slot(item, xy)
         if not (self._gripper(call, 0.0) and self._cart_move(call, steps[0], 0.25)
                 and self._cart_move(call, steps[1], 0.12)):
             return False
         with self.lock:
-            self.holding = item  # set before closing so the item stops the jaw, as a real grasp does
+            self.holding = item if there else None  # set before closing so the item stops the jaw
         if not self._gripper(call, 1.0):
             with self.lock:
                 self.holding = None
@@ -242,7 +286,7 @@ class SimArm:
     def _at_slot(self, item, slot):
         with self.lock:
             p = self.data.mocap_pos[self._mocap[item]]
-        return abs(p[0] - slot[0]) < 0.02 and abs(p[1] - slot[1]) < 0.02 and p[2] > 0
+        return abs(p[0] - slot[0]) < MISS_M and abs(p[1] - slot[1]) < MISS_M and p[2] > 0
 
     def _place(self, call, xy):
         """Lower the held item at xy, release it there, lift."""
@@ -298,9 +342,44 @@ class SimArm:
             return False
         return self._cart_move(_Call(self), p, speed)
 
+    def safe_zone(self):
+        """The sim's safe zone: self.zone if a test set one, else a 8 cm square at layout safe_spot."""
+        if self.zone:
+            return self.zone
+        x, y = self.layout["safe_spot"]
+        return {"center": [float(x), float(y), 0.0], "size": [0.08, 0.08], "yaw_deg": 0.0}
+
+    def _zone_path_blocked(self):
+        lo, hi = self._region()
+        return grasp.path_enters_box(self.tip(), self.safe_zone()["center"], lo, hi)
+
+    def sharp_mode(self, on):
+        self._speed_scale = grasp.SHARP_SPEED if on else 1.0
+
+    def _sharp_speed(self, fn):
+        old = self._speed_scale
+        self._speed_scale = min(old, grasp.SHARP_SPEED)
+        try:
+            return fn()
+        finally:
+            self._speed_scale = old
+
+    def hover_safe_spot(self):
+        """Go above the safe zone and hold there, at sharp speed."""
+        if self._zone_path_blocked():
+            return False
+        x, y = self.safe_zone()["center"][:2]
+        return self._sharp_speed(lambda: self._cart_move(_Call(self), (x, y, ABOVE_Z), 0.25))
+
     def set_down_safe_spot(self):
+        """Refuses (False) when the straight path to the zone enters the handoff box; sharp speed."""
+        if self._zone_path_blocked():
+            return False
         call = _Call(self)
-        return self._place(call, self.layout["safe_spot"])
+        return self._sharp_speed(lambda: self._place(call, self.safe_zone()["center"][:2]))
+
+    def wrist_jpeg(self):
+        return None
 
     def open_gripper(self):
         self._gripper(_Call(self), 0.0)
@@ -345,9 +424,12 @@ class SimArm:
 
     # ---- for the server --------------------------------------------------
     def state(self):
+        shown = self.layout["setting_items"].get(self.layout["setting"], [])
         with self.lock:
             q = [float(v) for v in self.data.qpos[:6]]
-        return {"q": q, "names": NAMES, "gripper": self.gripper_position(), "holding": self.holding}
+            items = {i: [round(float(v), 4) for v in self.data.mocap_pos[self._mocap[i]]] for i in shown if i in self._mocap}
+        # items: where each item of the current setting is (m, base frame), so the viewer draws what the sim does
+        return {"q": q, "names": NAMES, "gripper": self.gripper_position(), "holding": self.holding, "items": items}
 
     def tip(self):
         with self.lock:

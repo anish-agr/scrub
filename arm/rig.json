@@ -10,6 +10,7 @@
   "home": [2.8, -102.2, 97.7, 72.3, -9.3, 4.8],
   "carry": null,
   "safe_spot": null,
+  "safe_zone": null,
   "max_joint_speed_deg_s": 20.0,
   "max_gripper_speed_per_s": 60.0,
   "max_cartesian_speed_m_s": 0.08,
