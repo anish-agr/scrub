@@ -9,6 +9,15 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))  # explore/ (arm_ui)
 import autopick as AP  # noqa: E402
+import pytest  # noqa: E402
+
+
+@pytest.fixture(autouse=True)
+def _no_training_data(tmp_path, monkeypatch):
+    """Tests never write into ~/scrub-logs (that folder is real training data)."""
+    monkeypatch.setattr(AP, "FRAMES_DIR", tmp_path / "frames")
+    monkeypatch.setattr(AP, "ATTEMPTS_DIR", tmp_path / "attempts")
+    monkeypatch.setattr(AP, "SPEND_FILE", tmp_path / "spend.jsonl")
 
 
 class Det:
@@ -225,6 +234,7 @@ def test_calibrate_recovers_the_table_map(tmp_path, monkeypatch):
     d = AP.AutoPick({"mode": "calibrate"})
     d.start(st)
     h_true = np.linalg.inv(np.array(AP.load_calib()["table_H"]))
+    walker = [0]
 
     def frame(s):
         tip = d.kin.forward(np.array([s.joints[m] for m in AP.JOINTS]))
@@ -234,6 +244,8 @@ def test_calibrate_recovers_the_table_map(tmp_path, monkeypatch):
         off = int(s.gripper / 3)  # the moving finger swings sideways as the jaw opens
         cv2.line(img, (u + off, v - 30), (u + off, v - 6), (150, 150, 150), 6)  # white-ish finger
         cv2.line(img, (u + off, v - 6), (u + off, v), (20, 20, 20), 6)  # black tape on the fingertip
+        walker[0] = (walker[0] + 37) % 600  # a person walking past in the background, bigger than the jaw
+        cv2.rectangle(img, (walker[0], 20), (walker[0] + 40, 140), (60, 60, 60), -1)
         return img
     d._frame = frame
     t = [0.0]

@@ -44,6 +44,7 @@ OFFER_TIMEOUT_S = 45.0    # nobody took it: go home holding it, motors off (hold
 GRAB_LOAD = 35            # gripper |load| change (or 4x the baseline noise) that means a hand took hold
 GRAB_JAW = 1.2            # ... or the jaw moving this much while we hold it still
 GRAB_SUSTAIN_S = 0.15
+GRAB_JOINT_DEG = 2.0      # ... or a pull pushing any arm joint this far off where it is held
 AFTER_GRAB_S = 0.3        # the hand has it: let go almost at once
 RELEASE_S = 0.8           # jaw open this long for the hand to take it
 OPEN_S = 0.4              # how long the jaw takes to open on release
@@ -174,9 +175,35 @@ def gemini_box(bgr, label="scalpel handle", timeout=15.0):
 # Local detector (no network): the handle is the dark, long, thin shape on the white sheet inside the reach.
 # Measured on 12 saved side frames through the calibrated map: handle 16.8-19.2 cm long, elongation 15-37,
 # gray 57-71; tray rim, scissors, steel tools (gray ~100) and the leader all fall outside.
-LOCAL_LEN_CM = (14.0, 22.0)  # through the arm-calibrated map the handle measures 16.8-19.2 cm wherever it lies
+LOCAL_LEN_CM = (11.0, 22.0)  # handle 16.8-19.2 cm through the calibrated map; >= 11 still finds it with an end clipped
 LOCAL_MIN_ELONG = 12.0
-LOCAL_MAX_GRAY = 88   # black handle 58-70; steel tools ~100 (a steel probe at 102 was grabbed by mistake)
+LOCAL_MAX_RATIO = 0.38  # object brightness / the surface around it: black handle ~0.25-0.3, steel ~0.43+
+                        # (relative, so a brighter or dimmer room shifts both alike)
+
+
+_reach_cache: dict = {}
+
+
+def reach_mask(H, workspace, shape, margin=0.10):  # wide enough to keep a whole object whose middle is in reach
+    """uint8 mask of pixels whose table point (through H) is inside the workspace (+ margin), so the search
+    follows the camera wherever it is put; cached per calibration."""
+    key = (json.dumps(np.asarray(H, float).round(9).tolist()), json.dumps(workspace), shape[:2])
+    if key not in _reach_cache:
+        h, w = shape[:2]
+        uu, vv = np.meshgrid(np.arange(w, dtype=float), np.arange(h, dtype=float))
+        P = np.stack([uu.ravel(), vv.ravel(), np.ones(uu.size)]).T @ np.asarray(H, float).T
+        z = P[:, 2]
+        ok = np.abs(z) > 1e-9
+        x = np.where(ok, P[:, 0] / np.where(ok, z, 1), 1e9)
+        y = np.where(ok, P[:, 1] / np.where(ok, z, 1), 1e9)
+        inside = ((x >= workspace["x"][0] - margin) & (x <= workspace["x"][1] + margin) &
+                  (y >= workspace["y"][0] - margin) & (y <= workspace["y"][1] + margin))
+        # the horizon: beyond it the map flips sign; keep only the side the arm's own base maps from
+        base = np.asarray(H, float) @ np.array([w / 2, h - 1, 1.0])
+        inside &= np.sign(z) == np.sign(base[2])
+        _reach_cache.clear()
+        _reach_cache[key] = inside.reshape(h, w).astype(np.uint8)
+    return _reach_cache[key]
 
 
 def local_detect(bgr, H, workspace):
@@ -188,9 +215,10 @@ def local_detect(bgr, H, workspace):
         p = H @ np.array([u, v, 1.0])
         return p[:2] / p[2]
     g = cv2.cvtColor(bgr, cv2.COLOR_BGR2GRAY)
-    diff = cv2.subtract(cv2.medianBlur(g, 31), g)  # darker than the local background
-    m = ((diff > 45) & (g < 120)).astype(np.uint8)
-    m[: int(g.shape[0] * 0.53)] = 0  # the table starts below the horizon line
+    bg = cv2.medianBlur(g, 31)
+    m = ((cv2.subtract(bg, g) > 45) & (g < 0.6 * bg)).astype(np.uint8)  # clearly darker than its surroundings
+    m &= reach_mask(H, workspace, g.shape)
+    raw = m.astype(bool)  # only pixels the calibration puts on the reachable table
     m = cv2.morphologyEx(m, cv2.MORPH_CLOSE, np.ones((3, 3), np.uint8))
     # a faint handle breaks into pieces along its length: join small gaps (ellipse 7x7 bridges ~6 px; 9x9 merged it with a neighbour)
     m = cv2.morphologyEx(m, cv2.MORPH_CLOSE, cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (7, 7)))
@@ -210,17 +238,22 @@ def local_detect(bgr, H, workspace):
         d = vec[:, 1]
         proj = (pts - c) @ d
         length = float(np.linalg.norm(tab(*(c + proj.min() * d)) - tab(*(c + proj.max() * d)))) * 100
-        gray = float(g[ys, xs].mean())
-        if elong < LOCAL_MIN_ELONG or not LOCAL_LEN_CM[0] <= length <= LOCAL_LEN_CM[1] or gray > LOCAL_MAX_GRAY:
+        dk = raw[ys, xs]  # only the truly dark pixels (joining gaps adds lighter ones)
+        if dk.sum() < 30:
+            continue
+        ratio = float(g[ys[dk], xs[dk]].mean()) / max(1.0, float(bg[ys[dk], xs[dk]].mean()))
+        if elong < LOCAL_MIN_ELONG or not LOCAL_LEN_CM[0] <= length <= LOCAL_LEN_CM[1] or ratio > LOCAL_MAX_RATIO:
             continue
         score = elong * len(xs)
         if best is None or score > best[0]:
             box = [float(xs.min()), float(ys.min()), float(xs.max()), float(ys.max())]
-            best = (score, c[0], c[1], float(math.degrees(math.atan2(d[1], d[0]))), box)
+            mid = c + d * (proj.min() + proj.max()) / 2  # halfway between the two ends, not the pixel average
+            best = (score, float(mid[0]), float(mid[1]), float(math.degrees(math.atan2(d[1], d[0]))), box)
     return None if best is None else best[1:]
 
 
 FRAMES_DIR = Path.home() / "scrub-logs" / "autopick-frames"  # every detection: frame + box, for fine-tuning later
+ATTEMPTS_DIR = FRAMES_DIR / "attempts"  # every pick: frames, detection, target, grip, outcome (training data)
 
 
 def save_example(bgr, box, label, source) -> None:
@@ -305,7 +338,7 @@ class AutoPick:
     def __init__(self, args: dict | None = None, calib: dict | None = None, detector=None, kin=None):
         args = dict(args or {})
         self.mode = args.get("mode", "handoff")
-        if self.mode not in ("handoff", "hold", "offer", "calibrate"):
+        if self.mode not in ("handoff", "hold", "offer", "calibrate", "look"):
             raise ValueError("mode must be 'handoff' (wait for a hand, release, go home) or 'hold' (bring it home)")
         self.detector_kind = args.get("detector", "local")
         if self.detector_kind not in ("local", "gemini"):
@@ -373,6 +406,8 @@ class AutoPick:
             return {}  # hold everything while the detector runs on its own thread
         if self._phase == "failed":
             return {"done": "home"}
+        if self._phase == "seen":
+            return {"done": "home"}
         if not self.plan:
             return None
         now = time.perf_counter()
@@ -389,6 +424,9 @@ class AutoPick:
         self._phase, self._detail = seg["name"], seg.get("detail", "")
         self._progress = (self.seg + min(1.0, (now - self.seg_t0) / seg["dur"])) / len(self.plan)
         if now - self.seg_t0 >= seg["dur"] + seg.get("hold", 0.0):
+            if seg["name"] == "grip":
+                self._log(st, event="gripped", jaw=st.gripper, contact=self.grip_hold is not None,
+                          joints={m: float(st.joints[m]) for m in JOINTS}, frames=("wrist@grip", "side@grip"))
             if seg["name"] == "grip" and self.grip_hold is None and not self.missed:
                 if self.mode == "handoff":
                     # the magnets under the jaw tape hold a thin handle while the jaw reads nearly shut, so a
@@ -469,12 +507,18 @@ class AutoPick:
                             if jb is not None else "take it from the jaw")
             if load is not None and l0 is not None:
                 self.h_peak = max(getattr(self, "h_peak", 0.0), abs(load - l0))
-            moved = jaw is not None and jb is not None and abs(jaw - jb) >= GRAB_JAW
+            here = {m: float(st.joints[m]) for m in JOINTS}
+            if not hasattr(self, "h_jbase") or el < 1.0:
+                self.h_jbase = here
+            pulled = max(abs(here[m] - self.h_jbase[m]) for m in JOINTS) >= GRAB_JOINT_DEG
+            moved = (jaw is not None and jb is not None and abs(jaw - jb) >= GRAB_JAW) or pulled
             tugged = load is not None and l0 is not None and abs(load - l0) >= max(GRAB_LOAD, 4 * ln)
             if moved or tugged:
                 self.h_since = self.h_since or now
                 if now - self.h_since >= GRAB_SUSTAIN_S:
-                    self.found = {**(self.found or {}), "grab": {"jaw": jaw, "jaw_base": jb, "load": load, "load_base": l0}}
+                    self.found = {**(self.found or {}), "grab": {"jaw": jaw, "jaw_base": jb, "load": load, "load_base": l0,
+                                                                "arm_pulled": pulled}}
+                    self._log(st, event="hand", **self.found["grab"], frames=("side@hand", "wrist@hand"))
                     self._set(st, "grabbed", now, f"hand detected (jaw {jb:.1f}->{jaw:.1f}, load {l0}->{load}); "
                                                   "letting go")
             else:
@@ -487,6 +531,8 @@ class AutoPick:
                 self.plan.append({"name": "home", "from": pose, "to": to, "dur": round(dur, 2), "hold": 0.5,
                                   "detail": "nobody took it: home, still holding"})
                 self.seg, self.seg_t0 = len(self.plan) - 1, None
+                self._log(st, event="result", result="timeout", jaw=jaw, load_peak=getattr(self, "h_peak", 0.0),
+                          frames=("wrist@timeout",))
                 st.note(f"autopick: nobody took it in time (biggest load change {getattr(self, 'h_peak', 0):.0f}, "
                         f"load reading {'missing' if load is None else 'ok'}); going home holding it, then motors off")
             return self._hold_action(pose)
@@ -514,6 +560,7 @@ class AutoPick:
                                   "detail": "taken: going home"})
                 self.seg, self.seg_t0, self.hand, self.handed = len(self.plan) - 1, None, "done", True
                 self.found = {**(self.found or {}), "result": "handed over"}
+                self._log(st, event="result", result="handed over", jaw=jaw)
                 st.note("autopick: it's gone from the jaw; going home to wait")
                 return self._hold_action(pose)
             if jaw is not None:
@@ -526,10 +573,14 @@ class AutoPick:
             return self._hold_action(pose)
         return self._hold_action(pose)
 
+    def plan_names(self):
+        return [p["name"] for p in self.plan]
+
     def _missed(self, st, pose) -> None:
         """Replace the rest of the plan with: open, lift clear, home."""
         self.missed = True
         self.found = {**(self.found or {}), "result": "missed"}
+        self._log(st, event="result", result="missed", jaw=st.gripper)
         cal = self.cal
         cur = dict(pose)
         lift = dict(self.plan[self.seg + 1]["to"]) if self.seg + 1 < len(self.plan) else dict(cur)
@@ -560,6 +611,23 @@ class AutoPick:
             self.grip_hold = max(0.0, min(recent) - SQUEEZE)
             self.found = {**(self.found or {}), "jaw_contact": round(min(recent), 1)}
             st.note(f"autopick: handle in the jaw at {min(recent):.1f}; holding a gentle squeeze at {self.grip_hold:.1f}")
+
+    # ---- training data: one folder per pick attempt
+    def _log(self, st=None, **kw) -> None:
+        try:
+            if not hasattr(self, "att_dir"):
+                self.att_dir = ATTEMPTS_DIR / time.strftime("%Y%m%d-%H%M%S")
+                self.att_dir.mkdir(parents=True, exist_ok=True)
+                self.att = {"label": self.label, "mode": self.mode, "detector": self.detector_kind,
+                            "calib": self.cal.get("table_H_from"), "events": []}
+            self.att["events"].append({"t": round(time.time(), 2), **{k: v for k, v in kw.items() if k != "frames"}})
+            for name in kw.get("frames", ()):
+                jpg = st.jpeg(name.split("@")[0]) if st is not None and hasattr(st, "jpeg") else None
+                if jpg:
+                    (self.att_dir / f"{name.replace('@', '-')}.jpg").write_bytes(jpg)
+            (self.att_dir / "attempt.json").write_text(json.dumps(self.att, indent=1, default=str))
+        except Exception:  # noqa: BLE001 - never block the arm on logging
+            pass
 
     # ---- internals
     @staticmethod
@@ -601,7 +669,16 @@ class AutoPick:
                 raise RuntimeError(f"{self.label} at {np.round(xy, 3).tolist()} m is outside the reachable table area")
             self.found = {"pixel": [round(u), round(v)], "angle_deg": ang and round(ang), "xy_m": np.round(xy, 3).tolist(),
                           "box": [round(t) for t in box]}
+            if self.mode == "look":  # check detection only: say what and where, never move
+                self._phase, self._detail = "seen", (f"{self.label} midpoint at x {xy[0]:.3f} m, y {xy[1]:.3f} m "
+                                                     f"(pixel {u:.0f}, {v:.0f}); no pick")
+                st.note("autopick look: " + self._detail)
+                save_example(frame, box, self.label, "local-look")
+                return
             self.plan = self._make_plan(st, xy)
+            self._log(st, event="detected", pixel=[u, v], angle_img=ang, box=[float(t) for t in box],
+                      xy_m=[float(xy[0]), float(xy[1])], grasp=self.plan[self.plan_names().index("grip")]["to"],
+                      frames=("side@detect",))
             st.note(f"autopick: {self.label} box {[round(t) for t in box]} midpoint px ({u:.0f}, {v:.0f}) -> "
                     f"x {xy[0]:.3f} m, y {xy[1]:.3f} m; picking it up")
             self._phase = self.plan[0]["name"]
@@ -660,14 +737,19 @@ CAL_SETTLE_S = 0.6
 CAL_WIGGLE = 25.0          # jaw opening for the find-myself wiggle
 
 
-def jaw_by_motion(closed_bgr, open_bgr):
-    """Pixel of the jaw from two frames, jaw closed vs open: whatever changed is the moving jaw finger.
-    Works with any tape colour and any background (no tape needed). The lowest part of the changed region
-    is used (the fingertips), centred across its width. None if too little or too much changed."""
+def jaw_by_motion(closed_bgr, open_bgr, closed2_bgr=None, open2_bgr=None):
+    """Pixel of the jaw from frames with the jaw closed vs open: whatever changed is the moving jaw finger.
+    Works with any tape colour and background. With a second closed/open pair, only pixels that change in
+    step with the jaw both times AND look the same in both closed frames count, so a person walking past
+    or the arm still settling is ignored. None if too little or too much changed."""
     import cv2
-    a = cv2.GaussianBlur(cv2.cvtColor(closed_bgr, cv2.COLOR_BGR2GRAY), (5, 5), 0)
-    b = cv2.GaussianBlur(cv2.cvtColor(open_bgr, cv2.COLOR_BGR2GRAY), (5, 5), 0)
-    m = (cv2.absdiff(a, b) > 30).astype(np.uint8)
+    g = lambda im: cv2.GaussianBlur(cv2.cvtColor(im, cv2.COLOR_BGR2GRAY), (5, 5), 0)  # noqa: E731
+    a, b = g(closed_bgr), g(open_bgr)
+    m = cv2.absdiff(a, b) > 30
+    if closed2_bgr is not None and open2_bgr is not None:
+        a2, b2 = g(closed2_bgr), g(open2_bgr)
+        m &= (cv2.absdiff(a2, b2) > 30) & (cv2.absdiff(a, a2) < 15) & (cv2.absdiff(b, b2) < 20)
+    m = m.astype(np.uint8)
     m = cv2.morphologyEx(m, cv2.MORPH_OPEN, np.ones((3, 3), np.uint8))
     n, lab, st_, _ = cv2.connectedComponentsWithStats(m, connectivity=8)
     if n < 2:
@@ -747,15 +829,21 @@ class Calibrate:
         self.phase, self.detail = "calibrate", f"stop {self.i + 1}/{len(self.stops)}, {len(self.samples)} tape sightings"
         if cap and el >= self.dur + CAL_SETTLE_S:
             # find-myself wiggle: frame closed, open the jaw, frame open, close again
+            # closed, open, closed, open: frames taken 0.35 s into each 0.7 s half (jaw moved and settled)
             w = el - self.dur - CAL_SETTLE_S
             if not hasattr(self, "_shot"):
                 self._shot = {"closed": self.ap._frame(st), "joints": {m: float(st.joints[m]) for m in JOINTS}}
-            jaw = JAW_CLOSE + (CAL_WIGGLE - JAW_CLOSE) * min_jerk(w / 0.35)
-            if w >= 0.35 + 0.35 and "open" not in self._shot:
-                self._shot["open"] = self.ap._frame(st)
-            if "open" in self._shot:
-                jaw = CAL_WIGGLE + (JAW_CLOSE - CAL_WIGGLE) * min_jerk((w - 0.7) / 0.35)
-            if w >= 0.7 + 0.35 + 0.25:
+            half, k = 0.7, int(w // 0.7)
+            frac = (w - k * half) / 0.35
+            opening = k % 2 == 0  # halves 0, 2 open the jaw; 1, 3 close it
+            lo, hi = (JAW_CLOSE, CAL_WIGGLE) if opening else (CAL_WIGGLE, JAW_CLOSE)
+            jaw = lo + (hi - lo) * min_jerk(frac)
+            names = ("open", "closed2", "open2")
+            if k < 3 and w - k * half >= 0.6 and names[k] not in self._shot:
+                self._shot[names[k]] = self.ap._frame(st)
+            if k >= 3:
+                jaw = JAW_CLOSE + (CAL_WIGGLE - JAW_CLOSE) * (1 - min_jerk(frac))  # close again
+            if w >= 4 * half:
                 self._capture(st, xyz, self._shot)
                 del self._shot
                 self.cur, self.i, self.t0 = dict(to), self.i + 1, None
@@ -766,7 +854,7 @@ class Calibrate:
 
     def _capture(self, st, xyz, shot):
         c, o = shot.get("closed"), shot.get("open")
-        px = jaw_by_motion(c, o) if c is not None and o is not None else None
+        px = jaw_by_motion(c, o, shot.get("closed2"), shot.get("open2")) if c is not None and o is not None else None
         try:  # keep every wiggle pair: lets the jaw finder be checked and tuned later
             import cv2
             d = FRAMES_DIR / f"calibrate-{self.stamp}"
