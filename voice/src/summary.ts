@@ -124,13 +124,14 @@ All-time ledger stats (may be null): ${JSON.stringify(stats)}`,
   return templateSummary(facts);
 }
 
-let photon: Awaited<ReturnType<typeof Spectrum>> | null = null;
+let photon: ReturnType<typeof Spectrum> | null = null;
 export const photonConfigured = () => !!(PHOTON_PROJECT_ID && PHOTON_SECRET);
 
 // One Spectrum instance for the summary text and the inbound texts (texts.ts), so both use the same thread.
 export async function getPhoton() {
-  photon ||= await Spectrum({ projectId: PHOTON_PROJECT_ID, projectSecret: PHOTON_SECRET, providers: [imessage.config()] });
-  return photon;
+  // Cache the promise, so the text listener and a summary starting together share one connection.
+  photon ||= Spectrum({ projectId: PHOTON_PROJECT_ID, projectSecret: PHOTON_SECRET, providers: [imessage.config()] });
+  return photon.catch((e) => { photon = null; throw e; });
 }
 
 export type Send = (to: string, text: string) => Promise<boolean>;
