@@ -2,7 +2,7 @@
 
 Rules (Hacker Guide): exactly 1 title track, at most 3 sponsored side tracks, any number of non-sponsored ones. Facts follow `devpost/FACTS-0718.md`. Each track lists what its judges want, what we can claim, the proof to show, and what not to say.
 
-Recommended: Community Kitchen; Perceptron Robotics, Perceptron Perception and SideShift (or Photon in place of SideShift only if a call is found in Photon "Recent calls" or ElevenLabs "Call history" for 07:00 to 07:03 Sunday); DubHacks NEXT, MLH Gemini, MLH MongoDB Atlas, MLH Vultr, MLH Commit Fellowship, and MLH DEV if the post is published.
+Entering: Community Kitchen; sponsored Perceptron Robotics, Perceptron Perception and Photon; non-sponsored DubHacks NEXT, MLH Gemini, MLH MongoDB Atlas, MLH Vultr, MLH Commit Fellowship, and MLH DEV if the post is published. Not SideShift.
 
 ## Title track: Community Kitchen (health, accessibility, civic)
 
@@ -25,21 +25,12 @@ Recommended: Community Kitchen; Perceptron Robotics, Perceptron Perception and S
 - **Show:** `vision/tray.py`, `vision/reading.py`, the vision page on :8001.
 - **Don't say:** that Perceptron's API drives the real arm's picks (the station uses a local detector and demo replays), or OCR accuracy on real paper sheets (measured on rendered sheets).
 
-## Sponsored 3 (pick one)
-
-### SideShift (recommended unless the Photon call is confirmed)
-
-- **Their angle:** the strongest startup idea of the weekend, any stack; judged in person.
-- **Say:** buyer is hospital perioperative leadership; operating-room time costs about $36 a minute ([Childers and Maggard-Gibbons, JAMA Surgery 2018](https://jamanetwork.com/journals/jamasurgery/fullarticle/2673385)); break-even at about 22 OR minutes a month (`docs/BUSINESS.md`); a $250-class arm instead of a staffing gap.
-- **Show:** `docs/BUSINESS.md`, the video.
-- **Don't say:** market sizes or pilot customers that aren't in `docs/BUSINESS.md`.
-
-### Photon (only with a confirmed call)
+## Sponsored 3: Photon
 
 - **Their angle:** an agent live on a Photon channel; voice agents on a phone number called out.
-- **Say:** the number +1 785 867 1047 routes through Photon SIP to our ElevenLabs agent and `voice/`; the shared iMessage line could not take calls, so we moved to the SMS number.
-- **Show:** the call history entry for 07:00 to 07:03, if found.
-- **Don't say:** that a phone call moved the arm unless that entry exists. The Photon text listener errors (projectId validation), so don't claim summary texts were delivered.
+- **Say:** Scrub's phone line is built on Photon. The number +1 785 867 1047 routes through Photon SIP to our ElevenLabs agent and the voice server (`voice/`), which turns a spoken request into one command from the tray's list; with the station page's Photon tab open, the command goes to the real arm, with the same words as the Talk tab. Photon's shared iMessage line could not take calls, so we moved to the SMS number.
+- **Show:** `voice/scripts/photon.ts`, `voice/src/station.ts`, the station page's Photon tab and its live feed; a call on speaker if the line is up at judging.
+- **Don't say:** that a phone call moved the arm unless Photon "Recent calls" or ElevenLabs "Call history" shows the 07:00 to 07:03 call (the 07:02:14 handoff was a voice turn whose source wasn't logged). The Photon text listener errors (projectId validation), so don't claim summary texts were delivered.
 
 ## Non-sponsored
 
@@ -56,6 +47,7 @@ Recommended: Community Kitchen; Perceptron Robotics, Perceptron Perception and S
 
 | Track | Why |
 | --- | --- |
+| SideShift | Our third sponsored slot goes to Photon (3 sponsored at most); the startup case is entered through DubHacks NEXT |
 | Cloudforce, VEYZL, T-Mobile, SpaceXAI | Each needs a separate project or unrelated data |
 | MLH GoDaddy Registry | No domain registered |
 | MLH Tiger Data, MLH Backboard | Nothing runs against them |
