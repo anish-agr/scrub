@@ -10,7 +10,11 @@ import { spawn } from "node:child_process";
 import http from "node:http";
 import type { AddressInfo } from "node:net";
 import { WebSocketServer } from "ws";
-import { callerFrom, heardFrom } from "../src/chat.js";
+import { callerFrom, conversationFrom, heardFrom } from "../src/chat.js";
+import { BUSY_LINE, activeCall, claimCall, forgetCalls } from "../src/calls.js";
+import { publicBase } from "../src/config.js";
+import { forgetTimings, recordTiming, timingLine, timingStats } from "../src/timing.js";
+import { TALK_HTML } from "../src/talk.js";
 import { isGotIt, isStop, isTrayCheck, localParse, parseAlias } from "../src/parse.js";
 import { caseFacts, caseLink, clock, closeCaseWithLink, endCase, newCase, recordEvent, setCaller, templateSummary, textCaller, withTimeout } from "../src/summary.js";
 import type { Setting } from "../src/settings.js";
@@ -294,6 +298,40 @@ heardBack.length = 0;
 await handleTurn("stop", (l) => heardBack.push(l));
 assert.deepEqual(heardBack, []);  // flushed once, not again
 
+// Per-turn timings: arrival -> command posted, Gemini parse, the POST round trip, arrival -> first line. Faked io.
+forgetTimings();
+const wait = (ms: number) => new Promise((r) => setTimeout(r, ms));
+Object.assign(io, {
+  currentSetting: async () => surgical,
+  parse: async () => { await wait(40); return { action: "unknown" as const, item: null, via: "gemini" as const }; },
+  postCommand: async () => { await wait(30); speak("Which instrument?"); return { accepted: true, reason: null, say: null }; },
+});
+const quit = new AbortController();
+const arrived = Date.now() - 20;  // the body took 20 ms to read
+const timed = handleTurn("hand me the bovie", () => {}, quit.signal, arrived);
+await wait(150);
+quit.abort();
+await timed;
+const ts = timingStats();
+assert.equal(ts.turns, 1);
+assert.ok(ts.gemini_p50_ms! >= 38 && ts.gemini_p50_ms! < 140, `gemini ${ts.gemini_p50_ms}`);
+assert.ok(ts.heard_to_command_p50_ms! >= ts.gemini_p50_ms! + 20, `heard->command ${ts.heard_to_command_p50_ms}`);
+assert.ok(ts.controller_p50_ms! >= 28 && ts.controller_p50_ms! < 140, `controller ${ts.controller_p50_ms}`);
+assert.ok(ts.first_line_p50_ms! >= ts.heard_to_command_p50_ms! + 28, `first line ${ts.first_line_p50_ms}`);
+assert.equal(ts.last?.parser, "gemini");
+await handleTurn("stop", () => {});  // stop: local, no Gemini time; "Stopped." comes from the event, none here
+assert.deepEqual({ ...timingStats().last, heard_to_command_ms: 0, controller_ms: 0 },
+  { heard_to_command_ms: 0, gemini_ms: null, parser: "local", controller_ms: 0, first_line_ms: null });
+assert.equal(timingStats().turns, 2);
+assert.equal(timingStats().gemini_p50_ms, ts.gemini_p50_ms);  // a turn without Gemini doesn't count toward its median
+assert.equal(timingLine({ heard_to_command_ms: 12, gemini_ms: 380, parser: "gemini", controller_ms: 25, first_line_ms: 410 }),
+  "[timing] heard->command 12ms, gemini 380ms, controller 25ms, first line 410ms");
+assert.equal(timingLine({ heard_to_command_ms: 3, gemini_ms: null, parser: "local", controller_ms: 4, first_line_ms: null }),
+  "[timing] heard->command 3ms, gemini local, controller 4ms, first line -");
+for (let i = 0; i < 60; i++) recordTiming({ ...timingStats().last! });
+assert.equal(timingStats().turns, 50);  // the last 50 only
+forgetTimings();
+
 // Call-to-text memory (F4): events grouped by case_id, the text names the case, goes to the caller. Fake sender, no Gemini.
 const start = Math.floor(Date.now() / 1000) - 600;
 ev("released", { command_id: "z", item: "scalpel", case_id: `surgical-${start - 900}`, setting: "surgical" });  // an older case
@@ -381,6 +419,39 @@ assert.equal(callerFrom([sys("Caller: {{system__caller_id}}")]), "");
 assert.equal(callerFrom([sys("Caller: ")]), "");
 assert.equal(heardFrom([sys("x"), { role: "user", content: [{ type: "text", text: "knife please" }] }]), "knife please");
 assert.equal(heardFrom([sys("x"), { role: "user", content: "kelly" }, { role: "assistant", content: "Hemostat coming." }]), "");
+// Which call a turn is from: "Conversation: {{system__conversation_id}}" in the system prompt, filled in by ElevenLabs.
+assert.equal(conversationFrom([sys("You are Scrub.\nCaller: +15555550123\nConversation: conv_01jxk2abc")]), "conv_01jxk2abc");
+assert.equal(conversationFrom([sys("Caller: +15555550123. Conversation id: conv_9")]), "conv_9");
+assert.equal(conversationFrom([sys("Conversation: {{system__conversation_id}}")]), "");  // unfilled: unknown
+assert.equal(conversationFrom([sys("Keep the conversation: short and calm.")]), "");  // a word, not an id
+assert.equal(conversationFrom([sys("You are Scrub.")]), "");
+assert.equal(conversationFrom([sys("x")], { elevenlabs_extra_body: { conversation_id: "conv_x1" } }), "conv_x1");
+assert.equal(conversationFrom([sys("x")], { user_id: "conv_u2" }), "conv_u2");
+assert.equal(conversationFrom([sys("x")], { user_id: "+15555550123", elevenlabs_extra_body: {} }), "");  // a user, not a call
+assert.equal(conversationFrom([sys("Conversation: conv_p")], { elevenlabs_extra_body: { conversation_id: "conv_x1" } }), "conv_p");
+// One call at a time (fake clock): another conversation is busy while the active one spoke in the last 45 s.
+forgetCalls();
+assert.ok(claimCall("conv_a", 0, 45));
+assert.ok(claimCall("conv_a", 10_000, 45));            // the same call: always
+assert.ok(!claimCall("conv_b", 54_000, 45));           // 44 s after A's last turn: busy
+assert.ok(claimCall("", 54_000, 45));                  // unknown id (say.ts, /heard, a simulated call): never busy
+assert.equal(activeCall(54_000, 45), "conv_a");        // ... and doesn't take over
+assert.ok(claimCall("conv_b", 55_001, 45));            // A quiet for 45 s: B gets Scrub
+assert.ok(!claimCall("conv_a", 60_000, 45));
+assert.equal(activeCall(200_000, 45), null);
+forgetCalls();
+assert.equal(BUSY_LINE, "Scrub is busy with another call. Try again in a minute.");
+// The case replay link: SCRUB_PUBLIC_URL, else the Vultr box by SCRUB_SERVER_IP (nginx :80 -> the ledger page).
+assert.equal(publicBase("https://scrub.example/", "1.2.3.4"), "https://scrub.example");
+assert.equal(publicBase("", "144.202.95.111"), "http://144.202.95.111");
+assert.equal(publicBase("", " http://144.202.95.111/ "), "http://144.202.95.111");
+assert.equal(publicBase("", ""), "");
+assert.equal(publicBase(undefined, undefined), "");
+assert.equal(caseLink("surgical-1760731200", publicBase("", "144.202.95.111")), "Case replay: http://144.202.95.111/case.html?id=surgical-1760731200");
+// The no-phone page: self-contained, posts to /heard, speaks the lines.
+assert.match(TALK_HTML, /<title>Scrub — talk without a phone<\/title>/);
+for (const s of ["webkitSpeechRecognition", "speechSynthesis", '"/heard"', "401"]) assert.ok(TALK_HTML.includes(s), s);
+assert.ok(!/<script[^>]+src=|<link[^>]+href=/.test(TALK_HTML), "no outside files");
 
 // The real server against a fake controller: SSE chunk shape, stop skips Gemini and /command, caller id.
 const hits: string[] = [];
@@ -450,7 +521,7 @@ const ctlPort = (ctl.address() as AddressInfo).port;
 const voicePort = 3024 + offset;
 const out: string[] = [];
 const child = spawn(process.execPath, ["--import", "tsx", "src/server.ts"], { cwd: path.resolve(import.meta.dirname, ".."),
-  env: { ...process.env, VOICE_NO_KEYS: "1", CONTROLLER_URL: `http://localhost:${ctlPort}`, VOICE_PORT: String(voicePort), VOICE_HOLD_S: "2", VOICE_JUDGE_TTL_MS: "0" } });
+  env: { ...process.env, VOICE_NO_KEYS: "1", CONTROLLER_URL: `http://localhost:${ctlPort}`, VOICE_PORT: String(voicePort), VOICE_HOLD_S: "2", VOICE_JUDGE_TTL_MS: "0", VOICE_BUSY_S: "1.5" } });
 child.stdout.on("data", (d) => out.push(String(d)));
 child.stderr.on("data", (d) => out.push(String(d)));
 const base = `http://localhost:${voicePort}`;
@@ -458,10 +529,10 @@ try {
   for (let i = 0; i < 100 && !out.join("").includes("[events] connected"); i++) await new Promise((r) => setTimeout(r, 100));
   assert.ok(out.join("").includes("[events] connected"), out.join(""));
 
-  const turn = async (heard: string) => {
+  const turn = async (heard: string, prompt = "You are Scrub.\nCaller: +15555550123\nConversation: {{system__conversation_id}}") => {
     const res = await fetch(`${base}/v1/chat/completions`, { method: "POST", headers: { "content-type": "application/json" },
       body: JSON.stringify({ model: "scrub", stream: true, temperature: 0.5, max_tokens: 5000, tools: [], elevenlabs_extra_body: {},
-        messages: [sys("You are Scrub.\nCaller: +15555550123"), { role: "assistant", content: "Scrub here." }, { role: "user", content: heard }] }) });
+        messages: [sys(prompt), { role: "assistant", content: "Scrub here." }, { role: "user", content: heard }] }) });
     assert.match(res.headers.get("content-type") || "", /text\/event-stream/);
     const raw = await res.text();
     assert.ok(raw.endsWith("data: [DONE]\n\n"), raw);
@@ -558,6 +629,43 @@ try {
   assert.equal(health.gemini_ms, null);  // no key: Gemini never ran
   assert.equal(health.gemini_p50_ms, null);
   assert.equal((await fetch(`${base}/health`)).headers.get("access-control-allow-origin"), "*");
+  // Per-turn timings: one [timing] line a turn, medians of the last 50 in /health.
+  assert.match(out.join(""), /\[timing\] heard->command \d+ms, gemini local, controller \d+ms, first line \d+ms/);
+  assert.deepEqual(Object.keys(health.timing).sort(),
+    ["controller_p50_ms", "first_line_p50_ms", "gemini_p50_ms", "heard_to_command_p50_ms", "last", "turns"]);
+  assert.ok(health.timing.turns > 5 && health.timing.turns <= 50, String(health.timing.turns));
+  for (const k of ["heard_to_command_p50_ms", "controller_p50_ms", "first_line_p50_ms"]) assert.equal(typeof health.timing[k], "number", k);
+  assert.equal(health.timing.gemini_p50_ms, null);  // no key: Gemini never ran
+  assert.equal(health.active_call, false);
+
+  // The no-phone page, and its /heard turn is timed like a call.
+  const page = await fetch(`${base}/talk`);
+  assert.match(page.headers.get("content-type") || "", /text\/html/);
+  assert.match(await page.text(), /<title>Scrub — talk without a phone<\/title>/);
+  const timedBefore = out.join("").split("[timing]").length;
+  const viaHeard = await (await fetch(`${base}/heard`, { method: "POST", body: JSON.stringify({ text: "what's out" }) })).json();
+  assert.deepEqual(viaHeard, { heard: "what's out", say: ["Out: hemostat."] });
+  assert.equal(out.join("").split("[timing]").length, timedBefore + 1);
+
+  // Overlapping calls (VOICE_BUSY_S 1.5 here): call A holds Scrub; call B hears the busy line and moves nothing,
+  // but B's "stop" still stops the arm. Unknown ids (no Conversation line filled) are never busy.
+  const callA = "You are Scrub.\nCaller: +15555550123\nConversation: conv_aaa111";
+  const callB = "You are Scrub.\nCaller: +15555550999\nConversation: conv_bbb222";
+  assert.equal(await turn("grab me the kelly", callA), "Hemostat coming.");
+  assert.equal((await (await fetch(`${base}/health`)).json()).active_call, true);
+  hits.length = 0;
+  assert.equal(await turn("grab me the kelly", callB), BUSY_LINE);
+  assert.equal(await turn("what's out", callB), BUSY_LINE);
+  assert.equal(hits.length, 0, hits.join());  // no setting, no command
+  assert.ok(!out.join("").includes("[case] caller +15555550999"));  // the busy call doesn't take the summary text
+  assert.equal(await turn("stop", callB), "Stopped.");  // safety first: a stop from any call
+  assert.deepEqual(hits, ["POST /stop"]);
+  assert.match(out.join(""), /\[busy\] conv_bbb222 said "stop" while conv_aaa111 is on: stopping anyway/);
+  assert.equal(await turn("what's out"), "Out: hemostat.");  // unknown id: never busy
+  assert.equal(await turn("what's out", callA), "Out: hemostat.");  // A still has Scrub
+  await new Promise((r) => setTimeout(r, 1600));  // A quiet past VOICE_BUSY_S: free
+  assert.equal(await turn("what's out", callB), "Out: hemostat.");
+  assert.ok(out.join("").includes("[case] caller +15555550999"));
 
   // AUDIT Low: passes made while the events socket is down are counted after the reconnect (GET /events/recent).
   await fetch(`${base}/summary`, { method: "POST" });  // a fresh case
@@ -679,4 +787,196 @@ console.log("voice tests passed");
     fake.close();
   }
   console.log("voice read tests passed");
+}
+
+// Reading by text and by photo (OCR pass). A fake controller and a fake vision on port 3093; never 8000 or 8001.
+{
+  const { textRead, handlePhoto, postVision, photoKind, toJpeg, READ_SLOW } = await import("../src/reads.js");
+  const { partsOf } = await import("../src/texts.js");
+  const { withState, sheetLine, packLines } = await import("../src/summary.js");
+  // Local match and the Gemini list: three read kinds, additive.
+  for (const [s, k] of [["read the count sheet", "read_sheet"], ["What tray is this?", "read_tray"], ["read the pack", "read_pack"],
+    ["is this pack expired", "read_pack"]] as const) assert.equal(localText(s, surgical).kind, k, s);
+  assert.equal(localText("what's the count", surgical).kind, "count");
+  assert.equal(localText("call the hemostat a pack", surgical).kind, "alias");
+
+  const posted: any[] = [], events: any[] = [], readResults: any[] = [], visionHits: { url: string; type: string; bytes: string }[] = [];
+  let refuse = false, silent = false;
+  const visionAnswer: Record<string, object> = {
+    count_sheet: { ok: true, method: "perceptron", latency_ms: 900, tray: "surgical",
+      items: [{ item: "hemostat", expected: 1, initial: 1, closing: 0 }, { item: "scalpel", expected: 1, initial: 1, closing: 1 }] },
+    tray_tag: { ok: true, method: "qr", latency_ms: 20, tray: "bench", text: "scrub:tray:bench" },
+    pack_label: { ok: true, method: "gemini", latency_ms: 1200, labels: [{ item: "mayo_scissors", lot: "A12", expires: "2026-09-30", expired: true }] },
+  };
+  const fake = http.createServer((req, res) => {
+    const chunks: Buffer[] = [];
+    req.on("data", (d) => chunks.push(d));
+    req.on("end", () => {
+      res.setHeader("content-type", "application/json");
+      const body = Buffer.concat(chunks);
+      if (req.url?.startsWith("/events/recent")) return res.end(JSON.stringify(events));
+      if (req.url === "/command") {
+        const c = JSON.parse(body.toString());
+        posted.push(c);
+        if (refuse) return res.end(JSON.stringify({ accepted: false, reason: "already reading", say: "Still reading." }));
+        const say: Record<string, string> = { read_sheet: "Sheet says 0 hemostats back, I count 1.",
+          read_tray: "This is the robotics bench tray. Switched.", read_pack: "Expired: mayo scissors pack, 2026-09-30. Don't open it." };
+        const kind = { read_sheet: "count_sheet", read_tray: "tray_tag", read_pack: "pack_label" }[c.action as string];
+        if (!silent) setTimeout(() => events.push({ type: "read", t: Date.now() / 1000, command_id: c.id, say: say[c.action], read: { kind, ok: true } }), 300);
+        events.push({ type: "command", t: Date.now() / 1000, command_id: c.id, say: "Reading." });
+        return res.end(JSON.stringify({ accepted: true, reason: null, say: "Reading the count sheet." }));
+      }
+      if (req.method === "POST" && req.url === "/read_result") {
+        const b = JSON.parse(body.toString());
+        readResults.push(b);
+        const say: Record<string, string> = { count_sheet: "Sheet says 0 hemostats back, I count 1.",
+          tray_tag: "This is the robotics bench tray. Switched.", pack_label: "Expired: mayo scissors pack, 2026-09-30. Don't open it." };
+        return res.end(JSON.stringify({ ok: true, say: say[b.kind], read: { ...b.result, kind: b.kind, ok: true, source: "photo" } }));
+      }
+      const m = req.url?.match(/^\/read\/(\w+)/);
+      if (req.method === "POST" && m) {
+        visionHits.push({ url: req.url!, type: String(req.headers["content-type"]), bytes: body.toString() });
+        return res.end(JSON.stringify({ kind: m[1], ...visionAnswer[m[1]] }));
+      }
+      res.statusCode = 404;
+      res.end("{}");
+    });
+  });
+  await new Promise<void>((r, j) => { fake.once("error", j); fake.listen(3093, "127.0.0.1", r); });  // 127.0.0.1: a busy port fails here
+  const base = "http://127.0.0.1:3093";
+  const post = async (c: object) => (await fetch(`${base}/command`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(c) })).json();
+  const recent = async () => (await fetch(`${base}/events/recent?n=100`)).json();
+  const read = (a: any, text: string) => textRead(a, text, post, recent, 3000, 50);
+  const state = async (): Promise<State> => ({ step: "idle", out: [], setting: "surgical", case_id: "surgical-1760800000", t: 1 });
+  const toController = async (kind: string, result: unknown, heard: string | null) => {
+    const r = await fetch(`${base}/read_result`, { method: "POST", headers: { "content-type": "application/json" },
+      body: JSON.stringify({ kind, result, source: "photo", heard }) });
+    if (!r.ok) throw new Error(`POST /read_result -> ${r.status}`);
+    return r.json();
+  };
+  const photoDeps = { state, setting: async () => surgical, vision: (k: any, j: Buffer, s: string, d: string) => postVision(k, j, s, d, base),
+    controller: toController };
+  const controllerDown = async (): Promise<never> => { throw new Error("fetch failed"); };
+  const photoDown = { ...photoDeps, controller: controllerDown };
+  try {
+    // Texts: post the Command, reply with its `read` event's say (not the "Reading..." reply).
+    const textDeps = { ...deps, state, read, photo: (p: any, t: string, f: string | null) => handlePhoto(p, t, f, photoDeps) };
+    assert.equal(await handleText("read the count sheet", null, textDeps), "Sheet says 0 hemostats back, I count 1.");
+    assert.equal(posted.at(-1).action, "read_sheet");
+    assert.equal(posted.at(-1).item, null);
+    assert.equal(await handleText("what tray is this", null, textDeps), "This is the robotics bench tray. Switched.");
+    assert.equal(await handleText("read the pack", null, textDeps), "Expired: mayo scissors pack, 2026-09-30. Don't open it.");
+    assert.equal(posted.at(-1).action, "read_pack");
+    refuse = true;
+    assert.equal(await handleText("read the pack", null, textDeps), "Still reading.");
+    refuse = false; silent = true;
+    assert.equal(await handleText("read the count sheet", null, textDeps), READ_SLOW);
+    silent = false;
+    const n = posted.length;
+    assert.equal(await handleText("read the count sheet", null, { ...textDeps, state: async () => ({ ...(await state()), judge: true }) }), JUDGE);
+    assert.equal(posted.length, n);  // judge mode: nothing posted
+
+    // Photos: how Spectrum hands them over (a lone attachment, or a group with the caption).
+    const jpg = { type: "attachment", mimeType: "image/jpeg", name: "IMG_1.jpg", read: async () => Buffer.from("JPEG-BYTES") };
+    assert.deepEqual(partsOf({ type: "text", text: " hi " }), { text: "hi", image: null });
+    assert.equal(partsOf(jpg).image?.name, "IMG_1.jpg");
+    assert.equal(partsOf({ type: "group", items: [{ content: { type: "text", text: "read the pack" } }, { content: jpg }] }).text, "read the pack");
+    assert.equal(partsOf({ type: "attachment", mimeType: "application/pdf", read: jpg.read }).image, null);
+    assert.equal(photoKind(""), "count_sheet");
+    assert.equal(photoKind("pack label"), "pack_label");
+    assert.equal(photoKind("what tray is this"), "tray_tag");
+    assert.equal(photoKind("count sheet for the tray"), "count_sheet");
+    assert.equal((await toJpeg(Buffer.from("x"), "image/jpeg", "IMG_1.jpg")).toString(), "x");  // a JPEG goes as it is
+    const photoSent: string[] = [];
+    const space = { send: async (t: string) => { photoSent.push(t); } };
+    const from = { id: "+15555550123" };
+    async function* photos(): AsyncGenerator<[InSpace, InMessage]> {
+      yield [space, { direction: "inbound", content: jpg, sender: from }];
+      yield [space, { direction: "inbound", content: { type: "group", items: [{ content: { type: "text", text: "read the pack" } }, { content: jpg }] }, sender: from }];
+      yield [space, { direction: "inbound", content: { type: "group", items: [{ content: { type: "text", text: "what tray is this" } }, { content: jpg }] }, sender: from }];
+      yield [space, { direction: "outbound", content: jpg, sender: from }];  // our own: skipped
+    }
+    newCase();
+    const vn = visionHits.length;
+    await runTexts(photos(), textDeps);
+    // Vision's answer goes to the controller's POST /read_result; the reply is its say (the tray switched there).
+    assert.deepEqual(photoSent, [
+      "Sheet says 0 hemostats back, I count 1.",
+      "Expired: mayo scissors pack, 2026-09-30. Don't open it.",
+      "This is the robotics bench tray. Switched.",
+    ]);
+    const hits = visionHits.slice(vn);
+    assert.deepEqual(hits.map((h) => h.url.split("?")[0]), ["/read/count_sheet", "/read/pack_label", "/read/tray_tag"]);
+    assert.match(hits[0].url, /\?setting=surgical&today=\d{4}-\d{2}-\d{2}$/);
+    assert.equal(hits[0].type, "image/jpeg");
+    assert.equal(hits[0].bytes, "JPEG-BYTES");
+    assert.equal(posted.length, n);  // no Command: the photo's read goes to /read_result
+    assert.deepEqual(readResults.map((b) => [b.kind, b.source, b.heard]),
+      [["count_sheet", "photo", null], ["pack_label", "photo", "read the pack"], ["tray_tag", "photo", "what tray is this"]]);
+    assert.deepEqual(readResults[0].result, { kind: "count_sheet", ...visionAnswer.count_sheet });
+    // The controller's read event feeds the summary over WS /events: nothing recorded here.
+    assert.equal(sheetLine(caseFacts()), null);
+
+    // Controller down: the same photos are worded here and kept for the summary.
+    newCase();
+    photoSent.length = 0;
+    await runTexts(photos(), { ...textDeps, photo: (p: any, t: string, f: string | null) => handlePhoto(p, t, f, photoDown) });
+    assert.deepEqual(photoSent, [
+      "Sheet says 0 hemostats back, I count 1.",
+      "Expired: mayo scissors pack, 2026-09-30. Don't open it.",
+      'This is the robotics bench tray, not the operating room tray. Text "switch to the bench tray" to change.',
+    ]);
+    // A controller error (500) falls back the same way.
+    const err500 = { ...photoDeps, controller: async () => { throw new Error("POST /read_result -> 500"); } };
+    assert.equal(await handlePhoto({ mimeType: "image/jpeg", read: jpg.read }, "what tray is this", null, err500),
+      'This is the robotics bench tray, not the operating room tray. Text "switch to the bench tray" to change.');
+    // Photo reads are kept for the summary: the sheet's disagreement and the expired pack.
+    let pf = caseFacts();
+    assert.deepEqual(pf.count_sheet, { compare: "closing", mismatch: [{ item: "hemostat", sheet: 0, scrub: 1 }] });
+    assert.match(templateSummary(pf), /\nCount sheet disagrees: hemostat \(sheet 0, Scrub 1\)\.\nExpired pack: mayo scissors, 2026-09-30\.\n/);
+    // Vision down, an unreadable photo.
+    assert.equal(await handlePhoto({ mimeType: "image/jpeg", read: jpg.read }, "", null, { ...photoDeps, vision: async () => null }), "I can't read the count sheet.");
+    assert.equal(await handlePhoto({ mimeType: "image/heic", read: jpg.read }, "", null, { ...photoDeps, convert: async () => { throw new Error("no sips"); } }),
+      "I can't open that photo. Send it as a JPEG.");
+    assert.equal(await handlePhoto({ mimeType: "image/jpeg", read: jpg.read }, "pack", null, { ...photoDown, vision: async () => ({ ok: true, labels: [{ item: "hemostat", expires: "2027-04-30", expired: false }] }) }),
+      "Hemostat pack, expires 2027-04-30.");
+    assert.equal(await handlePhoto({ mimeType: "image/jpeg", read: jpg.read }, "", null, { ...photoDown, vision: async () => ({ ok: true, tray: "surgical", items: [{ item: "hemostat", expected: 1, initial: 1, closing: 1 }] }) }),
+      "Sheet matches my count.");
+  } finally {
+    fake.close();
+  }
+
+  // Summary lines from the controller's events: mismatch, match, no counts, expired pack, and GET /state's sheet.
+  newCase();
+  let rt = Date.now() / 1000;
+  recordEvent({ type: "read", t: ++rt, say: "x", read: { kind: "count_sheet", ok: true, compare: "closing", mismatch: [{ item: "hemostat", sheet: 0, scrub: 1 }] } });
+  assert.equal(sheetLine(caseFacts()), "Count sheet disagrees: hemostat (sheet 0, Scrub 1).");
+  recordEvent({ type: "count", t: ++rt, say: "x", out: [], sheet_mismatch: [] });
+  assert.equal(sheetLine(caseFacts()), "Count sheet matches.");
+  assert.match(templateSummary(caseFacts()), /^Count: everything is back on the tray\.\nCount sheet matches\.\nScrub case/);
+  recordEvent({ type: "count", t: ++rt, say: "x", out: ["mayo_scissors"], sheet_mismatch: [{ item: "mayo_scissors", sheet: 1, scrub: 0 }] });
+  assert.equal(sheetLine(caseFacts()), "Count sheet disagrees: mayo scissors (sheet 1, Scrub 0).");
+  recordEvent({ type: "read", t: ++rt, say: "x", read: { kind: "pack_label", ok: true, labels: [{ item: "mayo_scissors", expires: "2026-09-30", expired: true }, { item: "hemostat", expires: "2027-01-01", expired: false }] } });
+  assert.deepEqual(packLines(caseFacts()), ["Expired pack: mayo scissors, 2026-09-30."]);
+  newCase();
+  recordEvent({ type: "read", t: ++rt, say: "x", read: { kind: "count_sheet", ok: true, compare: "initial", mismatch: [{ item: "hemostat", sheet: 1, expected: 2 }] } });
+  assert.equal(sheetLine(caseFacts()), "Count sheet disagrees: hemostat (sheet 1 at the start, 2 expected).");
+  recordEvent({ type: "read", t: ++rt, say: "x", read: { kind: "count_sheet", ok: true, compare: null, mismatch: [] } });
+  assert.equal(sheetLine(caseFacts()), "Count sheet: no counts written.");
+  recordEvent({ type: "read", t: ++rt, say: "x", read: { kind: "count_sheet", ok: false } });  // a failed read changes nothing
+  assert.equal(sheetLine(caseFacts()), "Count sheet: no counts written.");
+  // No sheet this case: no line at all.
+  newCase();
+  assert.equal(sheetLine(caseFacts()), null);
+  assert.ok(!/Count sheet|Expired pack/.test(templateSummary(caseFacts())));
+  // GET /state's sheet (voice restarted, no read event seen): closing counts against the final count, plus its packs.
+  const sf = caseFacts();
+  sf.still_out = ["hemostat"];  // writeSummary sets this from GET /state's out first
+  withState(sf, { step: "idle", out: ["hemostat"], setting: "surgical", t: 1,
+    sheet: { tray: "surgical", items: { hemostat: { expected: 1, initial: 1, closing: 1 }, scalpel: { expected: 1, initial: 1, closing: 1 } } },
+    packs: [{ item: "scalpel", lot: "9", expires: "2026-10-01", expired: true }] });
+  assert.equal(sheetLine(sf), "Count sheet disagrees: hemostat (sheet 1, Scrub 0).");
+  assert.deepEqual(packLines(sf), ["Expired pack: scalpel, 2026-10-01."]);
+  assert.match(templateSummary(sf), /^Still out: hemostat\. Check the count\.\nCount sheet disagrees: hemostat \(sheet 1, Scrub 0\)\.\nExpired pack: scalpel, 2026-10-01\.\n/);
+  console.log("voice text read and photo tests passed");
 }
