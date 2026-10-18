@@ -22,11 +22,11 @@ def cap(s): return s[:1].upper() + s[1:]
 def coming(name): return f"{cap(name)} coming."
 def coming_sharp(name): return f"{cap(name)} to the safe spot."
 def queued(name): return f"{cap(name)} next."
-def handed(name): return None  # the arm arriving is enough; keeps the call quiet
+def handed(name): return f"Here's the {name}. Ready to grab."  # said as the arm reaches the hand
 def retry(name): return f"Missed the {name}, trying again."
 def couldnt_pick(name): return f"I couldn't pick the {name}."
 def not_on_tray(name): return f"I don't see the {name} on the tray."
-def sharp_down(name): return f"{cap(name)} down."
+def sharp_down(name): return f"{cap(name)} down, on the safe spot. Careful, it's sharp."  # the "Scalpel down" call-out
 def no_pull(name): return f"Setting the {name} down."
 def set_down(name): return f"Setting the {name} down."
 def no_hand(name): return f"No hand. {cap(name)} is at the safe spot."
