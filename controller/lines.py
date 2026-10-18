@@ -39,3 +39,8 @@ def count(names):
     if not names:
         return "Everything's on the tray."
     return "Out: " + ", ".join(names) + "."
+
+
+def _the(names): return " and ".join(f"the {n}" for n in names)
+def camera_gone(names): return f"Camera also sees {_the(names)} gone."
+def camera_back(names): return f"Camera sees {_the(names)} back."
