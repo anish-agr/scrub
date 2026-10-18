@@ -10,6 +10,10 @@ LOAD_IDLE = 100.0
 LOAD_PULLED = 400.0
 
 
+class APIError(RuntimeError):
+    """Same name and message shape as arm/perceptron.py's ("Perceptron HTTP 503"), without importing arm/."""
+
+
 class FakeArm:
     def __init__(self, motion_s: float = MOTION_S, auto_pull_s: float | None = 2.0):
         self.scale = motion_s / MOTION_S  # 1.0 = about 1 s per motion
@@ -23,7 +27,9 @@ class FakeArm:
         self.pose = "home"
         # Forced failures, each consumed once:
         # {"miss_grasp": 1, "out_of_region": 1, "skill_fail": 1, "no_pull": 1, "no_load": 1}
+        # plus {"api_error": 503}: the next prepare() or run_skill() raises APIError with that status
         self.force: dict[str, int] = {}
+        self.prepared: list[str] = []  # instructions the last prepare() opened sessions for
 
     def _take(self, name: str) -> bool:
         with self._lock:
@@ -36,10 +42,26 @@ class FakeArm:
         """Sleep s seconds; False if frozen. Like arm/real_arm.py, a freeze lasts until resume()."""
         return not self._frozen.wait(s * self.scale)
 
+    def _api_fail(self) -> None:
+        with self._lock:
+            code = self.force.pop("api_error", 0)
+        if code:
+            raise APIError(f"Perceptron HTTP {code}")
+
     def connect(self) -> None:
         pass
 
+    def prepare(self, instructions) -> list:
+        """Like arm/real_arm.py: pre-open one session per instruction; blocking; a freeze cancels it."""
+        if self._frozen.is_set():
+            raise RuntimeError("Arm is frozen; preparation cancelled")
+        self._api_fail()
+        time.sleep(0.05 * self.scale)
+        self.prepared = list(dict.fromkeys(instructions))
+        return self.prepared
+
     def run_skill(self, instruction: str, max_s: float = 20.0) -> bool:
+        self._api_fail()  # opening the session comes before any motion
         if not self._sleep(1.0):
             return False
         if self._take("skill_fail"):

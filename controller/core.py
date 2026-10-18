@@ -2,6 +2,7 @@
 import json
 import math
 import os
+import re
 import statistics
 import threading
 import time
@@ -33,6 +34,9 @@ SPEED_NORMAL, SPEED_NEAR = 0.3, 0.1
 MAX_QUEUE = 3
 DEFAULT_SPOT = [0.22, -0.10, 0.18]  # clinician's saved spot when no hand tracking
 AUTO_RETURN_S = 2.0         # an item in the return spot this long with the arm idle goes back on its own
+PREPARE_TRIES = 3           # pre-opening the robot model's sessions (L2): tries per setting change
+PREPARE_RETRY_S = 5.0
+JUDGE_ACTIONS = ("handover", "count", "stop", "got_it")  # all a judge may ask for (L3)
 
 
 def _saved_spot() -> list:
@@ -50,8 +54,20 @@ class Stopped(Exception):
     pass
 
 
+def _api_error(e: Exception) -> tuple[int | None, str] | None:
+    """(HTTP status or None, short reason) if e is a Perceptron APIError (arm/perceptron.py), else None.
+    APIError carries no status field, only "Perceptron HTTP 503", so the code comes from the message."""
+    if not any(c.__name__ == "APIError" for c in type(e).__mro__):
+        return None
+    code = getattr(e, "status_code", None) or getattr(e, "status", None)
+    m = re.search(r"HTTP (\d{3})", str(e))
+    if code is None and m:
+        code = int(m.group(1))
+    return code, str(e)[:200]
+
+
 class Controller:
-    def __init__(self, arm, fake_arm: bool, setting_id: str = "surgical"):
+    def __init__(self, arm, fake_arm: bool, setting_id: str = "surgical", judge: bool = False):
         self.arm = arm
         self.fake_arm = fake_arm
         self.lock = threading.RLock()
@@ -62,6 +78,7 @@ class Controller:
         self.case_id = self._new_case()
         self.lighting = "normal"
         self.lux = None
+        self.judge = judge              # L3: only handover, count, stop and got_it from /command
         self.jobs: deque = deque()
         self.jobs_cv = threading.Condition(self.lock)
         self.gen = 0                    # bumped by stop; running flows abort when it changes
@@ -81,6 +98,10 @@ class Controller:
         self._flow_gen = 0              # gen of the job the worker is running
         self._worker_thread = threading.Thread(target=self._worker, daemon=True)
         self._worker_thread.start()
+        self._prep_gen = 0              # bumped per prepare; an older prepare thread gives up
+        self._prep_said = False         # spoke a prepare failure since the last setting change
+        self.prepared = None            # setting id whose sessions the arm has open
+        self._prepare()
 
     # ---------- events ----------
     def emit(self, type_: str, say: str | None = None, **kw) -> dict:
@@ -93,7 +114,7 @@ class Controller:
             "request_to_hand_s": kw.pop("request_to_hand_s", None), "retries": kw.pop("retries", None),
             "setting": self.setting["id"], "lighting": self.lighting,
             "command_id": kw.pop("command_id", cmd["id"] if cmd else None), "out": list(self.out),
-            "case_id": self.case_id, "t": time.time(),
+            "case_id": self.case_id, "judge": self.judge, "t": time.time(),
         }
         ev.update(kw)
         self.history.append(ev)
@@ -118,7 +139,8 @@ class Controller:
                 "step": self.step, "item": self.item, "queue": [j["item"] for j in self.jobs],
                 "out": list(self.out), "setting": self.setting["id"], "lighting": self.lighting,
                 "fake_arm": self.fake_arm, "hand_seen": self._hand_fresh() is not None,
-                "out_camera": self._camera_out()[0], "case_id": self.case_id, "t": time.time(),
+                "out_camera": self._camera_out()[0], "case_id": self.case_id, "judge": self.judge,
+                "t": time.time(),
             }
 
     # ---------- inputs ----------
@@ -130,6 +152,9 @@ class Controller:
             cmd["t"] = time.time()
         cmd["received"] = time.time()
         action = cmd.get("action")
+        if self.judge and action not in JUDGE_ACTIONS:
+            self._emit_command(cmd, False, "judge mode", lines.JUDGE_ONLY)
+            return {"accepted": False, "reason": "judge mode", "say": lines.JUDGE_ONLY}
         if action == "stop":
             self.stop()
             self._emit_command(cmd, True, None, None)
@@ -232,6 +257,8 @@ class Controller:
         with self.lock:
             self.step, self.item = "idle", None
         self.emit("step", say=lines.RESET)
+        if self.prepared != self.setting["id"]:
+            self._prepare()  # a prepare cancelled by the freeze, or one that failed: try again
 
     def log_restock(self, body: dict) -> bool:
         """F3: {"item", "qty", "setting", "from", "heard"} to the ledger. False when the ledger isn't loaded."""
@@ -256,8 +283,55 @@ class Controller:
             self.out = []
             self.case_id = self._new_case()
             self.step, self.item = "idle", None
+            self._prep_said = False
         self.emit("step", item=None)
+        self._prepare()
         return data
+
+    def set_judge(self, on: bool) -> None:
+        """L3 judge mode. The step event carries the new `judge` so pages see it change."""
+        with self.lock:
+            self.judge = bool(on)
+        self.emit("step", command_id=None)
+
+    def _prepare(self) -> None:
+        """L2: pre-open the robot model's sessions for this tray's skills with the arm's optional
+        prepare(instructions). It blocks on the network, so it runs on its own thread, never under
+        the lock; stop never waits on it (a freeze cancels it inside the arm)."""
+        prepare = getattr(self.arm, "prepare", None)
+        if not prepare:
+            return
+        with self.lock:
+            self._prep_gen += 1
+            gen, sid = self._prep_gen, self.setting["id"]
+            todo = [s for it in self.setting["items"]
+                    for s in (it.get("pick_instruction"), it.get("return_instruction")) if s]
+        threading.Thread(target=self._prepare_run, args=(prepare, todo, gen, sid), daemon=True).start()
+
+    def _prepare_run(self, prepare, todo: list, gen: int, sid: str) -> None:
+        for attempt in range(PREPARE_TRIES):
+            if attempt:
+                time.sleep(PREPARE_RETRY_S)
+            if gen != self._prep_gen:
+                return  # the setting changed again; that prepare takes over
+            try:
+                prepare(todo)
+                with self.lock:
+                    if gen == self._prep_gen:
+                        self.prepared = sid
+                print(f"[prepare] {sid}: {len(todo)} sessions open", flush=True)
+                return
+            except Exception as e:  # noqa: BLE001 - never crash; skills open sessions on demand anyway
+                api = _api_error(e)
+                print(f"[prepare] {sid} try {attempt + 1}: {e!r}", flush=True)
+                if api is None or api[0] in (401, 403):
+                    return  # frozen, not configured, or a refused key: retrying won't help
+                with self.lock:
+                    speak = gen == self._prep_gen and not self._prep_said
+                    self._prep_said = self._prep_said or speak
+                if speak:  # once per setting change, not on every retry
+                    self.emit("error", say=lines.api_error(api[0]), item=None, command_id=None,
+                              error=repr(e), code=api[0], reason=api[1])
 
     def _unknown_line(self) -> str:
         """Ask which instrument, with a teaching hint from this tray (the first non-sharp item with an alias)."""
@@ -268,6 +342,8 @@ class Controller:
         """X6: a clinic-taught word for an item in the current setting. Writes settings/<id>.local.json and
         reloads the setting in memory. Works while busy; never touches the arm, out or the case."""
         word = settings.norm(alias or "")
+        if self.judge:
+            return {"ok": False, "say": lines.JUDGE_ONLY, "reason": "judge mode"}
         with self.lock:
             sid = self.setting["id"]
             it = settings.item(self.setting, item_id or "")
@@ -404,7 +480,10 @@ class Controller:
                 pass  # stop() already set the step and spoke
             except Exception as e:  # noqa: BLE001 - keep the worker alive
                 if self.gen == gen:  # otherwise a stop caused it and already spoke
+                    api = _api_error(e)  # the robot model refused or is down: say which
                     try:
+                        if api:
+                            self._fail(lines.api_failed(api[0]), repr(e), code=api[0], reason=api[1])
                         self._fail(lines.ERROR, repr(e))
                     except Stopped:
                         pass
@@ -425,14 +504,14 @@ class Controller:
         self._call(gen, self.arm.go_home)
         self.set_step("idle", item=None)
 
-    def _fail(self, say: str, error: str) -> None:
-        """Hold where it is and wait for a reset."""
+    def _fail(self, say: str, error: str, **kw) -> None:
+        """Hold where it is and wait for a reset. kw: extra event fields (code, reason for API errors)."""
         self.arm.freeze()
         with self.lock:
             self.jobs.clear()
             self.step = "error"
             self._held_out()
-        self.emit("error", say=say, error=error)
+        self.emit("error", say=say, error=error, **kw)
         raise Stopped
 
     def _hold(self, say: str, reason: str) -> None:
