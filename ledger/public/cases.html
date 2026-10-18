@@ -6,12 +6,18 @@
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>Scrub cases</title>
   <link rel="stylesheet" href="style.css">
+  <link rel="stylesheet" href="pages.css">
 </head>
 <body class="scrub-ui" data-page="cases">
   <header class="top">
     <div><span class="mark">Scrub</span><span class="subtitle">Case register</span></div>
-    <a href="/">Count</a>
-    <span class="pill">cases</span>
+    <nav>
+      <a href="/">Count</a>
+      <a href="cases.html" aria-current="page">Cases</a>
+      <a href="series.html">Series</a>
+      <a href="memory.html">Memory</a>
+      <a href="card.html">Table card</a>
+    </nav>
   </header>
   <p id="status" class="banner warning" role="status" hidden></p>
   <main>
@@ -19,10 +25,12 @@
       <p class="kicker">Cases</p>
       <h1>Case record</h1>
       <p class="note">Open a case to read its requests, handoff times and instrument count.</p>
+      <p id="cases-count" class="note"></p>
       <ul id="cases" class="cases"></ul>
+      <button id="more" type="button" class="toggle" hidden></button>
     </section>
   </main>
-  <footer>Team Scrub · DubHacks '26 <a href="#">Terms</a><a href="#">Privacy</a></footer>
+  <footer>Team Scrub · DubHacks '26</footer>
   <script src="cases.js"></script>
 </body>
 </html>

@@ -552,3 +552,62 @@ class CorsTests(unittest.TestCase):
         finally:
             server.shutdown()
             server.server_close()
+
+
+class PublicUrlTests(unittest.TestCase):
+    def _url(self, **env):
+        import ledger.qr as qr
+
+        clean = {"SCRUB_PUBLIC_URL": "", "SCRUB_SERVER_IP": ""}
+        clean.update(env)
+        with mock.patch.dict(os.environ, clean), mock.patch("dotenv.load_dotenv", lambda *a, **k: None):
+            return qr.public_url()
+
+    def test_domain_wins_and_loses_trailing_slash(self):
+        self.assertEqual(self._url(SCRUB_PUBLIC_URL="https://scrub.example.com/"), "https://scrub.example.com")
+
+    def test_no_setting_points_at_the_vultr_box(self):
+        self.assertEqual(self._url(), "http://144.202.95.111")
+
+    def test_loopback_setting_is_never_used(self):
+        for bad in ("http://127.0.0.1:8080", "http://localhost:8080", "http://0.0.0.0"):
+            self.assertEqual(self._url(SCRUB_PUBLIC_URL=bad), "http://144.202.95.111")
+
+    def test_lan_when_asked_or_when_no_vultr_address(self):
+        import ledger.qr as qr
+
+        with mock.patch.object(qr, "lan_url", lambda port=None: "http://10.0.0.5:8080"):
+            self.assertEqual(self._url(SCRUB_PUBLIC_URL="lan"), "http://10.0.0.5:8080")
+            with mock.patch.object(qr, "VULTR_URL", ""):
+                self.assertEqual(self._url(), "http://10.0.0.5:8080")
+
+    def test_lan_url_is_not_loopback(self):
+        import ledger.qr as qr
+
+        found = qr.lan_url()
+        self.assertFalse(qr._loopback(found) if found else False)
+
+    def test_api_public_never_reports_loopback(self):
+        import ledger.qr as qr
+
+        self.assertFalse(qr._loopback(self._url()))
+
+
+class PublicPageFilesTests(unittest.TestCase):
+    def test_every_page_links_the_shared_stylesheet_and_page_css(self):
+        from ledger.serve import FILES, PUBLIC
+
+        for page in ("index", "cases", "case", "series", "memory", "card"):
+            text = (PUBLIC / f"{page}.html").read_text(encoding="utf-8")
+            self.assertIn('href="style.css"', text, page)
+            self.assertIn('href="pages.css"', text, page)
+            self.assertNotIn("127.0.0.1", text, page)
+        self.assertIn("/pages.css", FILES)
+        self.assertIn("/style.css", FILES)
+
+    def test_judge_page_keeps_the_hooks_the_script_uses(self):
+        from ledger.serve import PUBLIC
+
+        text = (PUBLIC / "index.html").read_text(encoding="utf-8")
+        for hook in ("id=\"out\"", "id=\"median\"", "id=\"handoffs\"", "id=\"by-item\"", "id=\"by-lighting\"", "id=\"replays\"", "id=\"status\""):
+            self.assertIn(hook, text)

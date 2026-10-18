@@ -6,17 +6,17 @@
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>Scrub series</title>
   <link rel="stylesheet" href="style.css">
-  <style>
-    .bars{max-width:1100px}.bars .bar{padding:10px 0;border-bottom:1px solid var(--hair)}
-    @media(max-width:600px){.bars .bar{grid-template-columns:56px minmax(0,1fr)}.bars .bar>:last-child{grid-column:2;font-size:12px}}
-  </style>
+  <link rel="stylesheet" href="pages.css">
 </head>
 <body class="scrub-ui" data-page="series">
   <header class="top">
     <div><span class="mark">Scrub</span><span class="subtitle">Handoff timing record</span></div>
     <nav>
       <a href="/">Count</a>
+      <a href="cases.html">Cases</a>
+      <a href="series.html" aria-current="page">Series</a>
       <a href="memory.html">Memory</a>
+      <a href="card.html">Table card</a>
     </nav>
   </header>
   <p id="status" class="banner warning" role="status" hidden></p>
@@ -24,12 +24,13 @@
     <section>
       <p class="kicker">Handoffs over time</p>
       <h1>Handoffs by minute</h1>
-      <p id="source" class="note"></p>
+      <p id="source" class="source-line"><b id="source-word">Checking</b><span id="source-text" class="note"></span></p>
+      <p class="legend">One bar per minute with handoffs. Real means the real arm; the rest are fake-arm or simulated runs.</p>
       <div id="bars" class="bars"></div>
       <p id="empty" class="note" hidden>No handoffs yet.</p>
     </section>
   </main>
-  <footer>Team Scrub · DubHacks '26 <a href="#">Terms</a><a href="#">Privacy</a></footer>
+  <footer>Team Scrub · DubHacks '26</footer>
   <script src="series.js"></script>
 </body>
 </html>
