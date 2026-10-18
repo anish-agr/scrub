@@ -86,7 +86,7 @@ Agents: the first unchecked box in your person's section is the next task. Tick 
 ## Evan
 
 - [x] E1 three settings files
-  - `settings/surgical.json`, `dental.json`, and `bench.json`. Only the scalpel is sharp. Slot and return boxes are null until Brandon sends them.
+  - `settings/surgical.json`, `dental.json`, and `bench.json`. Only the scalpel is sharp. The dashboard picker shows the operating room and the robotics bench. `dental.json` stays on disk and is not in the picker.
 - [x] E2 dashboard live on the controller
   - Open http://localhost:8000/ after `python -m controller --fake-arm`. A handover updates the step, the log, what's out, and the handoff time. If the controller is down, the page shows a sample handover.
 - [ ] E3 ledger in MongoDB Atlas
@@ -94,7 +94,7 @@ Agents: the first unchecked box in your person's section is the next task. Tick 
 - [x] E4 data log kept during recording
   - `python -m ledger log --setting surgical --item hemostat --direction hand-out --lighting bright --demos 5 --dataset local --notes "cadence ok"` appends one row to `docs/DATA-LOG.md` in the same shape `arm/record.py` should append. The table is empty until the first real batch.
 - [ ] E5 Devpost draft submitted by 10:00 PM
-  - Paste-ready text is in `docs/DEVPOST.md` (plain words, measured numbers left blank). Evan submits it on Devpost.
+  - Paste-ready text is in `docs/DEVPOST.md` (surgical first, bench as the second tray, tracks listed, no measured rates invented). Evan pastes it by 9:30 PM.
 - [ ] E6 tables on the dashboard, public page on Vultr and the domain
   - The dashboard shows the success tables, handoff times, the current lighting, and a "Vision stale" warning. Public page: `python -m ledger serve` then http://127.0.0.1:8080/. QA-01, QA-02, QA-03, QA-07, QA-08, QA-09, QA-10, and QA-11 are fixed (see `docs/QA.md`). Brandon has the Vultr and domain deploy.
 - [ ] E7 demo video and final Devpost

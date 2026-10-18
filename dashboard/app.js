@@ -28,6 +28,8 @@ const SETTINGS = {
   },
 };
 
+const SHOWN_SETTINGS = ["surgical", "bench"];
+
 const STEP_LABEL = {
   idle: "Idle",
   finding: "Finding",
@@ -148,7 +150,7 @@ function render() {
   pill.textContent = model.live ? "live" : "sample";
   pill.className = model.live ? "pill live" : "pill offline";
 
-  $("setting").value = model.setting;
+  if (SHOWN_SETTINGS.includes(model.setting)) $("setting").value = model.setting;
   $("lighting").value = model.lighting;
   renderItems();
 }
@@ -174,7 +176,8 @@ function renderItems() {
 function fillSettings() {
   const select = $("setting");
   select.replaceChildren();
-  Object.values(SETTINGS).forEach((setting) => {
+  SHOWN_SETTINGS.forEach((id) => {
+    const setting = SETTINGS[id];
     const option = document.createElement("option");
     option.value = setting.id;
     option.textContent = setting.label;
@@ -566,6 +569,7 @@ async function pullSetting() {
 }
 
 async function changeSetting(settingId) {
+  if (!SHOWN_SETTINGS.includes(settingId)) return;
   const previous = model.setting;
   model.setting = settingId;
   model.catalog = SETTINGS[settingId] || SETTINGS.surgical;
