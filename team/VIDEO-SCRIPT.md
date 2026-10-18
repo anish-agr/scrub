@@ -1,89 +1,107 @@
 # Video narration
 
-Owner: Evan. Read this against the picture. The spoken words are the lines in `team/PITCH.md`. The picture order is the edit plan in `team/DEVPOST.md`. Do not add numbers that are not in the pitch. Where the pitch says `[measured]`, say that sentence only after the dashboard has the number. If it does not, skip the sentence.
+The words below are the captions and the narration in `video/roughcut.py` (the `BEATS` list). Change a line there and here together. Narration is about 2:20 to 2:40 read at a normal pace; the whole cut must stay under 3:00 (the rough cut prints its length and each beat's seconds).
 
-Target length is 2 minutes. The pitch is about 3 minutes, so some lines are shortened here. The person named is the one who says the line.
+Record one line per voice memo, quiet room, and name it exactly as in the left column (`python -m video.roughcut --lines` prints the same list). Drop it in `data/video/kit/real/`; it plays under its line on the next rebuild. Lines in quotes with no speaker are said on camera (the ask) and are captioned only over a real take.
 
-## 0:00 to 0:05 Title
+Scope: three instruments (scalpel, hemostat, Mayo scissors). No safe spot. No hand tracking: the arm slows down as it nears the handoff point. Picks are skills we taught it (recorded demonstrations), not a trained model. Return on the real arm is manual; the electromagnet return is simulation only and labeled so.
 
-Picture: arm at rest over the operating room tray. On screen: "Scrub. A robot arm that passes instruments when you ask."
+## Title (3 s)
 
-No one speaks. Room tone only. Card file: `docs/media/title.png`.
+Card: "Scrub. A robot arm that passes surgical instruments when you ask." No one speaks.
 
-## 0:05 to 0:28 Hemostat
+## V1 Hemostat
 
-Picture: Brandon's hands stay busy. He asks for a hemostat. Cut to the pick, the handle in the open hand, the gripper letting go. Last 3 seconds: the dashboard handoff seconds.
+| Memo | Speaker | Line |
+| --- | --- | --- |
+| V11-Anish-1 | Anish | Surgeons work with a scrub tech who hands them each instrument. Hospitals can't hire enough of them. |
+| V11-Anish-2 | Anish | When nobody is there, the surgeon looks away from the patient and searches the tray. |
+| (on camera) | lab coat | "Hemostat." |
+| V11-Anish-3 | Anish | This is Scrub. You ask out loud, on the phone. It picks the hemostat with a skill we taught it. |
+| V11-Anish-4 | Anish | It slows down as it nears the handoff point and holds the handle out. |
+| V11-Anish-5 | Anish | It lets go when you pull, then goes straight home on its own. |
 
-Anish:
+## V2 Mayo scissors
 
-> This is Scrub. You ask for what you need, out loud.
+| Memo | Speaker | Line |
+| --- | --- | --- |
+| (on camera) | lab coat | "Mayo scissors." |
+| V11-Caiden-1 | Caiden | It knows three instruments: the scalpel, the hemostat and the Mayo scissors. |
+| V11-Caiden-2 | Caiden | We taught it each pick by moving the arm ourselves. |
 
-Brandon: "Hemostat."
+## V3 Stop mid-move
 
-Anish:
+| Memo | Speaker | Line |
+| --- | --- | --- |
+| (on camera) | lab coat | "Stop." |
+| V11-Caiden-3 | Caiden | Say stop and the arm freezes where it is. |
+| V11-Caiden-4 | Caiden | It stays stopped until someone resets it. Then it finishes the pass. |
 
-> Scrub picks it from the tray. It brings it to Brandon's open hand, handle first, and lets go when he pulls.
+## V4 Manual return (labeled "MANUAL RETURN")
 
-## 0:28 to 0:42 Scalpel
+| Memo | Speaker | Line |
+| --- | --- | --- |
+| V11-Evan-1 | Evan | On the real arm, putting a tool back is manual for now. A person sets it back in its slot. |
 
-Picture: the scalpel goes to the safe spot. It does not go to the hand. On screen: "Safe spot."
+## Simulated return (sim-return.mp4, labeled "SIMULATED RETURN (electromagnet)")
 
-Brandon: "Scalpel."
+| Memo | Speaker | Line |
+| --- | --- | --- |
+| V11-Evan-2 | Evan | In simulation we modeled the return with an electromagnet that picks the tool up and puts it back. |
 
-Caiden:
+## V5 Lighting (conditional)
 
-> Scalpels never go hand to hand. Scrub sets the scalpel on a safe spot and says "scalpel down."
+Say this only after the bright, normal and dim tries are logged. The rough cut plays it only when a real `V5` take exists; otherwise the beat is a 3 s TO FILM card with no narration. Cut the beat from the final if the tries aren't logged.
 
-## 0:42 to 0:58 Return
+| Memo | Speaker | Line |
+| --- | --- | --- |
+| V11-Evan-3 | Evan | Operating lights are bright and steel throws glare. We ran handoffs in bright, normal and dim light. |
 
-Picture: hemostat in the return spot, then back in its slot. On screen: "Return."
+## V6 Thermal
 
-Caiden:
+| Memo | Speaker | Line |
+| --- | --- | --- |
+| V11-Brandon-1 | Brandon | These motors heat up when they hold a pose. |
+| V11-Brandon-2 | Brandon | Scrub watches every motor's temperature, and between requests it folds to rest with the torque off. |
 
-> Done with a tool? Set it in the return spot. Scrub puts it back in its slot by itself.
+## V7 Dashboard count and count sheet
 
-## 0:58 to 1:12 Lighting
+| Memo | Speaker | Line |
+| --- | --- | --- |
+| V11-Brandon-3 | Brandon | The dashboard keeps the count of what's out. |
+| V11-Brandon-4 | Brandon | It reads the paper count sheet with Perceptron's OCR, with Gemini as a fallback, and shows any mismatch. |
 
-Picture: lamp on, glare on the steel, a handoff finishes, then the lighting table. On screen: "Bright, normal, dim."
+## V8 Tray check
 
-Evan:
+| Memo | Speaker | Line |
+| --- | --- | --- |
+| V11-Brandon-5 | Brandon | Perceptron's vision checks the tray from one overhead frame and finds all three instruments. |
 
-> Operating lights are bright, and steel throws glare. So we test every item in bright, normal and dim light.
+## V9 Model picks (optional)
 
-If the table has numbers, Evan adds the pitch line: "This table is live. [measured] percent in bright light, [measured] in normal." If not, stop after the sentence above.
+Only if a Perceptron model is deployed and a real model pick is on video (0 deployments as of 07:10). Left out of the cut until `V9` exists. If it arrives, this is the one place we say "model trained on our demonstrations"; every other pick stays "a skill we taught it".
 
-## 1:12 to 1:28 Bench
+| Memo | Speaker | Line |
+| --- | --- | --- |
+| V11-Caiden-5 | Caiden | These picks run on a model trained on our demonstrations. Every try is in the table. |
 
-Picture: the picker switches to the robotics bench. Brandon asks for the pliers. On screen: "Same code. Different tray."
+## V10 How it works (two plain cards, then the sim)
 
-Anish:
+| Memo | Speaker | Line |
+| --- | --- | --- |
+| V11-Caiden-6 | Caiden | How it works. Gemini turns what you said into one instrument from the tray. |
+| V11-Caiden-7 | Caiden | Perceptron's vision finds it, and the arm runs the skill we taught it. |
+| V11-Caiden-8 | Caiden | Our code keeps it in bounds: speed and joint limits, a grasp check before it carries, and release only on a pull. |
+| V11-Anish-6 | Anish | Here is the same routine in simulation. |
 
-> Scrub is built for the operating room. But this is a robotics bench tray. Same arm, same code.
+## Close (end card)
 
-Brandon: "Needle-nose pliers."
+| Memo | Speaker | Line |
+| --- | --- | --- |
+| V11-Anish-7 | Anish | Scrub never touches the patient. It's a research prototype, not a medical device. |
+| V11-Anish-8 | Anish | A clinic version would run under a sterile drape on a medical-grade arm, like today's surgical robots. |
+| V11-Anish-9 | Anish | It helps scrub techs. It doesn't replace them. We're Anish, Caiden, Evan and Brandon. This is Scrub. |
 
-## 1:28 to 1:44 Count
+## Out of this cut
 
-Picture: Brandon asks for a count. Then the phone shows the summary text. On screen: "What is still out."
-
-Brandon: "Count." Then: "End of case."
-
-Caiden:
-
-> It reads back what's still out. When the case ends, the summary comes as a text on the same phone.
-
-## 1:44 to 1:56 Tables
-
-Picture: hold the dashboard. Camera, what is out, success tables. No narration. If a number is on screen, leave it long enough to read. Do not say a number that is not in `team/PITCH.md`.
-
-## 1:56 to 2:05 Close
-
-Picture: the team and the arm. On screen: "Anish, Caiden, Brandon, Evan. DubHacks '26."
-
-Anish:
-
-> We'd sell it per operating room, starting with surgery centers. It helps scrub techs. It doesn't replace them. This is a research prototype, not a medical device.
-
-## What stays out of this cut
-
-The fake-arm run and the sim run are labeled simulation and only belong in a "how we built it" insert, not in the two minutes above. Anish's unedited roll of picks and returns is a separate file for the robotics track.
+The safe spot, "never hand to hand", hand tracking, degraded control when a motor goes down, and the case-summary text are all out. Add the text back only if Photon sends a real one on video.
