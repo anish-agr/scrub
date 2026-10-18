@@ -20,12 +20,14 @@ import cv2
 import numpy as np
 
 PORT = 8090
+HOST = "0.0.0.0"   # teammates can watch from their laptops; only this Mac can press the buttons
+TOKEN = __import__("os").environ.get("SCRUB_UI_TOKEN")  # optional: lets another machine use /control
 HTML = Path(__file__).with_name("arm_ui.html")
 
 S = {"mode": "teleop", "phase": "starting", "task": None, "episode": None, "session_done": 0,
      "session_total": None, "phase_started": time.time(), "phase_s": None, "loop_hz": None,
      "joints": {}, "gripper": None, "guard": {"holding": False, "at": None},
-     "dataset": None, "log": deque(maxlen=30)}
+     "dataset": None, "log": deque(maxlen=30), "waiting": []}
 frames: dict = {}                 # camera name -> latest RGB frame
 cam_ticks: dict = {}              # camera name -> deque of hardware read times
 loop_ticks: deque = deque(maxlen=60)
@@ -46,6 +48,11 @@ def camera_stall(index) -> None:
     name = cfg["cams"].get(index, str(index))
     stalls[name] = stalls.get(name, 0) + 1
     note(f"{name} camera stalled")
+
+
+def map_camera(index, role: str) -> None:
+    """A replugged camera came back under a new OpenCV index."""
+    cfg["cams"][index] = role
 
 
 def camera_down(index, is_down: bool) -> None:
@@ -215,9 +222,40 @@ def install(mode: str, task, episodes, episode_s, reset_s, root, cams: dict) -> 
         rec.init_keyboard_listener = listener
 
     _attach_log()
-    threading.Thread(target=ThreadingHTTPServer(("127.0.0.1", PORT), Handler).serve_forever,
-                     daemon=True).start()
-    print(f"recorder page: http://localhost:{PORT}", flush=True)
+    start_server()
+    restarts = int(__import__("os").environ.get("SCRUB_RESTARTS", "0"))
+    if restarts:
+        note(f"session restarted after a disconnect ({restarts}x)")
+
+
+_server = [None]
+
+
+def lan_ip() -> str | None:
+    import socket
+    try:
+        with socket.socket(socket.AF_INET, socket.SOCK_DGRAM) as sk:
+            sk.connect(("8.8.8.8", 80))  # no packet sent; picks the outgoing interface
+            return sk.getsockname()[0]
+    except OSError:
+        return None
+
+
+def start_server() -> None:
+    srv = ThreadingHTTPServer((HOST, PORT), Handler)
+    srv.daemon_threads = True
+    _server[0] = srv
+    threading.Thread(target=srv.serve_forever, daemon=True).start()
+    ip = lan_ip()
+    print(f"recorder page: http://localhost:{PORT}" + (f"  (team: http://{ip}:{PORT}, API: /api)" if ip else ""),
+          flush=True)
+
+
+def stop_server() -> None:
+    if _server[0]:
+        _server[0].shutdown()
+        _server[0].server_close()
+        _server[0] = None
 
 
 def _rate(ticks: deque) -> float | None:
@@ -267,7 +305,7 @@ def status() -> dict:
                     (" this episode: re-record it" if out["mode"] == "record" else ""))
     if out["loop_hz"] is not None and out["loop_hz"] < 27 and out["phase"] in ("recording", "resetting", "teleop"):
         warn.append(f"Control loop {out['loop_hz']:.0f} Hz (needs 30)")
-    out["warnings"] = warn
+    out["warnings"] = [f"Waiting for {w}" for w in S["waiting"]] + warn
     return out
 
 
@@ -283,6 +321,18 @@ def control(action: str) -> bool:
     events["exit_early"] = True
     note(f"page: {action}")
     return True
+
+
+API = {
+    "GET /status": "everything on the page as JSON: mode, phase, task, episode, session_done/total, "
+                   "phase_started/phase_s/now, loop_hz, cameras {name: fps, brightness}, joints, gripper, "
+                   "guard, dataset, last_episode (cadence), warnings, log",
+    "GET /stream/side, /stream/wrist": "MJPEG camera previews (15 fps)",
+    "GET /reference.jpg": "the saved setup photo",
+    "POST /control {action: next|rerecord|stop}": "like the arrow keys; recording Mac only (or X-Scrub-Token)",
+    "POST /reference": "save the side camera as the setup photo; recording Mac only",
+    "files": "<root>-cadence.json per-episode timing; ~/scrub-logs/arm-*.log every run",
+}
 
 
 class Handler(BaseHTTPRequestHandler):
@@ -302,6 +352,8 @@ class Handler(BaseHTTPRequestHandler):
             self._send(200, HTML.read_bytes(), "text/html; charset=utf-8")
         elif self.path == "/status":
             self._send(200, json.dumps(status()).encode(), "application/json")
+        elif self.path == "/api":
+            self._send(200, json.dumps(API, indent=1).encode(), "application/json")
         elif self.path == "/reference.jpg":
             p = reference_path()
             self._send(200, p.read_bytes(), "image/jpeg") if p.exists() else self._send(404, b"none", "text/plain")
@@ -310,8 +362,16 @@ class Handler(BaseHTTPRequestHandler):
         else:
             self._send(404, b"not found", "text/plain")
 
+    def _local(self) -> bool:
+        if self.client_address[0] in ("127.0.0.1", "::1"):
+            return True
+        return bool(TOKEN) and self.headers.get("X-Scrub-Token") == TOKEN
+
     def do_POST(self):
         self.path = urlsplit(self.path).path
+        if not self._local():
+            return self._send(403, b'{"ok": false, "reason": "controls only from the recording Mac"}',
+                              "application/json")
         if self.path == "/reference":
             return self._send(200, json.dumps({"ok": save_reference()}).encode(), "application/json")
         if self.path != "/control":
