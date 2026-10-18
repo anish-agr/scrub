@@ -70,7 +70,7 @@ class PreservationTests(unittest.TestCase):
                 # JS unicode escapes preserve the original strings while making
                 # the server-served files safe for Windows' default code page.
                 def scripts(text):
-                    chunks = re.findall(r"<script\b[^>]*>(.*?)</script>", text, re.S)
+                    chunks = re.findall(r"<script\b(?![^>]*\bsrc=)[^>]*>(.*?)</script>", text, re.S)
                     return [re.sub(r"\\u([0-9a-fA-F]{4})", lambda m: chr(int(m[1], 16)), chunk) for chunk in chunks if "location.search" not in chunk or name != "dashboard/index.html"]
                 self.assertEqual(scripts(old(name)), scripts((ROOT / name).read_text(encoding="utf-8")))
 
