@@ -1,6 +1,6 @@
 # Teaching a taught skill
 
-Taught skills are the controller's labeled way to move the real arm (no Perceptron model was trained: 0 jobs). Each one is 4 to 6 joint waypoints you set by moving the arm by hand. Every event from a taught skill carries `skill_source: "taught"`, and the dashboard says so.
+Taught skills are the controller's labeled way to move the real arm (the one Perceptron fine-tuning job, `job_629682f9575271b687e2c734`, was training at 09:08 with no deployment). Each one is 4 to 6 joint waypoints you set by moving the arm by hand. Every event from a taught skill carries `skill_source: "taught"`, and the dashboard says so.
 
 Budget: under 15 minutes per item (about 5 for the pick, 5 for the return, 3 for the check).
 

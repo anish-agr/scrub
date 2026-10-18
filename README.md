@@ -107,7 +107,7 @@ cd voice && npm test
 | Real arm | Runs only through the station (`explore/station`, `explore/arm_session.py`). 35 station runs, 7 of them camera calibration. |
 | Real picks | Replays of our own recorded demonstrations (autopick `average` mode). No pick comes from a model. |
 | Real handoffs | 2, both scalpel, where a hand took it and the jaw checked empty: 06:39:20 and 07:02:37. The second was asked for by voice at 07:02:14. The hemostat was offered twice (06:12, 06:22) with no confirmed take. |
-| Perceptron training | 0 training jobs, 0 deployments. The fine-tune pipeline (`arm/pipeline.py`, `arm/train.py`) was never submitted. |
+| Perceptron training | 1 fine-tuning job, `job_629682f9575271b687e2c734`, submitted 08:49 Oct 18 by `python -m arm.train pipeline` (`arm/pipeline.py`, `arm/train.py`): Perceptron's pre-trained Isaac checkpoint fine-tuned on our 14-episode "pick the scalpel" dataset, expert_only, 1000 steps. At 09:08: training, step 411 of 1000, 0 deployments. The fine-tuned model has not moved the arm. |
 | Dataset | 29 episodes, 24 usable, 9.0 min: scalpel handle 11, scalpel 5, hemostat 6, tweezers 4, spatula 3 ([docs/DATA.md](docs/DATA.md)). |
 | Controller | Runs the MuJoCo sim and the fake arm. Its grasp check and slow zone near the hand were tested there, not on the real arm. |
 | Mayo scissors | Simulation only: 0 demonstrations, 0 real runs. |

@@ -1,6 +1,6 @@
 # Picking: how Scrub chooses and checks a pick
 
-> **Demo scope (Oct 18 morning):** this page describes the controller's `--skills smart` path, which runs on the sim and the fake arm. The real arm in the demo runs through the station (`explore/station/README.md`): each pick replays the average of our recorded demonstrations for that item (autopick average mode), and the arm goes home after each handoff. Return on the real arm is manual. 0 Perceptron training jobs and 0 deployments exist, so `model` never runs.
+> **Demo scope (Oct 18 morning):** this page describes the controller's `--skills smart` path, which runs on the sim and the fake arm. The real arm in the demo runs through the station (`explore/station/README.md`): each pick replays the average of our recorded demonstrations for that item (autopick average mode), and the arm goes home after each handoff. Return on the real arm is manual. One Perceptron fine-tuning job exists (`job_629682f9575271b687e2c734`, training at 09:08) and 0 deployments, so `model` has not run.
 
 `--skills smart` picks each instrument with the method that has the best measured record for that item, checks every grasp, and retries once with the next method. In the controller, sharps never go to a hand (see Sharps below).
 

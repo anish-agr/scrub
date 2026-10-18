@@ -16,7 +16,7 @@ On Oct 18 the real arm handed a scalpel into a hand twice, at 06:39 and 07:02. T
 
 ## How the picks work
 
-Each real pick is a replay of our own recorded demonstrations. We recorded 29 episodes with a leader arm (24 usable, 9.0 minutes). Autopick's "average" mode takes every usable demo of one instrument, cuts each at the same moments (start, above the item, grasp, lift, hand-off) and takes the median point by point, peaking at 45 degrees a second. We ran 0 Perceptron training jobs: the wrist camera delivered 22.6 fps on a shared USB 2.0 hub and the training validator wants 30, and the side camera moved after episode 17. No pick comes from a model.
+Each real pick is a replay of our own recorded demonstrations. We recorded 29 episodes with a leader arm (24 usable, 9.0 minutes). Autopick's "average" mode takes every usable demo of one instrument, cuts each at the same moments (start, above the item, grasp, lift, hand-off) and takes the median point by point, peaking at 45 degrees a second. The wrist camera delivered 22.6 fps on a shared USB 2.0 hub, the training validator wants 30, and the side camera moved after episode 17, so no training job ran until Sunday morning. At 08:49 we submitted a Perceptron fine-tuning job (`job_629682f9575271b687e2c734`) on a 14-episode "pick the scalpel" dataset that passed the validator; at 09:08 it was training at step 411 of 1000 with no deployment. No pick in the video comes from a model.
 
 ## The parts
 
@@ -35,6 +35,6 @@ We also planned for the arm to set the scalpel down at a safe spot instead of pa
 
 ## What's next
 
-One clean dataset per instrument with fixed cameras at 30 fps, then a fine-tuning job, so the arm can find an instrument wherever it lies. Mayo scissors on the real arm (0 real runs so far). The controller's grasp check and slow zone on the real arm. Tagged ledger rows for every real handoff, so success rates come from real runs.
+Deploy the scalpel fine-tune and run it on the arm. One clean dataset per instrument with fixed cameras at 30 fps, then a fine-tuning job per instrument, so the arm can find an instrument wherever it lies. Mayo scissors on the real arm (0 real runs so far). The controller's grasp check and slow zone on the real arm. Tagged ledger rows for every real handoff, so success rates come from real runs.
 
 Code: https://github.com/anish-agr/dubhacks-2026

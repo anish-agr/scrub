@@ -9,8 +9,8 @@ Updated Oct 18, 07:25 on the arm Mac. The arm and cameras were not touched (the 
 | Tool | What it does in Scrub | Called from | Proof command | Result |
 | --- | --- | --- | --- | --- |
 | Perceptron robotics: API and key | Datasets, fine-tune jobs, deployments | `arm/perceptron.py` (`capabilities`, `train`), `arm/train.py` | `python -m arm.train capabilities` | PASS, rerun 07:20. HTTP 200; `successful_jobs_per_team` 5 |
-| Perceptron robotics: fine-tune pipeline | Upload dataset, register, train, deploy | `arm/pipeline.py`, `arm/upload_dataset.py`, `arm/train.py` | `python -m arm.train self-test`; `pytest -q arm/test_pipeline.py arm/test_perceptron.py` | PASS offline, rerun 07:20 (self-test OK, 40 unit tests). `GET /v1/jobs` is empty: 0 jobs submitted |
-| Perceptron robotics: live inference | The arm runs the deployed model | `arm/real_arm.py` `Arm.run_skill` | `python -m arm.train deployments` | FAIL, rerun 07:20. `{"items": []}`: 0 deployments, 0 jobs. No fine-tuned model drives the arm; real picks are recorded demo replays (taught skills) |
+| Perceptron robotics: fine-tune pipeline | Upload dataset, register, train, deploy | `arm/pipeline.py`, `arm/upload_dataset.py`, `arm/train.py` | `python -m arm.train self-test`; `pytest -q arm/test_pipeline.py arm/test_perceptron.py` | PASS offline, rerun 07:20 (self-test OK, 40 unit tests). PASS live: `python -m arm.train pipeline` passed Perceptron's validator and submitted `job_629682f9575271b687e2c734` at 08:49 (14 scalpel episodes, expert_only, 1000 steps); `status job` at 09:08: training, step 411 of 1000 |
+| Perceptron robotics: live inference | The arm runs the deployed model | `arm/real_arm.py` `Arm.run_skill` | `python -m arm.train deployments` | FAIL, rerun 09:08. `{"items": []}`: 0 deployments while `job_629682f9575271b687e2c734` trains. No fine-tuned model drives the arm; real picks are recorded demo replays (taught skills) |
 | Perceptron vision | Detect tray items | `vision/service.py`, `vision/tray.py`; `explore/recognition/bench.py` `run_perceptron` | `python -m vision.lighting --check-api`; `python -m explore.recognition.bench --repeat 1` | PASS. detect HTTP 200 in 1.8 s; bench ran (found rate 0.4 on 5 synthetic cases, median 2.7 s). Accuracy is weak, see Track claims |
 | Gemini: words to a command | Parses what was said | `voice/src/parse.ts` `geminiParse` | `cd voice && npm test`; `python -m deploy` (Gemini row) | PASS, Gemini row rerun 07:20 (HTTP 200). `.env` has `GEMINI_MODEL=gemini-3.8-flash`, `GEMINI_TIMEOUT_MS`, `GEMINI_THINKING_LEVEL`, `GEMINI_MAX_OUTPUT_TOKENS`. Voice tests from 2 AM, not rerun. With `STATION_URL` set (the real arm), turns are matched locally and Gemini isn't called |
 | Gemini: tray check from an image | Names items in a tray photo | `explore/recognition/bench.py` `run_gemini` only | `python -m explore.recognition.bench` | PASS in the bench (check_tray found 1.0, accuracy 0.5 on 2 cases). Not in the live path: `controller/traycheck.py` uses vision detect, not Gemini |
@@ -65,7 +65,7 @@ Perceptron perceptive track (their vision models), what Scrub uses now, each wit
 Accuracy on real photos is pending (`docs/RECOGNITION.md`, "Real tray"). Anish decides whether to enter the perceptive track as one of our 3 sponsored tracks.
 
 Supported only once someone fixes a missing item:
-- Perceptron robotics: the pipeline works offline and the key returns 200, but 0 jobs and 0 deployments (07:20). Don't claim "fine-tuned" or live inference.
+- Perceptron robotics: we can claim a fine-tuning job (`job_629682f9575271b687e2c734`, submitted 08:49, training at 09:08). 0 deployments at 09:08, so don't claim live inference or that the fine-tuned model moved the arm.
 - Photon: the number +1 785 867 1047 is set up. Claim the call only once Photon or ElevenLabs call history shows a call at the time the arm moved (07:02:14 is the candidate).
 
 Dropped:

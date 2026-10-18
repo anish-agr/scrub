@@ -67,7 +67,7 @@ How to read this:
 
 ## 6. What we proved this weekend
 
-1. **Voice to handoff on a $250 arm.** A spoken request moved the real arm, which replayed our recorded demonstrations of the scalpel and handed it to a hand: 2 real handoffs (06:39 and 07:02, Oct 18). We recorded 29 episodes, 24 usable. No model was fine-tuned (0 Perceptron training jobs).
+1. **Voice to handoff on a $250 arm.** A spoken request moved the real arm, which replayed our recorded demonstrations of the scalpel and handed it to a hand: 2 real handoffs (06:39 and 07:02, Oct 18). We recorded 29 episodes, 24 usable. A Perceptron fine-tuning job on 14 scalpel episodes (`job_629682f9575271b687e2c734`) was submitted at 08:49 and was training at 09:08; no fine-tuned model has moved the arm.
 2. **A checked grasp, in the sim.** In the controller and sim, the gripper and wrist camera check each pick before carrying. The real-arm replay path has no grasp check.
 3. **Gentle motion.** A speed cap on every motor (45 deg/s peak in autopick, slower when hot). It lets go when you pull it or say "let go", then goes home.
 4. **Stop.** "Stop" freezes the arm where it is.

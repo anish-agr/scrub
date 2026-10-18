@@ -15,7 +15,7 @@ python3.10 -m venv .venv && .venv/bin/pip install -r controller/requirements.txt
 .venv/bin/python -m controller --sim-arm      # MuJoCo SO-101 from sim/, see "Testing in the sim" below
 ```
 
-Options: `--port`, `--setting surgical|bench` (surgical first, bench second; `dental` is hidden but still loads with `--setting dental` or `POST /setting`), `--judge` (start in judge mode), `--motion-s 0.2` (fake arm seconds per motion), `--pull-s 2` (fake arm: simulated pull this long after reaching the hand; `0` = wait for `got_it`), `--skills model|taught|auto|smart` (see Skills below; default `model`; on the real arm `model` needs a Perceptron deployment, and none exists because 0 training jobs ran).
+Options: `--port`, `--setting surgical|bench` (surgical first, bench second; `dental` is hidden but still loads with `--setting dental` or `POST /setting`), `--judge` (start in judge mode), `--motion-s 0.2` (fake arm seconds per motion), `--pull-s 2` (fake arm: simulated pull this long after reaching the hand; `0` = wait for `got_it`), `--skills model|taught|auto|smart` (see Skills below; default `model`; on the real arm `model` needs a Perceptron deployment; fine-tuning job `job_629682f9575271b687e2c734` was training at 09:08 and no deployment exists yet).
 
 Try it:
 

@@ -1,6 +1,6 @@
 # Arm, recording and fine-tuning
 
-> **What happened (Oct 18 morning):** this file is the plan for recording and fine-tuning. We recorded 29 episodes (24 usable) and started 0 Perceptron training jobs, so no fine-tuned model exists. Real picks replay our recorded demonstrations through the station (`explore/station/README.md`, autopick average mode), and the arm goes home after each handoff. Return on the real arm is manual. `safe_spot` below was cut and is no longer needed. Results with sources: `devpost/FACTS-0718.md`.
+> **What happened (Oct 18 morning):** this file is the plan for recording and fine-tuning. We recorded 29 episodes (24 usable). At 08:49 Oct 18 `python -m arm.train pipeline` submitted one Perceptron fine-tuning job, `job_629682f9575271b687e2c734`, on a 14-episode "pick the scalpel" dataset (expert_only, 1000 steps; training at step 411 of 1000 at 09:08, 0 deployments). The fine-tuned model has not run on the arm. Real picks replay our recorded demonstrations through the station (`explore/station/README.md`, autopick average mode), and the arm goes home after each handoff. Return on the real arm is manual. `safe_spot` below was cut and is no longer needed. Results with sources: `devpost/FACTS-0718.md`.
 
 Owner: Anish. The workshop is the source of truth. Where it differs from below, the workshop wins and this file gets updated.
 
@@ -133,9 +133,9 @@ Per item: 20 pick and 10 return. Two people: one on the leader arm, one resettin
 
 If arm time turns out short, cut returns first. Never cut the three surgical picks.
 
-## Fine-tuning runs (plan, not run)
+## Fine-tuning runs (plan; one scalpel job ran instead)
 
-No job was submitted: `GET /v1/jobs` returned 0 jobs and `python -m arm.train deployments` returned `{"items": []}` on Oct 18.
+The runs below were not run as planned. One job ran: `job_629682f9575271b687e2c734`, created 08:49:26 Oct 18 by `python -m arm.train pipeline` (log `~/scrub-logs/train-run-1.log`), on dataset `ds_67632415a672136454b58605` (14 episodes, task "pick the scalpel", passed Perceptron's validator; our local QA flagged 10 of the 14). Settings: backend standard, mode expert_only, horizon 30, RTC on, 1000 steps. Status at 09:08: training, step 411 of 1000; `python -m arm.train deployments` returned `{"items": []}`.
 
 1. **Run 1:** right after the operating room set, to see early whether grasps work.
 2. **Run 2:** the operating room and bench settings.

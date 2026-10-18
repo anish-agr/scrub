@@ -78,3 +78,14 @@ Two code paths. The real arm on video runs through the **station** (`explore/sta
 | Grasp check before carrying | True in the controller (`controller/core.py:1620-1637`, jaw plus wrist camera). Station autopick in handoff mode offers it anyway when the jaw reads nearly shut (`explore/station/autopick.py:797-804`); the replay/average path has no check. Say it only for the controller/sim |
 | Release only on a pull | **Not only.** Controller releases on a load change or collapse (`controller/core.py:1810-1831`) and also on a "let go" command (`:779-783`). Station releases on a tug, jaw or joint movement (`explore/station/autopick.py:49-52`, gripper guard `explore/arm_session.py:599-613`) or on "let go" (`autopick.py:1107-1109`). Say "lets go when you pull it or say let go" |
 | Slows near the handoff point | True in the controller: last leg at `SPEED_NEAR` 0.1 vs 0.3 (`controller/core.py:42, 1513-1546`). The station replay has no separate slow zone (it follows the demo, capped at 45 deg/s). True for the sim; for the real arm say only the speed cap |
+
+## Update 09:08: fine-tuning job
+
+Section c above was true at 07:20. Since then (checked read-only at 09:08 Sun Oct 18):
+
+- `python -m arm.train pipeline` (run log `~/scrub-logs/train-run-1.log`) built a 14-episode dataset, all task "pick the scalpel", 6,478 frames at 30 fps (wrist camera measured 29.83 to 29.99 fps). It registered as `ds_67632415a672136454b58605` and passed Perceptron's dataset validator at 08:49.
+- The same log's local QA on those 14 episodes: pass 0, 10, 13; warn 3; fail the other 10 (episodes 1, 2, 4, 5, 6, 7, 9, 11: gripper never closes; 1, 5, 6, 7, 8, 12: action/state divergence 25.1 to 32.5 deg RMS).
+- Job `job_629682f9575271b687e2c734` was created at 08:49:26 PDT: backend standard, mode expert_only, action horizon 30, RTC on, 1000 steps (`arm/train.py` defaults). It fine-tunes Perceptron's service base checkpoint, step 50,000 of an SO-100/SO-101 fine-tune (`explore/research/isaac-workshop-notes.md`).
+- `python -m arm.train status job job_629682f9575271b687e2c734` at 09:08: status `training`, step 411 of 1000, 1.50 s/step. (At about 09:05 it was step 339 at 1.13 s/step.)
+- `python -m arm.train deployments` at 09:08: `{"items": []}`.
+- So: a fine-tuning job exists and is training. There is no deployment, and the arm has not run the fine-tuned model. Real picks on video are still recorded demo replays (autopick average mode).

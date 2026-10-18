@@ -2,9 +2,9 @@
 
 Owner: Anish. Steps in `docs/ARM.md`.
 
-`real_arm.py` implements the arm interface in `docs/CONTRACTS.md` with LeRobot. It plays taught skills (recorded demonstrations), and it can run a Perceptron policy deployment, but no training job was ever run, so there is no fine-tuned policy to deploy. `rig.json` holds the home, carry and safe-spot poses and the handoff region. Only the controller imports this folder.
+`real_arm.py` implements the arm interface in `docs/CONTRACTS.md` with LeRobot. It plays taught skills (recorded demonstrations), and it can run a Perceptron policy deployment. One fine-tuning job exists (`job_629682f9575271b687e2c734`, scalpel, submitted 08:49 Oct 18); at 09:08 it was training with 0 deployments, so there is no fine-tuned policy to run yet. `rig.json` holds the home, carry and safe-spot poses and the handoff region. Only the controller imports this folder.
 
-The real arm in the demo ran through `explore/station`, not this folder: its picks replay our recorded demonstrations (autopick average mode). The training commands below are written and offline-tested, but 0 jobs were submitted.
+The real arm in the demo ran through `explore/station`, not this folder: its picks replay our recorded demonstrations (autopick average mode). The training commands below are offline-tested, and `python -m arm.train pipeline` submitted one job with them (`job_629682f9575271b687e2c734`, log `~/scrub-logs/train-run-1.log`). Check it with `python -m arm.train status job job_629682f9575271b687e2c734` and `python -m arm.train deployments`.
 
 ## Robotics API (A2)
 
