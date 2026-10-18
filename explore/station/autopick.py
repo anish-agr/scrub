@@ -656,6 +656,30 @@ CAL_Z = (0.04, 0.0)        # jaw tip heights (m): above the instruments; extrapo
 CAL_SETTLE_S = 0.6
 
 
+CAL_WIGGLE = 25.0          # jaw opening for the find-myself wiggle
+
+
+def jaw_by_motion(closed_bgr, open_bgr):
+    """Pixel of the jaw from two frames, jaw closed vs open: whatever changed is the moving jaw finger.
+    Works with any tape colour and any background (no tape needed). The lowest part of the changed region
+    is used (the fingertips), centred across its width. None if too little or too much changed."""
+    import cv2
+    a = cv2.GaussianBlur(cv2.cvtColor(closed_bgr, cv2.COLOR_BGR2GRAY), (5, 5), 0)
+    b = cv2.GaussianBlur(cv2.cvtColor(open_bgr, cv2.COLOR_BGR2GRAY), (5, 5), 0)
+    m = (cv2.absdiff(a, b) > 30).astype(np.uint8)
+    m = cv2.morphologyEx(m, cv2.MORPH_OPEN, np.ones((3, 3), np.uint8))
+    n, lab, st_, _ = cv2.connectedComponentsWithStats(m, connectivity=8)
+    if n < 2:
+        return None
+    i = max(range(1, n), key=lambda k: st_[k, cv2.CC_STAT_AREA])
+    area = st_[i, cv2.CC_STAT_AREA]
+    if not 60 <= area <= 0.05 * m.size:  # nothing moved, or a person/the whole view moved
+        return None
+    ys, xs = np.nonzero(lab == i)
+    low = ys >= np.percentile(ys, 80)  # the fingertip end of the moving region
+    return float(xs[low].mean()), float(ys[low].mean())
+
+
 def blue_tape(bgr):
     """Pixel centroid of the jaw's blue tape (largest blue blob below the background), or None."""
     import cv2
@@ -712,18 +736,31 @@ class Calibrate:
         pose = {k: self.frm[k] + (to[k] - self.frm[k]) * f for k in to}
         self.progress = self.i / len(self.stops)
         self.phase, self.detail = "calibrate", f"stop {self.i + 1}/{len(self.stops)}, {len(self.samples)} tape sightings"
-        if el >= self.dur + (CAL_SETTLE_S if cap else 0.0):
-            if cap:
-                self._capture(st, xyz)
+        if cap and el >= self.dur + CAL_SETTLE_S:
+            # find-myself wiggle: frame closed, open the jaw, frame open, close again
+            w = el - self.dur - CAL_SETTLE_S
+            if not hasattr(self, "_shot"):
+                self._shot = {"closed": self.ap._frame(st), "joints": {m: float(st.joints[m]) for m in JOINTS}}
+            jaw = JAW_CLOSE + (CAL_WIGGLE - JAW_CLOSE) * min_jerk(w / 0.35)
+            if w >= 0.35 + 0.35 and "open" not in self._shot:
+                self._shot["open"] = self.ap._frame(st)
+            if "open" in self._shot:
+                jaw = CAL_WIGGLE + (JAW_CLOSE - CAL_WIGGLE) * min_jerk((w - 0.7) / 0.35)
+            if w >= 0.7 + 0.35 + 0.25:
+                self._capture(st, xyz, self._shot)
+                del self._shot
+                self.cur, self.i, self.t0 = dict(to), self.i + 1, None
+            pose["gripper"] = jaw
+        elif not cap and el >= self.dur:
             self.cur, self.i, self.t0 = dict(to), self.i + 1, None
         return {f"{k}.pos": float(v) for k, v in pose.items()}
 
-    def _capture(self, st, xyz):
-        frame = self.ap._frame(st)
-        px = blue_tape(frame) if frame is not None else None
+    def _capture(self, st, xyz, shot):
+        c, o = shot.get("closed"), shot.get("open")
+        px = jaw_by_motion(c, o) if c is not None and o is not None else None
         if px is None:
             return
-        q = np.array([float(st.joints[m]) for m in JOINTS])  # where the arm really is, not where it was told
+        q = np.array([shot["joints"][m] for m in JOINTS])  # where the arm really was, not where it was told
         tip = np.asarray(self.kin.forward(q), float)
         self.samples.append({"grid": list(xyz), "px": list(px), "tip": tip.round(4).tolist()})
 

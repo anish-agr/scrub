@@ -230,7 +230,9 @@ def test_calibrate_recovers_the_table_map(tmp_path, monkeypatch):
         tip = d.kin.forward(np.array([s.joints[m] for m in AP.JOINTS]))
         p = h_true @ np.array([tip[0], tip[1], 1.0])
         img = np.full((480, 640, 3), 230, np.uint8)
-        cv2.circle(img, (int(p[0] / p[2]), int(p[1] / p[2] - (tip[2] + 0.022) * 300)), 9, (200, 60, 0), -1)
+        u, v = int(p[0] / p[2]), int(p[1] / p[2] - (tip[2] + 0.022) * 300)
+        off = int(s.gripper / 3)  # the moving finger swings sideways as the jaw opens
+        cv2.line(img, (u + off, v - 30), (u + off, v), (30, 30, 30), 6)
         return img
     d._frame = frame
     t = [0.0]
@@ -243,7 +245,8 @@ def test_calibrate_recovers_the_table_map(tmp_path, monkeypatch):
                 break
             if a:
                 st.joints = {m: a[f"{m}.pos"] for m in AP.JOINTS}
-        assert d.status()["phase"] == "calibrated"
+                st.gripper = a["gripper.pos"]
+        assert d.status()["phase"] == "calibrated", d.status()
         hn = np.array(AP.load_calib()["table_H"])
         p, q = hn @ np.array([530, 305, 1.0]), np.linalg.inv(h_true) @ np.array([530, 305, 1.0])
         assert np.linalg.norm(p[:2] / p[2] - q[:2] / q[2]) < 0.005
