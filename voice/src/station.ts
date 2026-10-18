@@ -65,3 +65,14 @@ export function stationSay(c: Command): string {
   if (c.action === "stop") return "Stopped.";
   return "Letting go.";
 }
+
+// The spoken reply for what the station did (its own message), short.
+export function stationReply(c: Command, msg: string): { accepted: boolean; reason: string | null; say: string | null } {
+  const m = (msg || "").toLowerCase();
+  if (m.includes("unreachable")) return { accepted: false, reason: msg, say: "I can't reach the arm." };
+  if (m.includes("busy") || m.includes("not while")) return { accepted: false, reason: msg, say: "I'm already moving." };
+  if (m.includes("not ready")) return { accepted: false, reason: msg, say: "The arm isn't ready." };
+  if (m.includes("nothing is being held")) return { accepted: false, reason: msg, say: "I'm not holding anything." };
+  if (m.includes("no usable demos")) return { accepted: false, reason: msg, say: "I haven't learned that one yet." };
+  return { accepted: true, reason: null, say: stationSay(c) };
+}

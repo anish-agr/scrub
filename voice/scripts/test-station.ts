@@ -31,3 +31,14 @@ assert.match(await stationCommand(makeCommand("handover", "scalpel", "scalpel"),
 const down = async () => { throw new Error("connect ECONNREFUSED"); };
 assert.match(await stationCommand(makeCommand("handover", "scalpel", "scalpel"), post, down as any), /unreachable/);
 console.log("voice station bridge tests passed");
+
+import { fixMishears } from "../src/parse.js";
+assert.equal(fixMishears("get the email set"), "get the hemostat");
+assert.equal(fixMishears("get the hemo stat please"), "get the hemostat please");
+console.log("voice mishear tests passed");
+
+import { stationReply } from "../src/station.js";
+assert.equal(stationReply(makeCommand("handover", "hemostat", "x"), "RUN autopick ...").say, "Getting the hemostat.");
+assert.equal(stationReply(makeCommand("handover", "hemostat", "x"), "busy: a run is already going").say, "I'm already moving.");
+assert.equal(stationReply(makeCommand("let_go", null, "x"), "let go: nothing is being held out").say, "I'm not holding anything.");
+console.log("voice station reply tests passed");

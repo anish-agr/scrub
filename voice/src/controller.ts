@@ -2,7 +2,7 @@
 import WebSocket from "ws";
 import { randomUUID } from "node:crypto";
 import { CONTROLLER_URL, JUDGE_TTL_MS } from "./config.js";
-import { STATION_ACTIONS, stationCommand, stationOn, stationSay } from "./station.js";
+import { STATION_ACTIONS, stationCommand, stationOn, stationReply } from "./station.js";
 
 // read_sheet, read_tray, read_pack (optional, the OCR pass): item is null; the answer comes as a `read` event.
 export type Action = "handover" | "return" | "count" | "stop" | "got_it" | "let_go" | "unknown" | "read_sheet" | "read_tray" | "read_pack";
@@ -63,16 +63,18 @@ async function call(method: string, path: string, body?: unknown, ms = 3000): Pr
 // Locate preflight can consume 3 s before acceptance. Leave bounded transport headroom, without slowing stop.
 export const COMMAND_TIMEOUT_MS = 7000;
 export async function postCommand(c: Command): Promise<CommandReply> {
-  // The station (real arm, averaged demo replays) gets handover / let go / got it / stop too, when configured.
-  const station = stationOn() && STATION_ACTIONS.has(c.action)
-    ? stationCommand(c).then((m) => { console.log(`[station] ${c.action}${c.item ? " " + c.item : ""}: ${m}`); return m; })
-    : null;
-  try {
-    return await call("POST", "/command", c, COMMAND_TIMEOUT_MS);
-  } catch (e) {
-    if (!station) throw e;
-    return { accepted: true, reason: null, say: stationSay(c) };  // controller down: the station is the arm
+  // With the station on (STATION_URL), it is the arm: handover runs that item's averaged demo replay, let go /
+  // got it release, stop stops. The controller (sim arm) is skipped for these, and chatter the always-listening
+  // page picks up (unknown) gets no reply at all.
+  if (stationOn()) {
+    if (STATION_ACTIONS.has(c.action)) {
+      const m = await stationCommand(c);
+      console.log(`[station] ${c.action}${c.item ? " " + c.item : ""}: ${m}`);
+      return stationReply(c, m);
+    }
+    if (c.action === "unknown") return { accepted: false, reason: "unknown command", say: null };
   }
+  return call("POST", "/command", c, COMMAND_TIMEOUT_MS);
 }
 export interface ClarifyLog {
   type: "clarify" | "clarify_answer"; say?: string; item?: string | null; candidates?: Candidate[];

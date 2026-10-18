@@ -61,8 +61,19 @@ function add(who, text, cls) {
   li.append(w, t); log.prepend(li);
 }
 let talking = false;  // Scrub is speaking: don't listen to ourselves
+// Browsers only let a page speak after one click or key press on it: the first one turns Scrub's voice on.
+let voiceOn = false;
+function unlockVoice() {
+  if (voiceOn || !("speechSynthesis" in window)) return;
+  voiceOn = true;
+  const u = new SpeechSynthesisUtterance("Scrub voice on."); u.volume = 0.6; speechSynthesis.speak(u);
+  note("Voice on. Just talk.");
+}
+document.addEventListener("pointerdown", unlockVoice, true);
+document.addEventListener("keydown", unlockVoice, true);
 function speak(lines) {
   if (!("speechSynthesis" in window) || !lines.length) return;
+  if (!voiceOn) note("Click anywhere on this page once to hear Scrub's voice.", true);
   speechSynthesis.cancel();
   const u = new SpeechSynthesisUtterance(lines.join(" "));
   talking = true; pauseRec();
