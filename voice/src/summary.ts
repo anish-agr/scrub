@@ -104,26 +104,41 @@ All-time ledger stats (may be null): ${JSON.stringify(stats)}`,
 }
 
 let photon: Awaited<ReturnType<typeof Spectrum>> | null = null;
+export const photonConfigured = () => !!(PHOTON_PROJECT_ID && PHOTON_SECRET);
+
+// One Spectrum instance for the summary text and the inbound texts (texts.ts), so both use the same thread.
+export async function getPhoton() {
+  photon ||= await Spectrum({ projectId: PHOTON_PROJECT_ID, projectSecret: PHOTON_SECRET, providers: [imessage.config()] });
+  return photon;
+}
+
+export type Send = (to: string, text: string) => Promise<boolean>;
 
 async function sendText(to: string, text: string): Promise<boolean> {
-  if (!PHOTON_PROJECT_ID || !PHOTON_SECRET) { console.log("[photon] no PHOTON_PROJECT_ID / PHOTON_API_KEY, not sending"); return false; }
-  photon ||= await Spectrum({ projectId: PHOTON_PROJECT_ID, projectSecret: PHOTON_SECRET, providers: [imessage.config()] });
-  const space = await imessage(photon).space.create(to);
+  if (!photonConfigured()) { console.log("[photon] no PHOTON_PROJECT_ID / PHOTON_API_KEY, not sending"); return false; }
+  const space = await imessage(await getPhoton()).space.create(to);
   await space.send(text);
   return true;
 }
 
-// Write the summary, text it to the caller's thread, start a new case.
-export async function endCase(): Promise<{ text: string; to: string; sent: boolean; error?: string }> {
-  const text = await writeSummary();
-  const to = caller || SUMMARY_TO;
+// Write the summary and start a new case. A "summary" text (texts.ts) gets it as the reply on its own thread.
+export async function closeCase(write: () => Promise<string> = writeSummary): Promise<string> {
+  const text = await write();
   console.log(`[summary]\n${text}`);
+  newCase();
+  return text;
+}
+
+// Write the summary, text it to the caller's thread, start a new case.
+export async function endCase(send: Send = sendText, write: () => Promise<string> = writeSummary):
+    Promise<{ text: string; to: string; sent: boolean; error?: string }> {
+  const to = caller || SUMMARY_TO;
+  const text = await closeCase(write);
   let sent = false, error: string | undefined;
   if (!to) error = "no caller id and no PHOTON_SUMMARY_TO";
   else {
-    try { sent = await sendText(to, text); } catch (e) { error = (e as Error).message; }
+    try { sent = await send(to, text); } catch (e) { error = (e as Error).message; }
   }
   console.log(sent ? `[photon] texted ${to}` : `[photon] not sent: ${error ?? "no credentials"}`);
-  newCase();
   return { text, to, sent, error };
 }

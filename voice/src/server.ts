@@ -3,6 +3,7 @@
 import http from "node:http";
 import { LLM_SECRET, VOICE_PORT } from "./config.js";
 import { endCase, setCaller } from "./summary.js";
+import { startTexts } from "./texts.js";
 import { handleTurn, startEvents } from "./turn.js";
 
 type Msg = { role: string; content: unknown };
@@ -86,4 +87,5 @@ const server = http.createServer(async (req, res) => {
 });
 
 startEvents();
+startTexts();
 server.listen(VOICE_PORT, () => console.log(`[voice] listening on :${VOICE_PORT} (POST /v1/chat/completions, /heard, /summary)`));
