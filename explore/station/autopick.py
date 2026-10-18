@@ -31,6 +31,11 @@ from pathlib import Path
 
 import numpy as np
 
+try:
+    from . import instances
+except ImportError:  # station loads its drivers by filename
+    import instances
+
 HERE = Path(__file__).resolve().parent
 ROOT = HERE.parents[1]
 JOINTS = ["shoulder_pan", "shoulder_lift", "elbow_flex", "wrist_flex", "wrist_roll"]
@@ -139,7 +144,7 @@ def _record_spend(model: str, usage: dict) -> float:
     return usd
 
 
-def gemini_box(bgr, label="scalpel handle", timeout=15.0):
+def gemini_box(bgr, label="scalpel handle", timeout=15.0, all_boxes=False):
     """Box [x1, y1, x2, y2] (pixels) of the label from Gemini, or None. Perceptron's labels flip with the
     lighting (the handle comes back as tweezers/forceps); Gemini with a description of the handle got it
     right on every saved frame (Flash-Lite ~4 s)."""
@@ -151,9 +156,13 @@ def gemini_box(bgr, label="scalpel handle", timeout=15.0):
     if not key or gemini_spent() >= SPEND_CAP_USD:
         return None
     h, w = bgr.shape[:2]
+    prompt = GEMINI_PROMPT.format(label=label)
+    if all_boxes:
+        prompt += (' Find ALL matching handles, each separately. Return {"boxes_2d": '
+                   '[[ymin, xmin, ymax, xmax], ...]}, or {"boxes_2d": []} if none.')
     body = {"contents": [{"parts": [
         {"inline_data": {"mime_type": "image/jpeg", "data": base64.b64encode(cv2.imencode(".jpg", bgr)[1]).decode()}},
-        {"text": GEMINI_PROMPT.format(label=label)}]}], "generationConfig": {"response_mime_type": "application/json"}}
+        {"text": prompt}]}], "generationConfig": {"response_mime_type": "application/json"}}
     for model in GEMINI_MODELS:
         try:
             r = requests.post(f"https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent",
@@ -162,6 +171,10 @@ def gemini_box(bgr, label="scalpel handle", timeout=15.0):
             _record_spend(model, r.json().get("usageMetadata") or {})
             out = json.loads(r.json()["candidates"][0]["content"]["parts"][-1]["text"])
             out = out[0] if isinstance(out, list) and out else out
+            if all_boxes and isinstance(out, dict):
+                boxes = out.get("boxes_2d", [out["box_2d"]] if out.get("box_2d") else [])
+                return [[float(b[1]) * w / 1000, float(b[0]) * h / 1000,
+                         float(b[3]) * w / 1000, float(b[2]) * h / 1000] for b in boxes]
             b = out.get("box_2d") if isinstance(out, dict) else None
             if not b:
                 return None
@@ -248,7 +261,7 @@ def reach_mask(H, workspace, shape, margin=0.10):  # wide enough to keep a whole
     return _reach_cache[key]
 
 
-def local_detect(bgr, H, workspace):
+def local_detect(bgr, H, workspace, all_candidates=False):
     """(u, v, angle, box) of the handle from pixels alone, or None. ~10 ms."""
     import cv2
     H = np.asarray(H, float)
@@ -265,7 +278,7 @@ def local_detect(bgr, H, workspace):
     # a faint handle breaks into pieces along its length: join small gaps (ellipse 7x7 bridges ~6 px; 9x9 merged it with a neighbour)
     m = cv2.morphologyEx(m, cv2.MORPH_CLOSE, cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (7, 7)))
     n, lab, st_, _ = cv2.connectedComponentsWithStats(m, connectivity=8)
-    best = None
+    best, hits = None, []
     for i in range(1, n):
         if st_[i, cv2.CC_STAT_AREA] < 150:
             continue
@@ -287,10 +300,14 @@ def local_detect(bgr, H, workspace):
         if elong < LOCAL_MIN_ELONG or not LOCAL_LEN_CM[0] <= length <= LOCAL_LEN_CM[1] or ratio > LOCAL_MAX_RATIO:
             continue
         score = elong * len(xs)
+        box = [float(xs.min()), float(ys.min()), float(xs.max()), float(ys.max())]
+        mid = c + d * (proj.min() + proj.max()) / 2  # preserve the measured whole-object midpoint
+        hit = (float(mid[0]), float(mid[1]), float(math.degrees(math.atan2(d[1], d[0]))), box)
+        hits.append(hit)
         if best is None or score > best[0]:
-            box = [float(xs.min()), float(ys.min()), float(xs.max()), float(ys.max())]
-            mid = c + d * (proj.min() + proj.max()) / 2  # halfway between the two ends, not the pixel average
-            best = (score, float(mid[0]), float(mid[1]), float(math.degrees(math.atan2(d[1], d[0]))), box)
+            best = (score, *hit)
+    if all_candidates:
+        return hits  # separate local components are separate handles, even if they are close together
     return None if best is None else best[1:]
 
 
@@ -315,10 +332,36 @@ def _centre(b):
     return ((b[0] + b[2]) / 2, (b[1] + b[3]) / 2)
 
 
-def gemini_vote(bgr, label="scalpel handle", agree_px=20.0, tries=3):
+def gemini_vote(bgr, label="scalpel handle", agree_px=20.0, tries=3, all_boxes=False):
     """Ask Gemini until two answers agree (centres within agree_px); a one-off wrong box (it once boxed
     the scissors) is outvoted. None if no two agree."""
     from concurrent.futures import ThreadPoolExecutor
+    if all_boxes:
+        # Same two-of-up-to-three voting rule and spend cap, independently for every physical handle.
+        with ThreadPoolExecutor(2) as ex:
+            votes = list(ex.map(lambda _: gemini_box(bgr, label, all_boxes=True) or [], range(2)))
+
+        def agreed():
+            hits = []
+            for i, first in enumerate(votes):
+                for second in votes[i + 1:]:
+                    remaining = list(second)
+                    for a in first:
+                        if not remaining:
+                            break
+                        b = min(remaining, key=lambda b: math.dist(_centre(a), _centre(b)))
+                        if math.dist(_centre(a), _centre(b)) <= agree_px:
+                            remaining.remove(b)
+                            box = [(a[k] + b[k]) / 2 for k in range(4)]
+                            hits.append((*_centre(box), None, box))
+            return [h[3] for h in instances.unique_hits(hits)]
+
+        boxes = agreed()
+        if boxes and len(boxes) == len(votes[0]) == len(votes[1]):
+            return boxes
+        for _ in range(tries - 2):
+            votes.append(gemini_box(bgr, label, all_boxes=True) or [])
+        return agreed()
     with ThreadPoolExecutor(2) as ex:  # the first two at once: ~2 s instead of ~4
         first = [b for b in ex.map(lambda _: gemini_box(bgr, label), range(2)) if b is not None]
     if len(first) == 2 and math.dist(_centre(first[0]), _centre(first[1])) <= agree_px:
@@ -335,25 +378,29 @@ def gemini_vote(bgr, label="scalpel handle", agree_px=20.0, tries=3):
     return None
 
 
-def detect_handle(bgr, detector=None, label="scalpel handle", in_reach=None, use_gemini=True):
+def detect_handle(bgr, detector=None, label="scalpel handle", in_reach=None, use_gemini=True, all_candidates=False):
     """(u, v, angle, box) of the handle's midpoint in the side frame, or None.
     The detector's labels flip with lighting (the handle comes back as "tweezers", "forceps" or "thin rod"),
     so every instrument box is a candidate and the handle is the one holding the darkest long thin shape.
     A box the detector itself calls the label gets a small bonus; in_reach(u, v) drops out-of-reach ones."""
     if use_gemini and detector is None:
-        box = gemini_vote(bgr, label)
-        r = _dark_rod(bgr, box) if box is not None else None
-        # Gemini once boxed the steel scissors: only trust a box holding a dark rod
-        if r is not None and r[4] >= HANDLE_DARK and (in_reach is None or in_reach(r[1], r[2])):
-            save_example(bgr, box, label, "gemini")
-            return r[1], r[2], r[3], box
+        boxes = gemini_vote(bgr, label, all_boxes=True) if all_candidates else [gemini_vote(bgr, label)]
+        hits = []
+        for box in boxes:
+            r = _dark_rod(bgr, box) if box is not None else None
+            # Gemini once boxed the steel scissors: only trust a box holding a dark rod
+            if r is not None and r[4] >= HANDLE_DARK and (in_reach is None or in_reach(r[1], r[2])):
+                save_example(bgr, box, label, "gemini")
+                hits.append((r[1], r[2], r[3], box))
+        if hits:
+            return instances.unique_hits(hits) if all_candidates else hits[0]
     if detector is None:
         from dotenv import dotenv_values
         from vision.tray import PerceptronDetector
         detector = PerceptronDetector(dotenv_values(ROOT / ".env").get("PERCEPTRON_API_KEY"), timeout=15)
     from vision.tray import detection_box
     cats = [label] + [c for c in CANDIDATES if c != label]
-    best = None
+    best, hits = None, []
     for d in detector.detect(bgr, cats):
         if d.get("mention") not in cats:
             continue
@@ -364,8 +411,11 @@ def detect_handle(bgr, detector=None, label="scalpel handle", in_reach=None, use
         if in_reach is not None and not in_reach(r[1], r[2]):
             continue
         score = r[4] * (1.15 if d.get("mention") == label else 1.0)
+        hits.append((r[1], r[2], r[3], box))
         if best is None or score > best[0]:
             best = (score, r[1], r[2], r[3], box)
+    if all_candidates:
+        return instances.unique_hits(hits)
     return None if best is None else best[1:]
 
 
@@ -395,6 +445,12 @@ class AutoPick:
         label = args.get("label", "scalpel handle")
         if not isinstance(label, str) or not label.strip():
             raise ValueError("label must be a non-empty string")
+        self.instance = instances.parse_instance(args.get("instance"))
+        self._choice_lock = threading.Lock()
+        self._choice_event = threading.Event()
+        self._question = None
+        self._answer = None
+        self._choice_rows = []
         self.cal = calib or load_calib()
         self.detector, self.label = detector, label.strip()
         if kin is None:
@@ -447,7 +503,7 @@ class AutoPick:
             out = self.cal_run.tick(st, time.perf_counter())
             self._phase, self._detail, self._progress = self.cal_run.phase, self.cal_run.detail, self.cal_run.progress
             return out
-        if self._phase == "detect":
+        if self._phase in ("detect", "clarify", "clarify_timeout", "clarify_failed"):
             return {}  # hold everything while the detector runs on its own thread
         if self._phase == "failed":
             return {"done": "home"}
@@ -508,14 +564,81 @@ class AutoPick:
         return self._hold_action(pose)
 
     def abort(self) -> None:
-        self._aborted = True
-        self._phase = "aborted"
+        with self._choice_lock:
+            self._aborted = True
+            self._phase = "aborted"
+            self._question = None
+            self._choice_event.set()  # wake the worker without waiting for the 15 s timeout
 
     def status(self) -> dict:
         out = {"phase": self._phase, "detail": self._detail, "progress": round(self._progress, 2)}
         if self.found:
             out["target"] = self.found
+        with self._choice_lock:
+            out["question"] = dict(self._question) if self._question else None
         return out
+
+    @staticmethod
+    def _choice_log(st, kind, **fields):
+        try:
+            if callable(getattr(st, "event", None)):
+                st.event(kind, driver="autopick", **fields)
+        except Exception:  # logging must never unlock motion or block an abort with a held lock
+            pass
+
+    def answer(self, st, question_id, side):
+        """Called only through the station's queued control; stale/double/late answers cannot move it."""
+        with self._choice_lock:
+            q = self._question
+            if self._aborted or q is None or question_id != q["id"]:
+                return False, "which one: question is no longer active"
+            if time.perf_counter() >= self._choice_deadline:
+                return False, "which one: question timed out"
+            if side not in ("left", "right", "closest"):
+                return False, "which one: answer left, right or closest"
+            self._answer = instances.select(self._choice_rows, {"side": side})
+            self._question = None
+            self._phase = "detect"  # still hold while the worker builds the plan
+            slot = self._answer["slot"]
+            answer_ms = round((time.perf_counter() - self._choice_t0) * 1000)
+            self._choice_event.set()
+        self._choice_log(st, "clarify_answer", question_id=q["id"], item=self.label, side=side,
+                         slot=slot, answer_ms=answer_ms)
+        return True, f"autopick: your {side} one"
+
+    def _which_one(self, st, rows):
+        import uuid
+        question = {"id": uuid.uuid4().hex, "item": self.label, "count": len(rows),
+                    "say": f"Which {self.label}: the one on your left or your right?",
+                    "orientation": instances.ORIENTATION, "timeout_s": instances.CLARIFY_TIMEOUT_S,
+                    "choices": ["left", "right"]}
+        if len(rows) > 2:
+            question["say"] = (f"I see {len(rows)} {self.label} candidates. Your leftmost or rightmost? "
+                               "Press C for the closest one, or answer closest through the control API.")
+        self._choice_log(st, "clarify", question_id=question["id"], item=self.label, say=question["say"],
+                         candidates=[{k: v for k, v in r.items() if k != "hit"} for r in rows],
+                         orientation=instances.ORIENTATION, timeout_s=instances.CLARIFY_TIMEOUT_S)
+        with self._choice_lock:
+            if self._aborted:
+                return None
+            self._choice_event.clear()
+            self._answer, self._choice_rows = None, rows
+            self._choice_t0 = time.perf_counter()
+            self._choice_deadline = self._choice_t0 + instances.CLARIFY_TIMEOUT_S
+            self._question = question
+            self._phase, self._detail = "clarify", question["say"]
+        st.note("autopick: " + question["say"])
+        self._choice_event.wait(instances.CLARIFY_TIMEOUT_S)
+        with self._choice_lock:
+            self._question = None
+            if self._aborted:
+                return None
+            if self._answer is None:
+                self._phase, self._detail = "clarify_timeout", "Which one timed out: holding still. Stop to end the run."
+            answer = self._answer
+        if answer is None:
+            st.note("autopick: " + self._detail)
+        return answer
 
     # ---- handoff: wait for a hand, release, check the jaw is empty, go home
     @staticmethod
@@ -760,39 +883,69 @@ class AutoPick:
             def in_reach(u, v):
                 x, y = pixel_to_table(self.cal["table_H"], u, v)
                 return ws["x"][0] <= x <= ws["x"][1] and ws["y"][0] <= y <= ws["y"][1]
-            if self.detector_kind == "local" and self.detector is None:
-                hit = local_detect(frame, self.cal["table_H"], ws)
-                if hit is not None:
+            if self.detector is None:
+                hits = local_detect(frame, self.cal["table_H"], ws, all_candidates=True)
+                for hit in hits:
                     save_example(frame, hit[3], self.label, "local")
+                # Even when cloud fallback is requested, valid local candidates cost no network call.
+                if not hits and self.detector_kind == "gemini":
+                    hits = detect_handle(frame, self.detector, self.label, in_reach, all_candidates=True)
             else:
-                hit = detect_handle(frame, self.detector, self.label, in_reach)
+                hits = detect_handle(frame, self.detector, self.label, in_reach, all_candidates=True)
             if self._aborted:
                 return
-            if hit is None:
+            if not hits:
                 raise RuntimeError(f"no {self.label} in view within reach (outside the table area the arm can reach?)")
-            u, v, ang, box = hit
+            rows = instances.candidates(hits)
+            try:
+                selected = instances.select(rows, self.instance)
+            except ValueError as e:
+                with self._choice_lock:
+                    if self._aborted:
+                        return
+                    self._phase, self._detail = "clarify_failed", str(e) + "; holding still. Stop to end the run."
+                st.note("autopick: " + self._detail)
+                return
+            if selected is None:
+                pool = [r for r in rows if "variant" not in self.instance or r["variant"] == self.instance["variant"]]
+                selected = self._which_one(st, pool)
+            if selected is None or self._aborted:
+                return
+            u, v, ang, box = selected["hit"][:4]
             xy = pixel_to_table(self.cal["table_H"], u, v)
             ws = self.cal["workspace_m"]
             if not (ws["x"][0] <= xy[0] <= ws["x"][1] and ws["y"][0] <= xy[1] <= ws["y"][1]):
                 raise RuntimeError(f"{self.label} at {np.round(xy, 3).tolist()} m is outside the reachable table area")
-            self.found = {"pixel": [round(u), round(v)], "angle_deg": ang and round(ang), "xy_m": np.round(xy, 3).tolist(),
-                          "box": [round(t) for t in box]}
+            with self._choice_lock:
+                if self._aborted:
+                    return
+                self.found = {"pixel": [round(u), round(v)], "angle_deg": ang and round(ang),
+                              "xy_m": np.round(xy, 3).tolist(), "box": [round(t) for t in box],
+                              "slot": selected["slot"], "instance": self.instance}
             if self.mode == "look":  # check detection only: say what and where, never move
                 self._phase, self._detail = "seen", (f"{self.label} midpoint at x {xy[0]:.3f} m, y {xy[1]:.3f} m "
                                                      f"(pixel {u:.0f}, {v:.0f}); no pick")
                 st.note("autopick look: " + self._detail)
                 save_example(frame, box, self.label, "local-look")
                 return
-            self.xy_target = [float(xy[0]), float(xy[1])]
-            self.plan = self._make_plan(st, xy)
+            plan = self._make_plan(st, xy)
+            with self._choice_lock:
+                if self._aborted:
+                    return
+                self.xy_target = [float(xy[0]), float(xy[1])]
+                self.plan = plan
+                self._phase = plan[0]["name"]
             self._log(st, event="detected", pixel=[u, v], angle_img=ang, box=[float(t) for t in box],
-                      xy_m=[float(xy[0]), float(xy[1])], grasp=self.plan[self.plan_names().index("grip")]["to"],
+                      xy_m=[float(xy[0]), float(xy[1])], grasp=next((p["to"] for p in plan if p["name"] == "grip"), None),
                       frames=("side@detect",))
             st.note(f"autopick: {self.label} box {[round(t) for t in box]} midpoint px ({u:.0f}, {v:.0f}) -> "
                     f"x {xy[0]:.3f} m, y {xy[1]:.3f} m; picking it up")
-            self._phase = self.plan[0]["name"]
         except Exception as e:  # noqa: BLE001
-            self._phase, self._detail = "failed", str(e)
+            with self._choice_lock:
+                if self._aborted:
+                    return
+                self._question = None
+                self._phase, self._detail = "failed", str(e)
             st.note(f"autopick: stopped ({e})")
 
     def _ik(self, xyz, seed):
