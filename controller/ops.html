@@ -104,6 +104,7 @@
 
 <section>
   <p class="kicker">Recent events</p>
+  <ul class="event-log waiting" id="waiting-question" role="status" aria-live="polite" hidden></ul>
   <ul class="event-log" id="events"></ul>
 </section>
 
@@ -112,6 +113,7 @@
 <div class="stopbar"><button id="stopBtn" class="stop" type="button">Stop <kbd>Space</kbd></button></div>
 <footer><span>Scrub &middot; DubHacks '26</span><span>Terms</span><span>Privacy</span></footer>
 
+<script src="/clarify.js"></script>
 <script>
 const $ = id => document.getElementById(id);
 const Q = new URLSearchParams(location.search);
@@ -279,10 +281,14 @@ function renderLat(s, h, v) {
 
 const clock = t => new Date(t * 1000).toLocaleTimeString([], {hour12: false});
 function evLine(e) {
-  const bits = [e.item, e.say || e.reason || e.error, e.skill_source ? `[${e.skill_source}]` : ''].filter(Boolean).join(' · ');
+  const answer = e.type === 'clarify_answer' ? [e.answer, e.answer_ms != null ? `${(Number(e.answer_ms) / 1000).toFixed(1)} s to answer` : ''].filter(Boolean).join(' · ') : '';
+  const bits = [e.item, e.say || e.reason || e.error, answer, e.skill_source ? `[${e.skill_source}]` : ''].filter(Boolean).join(' · ');
   return `<li><time>${clock(e.t)}</time><span>${esc(e.type)}</span><span>${esc(bits || e.step || '')}</span></li>`;
 }
 function renderEvents(ev) {
+  const question = scrubWaitingQuestion(ev);
+  $('waiting-question').hidden = !question;
+  $('waiting-question').innerHTML = question ? evLine({...question, type: 'Waiting'}) : '';
   $('events').innerHTML = ev.length ? ev.slice(-14).reverse().map(evLine).join('') : '<li class="empty">No events.</li>';
   const errs = ev.filter(e => e.type === 'error').slice(-5).reverse();
   $('errs').innerHTML = errs.length ? errs.map(e => `<li><time>${clock(e.t)}</time><span>${esc(e.code ?? 'error')}</span><span>${esc(e.reason || e.error || e.say || 'error')}</span></li>`).join('')
