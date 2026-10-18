@@ -2,17 +2,27 @@
 
 from __future__ import annotations
 
+import os
 import time
 
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import HTMLResponse, Response, StreamingResponse
 
-from vision.service import Runtime, controls_locked, remember_clinician
+from vision.service import Runtime, controls_locked, remember_clinician, setting_document
 from vision.tray import load_setting
 from vision.tray_check import check_tray
 
-TRAY_STALE_S = 3.0  # same as controller/core.py
+TRAY_STALE_S = 3.0  # same as controller/core.py; the floor for /tray_check
+
+
+def tray_stale_s(detector) -> float:
+    """A live detect can take up to its timeout, so a read is stale only after that plus 2 s (8 s at the 6 s
+    default). Detectors without a timeout (fake, tests) keep 3 s. VISION_TRAY_STALE_S overrides."""
+    override = os.environ.get("VISION_TRAY_STALE_S")
+    if override:
+        return float(override)
+    return max(TRAY_STALE_S, float(getattr(detector, "timeout", 0.0)) + 2.0)
 
 PREVIEW = """<!DOCTYPE html>
 <html>
@@ -94,15 +104,16 @@ def create_app(runtime: Runtime) -> FastAPI:
         A slow or failed detect stays on the tray thread and marks the state stale.
         This request returns that state immediately.
         """
-        setting_id = setting or runtime.poster.current_setting(runtime.setting_id)
-        setting_doc = load_setting(runtime.repo, setting_id)
+        # Same document the tray loop matched against (the controller's, with its aliases), unless one is named.
+        setting_doc = load_setting(runtime.repo, setting) if setting else setting_document(runtime)
         with runtime.lock:
             detections = list(runtime.detections)
             tray = runtime.tray
         result = check_tray(setting_doc, detections)
-        # No read yet, a failed read, or a read older than the controller's TRAY_STALE_S: say stale, so the
+        # No read yet, a failed read, or a read older than tray_stale_s: say stale, so the
         # controller answers "I can't check the tray" instead of "missing everything".
-        fresh = isinstance(tray, dict) and not tray.get("stale") and time.time() - float(tray.get("t") or 0) <= TRAY_STALE_S
+        age = time.time() - float(tray.get("t") or 0) if isinstance(tray, dict) else None
+        fresh = age is not None and not tray.get("stale") and age <= tray_stale_s(runtime.detector)
         result["stale"] = not fresh
         return result
 

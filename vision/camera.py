@@ -135,6 +135,8 @@ class FakeCapture:
         self.opened = True
         self.unplugged = False
         self._target_mean = 110.0
+        self.fps = 30.0  # paced like a webcam: unpaced, the grabber spun at about 38000 reads/s and a full core
+        self._next = 0.0
 
     def isOpened(self):
         return self.opened
@@ -151,6 +153,10 @@ class FakeCapture:
     def read(self):
         if self.unplugged:
             return False, None
+        now = time.monotonic()
+        if self._next > now:
+            time.sleep(self._next - now)
+        self._next = max(now, self._next) + 1.0 / self.fps
         frame = np.full((self.height, self.width, 3), int(np.clip(self.lamp, 0, 255)), dtype=np.uint8)
         auto = float(self.props.get(cv2.CAP_PROP_AUTO_EXPOSURE, 0.75))
         if not is_manual_exposure(auto):

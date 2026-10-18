@@ -28,7 +28,7 @@ Perceptron detect, per image (found = all expected items returned a box):
 - Crops: scalpel found, hemostat found, mayo scissors not found in either repeat. Scalpel was also returned for the hemostat and mayo crops.
 - Synthetic tray with all three: scalpel and hemostat found, mayo scissors not found. The scalpel box had IoU 0.0 against the pasted crop and the hemostat box IoU 0.34, so those boxes landed on the wrong part of the image (probably on the scalpel-like rod inside the hemostat crop).
 - Synthetic tray without the scalpel: hemostat found with IoU 0.996, mayo scissors not found, and a scalpel was still returned (the rod in the hemostat crop).
-- Latency per call: 1.8 to 2.5 s on crops, 3.8 to 4.7 s on the 640x480 trays. `vision/tray.py` uses a 4.0 s timeout and `GET /tray_check` treats a read older than 3 s as stale, so the larger frames sit on both limits. The first call in an earlier run took 9.6 s (cold connection).
+- Latency per call: 1.8 to 2.5 s on crops, 3.8 to 4.7 s on the 640x480 trays. These runs used the old limits (a 4.0 s timeout and a 3 s stale cutoff), so the larger frames sat on both. `vision/` now uses a 6 s timeout, uploads frames 640 px wide and treats a read as stale after 8 s. The first call in an earlier run took 9.6 s (cold connection).
 
 Gemini naming a crop (open names matched to item ids with the same alias list as vision): scalpel crop named `retractor` once and nothing once. Hemostat crop named `scalpel handle`, `hemostat` and `forceps`. Mayo crop named `surgical retractor` and `surgical blade`. It never produced "mayo scissors" and used generic names (forceps, retractor). Open naming needs a constrained list.
 
@@ -43,5 +43,5 @@ Gemini checking a tray (the prompt lists the three names, structured JSON with a
 
 Keep `vision/` as it is. Nothing here beats the current Perceptron path on evidence strong enough to change it, and the data is too thin to judge either way. Two things to check on the real overhead frames before the demo:
 
-1. Latency against the limits. On 640x480 tray images, detect took 3.8 to 4.7 s here, over the 4.0 s `timeout` in `PerceptronDetector` and the 3 s stale cutoff. If the live `python -m vision.lighting --check-api` shows the same, raise the timeout and the stale cutoff, or send a smaller frame.
+1. Latency against the limits. On 640x480 tray images, detect took 3.8 to 4.7 s here, over the old 4.0 s timeout and 3 s stale cutoff. The limits are now 6 s and 8 s, set by `VISION_DETECT_TIMEOUT_S` and `VISION_TRAY_STALE_S`. Check `detect_p50_ms` on vision `/health` with the live camera.
 2. Missing instruments. Perceptron did not return mayo scissors in any tray image. Take one real overhead photo of the full tray and one with each instrument removed, put them in a folder with `labels.json`, and rerun the bench. If Perceptron still misses, Gemini tray check (about 1.1 to 2 s, structured output, enum of item names) is the candidate second opinion for `controller/traycheck.py`. In this run it got the full tray right and the missing-scalpel case wrong, so it is not ready to replace anything.
