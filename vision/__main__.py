@@ -80,6 +80,7 @@ def main(argv: list[str] | None = None) -> None:
     args = parser.parse_args(argv)
 
     logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
+    logging.getLogger("httpx").setLevel(logging.WARNING)  # not a line per post to the controller
     fake = args.fake or os.environ.get("VISION_FAKE") == "1"
     if fake:
         capture = FakeCapture()
