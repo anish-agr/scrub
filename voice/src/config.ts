@@ -17,7 +17,9 @@ for (const k of Object.keys(keys)) if (process.env[k] === "") keys[k] = "";
 const env: Record<string, string | undefined> = { ...keys, ...process.env };  // wiring: the shell wins
 export const CONTROLLER_URL = env.CONTROLLER_URL || "http://localhost:8000";
 // The recording station (explore/station) drives the real arm by replaying averaged demos; empty = off.
-export const STATION_URL = (env.STATION_URL || "").replace(/\/$/, "");
+// Unset: found by itself on this Mac (localhost:8090, see station.ts); "off" turns the bridge off.
+export const STATION_SETTING = (env.STATION_URL || "").trim();
+export const STATION_URL = (STATION_SETTING && STATION_SETTING !== "off" ? STATION_SETTING : "http://localhost:8090").replace(/\/$/, "");
 export const VOICE_PORT = Number(env.VOICE_PORT || 3000);
 export const GEMINI_API_KEY = keys.GEMINI_API_KEY || "";
 export const GEMINI_MODEL = env.GEMINI_MODEL || "gemini-3.5-flash-lite";

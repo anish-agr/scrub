@@ -49,7 +49,7 @@ export function parseStats() {
 // Browser speech recognition mishears instrument names ("hemostat" -> "email set"); map the common ones back
 // before parsing. Only for items the current setting has.
 const MISHEARS: [RegExp, string][] = [
-  [/\b(e-?mail ?set|he ?mo ?stat|hemo ?stats?|he most at|he must at|heema ?stat|hemus ?tat)\b/gi, "hemostat"],
+  [/\b(e-?mail ?set|he ?mo ?stat|hemo ?stats?|he most at|he must at|heema ?stat|hemus ?tat|hemoglobin|hemo ?static|he mostat|hemostatic|demo ?stat|emo ?stat)\b/gi, "hemostat"],
   [/\b(scal ?pull|scalp all|scalpal|scalpels?)\b/gi, "scalpel"],
   [/\b(my oh scissors|mayo scissor)\b/gi, "mayo scissors"],
 ];

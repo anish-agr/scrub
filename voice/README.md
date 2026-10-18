@@ -134,10 +134,15 @@ Shared line: only the registered phone can text it. A judge can text Scrub after
 
 ## Real arm through the recording station (STATION_URL)
 
-With `STATION_URL=http://localhost:8090` in `.env` (the station from `explore/station/station.py`), voice also drives
+Whenever the station (`explore/station/station.py`, best started with `explore/station/run_station.sh`) answers on this Mac at `localhost:8090`, voice finds it by itself (checked every 2 s; `STATION_URL` in `.env` overrides the address, `STATION_URL=off` turns it off) and drives
 the real arm there: a handover ("get the hemostat", "scalpel please") wakes the arm and runs that instrument's
 **averaged demo replay** (`autopick` mode `average`, task = the item's `pick_instruction` in `settings/*.json`);
 "let go" / "got it" opens the jaw while it holds the item out; "stop" stops the run (the arm goes home, motors off).
 The controller still gets every command; if the controller is not running, the station alone answers
 ("Getting the hemostat."). Log lines: `[station] handover hemostat: RUN autopick ...`. Code: `src/station.ts`,
 test: `scripts/test-station.ts`. Empty `STATION_URL` turns the bridge off.
+
+Station voice words: "get the hemostat" (or any instrument name) runs its averaged replay, "stop" freezes the arm where
+it is, "continue" resumes, "return to home" homes and turns the motors off, "kill" cuts the motors, "let go" /
+"got it" opens the jaw. In station mode turns are matched locally (no Gemini, no clarifying questions, chatter
+ignored), so replies take about 20-100 ms.
