@@ -1,7 +1,7 @@
 """Every line Scrub says. Only the controller writes these (CONTRACTS: Event.say). Keep them short."""
 
 STOPPED = "Stopped."
-UNKNOWN = "Sorry, say that again?"
+UNKNOWN = "Which instrument?"  # no tray item to hint with; see unknown()
 NOT_IN_SETTING = "That's not on this tray."
 NOTHING_OUT = "Nothing's out."
 BUSY = "One moment, I've got three waiting."
@@ -33,6 +33,15 @@ def no_hand(name): return f"No hand. {cap(name)} is at the safe spot."
 def returned(name): return f"{cap(name)} back in its slot."
 def couldnt_return(name): return f"I couldn't put the {name} back."
 def auto_return(name): return f"Returning the {name}."
+
+
+def _a(word): return ("an " if word[:1] in "aeiou" else "a ") + word
+
+
+def unknown(name, word): return f"Which instrument? You can say: call the {name} {_a(word)}."  # teaching hint (X6)
+def alias_added(word, name): return f"Got it: {word} means the {name}."
+def alias_taken(word, name): return f"{cap(word)} already means the {name}."
+BAD_ALIAS = "I didn't catch the word. Say: call the hemostat a clamp."
 
 
 def count(names):
