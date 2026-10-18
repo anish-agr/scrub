@@ -8,7 +8,7 @@ from fastapi import FastAPI
 from fastapi.responses import HTMLResponse, Response, StreamingResponse
 
 from vision.service import Runtime, controls_locked, remember_clinician
-from vision.tray import categories_for, load_setting
+from vision.tray import load_setting
 from vision.tray_check import check_tray
 
 PREVIEW = """<!DOCTYPE html>
@@ -42,7 +42,7 @@ def create_app(runtime: Runtime) -> FastAPI:
         latest = runtime.grabber.latest()
         return {
             "ok": True,
-            "camera": latest is not None,
+            "camera": latest is not None and bool(getattr(runtime.grabber, "reads_ok", True)),
             "exposure_locked": controls_locked(runtime),
             "controls": runtime.controls,
         }
@@ -82,20 +82,20 @@ def create_app(runtime: Runtime) -> FastAPI:
 
     @app.get("/tray_check")
     def tray_check(setting: str | None = None):
-        """Compare the tray to the setting's item list (X3)."""
+        """Compare the last tray read to the setting. Does not call Perceptron.
+
+        A slow or failed detect stays on the tray thread and marks the state stale.
+        This request returns that state immediately.
+        """
         setting_id = setting or runtime.poster.current_setting(runtime.setting_id)
         setting_doc = load_setting(runtime.repo, setting_id)
-        latest = runtime.grabber.latest()
-        if latest is not None:
-            frame, _ = latest
-            categories = categories_for(setting_doc, runtime.include_extra_categories)
-            try:
-                detections = list(runtime.detector.detect(frame, categories))
-            except Exception:
-                detections = list(runtime.detections)
-        else:
+        with runtime.lock:
             detections = list(runtime.detections)
-        return check_tray(setting_doc, detections)
+            tray = runtime.tray
+        result = check_tray(setting_doc, detections)
+        if isinstance(tray, dict):
+            result["stale"] = bool(tray.get("stale"))
+        return result
 
     @app.get("/clips")
     def list_clips(case_id: str | None = None):
