@@ -1,0 +1,181 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Scrub Recorder</title>
+<style>
+:root{
+  --bg:#0b0d10; --panel:#161a20; --panel2:#1e242c; --line:#2c343e;
+  --text:#f2f5f8; --muted:#8c97a4;
+  --red:#ff3b3b; --amber:#ffb020; --blue:#3b9cff; --grey:#6b7480; --teal:#14c8b4; --green:#3ddc84;
+}
+*{box-sizing:border-box}
+html,body{margin:0;background:var(--bg);color:var(--text);font-family:system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;overflow-x:hidden}
+body{padding:12px;display:flex;flex-direction:column;gap:12px;min-height:100vh}
+#top{display:flex;flex-wrap:wrap;align-items:center;gap:16px;background:var(--panel);border-radius:14px;padding:14px 18px}
+#badge{display:flex;align-items:center;gap:12px;font-size:clamp(28px,4vw,52px);font-weight:900;letter-spacing:.03em;padding:6px 22px;border-radius:12px;background:var(--grey);color:#fff;white-space:nowrap}
+#badge .dot{width:.5em;height:.5em;border-radius:50%;background:#fff;display:none}
+#badge.recording{background:var(--red)} #badge.recording .dot{display:block;animation:pulse 1s infinite}
+#badge.resetting{background:var(--amber);color:#1a1200}
+#badge.saving{background:var(--blue)}
+#badge.teleop{background:var(--teal);color:#021a17}
+@keyframes pulse{0%,100%{opacity:1;transform:scale(1)}50%{opacity:.25;transform:scale(.7)}}
+#info{flex:1;min-width:220px}
+#task{font-size:clamp(22px,3vw,40px);font-weight:700;line-height:1.1}
+#ep{font-size:clamp(16px,1.8vw,24px);color:var(--muted);margin-top:4px}
+#clock{font-size:clamp(40px,6vw,84px);font-weight:900;font-variant-numeric:tabular-nums;line-height:1}
+#bar{height:12px;background:var(--panel2);border-radius:6px;overflow:hidden}
+#barfill{height:100%;width:0;background:var(--grey);transition:width .25s linear}
+#warn{display:none;background:var(--red);color:#fff;border-radius:12px;padding:12px 18px;font-size:clamp(18px,2vw,28px);font-weight:800}
+#warn div:before{content:"\26A0  "}
+#disc{display:none;background:var(--amber);color:#1a1200;border-radius:12px;padding:16px 18px;font-size:clamp(24px,3vw,40px);font-weight:900;text-align:center}
+#main{display:grid;grid-template-columns:minmax(0,2fr) minmax(280px,1fr);gap:12px;flex:1}
+#cams{display:grid;grid-template-columns:1fr 1fr;gap:12px;align-content:start}
+.cam{position:relative;aspect-ratio:4/3;background:#000;border-radius:12px;overflow:hidden;border:2px solid var(--line)}
+.cam img{width:100%;height:100%;object-fit:cover;display:block}
+.cam .ph{position:absolute;inset:0;display:none;align-items:center;justify-content:center;color:var(--muted);font-size:24px;font-weight:700}
+.cam.none img{display:none} .cam.none .ph{display:flex}
+.lbl{position:absolute;left:8px;top:8px;background:rgba(0,0,0,.7);padding:4px 12px;border-radius:8px;font-size:22px;font-weight:800}
+.chip{position:absolute;right:8px;bottom:8px;background:rgba(0,0,0,.75);padding:4px 10px;border-radius:8px;font-size:18px;font-weight:700;font-variant-numeric:tabular-nums}
+.chip.bad{background:var(--red)}
+#side{display:flex;flex-direction:column;gap:12px}
+.card{background:var(--panel);border-radius:12px;padding:12px 14px}
+.row{display:grid;grid-template-columns:130px 1fr 64px;align-items:center;gap:8px;margin:7px 0;font-size:18px}
+.row span:last-child{text-align:right;font-variant-numeric:tabular-nums;font-weight:700}
+.track{position:relative;height:16px;background:var(--panel2);border-radius:8px}
+.track:before{content:"";position:absolute;left:50%;top:0;bottom:0;width:2px;background:var(--line)}
+.fill{position:absolute;top:0;bottom:0;background:var(--blue);border-radius:8px}
+.pills{display:flex;flex-wrap:wrap;gap:8px;margin-top:10px}
+.pill{padding:6px 14px;border-radius:999px;background:var(--panel2);color:var(--muted);font-weight:800;font-size:18px}
+.pill.amber{background:var(--amber);color:#1a1200} .pill.red{background:var(--red);color:#fff} .pill.ok{color:var(--green)}
+#ds{margin-top:10px;font-size:16px;color:var(--muted);word-break:break-all}
+#btns{display:none;gap:10px;flex-wrap:wrap}
+#btns button{flex:1;min-width:120px;font:inherit;font-size:22px;font-weight:900;padding:18px 10px;border:0;border-radius:12px;color:#fff;cursor:pointer;background:var(--blue)}
+#btns button.warn{background:var(--grey)} #btns button.confirm{background:var(--red);animation:pulse .6s infinite}
+#btns small{display:block;font-size:12px;font-weight:600;opacity:.8}
+#log{flex:1;min-height:140px;max-height:300px;overflow-y:auto;background:#000;border-radius:12px;padding:10px 12px;font:14px/1.45 ui-monospace,Menlo,Consolas,monospace;color:#b8c4d0;white-space:pre-wrap}
+@media (max-width:900px){#main{grid-template-columns:1fr}#cams{grid-template-columns:1fr}}
+</style>
+</head>
+<body>
+<div id="top">
+  <div id="badge"><span class="dot"></span><span id="badgetxt">CONNECTING</span></div>
+  <div id="info"><div id="task">&nbsp;</div><div id="ep"></div></div>
+  <div id="clock">--:--</div>
+</div>
+<div id="bar"><div id="barfill"></div></div>
+<div id="disc">Disconnected &mdash; is arm_session.py running?</div>
+<div id="warn"></div>
+<div id="main">
+  <div id="cams">
+    <div class="cam" id="cam-side"><img alt=""><div class="ph">No camera</div><div class="lbl">Side</div><div class="chip">--</div></div>
+    <div class="cam" id="cam-wrist"><img alt=""><div class="ph">No camera</div><div class="lbl">Wrist</div><div class="chip">--</div></div>
+  </div>
+  <div id="side">
+    <div id="btns">
+      <button id="b-next" data-a="next">Next episode<small>&rarr;</small></button>
+      <button id="b-rerecord" class="warn" data-a="rerecord">Re-record<small>&larr;</small></button>
+      <button id="b-stop" class="warn" data-a="stop">Stop<small>Esc</small></button>
+    </div>
+    <div class="card">
+      <div id="joints"></div>
+      <div class="row"><span>Gripper</span><div class="track"><div class="fill" id="grip" style="left:0"></div></div><span id="gripv">--</span></div>
+      <div style="display:flex;justify-content:space-between;color:var(--muted);font-size:13px;margin:-4px 70px 0 138px"><span>Closed</span><span>Open</span></div>
+      <div class="pills"><span class="pill" id="guard">Claw guard: --</span><span class="pill" id="hz">Loop -- Hz</span></div>
+      <div id="ds"></div>
+    </div>
+    <div id="log"></div>
+  </div>
+</div>
+<script>
+const $=id=>document.getElementById(id);
+const JN=["shoulder_pan","shoulder_lift","elbow_flex","wrist_flex","wrist_roll"];
+JN.forEach(j=>{const r=document.createElement("div");r.className="row";
+  r.innerHTML=`<span>${j.replace("_"," ")}</span><div class="track"><div class="fill" id="j-${j}"></div></div><span id="jv-${j}">--</span>`;
+  $("joints").appendChild(r);});
+const PH={recording:["RECORDING","var(--red)"],resetting:["RESET THE TRAY","var(--amber)"],saving:["SAVING","var(--blue)"],
+  starting:["STARTING","var(--grey)"],stopped:["STOPPED","var(--grey)"],teleop:["TELEOP","var(--teal)"]};
+let st=null, offset=0, fails=0, armed=null, armTimer=null;
+
+function fmt(s){s=Math.max(0,Math.floor(s));return String(Math.floor(s/60)).padStart(2,"0")+":"+String(s%60).padStart(2,"0");}
+function tick(){
+  if(!st){return;}
+  const now=Date.now()/1000+offset;
+  if(st.phase_started!=null){
+    const el=Math.max(0,now-st.phase_started);
+    if(st.phase_s!=null){
+      const rem=st.phase_s-el; $("clock").textContent=fmt(Math.ceil(rem));
+      $("clock").style.color=rem<=5?"var(--red)":"";
+      $("barfill").style.width=Math.min(100,100*el/st.phase_s)+"%";
+    }else{$("clock").textContent=fmt(el);$("clock").style.color="";$("barfill").style.width="0";}
+  }else{$("clock").textContent="--:--";$("barfill").style.width="0";}
+}
+setInterval(tick,100);
+
+function setCam(name,s){
+  const box=$("cam-"+name), img=box.querySelector("img"), c=s.cameras&&s.cameras[name];
+  box.classList.toggle("none",!c);
+  const chip=box.querySelector(".chip");
+  if(!c){img.removeAttribute("src");img.dataset.on="";chip.textContent="--";chip.classList.remove("bad");return;}
+  if(!img.dataset.on){img.dataset.on="1";img.src="/stream/"+name+"?t="+Date.now();}
+  chip.textContent=`${Number(c.fps).toFixed(0)} fps · br ${Math.round(c.brightness)}`;
+  chip.classList.toggle("bad",c.fps<25||c.brightness<25);
+}
+["side","wrist"].forEach(n=>{const img=$("cam-"+n).querySelector("img");
+  img.addEventListener("error",()=>{if(!img.dataset.on)return;setTimeout(()=>{if(img.dataset.on)img.src="/stream/"+n+"?t="+Date.now();},2000);});});
+
+function render(s){
+  const p=PH[s.phase]||[String(s.phase).toUpperCase(),"var(--grey)"];
+  const b=$("badge"); b.className=s.phase; $("badgetxt").textContent=p[0];
+  $("barfill").style.background=p[1];
+  $("task").textContent=s.task||(s.mode==="teleop"?"Free teleoperation":"");
+  $("ep").textContent=s.mode==="record"&&s.episode!=null?`Episode ${s.episode} · ${s.session_done+1>s.session_total?s.session_total:s.session_done+1} of ${s.session_total} this session`:"";
+  const w=s.warnings||[]; $("warn").style.display=w.length?"block":"none";
+  $("warn").innerHTML=w.map(x=>`<div></div>`).join(""); [...$("warn").children].forEach((d,i)=>d.textContent=w[i]);
+  setCam("side",s); setCam("wrist",s);
+  JN.forEach(j=>{const v=(s.joints||{})[j]; if(v==null)return;
+    const f=$("j-"+j), pct=Math.max(-180,Math.min(180,v))/360*100;
+    f.style.left=(pct<0?50+pct:50)+"%"; f.style.width=Math.abs(pct)+"%"; $("jv-"+j).textContent=v.toFixed(1)+"°";});
+  if(s.gripper!=null){$("grip").style.width=Math.max(0,Math.min(100,s.gripper))+"%";$("gripv").textContent=s.gripper.toFixed(0);}
+  const g=s.guard||{}, gp=$("guard");
+  gp.textContent=g.holding?`Claw guard: holding at ${Math.round(g.at)}`:"Claw guard: free";
+  gp.className="pill"+(g.holding?" amber":"");
+  const hz=$("hz"); hz.textContent=`Loop ${s.loop_hz!=null?s.loop_hz.toFixed(1):"--"} Hz`;
+  hz.className="pill"+(s.loop_hz<27?" red":" ok");
+  const d=s.dataset; $("ds").textContent=d?`${d.episodes} episodes · ${d.frames} frames · ${d.root}`:"";
+  const L=$("log"), stick=L.scrollTop+L.clientHeight>=L.scrollHeight-30;
+  L.textContent=(s.log||[]).join("\n"); if(stick)L.scrollTop=L.scrollHeight;
+  const show=s.mode==="record"&&(s.phase==="recording"||s.phase==="resetting");
+  $("btns").style.display=show?"flex":"none";
+  if(!show)disarm();
+}
+function disarm(){armed=null;clearTimeout(armTimer);
+  [["rerecord","Re-record"],["stop","Stop"]].forEach(([a,t])=>{const b=$("b-"+a);b.classList.remove("confirm");b.firstChild.textContent=t;});}
+async function act(a){
+  if($("btns").style.display!=="flex")return;
+  if(a!=="next"){
+    if(armed!==a){disarm();armed=a;const b=$("b-"+a);b.classList.add("confirm");b.firstChild.textContent="Click again to confirm";
+      armTimer=setTimeout(disarm,3000);return;}
+    disarm();
+  }
+  try{await fetch("/control",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({action:a})});}catch(e){}
+}
+document.querySelectorAll("#btns button").forEach(b=>b.onclick=()=>act(b.dataset.a));
+document.addEventListener("keydown",e=>{
+  const m={ArrowRight:"next",ArrowLeft:"rerecord",Escape:"stop"}[e.key]; if(m){e.preventDefault();act(m);}});
+
+async function poll(){
+  try{
+    const r=await fetch("/status",{cache:"no-store"}); if(!r.ok)throw 0;
+    const s=await r.json(); st=s; fails=0;
+    offset=s.now-Date.now()/1000;
+    $("disc").style.display="none"; render(s); tick();
+  }catch(e){
+    if(++fails>=2){$("disc").style.display="block";$("badgetxt").textContent="OFFLINE";$("badge").className="";}
+  }
+}
+setInterval(poll,250); poll();
+</script>
+</body>
+</html>
