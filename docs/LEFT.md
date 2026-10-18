@@ -16,7 +16,6 @@ Evan's tasks (E1 to E7) aren't listed here; he's on them. As of 5 PM he has push
 
 | # | What | Who |
 | --- | --- | --- |
-| Q1 | `docs/BRINGUP.md`: the exact step-by-step for tonight, with commands: ports, cameras, calibration ids, taping, measuring poses, the first teleop, recording, the dataset check, training, the first live skill, calibration with Brandon, the first handoff. Each step lists what you should see and what to do if you don't | Codex |
 | Q2 | `controller/trials.py`: runs the success tests in `docs/PLAN.md` (N tries per item and lighting through the controller, logging each with `ledger.log_test`), with a prompt to the operator between tries | Codex |
 | Q3 | `docs/AUDIT.md`: read every part against `docs/CONTRACTS.md` and list mismatches and likely bugs, by owner. Done in the final verification pass | Caiden, final pass |
 | Q4 | A sim backup: a recorded full run on the MuJoCo sim arm with voice and the dashboard, in case the real arm fails at judging | Caiden, final pass |
