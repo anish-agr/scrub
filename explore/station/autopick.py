@@ -110,6 +110,33 @@ GEMINI_PROMPT = ("This is a robot's view of a surgical tray. Find the {label}: a
                  "normalized to 0-1000, of the {label} only, or {{\"box_2d\": null}} if there is none.")
 
 
+# Spend cap: every call's tokens and cost go to SPEND_FILE; at SPEND_CAP_USD Gemini is skipped (Perceptron only).
+SPEND_CAP_USD = 20.0
+SPEND_FILE = Path.home() / "scrub-logs" / "gemini-spend.jsonl"
+PRICE_PER_M = {"gemini-3.1-flash-lite": (0.25, 1.50), "gemini-3-flash-preview": (0.50, 3.00)}  # USD in / out
+_spend_lock = threading.Lock()
+
+
+def gemini_spent() -> float:
+    """Total USD recorded in SPEND_FILE (0 if none)."""
+    try:
+        return sum(json.loads(line).get("usd", 0.0) for line in SPEND_FILE.read_text().splitlines() if line.strip())
+    except FileNotFoundError:
+        return 0.0
+
+
+def _record_spend(model: str, usage: dict) -> float:
+    pin, pout = PRICE_PER_M.get(model, max(PRICE_PER_M.values()))
+    tin = usage.get("promptTokenCount", 0)
+    tout = usage.get("candidatesTokenCount", 0) + usage.get("thoughtsTokenCount", 0)  # thinking bills as output
+    usd = (tin * pin + tout * pout) / 1e6
+    with _spend_lock:
+        SPEND_FILE.parent.mkdir(parents=True, exist_ok=True)
+        with SPEND_FILE.open("a") as f:
+            f.write(json.dumps({"t": time.time(), "model": model, "in": tin, "out": tout, "usd": round(usd, 6)}) + "\n")
+    return usd
+
+
 def gemini_box(bgr, label="scalpel handle", timeout=15.0):
     """Box [x1, y1, x2, y2] (pixels) of the label from Gemini, or None. Perceptron's labels flip with the
     lighting (the handle comes back as tweezers/forceps); Gemini with a description of the handle got it
@@ -119,7 +146,7 @@ def gemini_box(bgr, label="scalpel handle", timeout=15.0):
     import requests
     from dotenv import dotenv_values
     key = dotenv_values(ROOT / ".env").get("GEMINI_API_KEY")
-    if not key:
+    if not key or gemini_spent() >= SPEND_CAP_USD:
         return None
     h, w = bgr.shape[:2]
     body = {"contents": [{"parts": [
@@ -130,6 +157,7 @@ def gemini_box(bgr, label="scalpel handle", timeout=15.0):
             r = requests.post(f"https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent",
                               headers={"x-goog-api-key": key}, json=body, timeout=timeout)
             r.raise_for_status()
+            _record_spend(model, r.json().get("usageMetadata") or {})
             out = json.loads(r.json()["candidates"][0]["content"]["parts"][-1]["text"])
             out = out[0] if isinstance(out, list) and out else out
             b = out.get("box_2d") if isinstance(out, dict) else None
