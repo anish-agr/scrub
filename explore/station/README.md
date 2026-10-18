@@ -69,10 +69,42 @@ Every saved episode is checked, and a failing one shows a big red **RE-RECORD ep
 - Run 1: hemostat, 30 to 40 episodes, about 2/3 pick: `pick the hemostat` about 24, `return the hemostat` about 12.
 - Later, same root: mayo scissors 25 to 30, scalpel 25 to 30 (`pick the scalpel`; the scalpel goes to the safe spot).
 
+## Run mode (a driver moves the arm, nothing is recorded)
+
+A driver produces the follower's action instead of the leader. It never writes to the dataset, and the station's guards, `max_relative_target=15`, KILL, Home and the cool-down all still apply. Runs start only from `idle` (motors on, following the leader).
+
+| Control (POST /control) | What it does |
+| --- | --- |
+| `{"action": "run", "driver": "replay", "args": {"episode": 7, "speed": 0.5}}` | State `running`. Refused unless idle, or if the driver or args are bad (the arm doesn't move). |
+| `{"action": "stop"}` | Ends the run, goes home, motors off. |
+| `kill` / `home` / `reconnect`, cool-down, bus error, Ctrl-C | Abort the driver first, then do what they always do. |
+| `{"action": "mark", "result": "grabbed"}` or `"missed"` | Marks the last finished run. |
+
+`GET /drivers` lists the drivers (and whether each one loads) and the replayable episodes. Every run and mark goes to `<root>-runs.jsonl`, outside the dataset. `/status` has `run` (the current or last run, with `driver_status`) and `runs`.
+
+Drivers are listed in `DRIVERS` in `station.py` (`replay` in `replay.py`, `autopick` in `autopick.py`). The interface:
+
+```python
+class Driver:
+    def __init__(self, args: dict)       # raise ValueError on bad args
+    def start(self, st) -> None          # fast (< 100 ms): runs on the 30 Hz loop; do slow work on your own thread
+    def tick(self, st, obs) -> dict | None
+        # obs = robot.get_observation(): "<motor>.pos" in degrees, camera arrays "side" / "wrist"
+        # return {"shoulder_pan.pos": deg, ..., "gripper.pos": v}; missing joints hold where they are ({} = hold)
+        # None or {"done": "home"}: glide home, motors off (parked)
+        # {"done": "off"}: torque off where it is, grip kept (state "off"; Motors on resumes, Home is refused)
+    def abort(self) -> None              # instant, never raises
+    def status(self) -> dict             # {"phase": ..., "detail": ..., "progress": 0..1} for the page
+```
+
+From the station, a driver can use `st.joints`, `st.gripper`, `st.temps()` (per motor, C), `st.fps`, `st.jpeg("side")`, `st.note(msg)` and `st.root`. A driver that raises in `tick` ends the run and the arm goes home.
+
+`replay` eases from the current pose to the episode's first frame (at most 30 deg/s, at least 1.5 s), then plays its actions at `speed` (0.1 to 1). It only grabs the object if the object is where it was in that demo. Episodes in the file LeRobot is still writing can't be replayed until the station restarts.
+
 ## Test (no hardware)
 
 ```
-.venv/bin/python -m pytest explore/station/test_station.py -q
+.venv/bin/python -m pytest explore/station/test_station.py explore/station/test_run.py -q
 ```
 
 The test uses a fake follower, leader and cameras, writes to a temp dataset, and sends telemetry to a temp folder with MongoDB off. It also checks the task rules (startup `--task` refusal, Set task refusal, `--any-task` warning), the quick and video QA flags on small synthetic videos, the QA banner and `qa_ack`, per-task counts, and `use_degrees`/`task` in the cadence file. It runs the HTTP API on port 8197 and covers start, save, discard, kill, wake, home, park, the cool-down lock, the Enter toggle, a camera going down, a bus loss followed by Reconnect, a refused remote POST and discard-on-exit. It then checks that the saved episodes load back with `LeRobotDataset` and that resuming the dataset appends a third episode.

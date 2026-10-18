@@ -114,7 +114,7 @@ button.big:disabled{opacity:.3;cursor:default}
 <script>
 const $=id=>document.getElementById(id);
 const M=["shoulder_pan","shoulder_lift","elbow_flex","wrist_flex","wrist_roll","gripper"];
-const LABEL={idle:"TELEOP",recording:"RECORDING",homing:"GOING HOME",parked:"PARKED",cooling:"COOLING",killed:"KILLED",error:"ERROR",off:"MOTORS OFF"};
+const LABEL={idle:"TELEOP",recording:"RECORDING",homing:"GOING HOME",parked:"PARKED",cooling:"COOLING",killed:"KILLED",error:"ERROR",off:"MOTORS OFF",running:"RUNNING"};
 let st=null, fails=0, taskDirty=false;
 const fmt=s=>{s=Math.max(0,Math.floor(s));return String(Math.floor(s/60)).padStart(2,"0")+":"+String(s%60).padStart(2,"0");};
 async function send(action,extra){

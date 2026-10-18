@@ -31,7 +31,7 @@ from urllib.parse import urlsplit
 
 HERE = Path(__file__).resolve().parent
 EXPLORE = HERE.parent
-for p in (str(EXPLORE.parent), str(EXPLORE)):
+for p in (str(EXPLORE.parent), str(EXPLORE), str(HERE)):
     if p not in sys.path:
         sys.path.insert(0, p)
 
@@ -45,6 +45,9 @@ COOL_TRIP, COOL_RESUME, TEMP_WARN = 60, 50, 55   # deg C
 COOL_PLATEAU_S = 180                             # cooled but stuck <= 55 C this long: done anyway
 ERROR_AFTER = 10                                 # consecutive failed loops before the state is "error"
 HTML = HERE / "station.html"
+# Run mode: a driver moves the follower instead of the leader (never recorded). "module:Class", loaded lazily
+# so a driver file that is missing or broken only hides that driver. Interface: replay.py's docstring.
+DRIVERS = {"replay": "replay:Replay", "autopick": "autopick:AutoPick"}
 LOCAL = ("127.0.0.1", "::1", "::ffff:127.0.0.1")
 USE_DEGREES = True                               # follower and leader; cadence entries record what the configs say
 MIN_CAM_FPS = 29.0                               # a camera under this in an episode: re-record it
@@ -355,6 +358,28 @@ def _rate(ticks) -> float | None:
     return round((len(t) - 1) / (t[-1] - t[0]), 1) if len(t) > 2 and t[-1] > t[0] else None
 
 
+def load_driver(name: str):
+    """The driver class for a DRIVERS name (ImportError/AttributeError if it is missing or broken)."""
+    import importlib
+    if name not in DRIVERS:
+        raise KeyError(f"unknown driver {name!r}")
+    if str(HERE) not in sys.path:
+        sys.path.insert(0, str(HERE))
+    mod, cls = DRIVERS[name].split(":")
+    return getattr(importlib.import_module(mod), cls)
+
+
+def drivers() -> list[dict]:
+    out = []
+    for name in DRIVERS:
+        try:
+            load_driver(name)
+            out.append({"name": name, "ok": True})
+        except Exception as e:  # noqa: BLE001
+            out.append({"name": name, "ok": False, "error": f"{type(e).__name__}: {str(e)[:120]}"})
+    return out
+
+
 # ---------------------------------------------------------------------------------------------- station
 
 class Station:
@@ -416,6 +441,10 @@ class Station:
         self.save_thread = None
         self._jpeg: dict = {}
         self.closed = False
+        self.auto = None                         # the Run-mode driver while state == "running"
+        self.auto_run: dict = {}                 # the current or last run: driver, args, started, result
+        self.runs: list = []                     # finished runs this session (newest last)
+        self.held_off = False                    # a driver ended with torque off in place (state "off")
         arm_ui.S.update(phase="teleop", parked=False, motors={}, park_req=None)
         arm_ui.S.pop("park_req", None)
         self._install_hooks()
@@ -576,27 +605,39 @@ class Station:
             pass
 
     # ---- controls
-    def control(self, action: str, task: str | None = None, timeout: float = 3.0) -> dict:
+    def control(self, action: str, task: str | None = None, timeout: float = 3.0, payload: dict | None = None) -> dict:
         """Thread-safe: runs on the loop thread (immediately if the loop isn't running)."""
         loop_alive = self.loop_thread is not None and self.loop_thread.is_alive()
         if not loop_alive or threading.current_thread() is self.loop_thread:
-            return self._do(action, task)
+            return self._do(action, task, payload)
         if action == "kill" and time.perf_counter() - self.beat > 0.3:
             self._kill_now()                     # the loop is stuck (a hung read): cut torque from here
         done, out = threading.Event(), {}
-        self.q.put((action, task, done, out))
+        self.q.put((action, task, payload, done, out))
         if not done.wait(timeout):
             return {"ok": False, "msg": "station busy, try again", "state": self.state}
         return out
 
-    def _do(self, action: str, task=None) -> dict:
-        ok, msg = self._dispatch(action, task)
+    def _do(self, action: str, task=None, payload=None) -> dict:
+        ok, msg = self._dispatch(action, task, payload or {})
         if msg:
             self.note(msg)
         self.event("control", action=action, accepted=bool(ok), state=self.state, msg=msg)
         return {"ok": bool(ok), "msg": msg, "state": self.state}
 
-    def _dispatch(self, action: str, task):
+    def _dispatch(self, action: str, task, payload=None):
+        payload = payload or {}
+        if action in ("kill", "home", "reconnect") and self.auto is not None:
+            self._auto_abort(action)
+        if action == "run":
+            return self._run(str(payload.get("driver") or ""), payload.get("args") or {})
+        if action == "stop":
+            if self.auto is None:
+                return False, "stop: nothing is running"
+            self._auto_finish("stopped", then="home")
+            return True, "run stopped: going home, then motors off"
+        if action == "mark":
+            return self._mark(payload.get("result"))
         if action == "toggle":
             if self.state == "recording":
                 action = "save"
@@ -621,7 +662,7 @@ class Station:
         if action == "home":
             if self.state == "recording":
                 return False, "home: not while recording (save or discard first)"
-            if self.state in ("killed", "error") or self.killed:
+            if self.state in ("killed", "error", "off") or self.killed:
                 return False, f"home: motors are off ({self.state}); press Motors on first"
             if self.state in ("cooling", "parked", "homing"):
                 return False, f"home: already {self.state}"
@@ -786,12 +827,12 @@ class Station:
             return False, "motors on: cooling down first (see temperatures)"
         if self.state == "error":
             return False, "motors on: press Reconnect first"
-        if self.state == "killed" or self.killed:
+        if self.state in ("killed", "off") or self.killed:
             try:
                 A.hardware.wake(self.robot.bus)  # Goal = Present (raw), then torque on: nothing moves
             except Exception as e:  # noqa: BLE001
                 return False, f"motors on failed ({type(e).__name__}: {e})"
-            self.killed = False
+            self.killed = self.held_off = False
             arm_ui.S["park_req"] = "wake"        # resets the guard's park state; big gaps catch up slowly
             self.state = "idle"
             return True, "motors on: holding, then following the leader"
@@ -816,25 +857,113 @@ class Station:
         self.state = "idle"
         return True, "reconnected: following the leader"
 
+    # ---- Run mode: a driver produces the follower's action instead of the leader; nothing is recorded
+    def _run(self, name: str, args: dict):
+        if self.auto is not None:
+            return False, f"run: {self.auto_run.get('driver')} is already running"
+        if self.state != "idle":
+            return False, f"run: not while {self.state}" + (" (press Motors on)" if self.state in ("parked", "off") else "")
+        try:
+            drv = load_driver(name)(args)
+            drv.start(self)
+        except Exception as e:  # noqa: BLE001 - a bad driver or bad args never moves the arm
+            return False, f"run {name}: {type(e).__name__}: {str(e)[:160]}"
+        self.auto = drv
+        self.auto_run = {"id": int(time.time() * 1000), "driver": name, "args": dict(args),
+                         "started": time.strftime("%H:%M:%S"), "t0": time.perf_counter(), "result": None}
+        self.state = "running"
+        self.event("run_start", driver=name, args=args)
+        return True, f"RUN {name} {json.dumps(args)}: KILL (Esc) or Stop at any time"
+
+    def _auto_step(self, obs: dict) -> dict:
+        """The action to send this tick. Missing joints hold where they are; a driver error goes home."""
+        hold = {k: float(v) for k, v in obs.items() if k.endswith(".pos")}
+        try:
+            a = self.auto.tick(self, obs)
+        except Exception as e:  # noqa: BLE001
+            self._auto_finish(f"error: {type(e).__name__}: {str(e)[:120]}", then="home")
+            return hold
+        if a is None or (isinstance(a, dict) and "done" in a):
+            self._auto_finish("done", then="off" if isinstance(a, dict) and a.get("done") == "off" else "home")
+            return hold
+        return {**hold, **{k: float(v) for k, v in a.items() if k in hold}}
+
+    def _auto_end(self, result: str, then: str) -> None:
+        drv, self.auto = self.auto, None
+        try:
+            drv.abort()
+        except Exception:  # noqa: BLE001
+            pass
+        run = {k: v for k, v in self.auto_run.items() if k != "t0"}
+        run.update(result=result, then=then, mark=None,
+                   seconds=round(time.perf_counter() - self.auto_run.get("t0", time.perf_counter()), 1))
+        self.auto_run = run
+        self.runs = (self.runs + [run])[-50:]
+        self._append_run(run)
+        self.event("run_end", **{k: run[k] for k in ("driver", "args", "result", "then", "seconds")})
+        self.note(f"run {run['driver']} ended: {result} after {run['seconds']} s")
+
+    def _auto_finish(self, result: str, then: str = "home") -> None:
+        """then="home": glide home, motors off (parked). then="off": torque off where it is, grip kept."""
+        self._auto_end(result, then)
+        if then == "off":
+            self.held_off = self.killed = True
+            broadcast_torque_off(self.robot.bus)
+            try:
+                self.robot.bus.disable_torque()
+            except Exception:  # noqa: BLE001
+                broadcast_torque_off(self.robot.bus)
+            self.state = "off"
+            self.note("motors off in place (holding pose and grip until it sags). Motors on resumes")
+        else:
+            arm_ui.S["park_req"] = "home"
+            self.state = "homing"
+
+    def _auto_abort(self, reason: str) -> None:
+        if self.auto is None:
+            return
+        self._auto_end(f"aborted: {reason}", "none")
+        if self.state == "running":
+            self.state = "idle"
+
+    def _mark(self, result):
+        if result not in ("grabbed", "missed"):
+            return False, "mark: grabbed or missed"
+        if not self.runs:
+            return False, "mark: no finished run yet"
+        self.runs[-1]["mark"] = result
+        self._append_run({"id": self.runs[-1]["id"], "mark": result})
+        return True, f"run marked {result}"
+
+    def _append_run(self, row: dict) -> None:
+        """<root>-runs.jsonl: every run and mark (outside the dataset), for success rates."""
+        try:
+            with open(f"{self.root}-runs.jsonl", "a") as f:
+                f.write(json.dumps(row, default=str) + "\n")
+        except OSError:
+            pass
+
     # ---- the loop
     def sending(self) -> bool:
-        return not self.killed and self.state not in ("killed", "error")
+        return not self.killed and self.state not in ("killed", "error", "off")
 
     def tick(self) -> None:
         self.beat = now = time.perf_counter()
         while True:
             try:
-                action, task, done, out = self.q.get_nowait()
+                action, task, payload, done, out = self.q.get_nowait()
             except queue.Empty:
                 break
-            out.update(self._do(action, task))
+            out.update(self._do(action, task, payload))
             done.set()
         if self.state == "error":
             return
         arm_ui.S["phase"] = "recording" if self.state == "recording" else "teleop"
         try:
             obs = self.robot.get_observation()
-            act = self.teleop.get_action()
+            act = self.teleop.get_action()          # read even while running: keeps the leader bus alive
+            if self.state == "running" and self.auto is not None:
+                act = self._auto_step(obs)
             obs_p = self.oproc(obs)
             act_p = self.tproc((act, obs))
             if self.sending():
@@ -847,6 +976,7 @@ class Station:
             if self.fail >= ERROR_AFTER:
                 self.error = f"arm or leader not answering ({type(e).__name__}): check USB/power, then Reconnect"
                 self._discard("error")
+                self._auto_abort("error")
                 self.state = "error"
                 self.event("station_error", error=f"{type(e).__name__}: {str(e)[:200]}")
             return
@@ -899,7 +1029,7 @@ class Station:
     def _thermal(self, now: float) -> None:
         # The guard reads temperatures every 2 s while it drives the arm. Parked or killed it doesn't
         # publish them, so read them here and keep the temperature site fed.
-        own = self.state in ("parked", "killed", "cooling") or self.killed or bool(arm_ui.S.get("parked"))
+        own = self.state in ("parked", "killed", "cooling", "off") or self.killed or bool(arm_ui.S.get("parked"))
         if own and now - self.temp_t >= 2.0:
             self.temp_t = now
             try:
@@ -920,6 +1050,7 @@ class Station:
         thermal_log.track_temps(self.temps())
         if self.cooling is None and hottest >= COOL_TRIP:
             self._discard("cooldown")
+            self._auto_abort("cooldown")
             self.cooling, self.cool_since = self.cooling_factory(), time.time()
             self.event("cooldown_trip", temps=self.temps(), hottest=hottest)
             if not self.killed and not arm_ui.S.get("parked"):
@@ -929,7 +1060,8 @@ class Station:
         elif self.cooling is not None and self.cooling.done(hottest):
             self.cooling = None
             self.event("cooldown_done", hottest=hottest, minutes=round((time.time() - self.cool_since) / 60, 1))
-            self.state = "killed" if self.killed else ("parked" if arm_ui.S.get("parked") else "idle")
+            self.state = ("off" if self.held_off else "killed" if self.killed
+                          else "parked" if arm_ui.S.get("parked") else "idle")
             self.note(f"cooled to {hottest} C: press Motors on to continue")
 
     def run(self) -> None:
@@ -963,6 +1095,7 @@ class Station:
         self.stop()
         self.loop_thread = None                  # controls now run inline
         self._discard("exit")
+        self._auto_abort("exit")
         if self.save_thread is not None:
             self.save_thread.join(timeout=120)
         try:
@@ -1006,7 +1139,7 @@ class Station:
         hz = _rate(self.loop_ticks)
         rec = self.state == "recording"
         warn = []
-        if self.state == "killed" or self.killed:
+        if self.state == "killed" or (self.killed and not self.held_off):
             warn.append("KILLED: motors are off. If the arm was raised it dropped. Motors on resumes.")
         if self.state == "error":
             warn.append(f"ERROR: {self.error}")
@@ -1049,7 +1182,20 @@ class Station:
                 "last_qa": qa[-1] if qa else None,
                 "rerecord": [f"RE-RECORD episode {r['episode']}: {'; '.join(r['reasons'])}" for r in qa
                              if r["status"] == "FAIL" and not r["acked"]],
+                "run": self._run_status(), "runs": self.runs[-20:],
                 "log": list(self.log), "now": time.time()}
+
+    def _run_status(self) -> dict | None:
+        if not self.auto_run:
+            return None
+        run = {k: v for k, v in self.auto_run.items() if k != "t0"}
+        if self.auto is not None:
+            run["seconds"] = round(time.perf_counter() - self.auto_run["t0"], 1)
+            try:
+                run["driver_status"] = self.auto.status()
+            except Exception as e:  # noqa: BLE001
+                run["driver_status"] = {"phase": "?", "detail": f"status failed: {type(e).__name__}"}
+        return run
 
     def jpeg(self, name: str):
         import cv2
@@ -1089,6 +1235,13 @@ def make_handler(st: Station):
                 self._send(200, HTML.read_bytes(), "text/html; charset=utf-8")
             elif path == "/status":
                 self._send(200, json.dumps(st.status(), default=str).encode(), "application/json")
+            elif path == "/drivers":
+                try:
+                    import replay
+                    eps = replay.episodes(st.root)
+                except Exception:  # noqa: BLE001
+                    eps = []
+                self._send(200, json.dumps({"drivers": drivers(), "episodes": eps}).encode(), "application/json")
             elif path.startswith("/stream/"):
                 self._stream(path.rsplit("/", 1)[-1])
             elif path.startswith("/frame/") and path.endswith(".jpg"):
@@ -1109,7 +1262,8 @@ def make_handler(st: Station):
                 body = json.loads(self.rfile.read(n) or b"{}")
             except ValueError:
                 body = {}
-            out = st.control(str(body.get("action", "")), body.get("task"))
+            out = st.control(str(body.get("action", "")), body.get("task"),
+                             payload={k: body[k] for k in ("driver", "args", "result") if k in body})
             self._send(200, json.dumps(out).encode(), "application/json")
 
         def _stream(self, name: str):
