@@ -34,7 +34,7 @@ counts, logs each batch, and gates both training submissions on real evidence.
 | Bench | wire cutters | 15 | 10 |
 | Bench | hex key | 15 | 10 |
 
-Split each row across bright (lamp on, close), normal (room lights) and dim (some lights off). Move the item a little in its slot between episodes. Log every batch in `docs/DATA-LOG.md`.
+Split each row across bright (lamp on, close), normal (room lights) and dim (some lights off). Move the item a little in its slot between episodes. Every batch gets a row in `docs/DATA-LOG.md` (`python -m arm.record` writes it).
 
 ## Two people per session
 
@@ -43,10 +43,13 @@ Split each row across bright (lamp on, close), normal (room lights) and dim (som
 
 ## Steps
 
-1. **Record** the operating room rows (`docs/BRINGUP.md` section 6). About 90 episodes, about 1.5 hours.
+0. **Check the setup:** `python -m arm.check_setup --side C920 --wrist icspring` (Windows: `--side 0 --wrist 1`). Both arm ports, both cameras at 640x480 and about 30 fps, then a PASS line. Look at the saved test frames.
+1. **Record** the operating room rows, one batch per instruction and lighting (`docs/BRINGUP.md` section 6). About 90 episodes, about 1.5 hours:
+   `python -m arm.record --setting surgical --item hemostat --direction hand-out --lighting bright --episodes 5`
+   (or `--task "return the hemostat"`; add `--print-only` to see the exact command first, and `--lerobot --follower <port> --leader <port> --side 0 --wrist 1` on the Windows laptop). It keeps one dataset (`<HF_USER>/scrub`, `~/scrub-dataset`, resumed automatically) and writes the batch's row in `docs/DATA-LOG.md`.
 2. **Check** (section 7): replay episode 0 on the arm, then `python -m arm.train pipeline <dataset folder> --cadence-report <file> --check-only`. Fix anything it flags.
 3. **Run 1** (section 8): `python -m arm.train pipeline ... --idempotency-key scrub-run-1 ...`. It uploads, waits for Perceptron's check, trains, and writes `PERCEPTRON_DEPLOYMENT_ID` into `.env` when the model is ready.
-4. **While run 1 trains:** record the bench rows into the same dataset, and practice the pitch.
+4. **While run 1 trains:** record the bench rows into the same dataset (`python -m arm.record --setting bench --item hex_key --direction hand-out --lighting normal --episodes 5`, and so on), and practice the pitch.
 5. **Test run 1:** `python -m controller --real-arm`, then ask for the hemostat. Any item that fails a lot gets 10 more episodes.
 6. **Run 2:** same pipeline command with `--idempotency-key scrub-run-2`, on the whole dataset.
 7. **Success tests:** `python -m controller.trials` logs every try to the tables.

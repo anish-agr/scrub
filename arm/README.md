@@ -163,6 +163,39 @@ Test: `python -m unittest arm.test_prepare -v` (11 tests, fake sessions, no key)
 Caiden can call the optional hook when settings change via `getattr`; no
 `controller/` or `docs/CONTRACTS.md` edits were made here.
 
+## Recording (L6): check_setup and record
+
+```text
+python -m arm.check_setup --side C920 --wrist icspring          # Mac; Windows: --side 0 --wrist 1
+python -m arm.check_setup --json --out ~/scrub-setup-check/now  # machine output, frames to a folder
+python -m arm.record --task "pick the hemostat" --lighting bright --episodes 5 --print-only
+python -m arm.record --setting surgical --item hemostat --direction put-back --lighting dim --episodes 5
+python -m arm.record --lerobot --follower COM5 --leader COM6 --side 0 --wrist 1 --task "pick the hex key" --lighting normal
+python -m unittest arm.test_record -v
+```
+
+`check_setup` lists serial ports without opening them (motors untouched), opens
+every camera at 640x480 at 30 fps, measures the real fps over 2 s (PASS needs
+640x480 and at least 28 fps), saves one frame each outside the repo, and exits 1
+on any failure. Cameras are matched by name on macOS (AVFoundation, OpenCV's
+order) and on Windows when `pygrabber` is installed; otherwise pass indexes.
+Missing `opencv-python` or `pyserial` is reported in the table, not a crash.
+
+`record` fixes use_degrees=true, 30 fps, 25 s episodes, 10 s reset, repo
+`<HF_USER>/scrub` (`--hf-user`, `HF_USER`, or `huggingface_hub.whoami` on
+`HF_TOKEN`) and root `~/scrub-dataset` (resumed when `meta/info.json` exists; a
+folder without it is refused). Task text must be an exact instruction from
+`settings/surgical.json` or `settings/bench.json`; dental is not recorded. After
+the batch it appends one `docs/DATA-LOG.md` row through `ledger.logbook.log_batch`
+(same line as `python -m ledger log`), with the episodes actually saved and the
+batch's loop rate from `<root>-cadence.json`. The default backend runs
+`explore/arm_session.py` as a subprocess (the recorder that works on the Mac);
+`--lerobot` runs the plain BRINGUP section 6 `lerobot-record` (local unless
+`--push`). arm_session has no use_degrees flag: it relies on LeRobot's SO-101
+default (true in the installed LeRobot), and `record` refuses to start if that
+default is ever false. `SCRUB_FOLLOWER_PORT`, `SCRUB_LEADER_PORT`,
+`SCRUB_SIDE_CAMERA` and `SCRUB_WRIST_CAMERA` set the defaults.
+
 ## Before hardware
 
 ### Hand-guided teaching (R2)
