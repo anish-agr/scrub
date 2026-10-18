@@ -2,7 +2,7 @@
 
 Surgical first. The operating room tray (scalpel handle, hemostat, Mayo scissors) is the demo. The robotics bench tray (needle-nose pliers, wire cutters, hex key) comes second, to show a new setting needs new demonstrations and a settings file, not new code.
 
-The words to say are in `docs/PITCH.md`. This file is who stands where, what each person does, and what to do when something fails. The beat times match the demo console at `http://localhost:8000/demo`.
+The words to say are in `team/PITCH.md`. This file is who stands where, what each person does, and what to do when something fails. The beat times match the demo console at `http://localhost:8000/demo`.
 
 Numbers: say a success rate or a time only once it is on the dashboard. Until then it is `[measured]` and you skip the sentence.
 
@@ -10,7 +10,7 @@ Numbers: say a success rate or a time only once it is on the dashboard. Until th
 
 We start the day on level 1 and drop a level only on a trigger below. Every level labels where each pick came from (`model` or `taught`) on the dashboard and in the voice reply. The Perceptron claim is made only at level 1, and only for the items that passed their real tries.
 
-Flag check on Oct 18 00:55: `controller.run_all --help` lists `--arm {fake,sim,real}`, `--vision`, `--tunnel`, `--ledger`, `--judge`, `--offline`, `--loop`, `--pause` and the `reset`, `backup`, `check` modes. `python -m controller --help` lists `--fake-arm`, `--real-arm`, `--sim-arm`, `--judge` and `--setting`. Neither lists `--skills` yet (Phase 4 adds it). Run `.venv/bin/python -m controller.run_all --help | grep skills` before judging. If it prints nothing, use the long form under each level.
+Flag check on Oct 18 1:55: `controller.run_all --help` and `python -m controller --help` both list `--skills {model,taught,auto}`. `run_all --real` is the judging preset (`--arm real --vision real --ledger --judge --skills auto`, plus the tunnel and the ElevenLabs agent update).
 
 ### Level 1: live real arm, model where it passed, taught for the rest
 
@@ -112,7 +112,7 @@ Commands run from the repo root on Caiden's Mac.
 7. Dashboard `http://localhost:8000/` on the screen facing the judge. Tablet view `/tablet.html` across the room if there is space.
 8. Demo console `http://localhost:8000/demo` on the laptop. Press `1` (surgical), then `R` (reset and clear the count). The preflight row should be all "ok".
 9. Brandon calls the Photon number on speaker. Volume up. Second phone or the laptop mic next to it if we are filming. Say "check the tray". Scrub should answer that the tray is ready. Then one test: "hemostat", take it, put it back.
-10. Bench tray within Evan's reach. Backup video open on the laptop. Slides open (`docs/SLIDES.md`).
+10. Bench tray within Evan's reach. Backup video open on the laptop. Slides open (`team/SLIDES.md`).
 
 ## The 3-minute run
 
@@ -128,7 +128,7 @@ The console's run clock starts when Caiden presses Enter on "This is Scrub". Eac
 | 1:40 | Evan turns the lamp on and speaks. Caiden presses `L` (bright). Brandon asks for any instrument | Glare on the steel. The handoff still works. Evan points at the lighting table | The live table by lighting | A miss in glare: it retries once. Evan: "This is why we test bright, normal and dim." Lamp off. Do not say a rate that is not on the table |
 | 2:00 | Evan: lamp off, swap to the bench tray. Caiden: `L` back to normal, then `2` once the tray is down. Brandon: "Needle-nose pliers." Anish speaks | The pliers arrive | The dashboard shows the robotics bench tray | `2` refused: the arm is busy. Wait for idle and press `2` again. Still failing: show the bench row of the table and say it in words. Never fake it |
 | 2:30 | Brandon: "Count." Then "End of case." Caiden, then Anish | Scrub reads what is out. The summary text arrives on Brandon's phone | The count read aloud, the text on the phone | No text: Caiden runs `curl -XPOST localhost:3000/summary`. Still none: show the case page on the dashboard. Count looks wrong: "The camera also checks the count," and move on |
-| 3:00 | Anish | "Questions?" | | Answers by area, see `docs/QNA.md` |
+| 3:00 | Anish | "Questions?" | | Answers by area, see `team/QNA.md` |
 
 ## The 60-second version
 

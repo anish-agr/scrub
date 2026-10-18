@@ -10,7 +10,7 @@ The service allows **2 successful training jobs** per team. A dataset that fails
 
 `explore/arm_ui.py` lines 196-218 write `camera_fps` for each camera and only print `slow camera` when a camera is under 29 Hz. `arm/dataset_check.py` lines 87-96 read `measured_fps` (the motor loop) and never read `camera_fps`.
 
-The workshop validator cannot see this. Timestamps are frame index / 30, so a 23 Hz camera still claims 30 fps (`explore/research/isaac-workshop-notes.md` line 28). `docs/HARDWARE-TODO.md` line 11 already measured the wrist camera at 22.6 fps. That dataset would pass `python -m arm.train pipeline ... --check-only` and can still be trained.
+The workshop validator cannot see this. Timestamps are frame index / 30, so a 23 Hz camera still claims 30 fps (`explore/research/isaac-workshop-notes.md` line 28). `team/LEFT.md` line 11 already measured the wrist camera at 22.6 fps. That dataset would pass `python -m arm.train pipeline ... --check-only` and can still be trained.
 
 A temporary synthetic set passed `local_check`: loop `measured_fps` 30.0, `camera_fps.wrist` 22.6, no video files.
 
@@ -51,7 +51,7 @@ The recorders do set the flag: `explore/arm_session.py` lines 1229 and 1234, and
 
 ### 5. Team key is blank, so quota was not read
 
-`PERCEPTRON_TEAM_API_KEY` is present in the worktree `.env` (copied from the repo `.env`) and the value length is 0. No request was sent. `docs/HARDWARE-TODO.md` line 23 records an earlier `Perceptron HTTP 401` when a key was set. This run did not repeat that call.
+`PERCEPTRON_TEAM_API_KEY` is present in the worktree `.env` (copied from the repo `.env`) and the value length is 0. No request was sent. `team/LEFT.md` line 23 records an earlier `Perceptron HTTP 401` when a key was set. This run did not repeat that call.
 
 `arm/pipeline.py` lines 109-120 fetch `GET /v1/capabilities` and still `POST /v1/jobs` without reading modes, horizons, or remaining successful jobs.
 
@@ -139,11 +139,11 @@ Run this on the Mac, from the repo root, before either training job. Stop when a
 5. Cameras are named `side` and `wrist`, 640x480. Open `<root>-cadence.json`. Every episode needs `measured_fps` in 29..31 and `camera_fps.side` and `camera_fps.wrist` at least 29. A `slow camera` line means re-record. Do not write this file by hand. `arm.record --lerobot` does not write it.
 6. Both video files exist under the dataset. `python -m explore.dataset.qa --root ~/scrub-dataset --out ~/qa.html` shows zero FAIL (dark, frozen, or repeated frames included). Replay episode 0 on the follower with `--robot.use_degrees=true` before either run.
 7. Count episodes per exact instruction. The service splits about 90/10 by whole episode, stratified by task, and fails a dataset that is too small to split. Give every instruction in this run at least 10 episodes. `local_check` currently accepts 2 episodes total, which is not enough. Run 1 is the operating-room strings. Run 2 appends the bench strings to the same dataset.
-8. One calibration (`scrub_follower`, `scrub_leader`) and the cameras stay taped for the whole repo. Append with the recorder's `--resume=true`. Counts to hit before run 2: surgical 20 pick and 10 return per item, bench 15 pick and 10 return per item (`docs/TRAINING.md`). `docs/HARDWARE-TODO.md` line 25 is stale; `docs/DATA-LOG.md` already matches TRAINING.md.
+8. One calibration (`scrub_follower`, `scrub_leader`) and the cameras stay taped for the whole repo. Append with the recorder's `--resume=true`. Counts to hit before run 2: surgical 20 pick and 10 return per item, bench 15 pick and 10 return per item (`docs/TRAINING.md`). `team/LEFT.md` line 25 is stale; `docs/DATA-LOG.md` already matches TRAINING.md.
 9. Push that folder. Pass `--revision` as the new commit SHA. Pass `--confirmed-hf-matches-local` only after that SHA is the folder you checked.
 10. Check first: `python -m arm.train pipeline ~/scrub-dataset --cadence-report ~/scrub-dataset-cadence.json --check-only`. Then the real run with `--repo-id <HF_USER>/scrub --revision <SHA> --idempotency-key scrub-run-1 --confirmed-replay --confirmed-hf-matches-local`. Run 2 uses `scrub-run-2` on the same repo. Use `standard`, `expert_only`, horizon 30, RTC on, 1000 steps. Do not use `python -m arm.train train`.
 11. If the command dies after the POST, run it again with the same key and the same JSON. A changed body returns 409. A new key can spend the other job. Wait until the dataset state is `ready` and `/validation` has no errors. A failed dataset means a new dataset id, not a training job.
-12. After a deployment is `ready`, `python -m arm.train contract <id>`. Pin `contract_id` in `arm/rig.json` only when it shows six joints in the contract order, degrees, gripper 0..100, cameras `side` and `wrist`, horizon 30, 30 Hz, RTC delay 12. Leave `hardware_verified` false until the Mac measurements in `docs/HARDWARE-TODO.md` are done.
+12. After a deployment is `ready`, `python -m arm.train contract <id>`. Pin `contract_id` in `arm/rig.json` only when it shows six joints in the contract order, degrees, gripper 0..100, cameras `side` and `wrist`, horizon 30, 30 Hz, RTC delay 12. Leave `hardware_verified` false until the Mac measurements in `team/LEFT.md` are done.
 
 ## GET results
 
@@ -156,7 +156,7 @@ No HTTP call was made.
 | `GET /v1/datasets` | Not sent. The saved OpenAPI has no list route, only `GET /v1/datasets/{id}`. |
 | `GET /v1/jobs` | Not sent. Jobs unknown. |
 | `GET /v1/deployments` | Not sent. Deployments unknown. |
-| 401 | Not observed this run. An earlier note in `docs/HARDWARE-TODO.md` line 23 says a previous key was rejected with `Perceptron HTTP 401`. |
+| 401 | Not observed this run. An earlier note in `team/LEFT.md` line 23 says a previous key was rejected with `Perceptron HTTP 401`. |
 
 ## arm/ tests
 
@@ -173,7 +173,7 @@ The 10 tests in `arm/test_pipeline.py` did not run until `pyarrow` was installed
 
 ## Cannot be checked without the Mac
 
-- `~/scrub-dataset` is not on this PC. `docs/HARDWARE-TODO.md` says it does not exist yet, and the only local sets are the two 4-episode backups, which are not the training set. No real `meta/info.json`, videos, or `<root>-cadence.json` was read.
+- `~/scrub-dataset` is not on this PC. `team/LEFT.md` says it does not exist yet, and the only local sets are the two 4-episode backups, which are not the training set. No real `meta/info.json`, videos, or `<root>-cadence.json` was read.
 - Whether the wrist camera still runs at 22.6 fps, whether the C920 is visible, and whether a saved frame is bright.
 - Whether the follower calibration from 21:49 still matches the bus, and whether `shoulder_lift` rest is still about -104 deg.
 - `lerobot-replay` of episode 0, `explore/dataset/qa.py` on a real folder, and `aim.py` (`ps` is macOS-only).

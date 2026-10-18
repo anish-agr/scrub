@@ -8,7 +8,7 @@ Files land in `arm/skills/<setting>/<item>-<direction>.json`, for example `arm/s
 
 ## Before you start
 
-1. `home` and `carry` are already taught in `arm/rig.json` (`docs/HARDWARE-TODO.md` step 5).
+1. `home` and `carry` are already taught in `arm/rig.json` (`team/LEFT.md` step 5).
 2. The tray is taped and the instrument sits in its slot.
 3. Nothing else has the arm port open: close the controller, teleop and any recording.
 4. The follower arm is powered (12 V supply on, LEDs lit).

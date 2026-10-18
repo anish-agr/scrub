@@ -1,12 +1,12 @@
 # Backup slides
 
-Owner: Caiden. Five slides in Google Slides. Shown only if the arm fails at judging, and used as title cards in the video. The story, numbers and names match `docs/PITCH.md`. Sources for every number are in the Sources table there.
+Owner: Caiden. Five slides in Google Slides. Shown only if the arm fails at judging, and used as title cards in the video. The story, numbers and names match `team/PITCH.md`. Sources for every number are in the Sources table there.
 
 Fill `[measured]` from `GET /stats` and the dashboard tables on Sunday morning. If a number is not there yet, delete the line instead of leaving the bracket on a slide.
 
 ## Which level
 
-These slides match level 1 of `docs/DEMO.md` (live real arm, model where it passed, taught for the rest). Level 2: change the "Perceptron Isaac" bullet on slide 3 to "taught skills, labeled; the fine-tuned model is in our video". Level 3: add "the arm shown is a simulation; the real-arm video is beside it" to slide 2. Never show a number that is still "to fill from the ledger".
+These slides match level 1 of `team/DEMO.md` (live real arm, model where it passed, taught for the rest). Level 2: change the "Perceptron Isaac" bullet on slide 3 to "taught skills, labeled; the fine-tuned model is in our video". Level 3: add "the arm shown is a simulation; the real-arm video is beside it" to slide 2. Never show a number that is still "to fill from the ledger".
 
 ## Slide text (paste into Google Slides)
 

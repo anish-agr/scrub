@@ -1,6 +1,6 @@
 # dashboard
 
-Owner: Evan. Tasks E2, E6 in `docs/TASKS.md`.
+Owner: Evan. Tasks E2, E6 in `team/LEFT.md`.
 
 One static page (plain HTML and JS, no build step), served by the controller at `/`. Live camera from `http://<this host>:8001/stream`, the current step, the current lighting, what's out, the event log, setting and lighting pickers, a stop button, a reset button after a stop, spacebar as stop, handoff times, success tables from `GET /stats`. If vision's tray is `stale` or older than 3 seconds, a "Vision stale" line shows.
 

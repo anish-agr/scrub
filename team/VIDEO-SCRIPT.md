@@ -1,6 +1,6 @@
 # Video narration
 
-Owner: Evan. Read this against the picture. The spoken words are the lines in `docs/PITCH.md`. The picture order is the edit plan in `docs/DEVPOST.md`. Do not add numbers that are not in the pitch. Where the pitch says `[measured]`, say that sentence only after the dashboard has the number. If it does not, skip the sentence.
+Owner: Evan. Read this against the picture. The spoken words are the lines in `team/PITCH.md`. The picture order is the edit plan in `team/DEVPOST.md`. Do not add numbers that are not in the pitch. Where the pitch says `[measured]`, say that sentence only after the dashboard has the number. If it does not, skip the sentence.
 
 Target length is 2 minutes. The pitch is about 3 minutes, so some lines are shortened here. The person named is the one who says the line.
 
@@ -74,7 +74,7 @@ Caiden:
 
 ## 1:44 to 1:56 Tables
 
-Picture: hold the dashboard. Camera, what is out, success tables. No narration. If a number is on screen, leave it long enough to read. Do not say a number that is not in `docs/PITCH.md`.
+Picture: hold the dashboard. Camera, what is out, success tables. No narration. If a number is on screen, leave it long enough to read. Do not say a number that is not in `team/PITCH.md`.
 
 ## 1:56 to 2:05 Close
 

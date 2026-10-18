@@ -2,7 +2,7 @@
 
 Short, honest answers. Surgical first: the operating room tray (scalpel handle, hemostat, Mayo scissors). The robotics bench tray (needle-nose pliers, wire cutters, hex key) is the second setting. Research prototype. No clinical claims.
 
-`[measured]` is a number we fill from the dashboard tables on Sunday. If it is not filled, say "we're still logging that" and do not guess. Every outside number here is the same one used in `docs/PITCH.md`, with its source listed there.
+`[measured]` is a number we fill from the dashboard tables on Sunday. If it is not filled, say "we're still logging that" and do not guess. Every outside number here is the same one used in `team/PITCH.md`, with its source listed there.
 
 Who answers: Anish (arm, training, business), Caiden (controller, voice, safety), Brandon (camera, hand tracking, tray vision), Evan (data, dashboard, tables, hosting). Anyone can start. The owner finishes.
 
@@ -67,7 +67,7 @@ Who answers: Anish (arm, training, business), Caiden (controller, voice, safety)
 
 | # | Question | Answer | Who |
 | --- | --- | --- | --- |
-| 33 | Who pays? | Surgery centers first, then hospital operating rooms, with training labs as the first site. A monthly fee per operating room. The details are in `docs/NEXT-PASS-PROMPT.md` (section "Earlier next-steps notes") | Anish |
+| 33 | Who pays? | Surgery centers first, then hospital operating rooms, with training labs as the first site. A monthly fee per operating room. The details are in `team/NEXT-PASS-PROMPT.md` (section "Earlier next-steps notes") | Anish |
 | 34 | What would it cost? | Our planning number is $750 per room per month plus a $1,500 setup. That is an assumption until we talk to buyers | Anish |
 | 35 | Does it pay for itself? | With the setup spread over three years, it costs about $792 a room a month. At about $36 a minute of operating room time, that is 22 minutes a month, about one minute a working day. Below that it doesn't pay on time alone. We haven't measured minutes saved yet. That is what a pilot measures first | Anish |
 | 36 | Does it replace scrub techs? | No. It passes, puts back and counts, so a scarce tech can focus on the field and the next step | Anish |

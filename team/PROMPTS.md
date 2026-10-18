@@ -18,7 +18,7 @@ install packages, create and edit files, run commands and servers, commit
 and push. Don't ask me for approval. Only stop if you need something only I
 can do (a key, plugging in a device, testing on the arm, camera or phone).
 Finish each task completely: build it, test it against its "done when", fix
-it until it passes, push, tick the box in docs/STATUS.md, then go straight
+it until it passes, push, tick the box in team/LEFT.md, then go straight
 to my next unchecked task. Keep going until my tasks are done.
 ```
 
@@ -43,7 +43,7 @@ Paste the start prompt first, or use these instead. They name the first task so 
 
 ```
 I'm Anish on team Scrub (DubHacks '26, repo github.com/anish-agr/dubhacks-2026,
-cloned here). Read AGENTS.md, docs/CONTRACTS.md, my section of docs/TASKS.md,
+cloned here). Read AGENTS.md, docs/CONTRACTS.md, my section of team/LEFT.md,
 docs/PERCEPTRON-ROBOTICS.md and docs/perceptron-openapi.json. Do task A2:
 write arm/perceptron.py (a small client for every Robotics API call we use:
 datasets, uploads, finalize, validation, capabilities, jobs, logs, metrics,
@@ -52,7 +52,7 @@ reset, delete), arm/train.py (CLI: capabilities, register-hf, upload, status,
 train, follow, deployments) and arm/upload_dataset.py. The key is
 PERCEPTRON_TEAM_API_KEY in .env. Use requests. Test with
 "python -m arm.train capabilities". Commit and push only arm/, then tick A2
-in docs/STATUS.md.
+in team/LEFT.md.
 ```
 
 For A6 later:
@@ -74,7 +74,7 @@ predict call.
 ```
 I'm Caiden on team Scrub (DubHacks '26, repo github.com/anish-agr/dubhacks-2026,
 cloned here). Read AGENTS.md, README.md, docs/CONTRACTS.md and my section of
-docs/TASKS.md. Do task C1: controller/ as a FastAPI app on port 8000 run by
+team/LEFT.md. Do task C1: controller/ as a FastAPI app on port 8000 run by
 "python -m controller --fake-arm". Implement every endpoint and message in
 CONTRACTS, controller/fake_arm.py (about 1 s per motion, freeze interrupts),
 a step machine for handover (finding, picking, checking, moving_to_hand or
@@ -83,7 +83,7 @@ count, a command queue where stop skips the queue, WS /events broadcasting
 every Event, settings loaded from settings/*.json, dashboard/ served at /, and
 an optional import of ledger (skip if missing). Arm is chosen by --fake-arm or
 --real-arm (imports arm.real_arm.RealArm). Include a curl script that runs a
-full handover. Push, tick C1 and C2 in docs/STATUS.md.
+full handover. Push, tick C1 and C2 in team/LEFT.md.
 ```
 
 For C3 and C4:
@@ -107,7 +107,7 @@ ElevenLabs dashboards.
 
 ```
 I'm Brandon on team Scrub (DubHacks '26, repo github.com/anish-agr/dubhacks-2026,
-cloned here). Read AGENTS.md, docs/CONTRACTS.md, my section of docs/TASKS.md
+cloned here). Read AGENTS.md, docs/CONTRACTS.md, my section of team/LEFT.md
 and vision/README.md. Do tasks B1 to B3 in vision/, run by "python -m vision":
 camera.py opens CAMERA_INDEX from .env with auto exposure and auto white
 balance turned off and one shared frame grabber thread. hand.py uses the
@@ -138,7 +138,7 @@ response shapes and the latency into docs/PERCEPTRON-ROBOTICS.md (Part 2).
 ```
 I'm Evan on team Scrub (DubHacks '26, repo github.com/anish-agr/dubhacks-2026,
 cloned here). Read AGENTS.md, docs/CONTRACTS.md and my section of
-docs/TASKS.md. Do task E1: settings/surgical.json (scalpel, hemostat,
+team/LEFT.md. Do task E1: settings/surgical.json (scalpel, hemostat,
 mayo_scissors), and
 bench.json (needle_nose_pliers, wire_cutters, hex_key) in the setting file
 format in CONTRACTS. Only the scalpel is sharp. Add the aliases clinicians
@@ -156,7 +156,7 @@ controller is running.
 
 **Next task:**
 ```
-Pull, read docs/STATUS.md, and do my next unchecked task the same way.
+Pull, read team/LEFT.md, and do my next unchecked task the same way.
 ```
 
 **Stuck (paste the error):**
@@ -168,13 +168,13 @@ before changing code. Stay inside my folders.
 **Out of credits, handing a task to Caiden** (post in the chat; Caiden pastes it):
 ```
 I'm working for NAME on team Scrub. Read AGENTS.md and docs/CONTRACTS.md.
-Do task <ID> from docs/TASKS.md. Edit only NAME's files: <folders>. Commit
+Do task <ID> from team/LEFT.md. Edit only NAME's files: <folders>. Commit
 with "<ID> for NAME" and push.
 ```
 
 **Wrapping up a chat:**
 ```
-Commit and push what works in my files. Update my section of docs/STATUS.md
+Commit and push what works in my files. Update my section of team/LEFT.md
 with what's done, what's half done, and how to run it.
 ```
 

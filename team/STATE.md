@@ -1,6 +1,6 @@
 # State of Scrub (Sun Oct 18, 1:45 AM)
 
-What exists and what works now, from the code, the test runs and the live checks on the arm Mac. What is left to do, with who and when, is in `docs/LEFT.md`. Every tool with its proof command is in `docs/INTEGRATION.md`. The project in one document is `docs/OVERVIEW.md`; every message and endpoint is in `docs/CONTRACTS.md`.
+What exists and what works now, from the code, the test runs and the live checks on the arm Mac. What is left to do, with who and when, is in `team/LEFT.md`. Every tool with its proof command is in `docs/INTEGRATION.md`. The project in one document is `docs/OVERVIEW.md`; every message and endpoint is in `docs/CONTRACTS.md`.
 
 Scrub is an SO-101 arm that passes surgical instruments by voice. Surgical tray first (scalpel handle, hemostat, Mayo scissors). Robotics bench tray second (needle-nose pliers, wire cutters, hex key), to show a new setting needs demos and no new code. `settings/dental.json` stays on disk but is hidden. Only the controller moves the arm.
 
@@ -94,7 +94,7 @@ Run suites one at a time. Several at once can collide on shared test ports.
 | Vultr public page | PASS, HTTP 200 |
 | Photon | FAIL, HTTP 403 (the probe sends the Spectrum secret to a REST path; `docs/INTEGRATION.md` treats it as unreliable) |
 | Tiger Data, Backboard | FAIL, keys missing |
-| controller :8000, vision :8001, voice :3000 | PASS (running) |
+| controller :8000, vision :8001, voice :3000 with keys plus a cloudflared tunnel (voice node PID 81245, tunnel PID 79751) | PASS (running) |
 
 Key names set in `.env` (values never read): PERCEPTRON_TEAM_API_KEY, PERCEPTRON_DEPLOYMENT_ID, PERCEPTRON_API_KEY, HF_TOKEN, HF_USER, GEMINI_API_KEY, ELEVENLABS_API_KEY, VOICE_LLM_SECRET, MONGODB_URI, SCRUB_SERVER_IP, SPECTRUM_PROJECT_ID and SPECTRUM_PROJECT_SECRET (read as the Photon keys), CAMERA_INDEX. Missing: SO101_PORT, SCRUB_PUBLIC_URL, TIGER_DATABASE_URL, BACKBOARD_API_KEY, BACKBOARD_ASSISTANT_ID. `deploy` reports ELEVENLABS_AGENT_ID as set although no `ELEVENLABS_AGENT_ID=` line with a value is in `.env` (it may come from the shell).
 
@@ -107,7 +107,7 @@ Running at 1:45 AM: vision on :8001 is an older `--fake` build (its `/health` ha
 | Perceptron robotics key (`arm.train capabilities`, `ready_for_training: true`) | Live inference: 0 deployments, no job recorded in any doc |
 | Perceptron detect in `vision/` (HTTP 200 in 1.8 s; bench found rate 0.4 on 5 synthetic cases, median 2.7 s) | Detect accuracy on real trays |
 | Gemini: voice parse, doctor, recognition bench | Gemini tray check in the live path (only in the bench) |
-| ElevenLabs speech in the room (22 KB mp3 returned) | The phone agent on a call |
+| ElevenLabs speech in the room (22 KB mp3 returned); phone agent "Scrub" created, its Custom LLM reached `voice/` through the tunnel and a "hemostat" turn moved the sim arm | A real phone call (no Photon line yet) |
 | MongoDB Atlas: 33,814 event docs in `scrub.events`, 2,148 in `scrub.thermal` | Photon: no real text or call sent |
 | Vultr page `http://144.202.95.111/api/stats` with live Atlas numbers | GoDaddy domain and HTTPS |
 | MediaPipe landmarker ran on a blank frame | MediaPipe model cached on this Mac (`vision/models/` is empty) |
@@ -127,11 +127,11 @@ Running at 1:45 AM: vision on :8001 is an older `--fake` build (its `/health` ha
 
 ## Safety rules held in code
 
-Stop works from every state and thread. Freeze resends the last command (no sag, no slack grip). A chunk older than capture plus 400 ms never runs. Handoff only inside the region and only to an open hand with a clear path. Sharps go to the safe spot, never hand to hand. Only `POST /reset` rearms after a stop. The claw guard and range clamp keep the gripper from stalling. Serial ports held by another process are refused. Details and tests: `docs/AUDIT.md`.
+Stop works from every state and thread. Freeze resends the last command (no sag, no slack grip). A chunk older than capture plus 400 ms never runs. Handoff only inside the region and only to an open hand with a clear path. Sharps go to the safe spot, never hand to hand. Only `POST /reset` rearms after a stop. The claw guard and range clamp keep the gripper from stalling. Serial ports held by another process are refused. Details and tests: `team/AUDIT.md`.
 
 ## Related docs
 
-`README.md` (run steps), `docs/SETUP.md`, `docs/BRINGUP.md` (first contact with the arm), `docs/TRAINING.md` (recording and the two runs), `docs/TEACH.md` (taught skills), `docs/ARM.md`, `docs/PERCEPTRON-ROBOTICS.md`, `docs/RECOGNITION.md`, `docs/VIDEO-TOOL.md`, `docs/DESIGN-SYSTEM.md`, `docs/DATA-LOG.md`, `docs/AUDIT.md`, `docs/DEMO.md`.
+`README.md` (run steps), `docs/SETUP.md`, `docs/BRINGUP.md` (first contact with the arm), `docs/TRAINING.md` (recording and the two runs), `docs/TEACH.md` (taught skills), `docs/ARM.md`, `docs/PERCEPTRON-ROBOTICS.md`, `docs/RECOGNITION.md`, `docs/VIDEO-TOOL.md`, `docs/DESIGN-SYSTEM.md`, `docs/DATA-LOG.md`, `team/AUDIT.md`, `team/DEMO.md`.
 
 ## After DubHacks
 

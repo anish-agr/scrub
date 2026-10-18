@@ -1,8 +1,8 @@
 # The full pass: sync, Perceptron track done right, everything integrated, repo cleaned (prompt for Caiden's Claude, Opus 5.5)
 
-Say to Claude Code on the arm Mac: "Pull, then follow docs/NEXT-PASS-PROMPT.md exactly. Use as many subagents as it needs and take as long as it needs."
+Say to Claude Code on the arm Mac: "Pull, then follow team/NEXT-PASS-PROMPT.md exactly. Use as many subagents as it needs and take as long as it needs."
 
-This is the only prompt to run. It replaces every older prompt file (`docs/PROMPTS.md`, `docs/COMB-PROMPT.md`, the first two versions of this file). Those move to `team/` in Phase 9.
+This is the only prompt to run. It replaces every older prompt file (`team/PROMPTS.md`, `team/COMB-PROMPT.md`, the first two versions of this file). Those move to `team/` in Phase 9.
 
 ---
 
@@ -15,7 +15,7 @@ I'm Caiden on team Scrub at DubHacks '26. It's Sunday after midnight. The final 
 - Thoroughness beats speed. The one thing that runs on the clock is training (Phase 3): start its human steps early so the GPU time overlaps with everything else.
 - Never print or commit keys. Keys live only in `.env`.
 - Finish every phase without asking me. Anything only a person can do (plug in a camera, move the arm by hand, paste a key, click in an account) goes into a short list with exact steps; keep working on everything else while it waits.
-- Write every new doc, UI string and voice line plainly (rules in Phase 9). Don't rewrite old code comments in this pass: that's a separate small job later (`docs/DESLOP-PROMPT.md`).
+- Write every new doc, UI string and voice line plainly (rules in Phase 9). Don't rewrite old code comments in this pass: that's a separate small job later (`team/DESLOP-PROMPT.md`).
 
 ## Phase 0: sync everything into `main` (first, before anything else)
 
@@ -27,7 +27,7 @@ Work exists outside `main` and you can't see it yet:
 
 ## Phase 1: understand what exists, then update the scope
 
-Read `docs/OVERVIEW.md`, `README.md`, `AGENTS.md`, `docs/CONTRACTS.md`, `docs/STATUS.md` (its "Current state" section), `docs/AUDIT.md`, `docs/HARDWARE-TODO.md`, `docs/ACCOUNTS-TODO.md`, `docs/PERCEPTRON-ROBOTICS.md`, `docs/TRAINING.md`, `docs/VIDEO-TOOL.md`, `docs/DESIGN-SYSTEM.md`, `explore/research/overheating/README.md`, every folder's README, and `git log --since="16 hours ago" --stat`. Run every test suite and every `--help` / `--check` / `--dry-run` command the READMEs name, and record what passes.
+Read `docs/OVERVIEW.md`, `README.md`, `AGENTS.md`, `docs/CONTRACTS.md`, `team/LEFT.md` (its "Current state" section), `team/AUDIT.md`, `team/LEFT.md`, `team/LEFT.md`, `docs/PERCEPTRON-ROBOTICS.md`, `docs/TRAINING.md`, `docs/VIDEO-TOOL.md`, `docs/DESIGN-SYSTEM.md`, `explore/research/overheating/README.md`, every folder's README, and `git log --since="16 hours ago" --stat`. Run every test suite and every `--help` / `--check` / `--dry-run` command the READMEs name, and record what passes.
 
 Then rewrite the scope in `docs/OVERVIEW.md` (sections 3 to 6) to match what's built now. A lot was added after it was written: the thermal telemetry and cool-down guard, gripper torque by situation, rest and wake between commands, lift and pulled-out handoff detection, the recorder's page and controls, dataset QA, the video tool, the shared design system, the sim backup, the public page on Vultr. Say what's real, what's partly done and what was dropped, and keep dental dropped. This becomes the source of truth the rest of the pass works from.
 
@@ -49,8 +49,8 @@ The reliability work lives in `explore/arm_session.py` (the recorder): bus reads
 - We have 2 successful training jobs. Nothing uploads until `explore/dataset/qa` and `python -m arm.dataset_check` pass: about 30 Hz on both cameras, no dark wrist frames, one task string per instruction, the planned episode count.
 - Task difficulty is our edge (a voice request, a learned pick of a thin metal instrument, handle first to a moving hand, release when pulled, sharps to the safe spot). Each claim is real in the video or it's cut.
 
-**The run plan.** Write it at the top of `docs/HARDWARE-TODO.md` ("Tonight's plan") with times and keep it current. One process owns the arm ports and the cameras at a time.
-1. Cameras (`docs/HARDWARE-TODO.md` steps 1 and 2): both about 30 fps at 640x480 in `python -m arm.check_setup`. If the wrist camera won't reach 30, find the port, light or setting that does, and write what worked.
+**The run plan.** Write it at the top of `team/LEFT.md` ("Tonight's plan") with times and keep it current. One process owns the arm ports and the cameras at a time.
+1. Cameras (`team/LEFT.md` steps 1 and 2): both about 30 fps at 640x480 in `python -m arm.check_setup`. If the wrist camera won't reach 30, find the port, light or setting that does, and write what worked.
 2. Tape the setup, one slow teleop test, teach `home`, `carry`, `safe_spot` and the handoff box into `arm/rig.json` (steps 3 to 5).
 3. **Run 1:** record the hemostat only ("pick the hemostat", "return the hemostat"), 30 to 40 episodes in normal and bright light, with `arm.record`. Log each batch in `docs/DATA-LOG.md`. QA, upload, train (about an hour plus export).
 4. **While run 1 trains,** record the Mayo scissors and the scalpel into the same dataset (the scalpel pick goes to the safe spot), and teach the taught skills.
@@ -78,7 +78,7 @@ Write `docs/INTEGRATION.md`: one row per tool with what it does in Scrub, the fi
 | Photon | the phone number, the call, the end-of-case text |
 | MongoDB Atlas | the ledger and the thermal telemetry |
 | Vultr + GoDaddy | the public page and the replay link in the text |
-| Tiger Data, Backboard | whatever `docs/ACCOUNTS-TODO.md` says; if nothing real, say so |
+| Tiger Data, Backboard | whatever `team/LEFT.md` says; if nothing real, say so |
 | Hugging Face | dataset upload if the pipeline uses it |
 | MediaPipe | the hand at the handoff spot |
 | MuJoCo | the sim backup and the joint-data reconstruction in the video |
@@ -88,12 +88,12 @@ Then `python -m controller.run_all` starts the full real stack in one command (c
 
 ## Phase 6: the demo at judging
 
-Write `docs/DEMO.md` with three ready levels, exact commands, and who does what at the table:
+Write `team/DEMO.md` with three ready levels, exact commands, and who does what at the table:
 1. Live, real arm: model where it passed, taught for the rest, labeled.
 2. Live, real arm, taught only, labeled.
 3. The sim backup (`python -m controller.run_all backup --offline --loop --pause 2`) next to the recorded real-arm video.
 
-Add a short message for Anish to send the Perceptron staff: can the SO-101 come to our Ballroom table, is there power there, and do they want a live demo or only the video. Make `docs/PITCH.md` and the slides match the level we'll really be on.
+Add a short message for Anish to send the Perceptron staff: can the SO-101 come to our Ballroom table, is there power there, and do they want a live demo or only the video. Make `team/PITCH.md` and the slides match the level we'll really be on.
 
 ## Phase 7: recognition and monitoring
 
@@ -103,18 +103,18 @@ Add a short message for Anish to send the Perceptron staff: can the SO-101 come 
 
 ## Phase 8: make the repo and the code agree
 
-- Fix the Medium and Low items in `docs/AUDIT.md` that matter for judging, and mark each.
+- Fix the Medium and Low items in `team/AUDIT.md` that matter for judging, and mark each.
 - Run a fresh comb with subagents, one per folder: read every file, find bugs, dead code, unused files, and anything the docs claim that the code doesn't do (or the reverse). Fix it, with a test where it can break.
 - Every command in every README and doc runs as written. Every `requirements.txt` and `package.json` matches the imports. Every folder README says what's in the folder now.
 - Promote what's worth keeping from `explore/` into the product folders, and move what isn't used into `team/` (Phase 9).
 - Merge duplicate docs into one each: `DEVPOST.md` and `DEV-POST.md`, `PERCEPTRON.md` and `PERCEPTRON-ROBOTICS.md`, `TRAINING.md` and `TRAINING-HANDOFF-PROMPT.md`, `NEXT.md` and this file, `STATE.md` / `STATUS.md` / `LEFT.md` / `WORKING-NOW.md`.
-- `docs/STATUS.md`: tick only the boxes the evidence proves.
-- `docs/DEVPOST.md` and `docs/README-PUBLIC.md`: every claim matches what runs, every number comes from the ledger or the dataset, and the tracks listed are the ones `docs/INTEGRATION.md` proves.
+- `team/LEFT.md`: tick only the boxes the evidence proves.
+- `team/DEVPOST.md` and `docs/README-PUBLIC.md`: every claim matches what runs, every number comes from the ledger or the dataset, and the tracks listed are the ones `docs/INTEGRATION.md` proves.
 
 ## Phase 9: one folder for the team's files (hidden later)
 
 Make `team/` and move into it everything about how we worked rather than what Scrub is. The test: would a judge reading the public repo need this file to understand, run or trust Scrub? If yes it stays in `docs/` or its folder; if no it goes to `team/`.
-- Goes to `team/`: every prompt file (this one included, at the end of the pass), `TASKS`, `STATUS`, `STATE`, `LEFT`, `WORKING-NOW`, `PLAN`, `PROPOSAL`, `NEXT`, `HARDWARE-TODO`, `ACCOUNTS-TODO`, `PITCH`, `QNA`, `SLIDES`, `DEVPOST` drafts, `VIDEO-SCRIPT`, `VIDEO`, `DEMO`, `AUDIT`, `docs/DESLOP-PROMPT.md`, `explore/IDEAS-BACKLOG.md`, `explore/prototypes/` (the 57 idea prototypes), the status-board mockups, and research notes the product doesn't cite.
+- Goes to `team/`: every prompt file (this one included, at the end of the pass), `TASKS`, `STATUS`, `STATE`, `LEFT`, `WORKING-NOW`, `PLAN`, `PROPOSAL`, `NEXT`, `HARDWARE-TODO`, `ACCOUNTS-TODO`, `PITCH`, `QNA`, `SLIDES`, `DEVPOST` drafts, `VIDEO-SCRIPT`, `VIDEO`, `DEMO`, `AUDIT`, `team/DESLOP-PROMPT.md`, `team/IDEAS-BACKLOG.md`, `team/prototypes/` (the 57 idea prototypes), the status-board mockups, and research notes the product doesn't cite.
 - Stays: `README.md`, `docs/OVERVIEW.md`, `docs/CONTRACTS.md`, `docs/SETUP.md`, `docs/ARM.md`, `docs/BRINGUP.md`, `docs/TRAINING.md`, `docs/TEACH.md`, `docs/PERCEPTRON-ROBOTICS.md` and its OpenAPI file, `docs/DESIGN-SYSTEM.md`, `docs/VIDEO-TOOL.md`, `docs/RECOGNITION.md`, `docs/INTEGRATION.md`, `docs/DATA-LOG.md`, `docs/media/`, and every folder's README.
 - Use `git mv` so history follows. Then grep the whole repo (code, tests, scripts, pages, `AGENTS.md`) for every moved path and fix each reference. `arm/record.py`, `ledger/logbook.py`, `ledger/shots.py`, `controller/server.py` and `arm/test_perceptron.py` read paths under `docs/`. Run every test after.
 - `AGENTS.md` and `CLAUDE.md` stay at the root for now and point at the new paths.
@@ -125,7 +125,7 @@ Make `team/` and move into it everything about how we worked rather than what Sc
 ## Before you stop: push everything, and write what's left
 
 - Push every commit. At the end, `git status` is clean, `git log origin/main..HEAD` is empty, and no local branch or worktree on this Mac has commits that aren't on `origin/main` (merge them or push them as named branches and say so). Nothing is left only on this Mac except `.env` and the recorded data.
-- Write `docs/LEFT.md` (it moves to `team/LEFT.md` in Phase 9) as the one list of what's left. For each item: what it is, who does it (Anish, Caiden, Brandon, Evan), the exact steps or command, and when it has to be done by. Group it as "people only" (plug in, teach by hand, record, film, accounts, Devpost, the Commit form) and "code" (should be empty when this pass ends; if not, say why). If something is done, it's not on the list. Push it last.
+- Write `team/LEFT.md` (it moves to `team/LEFT.md` in Phase 9) as the one list of what's left. For each item: what it is, who does it (Anish, Caiden, Brandon, Evan), the exact steps or command, and when it has to be done by. Group it as "people only" (plug in, teach by hand, record, film, accounts, Devpost, the Commit form) and "code" (should be empty when this pass ends; if not, say why). If something is done, it's not on the list. Push it last.
 
 ## Final report
 
@@ -145,4 +145,4 @@ Make `team/` and move into it everything about how we worked rather than what Sc
 
 ---
 
-The DubHacks NEXT business case that was in `docs/NEXT.md` is now `docs/BUSINESS.md`.
+The DubHacks NEXT business case that was in `team/STATE.md` is now `docs/BUSINESS.md`.

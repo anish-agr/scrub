@@ -1,8 +1,8 @@
 # Scrub design system (one look for every page)
 
-Caiden's pages already look right: `explore/status-board/`, `explore/status-board/mockups/*`, `controller/demo.html`, `controller/nurse.html`. The rest (`dashboard/`, `dashboard/tablet.*`, `ledger/public/*`, `sim/web/*`) were built separately and don't match. This doc turns Caiden's look into one shared system so every page a judge sees looks like the same product.
+Caiden's pages already look right: `team/status-board/`, `team/status-board/mockups/*`, `controller/demo.html`, `controller/nurse.html`. The rest (`dashboard/`, `dashboard/tablet.*`, `ledger/public/*`, `sim/web/*`) were built separately and don't match. This doc turns Caiden's look into one shared system so every page a judge sees looks like the same product.
 
-Read first: `explore/prototypes/DESIGN-DE-AI.md` (the rules and the banned "AI look"), then open `explore/status-board/index.html`, `explore/status-board/mockups/wall-display.html`, `scrub-tablet.html` and `controller/demo.html` in a browser.
+Read first: `team/prototypes/DESIGN-DE-AI.md` (the rules and the banned "AI look"), then open `team/status-board/index.html`, `team/status-board/mockups/wall-display.html`, `scrub-tablet.html` and `controller/demo.html` in a browser.
 
 ## 1. The idea
 
@@ -15,7 +15,7 @@ Two themes, one set of tokens:
 | `paper` (default) | Swiss status board on warm paper | dashboard, judge page, case list and replay, series, memory, table card, sim viewer, nurse console |
 | `monitor` | Medical device HMI, near-black | demo console, tablet view, wall display, fullscreen mode of the dashboard |
 
-## 2. Tokens (copy from `explore/status-board/style.css`)
+## 2. Tokens (copy from `team/status-board/style.css`)
 
 ```css
 :root, [data-theme="paper"] {

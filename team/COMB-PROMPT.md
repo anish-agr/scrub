@@ -1,6 +1,6 @@
 # The fine-toothed comb (prompt for Caiden's Claude, Opus 5.5)
 
-Paste everything below the line into a new Claude Code session on the Mac with the arm, or say: "Pull, then follow docs/COMB-PROMPT.md exactly."
+Paste everything below the line into a new Claude Code session on the Mac with the arm, or say: "Pull, then follow team/COMB-PROMPT.md exactly."
 
 ---
 
@@ -14,7 +14,7 @@ Use a multi-agent workflow. You are the orchestrator.
 - Run many subagents in parallel, one per area. Use Opus for anything touching the controller, the arm, voice, vision or safety. Use Sonnet for docs, UI checks, scripts and inventories.
 - Every subagent gets: the files it may read, the files it may edit, the contract sections it must follow, and what "done" means. Subagents never commit.
 - You review every diff yourself, rerun all affected tests, then commit one item at a time with a message that names the part and the owner's folder, and push (`git pull --rebase` first). Never force-push or rewrite history.
-- Before editing any file, run `git log -1 --format=%ar -- <file>`. If it changed in the last 10 minutes, someone is working on it: don't edit it, note it in `docs/AUDIT.md`, and come back to it at the end.
+- Before editing any file, run `git log -1 --format=%ar -- <file>`. If it changed in the last 10 minutes, someone is working on it: don't edit it, note it in `team/AUDIT.md`, and come back to it at the end.
 - Never print, log or commit a key. Read `.env` only to check whether a key is set (set or empty), never its value.
 - Contracts: optional fields may be added (and must be written into `docs/CONTRACTS.md`). Never rename or remove a field.
 
@@ -30,29 +30,29 @@ Facts you must hold onto:
 - The arm is plugged into this Mac. Recording runs through `explore/arm_session.py`. Perceptron needs exactly two cameras, `side` and `wrist`, at 640x480 and 30 fps, `use_degrees`, one dataset, and allows only **2 successful training runs**.
 - Known hardware issue: `explore/dataset/README.md` says the wrist camera ran at about 23 fps and was dark.
 
-Then write `docs/STATUS.md` ("Current state"): a one-page map of the whole system as it actually is now. Every part, what it does, how to start it, what it depends on, its tests, and its status (works, works offline only, partial, missing). This is the file the whole team reads from now on.
+Then write `team/LEFT.md` ("Current state"): a one-page map of the whole system as it actually is now. Every part, what it does, how to start it, what it depends on, its tests, and its status (works, works offline only, partial, missing). This is the file the whole team reads from now on.
 
 ## Phase 1: finish every piece of software
 
-Compare the plan (`docs/PLAN.md`, `docs/TASKS.md`, `docs/LEFT.md`, `docs/PROPOSAL.md` tracks section, the demo in `docs/PITCH.md`) with what exists. Anything planned and missing, build it. At minimum, check and finish:
+Compare the plan (`team/LEFT.md`, `team/LEFT.md`, `team/LEFT.md`, `team/PROPOSAL.md` tracks section, the demo in `team/PITCH.md`) with what exists. Anything planned and missing, build it. At minimum, check and finish:
 1. `controller/run_all.py`: one command starts the controller (fake, sim or real arm), vision (real or fake), voice and the tunnel, waits until each is healthy, and prints every URL (dashboard, tablet, nurse console, judge page, voice health, tunnel).
 2. The recorder: make `explore/arm_session.py` the official path. Add `arm/record.py` and `arm/check_setup.py` as thin wrappers (or move the code), matching `docs/PERCEPTRON-ROBOTICS.md`. Each recorded batch appends a row to `docs/DATA-LOG.md`. `docs/BRINGUP.md` section 6 and `docs/TRAINING.md` must show these exact commands for this Mac (bash, `/dev/tty.usbmodem...` ports).
 3. Judge mode (only handover, count and stop), and pre-opening model sessions when the setting changes (L2, L3 in LEFT.md).
 4. The README "Running it" section with real, tested commands.
 5. The system diagram as an SVG in `docs/media/`, used in the README, the judge page and the slides.
-6. `docs/DEMO.md`: the exact live demo minute by minute (surgical tray, then the bench tray), who stands where, who says what, who runs the dashboard and the stop key, what to do if each step fails, the 60-second version for a rushed judge, and the reset between judges.
+6. `team/DEMO.md`: the exact live demo minute by minute (surgical tray, then the bench tray), who stands where, who says what, who runs the dashboard and the stop key, what to do if each step fails, the 60-second version for a rushed judge, and the reset between judges.
 7. Demo-laptop scripts: start everything, reset between judges, switch trays, and play the sim backup if the arm fails.
-8. `docs/QNA.md`: 30+ judge questions (technical, safety, regulatory, business, why Perceptron, why voice, data and training), short answers, and who answers each.
-9. `docs/SLIDES.md` final text for the 5-slide backup deck.
-10. Every open bug in `docs/QA.md` and every row in `docs/LEFT.md` that is software.
+8. `team/QNA.md`: 30+ judge questions (technical, safety, regulatory, business, why Perceptron, why voice, data and training), short answers, and who answers each.
+9. `team/SLIDES.md` final text for the 5-slide backup deck.
+10. Every open bug in `team/QA.md` and every row in `team/LEFT.md` that is software.
 11. Dental hidden everywhere it's user-facing (dashboard, tablet, voice prompts, texts, judge page, Devpost, pitch). Keep the file.
-12. **The pitch.** Rewrite `docs/PITCH.md` as a 3-minute pitch spoken over the live demo, split across four speakers: Caiden and Anish carry most of it, Evan and Brandon each have a short part (for example, Evan on the data, the dashboard and the tables; Brandon on vision and hand tracking). Lead with the statistics (the surgical tech shortage, retained surgical items, sharps injuries, time spent searching the tray) and show step by step how Scrub works. Surgical first; the bench tray proves "new setting, no new code". Every statistic has a source link and is checked against that source (drop any number you can't confirm). Use `[measured]` where our own numbers go. Plain words, short sentences, no em dashes, no buzzwords, nothing that sounds AI-written.
-13. **Everything presented says the same thing.** The pitch, `docs/DEMO.md`, `docs/QNA.md`, `docs/SLIDES.md`, `docs/DEVPOST.md`, `docs/NEXT-PASS-PROMPT.md` (section "Earlier next-steps notes") (the business case), the judge page, the table card and `docs/README-PUBLIC.md` must tell one consistent story with the same numbers, the same item names, the same tracks and the same speaker roles. Fix any mismatch.
+12. **The pitch.** Rewrite `team/PITCH.md` as a 3-minute pitch spoken over the live demo, split across four speakers: Caiden and Anish carry most of it, Evan and Brandon each have a short part (for example, Evan on the data, the dashboard and the tables; Brandon on vision and hand tracking). Lead with the statistics (the surgical tech shortage, retained surgical items, sharps injuries, time spent searching the tray) and show step by step how Scrub works. Surgical first; the bench tray proves "new setting, no new code". Every statistic has a source link and is checked against that source (drop any number you can't confirm). Use `[measured]` where our own numbers go. Plain words, short sentences, no em dashes, no buzzwords, nothing that sounds AI-written.
+13. **Everything presented says the same thing.** The pitch, `team/DEMO.md`, `team/QNA.md`, `team/SLIDES.md`, `team/DEVPOST.md`, `team/NEXT-PASS-PROMPT.md` (section "Earlier next-steps notes") (the business case), the judge page, the table card and `docs/README-PUBLIC.md` must tell one consistent story with the same numbers, the same item names, the same tracks and the same speaker roles. Fix any mismatch.
 14. Anything else in the plan that has no code yet.
 
 ## Phase 2: the comb
 
-Write every finding into `docs/AUDIT.md` by severity (critical, high, medium, low), with file and line, then fix it.
+Write every finding into `team/AUDIT.md` by severity (critical, high, medium, low), with file and line, then fix it.
 1. **Contracts:** every message, field and endpoint in every part matches `docs/CONTRACTS.md` (controller, voice, vision, arm interface, ledger, dashboard, settings, deploy).
 2. **Line by line:** every source file for bugs, race conditions, unhandled exceptions, blocking calls in async code, threads that never stop, missing timeouts on network calls, retries that never give up, wrong units, and secrets in logs.
 3. **Safety:**
@@ -85,11 +85,11 @@ Find out what is actually done on the hardware, from evidence, not from STATUS.m
 - whether any training job or deployment exists (`python -m arm.train status`, `deployments`, read-only)
 - the arm_session logs in `~/scrub-logs`
 
-Write `docs/HARDWARE-TODO.md`: an ordered checklist of every hardware step left, each with who does it, the exact command, what you should see, and what to do if you don't. Start with the wrist camera fix. Include the recording count still needed per item and lighting, run 1, run 2, the five-point reach check, the gripper load check, the camera-to-arm calibration, the live handoff, ten clean runs, the success tests, and the Perceptron arm video.
+Write `team/LEFT.md`: an ordered checklist of every hardware step left, each with who does it, the exact command, what you should see, and what to do if you don't. Start with the wrist camera fix. Include the recording count still needed per item and lighting, run 1, run 2, the five-point reach check, the gripper load check, the camera-to-arm calibration, the live handoff, ten clean runs, the success tests, and the Perceptron arm video.
 
 ## Phase 4: accounts and keys
 
-Without printing any value, check which keys are set on this Mac's `.env` and what each service answers (`python -m deploy`). Then write `docs/ACCOUNTS-TODO.md`: every account and key the project needs, for each one:
+Without printing any value, check which keys are set on this Mac's `.env` and what each service answers (`python -m deploy`). Then write `team/LEFT.md`: every account and key the project needs, for each one:
 - what it's for and which track it serves
 - where to get it (the exact site and clicks)
 - which machine's `.env` needs it
@@ -99,10 +99,10 @@ Cover Perceptron (robotics team key and vision key), Hugging Face, Gemini, Eleve
 
 ## Phase 5: organize
 
-- Update `docs/STATUS.md` from the evidence: tick what's actually done, untick what isn't, and one line each on how to run or check it.
-- Empty `docs/LEFT.md` of everything finished. What remains should only point to HARDWARE-TODO.md and ACCOUNTS-TODO.md.
+- Update `team/LEFT.md` from the evidence: tick what's actually done, untick what isn't, and one line each on how to run or check it.
+- Empty `team/LEFT.md` of everything finished. What remains should only point to HARDWARE-TODO.md and ACCOUNTS-TODO.md.
 - Mark docs that are out of date at their top ("Superseded by ...") instead of deleting them.
-- Make sure a new person can open `README.md`, then `docs/STATUS.md` ("Current state"), and understand the whole project in five minutes.
+- Make sure a new person can open `README.md`, then `team/LEFT.md` ("Current state"), and understand the whole project in five minutes.
 
 ## Final report
 
@@ -111,6 +111,6 @@ When everything is done, reply with:
 2. What you built in Phase 1.
 3. What you fixed in Phase 2, by severity.
 4. Anything still failing, and why.
-5. The top of `docs/HARDWARE-TODO.md` (the next five hardware steps).
-6. The top of `docs/ACCOUNTS-TODO.md` (every account not done yet).
+5. The top of `team/LEFT.md` (the next five hardware steps).
+6. The top of `team/LEFT.md` (every account not done yet).
 7. Files you skipped because someone was editing them.

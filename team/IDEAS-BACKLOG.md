@@ -1,6 +1,6 @@
 # Ideas backlog (not the task list)
 
-> Written before we found this repo's plan. The real tasks are in `docs/TASKS.md` and `docs/STATUS.md`. Paths here (`reach/...`) refer to an older local prototype. Use this list for ideas only and pass any you want built to the folder's owner.
+> Written before we found this repo's plan. The real tasks are in `team/LEFT.md` and `team/LEFT.md`. Paths here (`reach/...`) refer to an older local prototype. Use this list for ideas only and pass any you want built to the folder's owner.
 
 
 Goal: keep several coding agents busy for ~24h on work that does not block on the arm, while the humans own

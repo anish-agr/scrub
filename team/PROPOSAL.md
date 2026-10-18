@@ -1,4 +1,4 @@
-> Scope change Sat Oct 17 6:30 PM: surgical first, the robotics bench is the second setting, dental is dropped. See docs/LEFT.md.
+> Scope change Sat Oct 17 6:30 PM: surgical first, the robotics bench is the second setting, dental is dropped. See team/LEFT.md.
 
 # Scrub: a robot assistant that passes instruments
 

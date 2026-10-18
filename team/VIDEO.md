@@ -2,7 +2,7 @@
 
 Two videos are needed. The **demo video** (2 to 3 min) is required for judging at all. The **Perceptron arm video** is required for the Perceptron Robotics track. A third, the **sim backup**, is for the table if the arm fails.
 
-Owner of the edit: Evan. Script lines come from `docs/PITCH.md`. The cut plan by second is in `docs/DEVPOST.md` ("Video edit plan").
+Owner of the edit: Evan. Script lines come from `team/PITCH.md`. The cut plan by second is in `team/DEVPOST.md` ("Video edit plan").
 
 ## 1. Capture now (before the arm works)
 
@@ -15,7 +15,7 @@ None of this needs a working model. Grab it tonight so Sunday morning is only th
 | N3 | **The training run**: Perceptron job status, the loss going down in `arm.train follow`, the Hugging Face dataset page | Screen record or screenshots | Caiden |
 | N4 | **Dashboard, tablet, case replay, judge page on a phone** | Screen record a fake-arm case: `python -m controller.run_all` (fake arm), drive it with `cd voice && npm run say -- "grab me the kelly"` | Evan |
 | N5 | **The phone**: the call screen to the Photon number, the end-of-case text arriving, a texted "what's out?" and its reply | Screen recording on the phone | Anish |
-| N6 | **System diagram** (`docs/media/`) and title cards (`docs/SLIDES.md`) | Export as 1920x1080 images | Evan |
+| N6 | **System diagram** (`docs/media/`) and title cards (`team/SLIDES.md`) | Export as 1920x1080 images | Evan |
 | N7 | **The tray close-up**: instruments on the blue towel, lamp off, then the lamp on showing glare | Phone, tripod or propped, 10 s each | Brandon |
 | N8 | **Room sound**: 20 s of quiet room tone for the edit | Phone voice memo | anyone |
 
@@ -55,6 +55,6 @@ None of this needs a working model. Grab it tonight so Sunday morning is only th
 ## 4. The edit
 
 - 2 minutes is the target, 3 the maximum. 16:9, 1080p.
-- Order and timings: `docs/DEVPOST.md` "Video edit plan". Narration follows `docs/PITCH.md`.
+- Order and timings: `team/DEVPOST.md` "Video edit plan". Narration follows `team/PITCH.md`.
 - The sim and fake-arm footage only goes in the "how we built it" part, labeled as simulation. The demo part is the real arm only.
 - Upload to YouTube (unlisted is fine) or Vimeo by **Sun 9:00 AM**, link it on Devpost, submit by 9:30.

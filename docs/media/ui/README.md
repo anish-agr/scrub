@@ -78,6 +78,6 @@ files now use HTML entities and equivalent JavaScript unicode escapes. Their
 rendered copy and decoded application scripts are unchanged. `/demo` now
 passes the same live HTTP check without editing server code.
 
-Compare against `explore/status-board/index.html`, mockups `wall-display`,
+Compare against `team/status-board/index.html`, mockups `wall-display`,
 `scrub-tablet`, `item-id`, `bring-up`, and the original nurse/demo appearances.
 Console rules use native CSS `@scope`, supported by current Chromium browsers.

@@ -1,6 +1,6 @@
 # settings
 
-Owner: Evan. Task E1 in `docs/TASKS.md`.
+Owner: Evan. Task E1 in `team/LEFT.md`.
 
 One JSON file per tray: `surgical.json` and `bench.json` (the demo settings), plus `dental.json`, a dental tray file that still loads if asked for but isn't demoed, in the format in `docs/CONTRACTS.md`. Slot and return-spot boxes come from Brandon once the camera is mounted. Until then every `slot` and `return_spot` is `null`.
 

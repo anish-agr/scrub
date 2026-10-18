@@ -169,7 +169,7 @@ All 26 screenshots saved to `data/qa/agy/` (git-ignored).
 - **STOP button**: Large red STOP button (`#stop`). Space or Esc latches stop.
 - **Spacebar**: Spacebar stops and latches.
 - **Sideways scroll at 390px**: PASS. `docWidth=390, winWidth=390`. Responsive layout adapts cleanly.
-- **Copy and text**: PASS. Script matches `docs/PITCH.md`. Plain words, short sentences, verified numbers (120 days, 10 minutes).
+- **Copy and text**: PASS. Script matches `team/PITCH.md`. Plain words, short sentences, verified numbers (120 days, 10 minutes).
 
 ---
 
@@ -198,7 +198,7 @@ All 26 screenshots saved to `data/qa/agy/` (git-ignored).
 - **Design system compliance**: PASS. Warm paper background (`#ece8dd`), 4px ink rule under masthead, Archivo wordmark and bold headline ("Scrub is a robot arm that passes instruments when you ask out loud."). Two-column track overview, monospace diagram, cases listing.
 - **Numbers and units**: PASS. "Median handoff --", active case links with event counts and items out.
 - **Sideways scroll at 390px**: PASS. `docWidth=390, winWidth=390`. Two-column grid collapses to single column on phone.
-- **Copy and text**: PASS. Matches `docs/OVERVIEW.md` and `docs/DEVPOST.md`. Short sentences, plain words, no em dashes, no buzzwords. Truthful claim: "A research prototype, not a medical device."
+- **Copy and text**: PASS. Matches `docs/OVERVIEW.md` and `team/DEVPOST.md`. Short sentences, plain words, no em dashes, no buzzwords. Truthful claim: "A research prototype, not a medical device."
 
 ---
 
@@ -280,7 +280,7 @@ All 26 screenshots saved to `data/qa/agy/` (git-ignored).
 
 ### Ranked Problems (Judge Priority)
 1. **Critical: Vultr host runs outdated pre-restyle build with rounded cards and Avenir Next font**
-   - Host: `http://144.202.95.111/` (per `docs/ACCOUNTS-TODO.md` line 88)
+   - Host: `http://144.202.95.111/` (per `team/LEFT.md` line 88)
    - Elements:
      - `<header class="top">`: `border-radius: 16px`, black container
      - `<section>`: `border-radius: 16px` rounded card containers
