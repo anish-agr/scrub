@@ -13,6 +13,8 @@ const STEP_LABEL = {
   error: "Error",
 };
 
+let noticeUntil = 0;
+
 const NAMES = {
   scalpel: "scalpel",
   hemostat: "hemostat",
@@ -37,7 +39,12 @@ function paint(state) {
   document.getElementById("item").textContent = state.item ? nameOf(state.item) : "";
   const held = Array.isArray(state.out) ? state.out : [];
   document.getElementById("out").textContent = held.length ? held.map(nameOf).join(", ") : "Nothing out";
-  document.getElementById("link").textContent = "live";
+  if (Date.now() >= noticeUntil) document.getElementById("link").textContent = "live";
+}
+
+function notice(text) {
+  document.getElementById("link").textContent = text;
+  noticeUntil = Date.now() + 2500;
 }
 
 async function refresh() {
@@ -51,12 +58,21 @@ async function refresh() {
 }
 
 async function post(path) {
-  await fetch(path, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: "{}",
-  });
-  refresh();
+  try {
+    const response = await fetch(path, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: "{}",
+    });
+    if (!response.ok) {
+      notice("wait until the arm is idle");
+      return;
+    }
+    noticeUntil = 0;
+    refresh();
+  } catch (error) {
+    document.getElementById("link").textContent = "not connected";
+  }
 }
 
 document.getElementById("stop").addEventListener("click", () => post("/stop"));
