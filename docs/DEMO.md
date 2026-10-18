@@ -6,6 +6,80 @@ The words to say are in `docs/PITCH.md`. This file is who stands where, what eac
 
 Numbers: say a success rate or a time only once it is on the dashboard. Until then it is `[measured]` and you skip the sentence.
 
+## Three demo levels
+
+We start the day on level 1 and drop a level only on a trigger below. Every level labels where each pick came from (`model` or `taught`) on the dashboard and in the voice reply. The Perceptron claim is made only at level 1, and only for the items that passed their real tries.
+
+Flag check on Oct 18 00:55: `controller.run_all --help` lists `--arm {fake,sim,real}`, `--vision`, `--tunnel`, `--ledger`, `--judge`, `--offline`, `--loop`, `--pause` and the `reset`, `backup`, `check` modes. `python -m controller --help` lists `--fake-arm`, `--real-arm`, `--sim-arm`, `--judge` and `--setting`. Neither lists `--skills` yet (Phase 4 adds it). Run `.venv/bin/python -m controller.run_all --help | grep skills` before judging. If it prints nothing, use the long form under each level.
+
+### Level 1: live real arm, model where it passed, taught for the rest
+
+```
+.venv/bin/python -m controller.run_all --arm real --vision real --tunnel --ledger --skills auto
+```
+
+Long form if `run_all` has no `--skills`: start the pieces yourself, each in its own terminal, from the repo root.
+
+```
+.venv/bin/python -m controller --real-arm --skills auto --setting surgical
+.venv/bin/python -m vision
+(cd voice && npm run dev)
+.venv/bin/python -m ledger serve
+```
+
+`auto` uses the model for an item only if it has a ready deployment and passed its last 3 real tries, else the taught skill. Setup steps 3 to 10 below apply unchanged. Check the labels on the dashboard before the first judge: each item shows `model` or `taught`.
+
+At the table:
+
+| Person | Does |
+| --- | --- |
+| Anish | Speaks. Calls the drop to level 2 or 3. Owns the arm and the Perceptron staff |
+| Caiden | Runs the command above, the stop key (Space), reset between judges, reads the `model` or `taught` label off the dashboard when asked |
+| Brandon | The clinician hand and the phone call |
+| Evan | Instruments back in their slots, lamp, the success table from the ledger on the second screen |
+
+30-second pitch: "A surgeon asks out loud for an instrument. The pick is done by a Perceptron Isaac model that we fine-tuned on our own demonstrations on this arm. The screen says which items use the model and which use a taught skill. The fine-tuned model picks; our code keeps it safe and carries it to the hand. Real tries: [to fill from the ledger] of 10 per item." Skip the numbers line until the ledger has them.
+
+### Level 2: live real arm, taught only
+
+```
+.venv/bin/python -m controller.run_all --arm real --vision real --tunnel --ledger --skills taught
+```
+
+Long form: `.venv/bin/python -m controller --real-arm --skills taught --setting surgical` with the same vision, voice and ledger terminals as level 1. Same table roles. Everything on the dashboard reads `taught`.
+
+30-second pitch: "A surgeon asks for an instrument out loud and the arm hands it over. In this run the pick is a skill we taught by hand, and the screen says so. The fine-tuned Perceptron model is the other path; it is shown in our recorded video from the real arm, not in this run. Our code keeps the arm safe and carries the instrument to the hand."
+
+Do not say the Perceptron model is running at this level.
+
+### Level 3: sim backup next to the recorded real-arm video
+
+```
+.venv/bin/python -m controller.run_all backup --offline --loop --pause 2
+```
+
+Stop the real-arm stack first (Ctrl+C in the `run_all` terminal) or it refuses to start on port 8000. Open the dashboard it prints. Play the recorded real-arm video (`renders/perceptron-arm.mp4`, the Perceptron arm video that is on Devpost) on the laptop next to it. Anish stands by the video; Caiden at the laptop.
+
+30-second pitch: "The arm on screen is a simulation, labeled as one. The video beside it is the real SO-101 running our fine-tuned model, filmed this morning, with the success table from our ledger. The code, the stop rule and the controller in the sim are the same ones that drive the real arm."
+
+### When to drop a level
+
+| Trigger | Go to |
+| --- | --- |
+| A model pick fails twice in a row for one item | stay on level 1, but set that item to taught (`--skills auto` does it after 3 failed tries; otherwise restart with `--skills taught`) and say so |
+| The Perceptron API is down, slow (a pick starts more than 10 s after the request) or the deployment is not ready | level 2 |
+| Two taught or model picks fail in a row on the real arm, or any motor is too hot and the arm holds (the dashboard shows "Too hot") | wait 3 minutes to cool at level 2 once; if it repeats, level 3 |
+| The arm moves unsafely, a cable is loose, power drops, or the camera feed is lost | level 3 at once. Press Space first |
+| Ballroom has no power or no room for the arm, or Perceptron staff want video only | level 3 |
+
+Anish decides. Caiden confirms the dashboard label matches what is said.
+
+### Message for Anish to send the Perceptron staff
+
+> Hi, we are team Scrub (DubHacks '26, Robotics track). We have an SO-101 arm running a Perceptron Isaac model fine-tuned on our own demonstrations, plus a recorded video of it. Three questions. Can the arm come to our table in the HUB Ballroom for judging at 10:30? Is there a power outlet at the table (we need one standard outlet for the arm supply and a laptop)? Do the judges want a live demo at the table or only the video? If live, we label which items run the model and which run a skill we taught. Thanks, Anish
+
+The sections below are the level 1 and general table run: roles, setup, the 3-minute run and failure fixes.
+
 ## Roles
 
 | Person | Stands | Speaks | Runs |
@@ -22,7 +96,7 @@ Stop rule: anyone who sees a problem says "stop" out loud. Caiden hits Space at 
 Commands run from the repo root on Caiden's Mac.
 
 1. Power strip on. Arm powered and clamped. Clear space around it.
-2. Start everything:
+2. Start everything (level 1 adds `--skills auto`, level 2 `--skills taught`, see above):
    ```
    .venv/bin/python -m controller.run_all --arm real --vision real --tunnel --ledger
    ```
