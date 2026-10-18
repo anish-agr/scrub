@@ -305,7 +305,7 @@ class AutoPick:
     def __init__(self, args: dict | None = None, calib: dict | None = None, detector=None, kin=None):
         args = dict(args or {})
         self.mode = args.get("mode", "handoff")
-        if self.mode not in ("handoff", "hold", "offer"):
+        if self.mode not in ("handoff", "hold", "offer", "calibrate"):
             raise ValueError("mode must be 'handoff' (wait for a hand, release, go home) or 'hold' (bring it home)")
         self.detector_kind = args.get("detector", "local")
         if self.detector_kind not in ("local", "gemini"):
@@ -347,6 +347,10 @@ class AutoPick:
         self._aborted = False
         self.start_pose = {m: float(st.joints[m]) for m in JOINTS}
         self.start_pose["gripper"] = float(st.gripper if st.gripper is not None else JAW_OPEN)
+        if self.mode == "calibrate":
+            self.cal_run = Calibrate(self, st)
+            self._phase, self._detail = "calibrate", "mapping the camera to the table with the jaw tape"
+            return
         if self.mode == "offer":  # test the hand detection: grip in place and wait for a hand
             self.grip_hold = max(0.0, self.start_pose["gripper"] - SQUEEZE)
             self.plan = [{"name": "grip", "from": dict(self.start_pose), "to": {**self.start_pose, "gripper": self.grip_hold},
@@ -361,6 +365,10 @@ class AutoPick:
     def tick(self, st, obs):
         if self._aborted:
             return None
+        if self.mode == "calibrate":
+            out = self.cal_run.tick(st, time.perf_counter())
+            self._phase, self._detail, self._progress = self.cal_run.phase, self.cal_run.detail, self.cal_run.progress
+            return out
         if self._phase == "detect":
             return {}  # hold everything while the detector runs on its own thread
         if self._phase == "failed":
@@ -633,3 +641,126 @@ class AutoPick:
             plan.append({"name": name, "from": dict(cur), "to": to, "dur": round(dur, 2), "hold": hold, "detail": detail})
             cur = to
         return plan
+
+
+# ---- calibrate: the arm maps the side camera to the table by itself (no network, no person)
+CAL_XS = (0.15, 0.20, 0.25, 0.30)
+CAL_YS = (-0.14, -0.08, -0.02, 0.04, 0.10)
+CAL_Z = (0.04, 0.0)        # jaw tip heights (m): above the instruments; extrapolated down to the grasp height
+CAL_SETTLE_S = 0.6
+
+
+def blue_tape(bgr):
+    """Pixel centroid of the jaw's blue tape (largest blue blob below the background), or None."""
+    import cv2
+    hsv = cv2.cvtColor(bgr, cv2.COLOR_BGR2HSV)
+    m = cv2.inRange(hsv, (100, 120, 60), (125, 255, 255))
+    m[: int(bgr.shape[0] * 0.3)] = 0  # a blue object on the far shelf
+    n, _lab, st_, cen = cv2.connectedComponentsWithStats(m, connectivity=8)
+    best = max(range(1, n), key=lambda i: st_[i, cv2.CC_STAT_AREA], default=None)
+    if best is None or st_[best, cv2.CC_STAT_AREA] < 120:
+        return None
+    return float(cen[best][0]), float(cen[best][1])
+
+
+class Calibrate:
+    """Visit a grid over the tray at two heights with the jaw closed, find the tape at each stop, fit the
+    pixel -> table homography at the grasp height, save it to autopick_calib.json (old one kept), go home."""
+
+    def __init__(self, ap: AutoPick, st):
+        self.ap, self.kin, self.cal = ap, ap.kin, ap.cal
+        self.samples: list[dict] = []
+        self.phase, self.detail, self.progress = "calibrate", "", 0.0
+        seed = list(self.cal["demos"][0]["grasp_deg"][:5])
+        cur = {m: float(st.joints[m]) for m in JOINTS}
+        cur["gripper"] = float(st.gripper if st.gripper is not None else JAW_CLOSE)
+        self.stops = []  # (pose, capture?, (x, y, z))
+        for i, x in enumerate(CAL_XS):
+            for y in (CAL_YS if i % 2 == 0 else CAL_YS[::-1]):
+                for z, cap in ((CAL_Z[0], True), (CAL_Z[1], True), (CAL_Z[0], False)):
+                    try:
+                        q = self.kin.inverse(np.array([x, y, z]), np.array(seed), require_region=False)
+                    except Exception:  # noqa: BLE001
+                        q = None
+                    if q is None or not self.kin.valid(q):
+                        continue
+                    seed = list(q)
+                    self.stops.append(({**{m: float(v) for m, v in zip(JOINTS, q)}, "gripper": JAW_CLOSE}, cap, (x, y, z)))
+        home = {m: float(self.cal["home_deg"][m]) for m in JOINTS}
+        self.stops.append(({**home, "gripper": JAW_CLOSE}, False, None))
+        self.cur, self.i, self.t0, self.done_fit = cur, 0, None, False
+
+    def tick(self, st, now):
+        if self.i >= len(self.stops):
+            if not self.done_fit:
+                self.done_fit = True
+                self._fit(st)
+            return {"done": "home"}
+        to, cap, xyz = self.stops[self.i]
+        if self.t0 is None:
+            self.t0, self.frm = now, dict(self.cur)
+            span = max(abs(to[m] - self.frm[m]) for m in JOINTS)
+            self.dur = max(0.6, span * MJ_PEAK / MAX_DEG_S)
+        el = now - self.t0
+        f = min_jerk(el / self.dur)
+        pose = {k: self.frm[k] + (to[k] - self.frm[k]) * f for k in to}
+        self.progress = self.i / len(self.stops)
+        self.phase, self.detail = "calibrate", f"stop {self.i + 1}/{len(self.stops)}, {len(self.samples)} tape sightings"
+        if el >= self.dur + (CAL_SETTLE_S if cap else 0.0):
+            if cap:
+                self._capture(st, xyz)
+            self.cur, self.i, self.t0 = dict(to), self.i + 1, None
+        return {f"{k}.pos": float(v) for k, v in pose.items()}
+
+    def _capture(self, st, xyz):
+        frame = self.ap._frame(st)
+        px = blue_tape(frame) if frame is not None else None
+        if px is None:
+            return
+        q = np.array([float(st.joints[m]) for m in JOINTS])  # where the arm really is, not where it was told
+        tip = np.asarray(self.kin.forward(q), float)
+        self.samples.append({"grid": list(xyz), "px": list(px), "tip": tip.round(4).tolist()})
+
+    def _fit(self, st):
+        import cv2
+        zg = self.cal["grasp_z_m"]
+        by = {}
+        for smp in self.samples:
+            by.setdefault(tuple(smp["grid"][:2]), []).append(smp)
+        pix, xy = [], []
+        for pair in by.values():
+            if len(pair) < 2:
+                continue
+            a, b = sorted(pair, key=lambda s_: s_["tip"][2])[:2]  # low, high
+            dz = b["tip"][2] - a["tip"][2]
+            if abs(dz) < 0.01:
+                continue
+            k = (zg - a["tip"][2]) / dz  # straight-line extrapolation of the tape pixel and tip down to the grasp height
+            pix.append([a["px"][i] + (b["px"][i] - a["px"][i]) * k for i in range(2)])
+            xy.append([a["tip"][i] + (b["tip"][i] - a["tip"][i]) * k for i in range(2)])
+        out = {"t": time.time(), "samples": self.samples, "pairs": len(pix)}
+        if len(pix) < 6:
+            self.phase, self.detail = "calibrate failed", f"only {len(pix)} usable grid points (need 6): is the tape in view?"
+            st.note("autopick calibrate: " + self.detail)
+        else:
+            Hm, inl = cv2.findHomography(np.array(pix), np.array(xy), cv2.RANSAC, 0.01)
+            P = np.c_[np.array(pix), np.ones(len(pix))] @ Hm.T
+            err = np.linalg.norm(P[:, :2] / P[:, 2:] - np.array(xy), axis=1)
+            good = inl.ravel().astype(bool)
+            out.update({"H": Hm.tolist(), "err_cm_median": float(np.median(err[good]) * 100),
+                        "err_cm_max": float(err[good].max() * 100), "inliers": int(good.sum())})
+            cal = load_calib()
+            cal["table_H_prev"] = cal.get("table_H")
+            cal["table_H"] = Hm.tolist()
+            cal["table_H_from"] = (f"autopick calibrate {time.strftime('%Y-%m-%d %H:%M')}: {int(good.sum())}/{len(pix)} grid "
+                                   f"points, median {out['err_cm_median']:.1f} cm, max {out['err_cm_max']:.1f} cm")
+            cal["workspace_m"] = {"x": [min(CAL_XS) - 0.02, max(CAL_XS) + 0.02], "y": [min(CAL_YS) - 0.02, max(CAL_YS) + 0.02]}
+            (HERE / "autopick_calib.json").write_text(json.dumps(cal, indent=1) + "\n")
+            self.ap.cal.update(cal)
+            self.phase, self.detail = "calibrated", cal["table_H_from"]
+            st.note("autopick calibrate: " + self.detail)
+        try:
+            FRAMES_DIR.mkdir(parents=True, exist_ok=True)
+            (FRAMES_DIR / f"calibrate-{time.strftime('%Y%m%d-%H%M%S')}.json").write_text(json.dumps(out))
+        except Exception:  # noqa: BLE001
+            pass

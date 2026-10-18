@@ -208,3 +208,39 @@ def test_spend_cap(tmp_path, monkeypatch):
     called = []
     monkeypatch.setattr("requests.post", lambda *a, **k: called.append(1))
     assert AP.gemini_box(np.zeros((480, 640, 3), np.uint8)) is None and not called  # over the cap: no request
+
+
+def test_calibrate_recovers_the_table_map(tmp_path, monkeypatch):
+    """Synthetic camera: tape pixel = known map of the tip (shifted up with height); the fit must recover it."""
+    import cv2
+    real = AP.HERE / "autopick_calib.json"
+    orig = real.read_text()
+    monkeypatch.setattr(AP, "FRAMES_DIR", tmp_path)
+    st = St()
+    d = AP.AutoPick({"mode": "calibrate"})
+    d.start(st)
+    h_true = np.linalg.inv(np.array(AP.load_calib()["table_H"]))
+
+    def frame(s):
+        tip = d.kin.forward(np.array([s.joints[m] for m in AP.JOINTS]))
+        p = h_true @ np.array([tip[0], tip[1], 1.0])
+        img = np.full((480, 640, 3), 230, np.uint8)
+        cv2.circle(img, (int(p[0] / p[2]), int(p[1] / p[2] - (tip[2] + 0.022) * 300)), 9, (200, 60, 0), -1)
+        return img
+    d._frame = frame
+    t = [0.0]
+    monkeypatch.setattr(AP.time, "perf_counter", lambda: t[0])
+    try:
+        for _ in range(20000):
+            a = d.tick(st, {})
+            t[0] += 1 / 30
+            if a and "done" in a:
+                break
+            if a:
+                st.joints = {m: a[f"{m}.pos"] for m in AP.JOINTS}
+        assert d.status()["phase"] == "calibrated"
+        hn = np.array(AP.load_calib()["table_H"])
+        p, q = hn @ np.array([530, 305, 1.0]), np.linalg.inv(h_true) @ np.array([530, 305, 1.0])
+        assert np.linalg.norm(p[:2] / p[2] - q[:2] / q[2]) < 0.005
+    finally:
+        real.write_text(orig)
