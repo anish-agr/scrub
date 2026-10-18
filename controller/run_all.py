@@ -477,8 +477,11 @@ class Stack:
 
 def _signal(proc: subprocess.Popen, sig) -> None:
     try:
-        os.killpg(proc.pid, sig)
-    except (ProcessLookupError, PermissionError):
+        if hasattr(os, "killpg"):
+            os.killpg(proc.pid, sig)
+        else:  # Windows has no process groups here: stop the child itself
+            proc.terminate()
+    except (ProcessLookupError, PermissionError, OSError):
         pass
 
 
