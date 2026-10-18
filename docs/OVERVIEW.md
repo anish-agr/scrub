@@ -1,6 +1,6 @@
 # Scrub: the whole project in one document
 
-Read this first. It explains every idea, decision and part of the project, and where everything lives. Other docs go deeper; this one ties them together. If another doc disagrees with this one on **what we're building**, this one wins. For **current status**, `docs/STATUS.md` wins.
+Read this first. It explains every idea, decision and part of the project, and where everything lives. Other docs go deeper; this one ties them together. If another doc disagrees with this one on **what we're building**, this one wins. For **current status**, `team/STATUS.md` wins. For what each outside tool does today, `docs/INTEGRATION.md` wins.
 
 DubHacks '26, Oct 17 to 18, 2026. Team: Anish, Caiden, Brandon, Evan.
 
@@ -8,7 +8,7 @@ DubHacks '26, Oct 17 to 18, 2026. Team: Anish, Caiden, Brandon, Evan.
 
 ## 1. Scrub in one paragraph
 
-Scrub is a robot arm that works as a surgeon's second pair of hands. The surgeon asks for an instrument out loud over a phone call on speaker. The SO-101 arm picks it from the tray, brings it to the surgeon's open hand handle first, and lets go when they take it. Scalpels never go hand to hand: Scrub sets them in a fixed safe spot. When the surgeon sets an instrument in the return spot, Scrub puts it back in its slot. Scrub keeps a running count of every instrument out and reads it back on request, and texts a summary at the end of the case. The picking is learned (we fine-tune Perceptron's Isaac 0.5 model on our own demonstrations); the move to the hand is planned from a hand tracker.
+Scrub is a robot arm that works as a surgeon's second pair of hands. The surgeon asks for an instrument out loud, designed as a phone call on speaker (the phone number is pending). The SO-101 arm picks it from the tray, brings it to the surgeon's open hand handle first, and lets go when they take it. Scalpels never go hand to hand: Scrub sets them in a fixed safe spot. When the surgeon sets an instrument in the return spot, Scrub puts it back in its slot. Scrub keeps a running count of every instrument out and reads it back on request, and texts a summary at the end of the case. The picking is meant to be learned (we are recording demonstrations to fine-tune Perceptron's Isaac 0.5 model, and no model is deployed yet; taught waypoint skills cover the picks until one is). The move to the hand is planned from a hand tracker.
 
 ## 2. The problem
 
@@ -17,14 +17,14 @@ Scrub is a robot arm that works as a surgeon's second pair of hands. The surgeon
 - Counts are a safety step: an instrument or sponge left inside a patient (a "retained surgical item") is a serious, costly error, and manual counts miss things.
 - Sharps injuries happen during hand-to-hand passing, which is why operating rooms pass sharps hands-free.
 
-Sources and numbers: `docs/PROPOSAL.md` (sources section), `docs/BUSINESS.md`, `explore/research/SURGEON_RESEARCH.md`. **Any number used in the pitch, slides or Devpost must be checked against its source first.** `SURGEON_RESEARCH.md` section 6 lists risky claims to avoid on stage.
+Sources and numbers: `team/PROPOSAL.md` (sources section), `docs/BUSINESS.md`, `explore/research/SURGEON_RESEARCH.md`. **Any number used in the pitch, slides or Devpost must be checked against its source first.** `SURGEON_RESEARCH.md` section 6 lists risky claims to avoid on stage.
 
 ## 3. What Scrub does (the user's view)
 
 | The surgeon | Scrub |
 | --- | --- |
 | Says "hemostat" (or "Kelly", "grab me the kelly") | Says "hemostat coming", picks it, checks the grasp, lifts it, brings it to the open hand handle first, and stops a few cm short |
-| Takes it (pulls) or says "got it" | Opens the gripper, goes home, logs the time from request to hand. Pulling is detected from the grip load collapsing while the hand is at the handoff spot (release on pull, in progress, see section 4) |
+| Takes it (pulls) or says "got it" | Opens the gripper, goes home, logs the time from request to hand. Pulling is detected from the grip load collapsing while the hand is at the handoff spot (release on pull) |
 | Says "scalpel" / "knife" | Puts it at the safe spot and says "scalpel down". Never hand to hand |
 | Sets an instrument in the return spot | Sees it, says "returning the hemostat", puts it back in its slot (auto return) |
 | Says "count" / "what's out" | Reads back what's out, checked against the camera |
@@ -34,9 +34,9 @@ Sources and numbers: `docs/PROPOSAL.md` (sources section), `docs/BUSINESS.md`, `
 | Texts "add a second hemostat to the surgical tray" | Logs a restock and replies |
 | Says "call the hemostat a clamp" | Learns the new word for this clinic |
 
-Between commands the arm rests. After the arm is home and nothing has been queued for 2 s, the controller calls `arm.rest()`: torque off on all six motors, nothing written. Before the next command it calls `arm.wake()`: each motor's goal is set to where it already is, then torque comes on, so nothing moves. `GET /state` reports `resting`. The fake and sim arms implement both. The real arm gets them tonight (section 4).
+Between commands the arm rests. After the arm is home and nothing has been queued for 2 s, the controller calls `arm.rest()`: torque off on all six motors, nothing written. Before the next command it calls `arm.wake()`: each motor's goal is set to where it already is, then torque comes on, so nothing moves. `GET /state` reports `resting`. The fake, sim and real arms implement both.
 
-Every pick and return carries a skill source on its events, `model` (the fine-tuned Isaac model) or `taught` (a replayed, labeled backup). The dashboard, the ops page and the voice reply show it. This lands tonight.
+Every pick and return carries a skill source on its events, `model` (the fine-tuned Isaac model) or `taught` (a replayed, labeled backup). The dashboard, the ops page, the case replay and the end-of-case summary show it.
 
 ## 4. Scope decisions, and what is real
 
@@ -49,7 +49,7 @@ Every pick and return carries a skill source on its events, `model` (the fine-tu
 | **Dental is dropped.** `settings/dental.json` stays on disk but is hidden everywhere a judge looks | We have no dental tools to record with |
 | **Handoff goes to the person's actual hand**, not a fixed spot | A hand tracker plus calibration adapts to each clinician |
 | **The fine-tuned model picks, and our code keeps it safe and carries it to the hand.** The model does approach, grasp and lift. Our code does smoothing, speed and joint limits, the claw guard, the thermal guard, the grasp check, and the planned move from carry to the hand | The model learns grasps from demos. The hand position changes every time, so a planned move is safer and more accurate |
-| **Voice over a real phone call** (Photon + ElevenLabs) | Clinicians already ask out loud, and it qualifies for Photon and the voice prize |
+| **Voice over a phone call** (Photon + ElevenLabs), designed and pending | Clinicians already ask out loud. The number and the agent are not set up yet; the voice server already answers typed lines |
 | **Gemini turns words into one action and one item**, from a fixed list | It cannot invent an item that is not on the tray. "Stop" never waits for Gemini |
 | **Only 2 training runs** | Perceptron's quota is 2 successful jobs per team. Run 1 is the hemostat, run 2 is the full surgical set. Nothing uploads until dataset QA passes |
 | **One dataset, one calibration, fixed cameras** | Each training run starts from the base model and takes one dataset |
@@ -59,43 +59,41 @@ Every pick and return carries a skill source on its events, `model` (the fine-tu
 
 ### Real (built, tested, runs today)
 
-- **Controller, voice, vision, ledger, dashboard, settings, sim, deploy.** Tested on the fake arm and the sim arm: `controller.test_flows` 67/67, `controller.test_run_all` 30, `vision` 41, `ledger` 15, `sim` 16, `arm` 94, voice `npm test` and `tsc` clean. `python -m controller.run_all check` passes on its own fake stack.
-- **One-command stack and the backup.** `python -m controller.run_all` starts the controller, vision, voice and (with `--ledger`) the ledger and prints every URL. `run_all backup` plays a full run on the sim arm. `run_all reset` clears between judges.
-- **Rest and wake between commands** in the controller, on the fake and sim arms.
+- **Controller, voice, vision, ledger, dashboard, settings, sim, deploy.** Tested on the fake arm and the sim arm: `controller.test_flows` 85/85, 87 tests in `sim`, `ledger` and `vision`, the `arm` tests and `controller.test_run_all` pass, voice `npm test` passes. `python -m controller.run_all check` passes on its own fake stack.
+- **One-command stack and the backup.** `python -m controller.run_all` starts the controller, vision, voice and (with `--ledger`) the ledger and prints every URL. `--real --tunnel` is the judging preset. `run_all backup` plays a full run on the sim arm. `run_all reset` clears between judges.
+- **Rest and wake between commands.** After 2 s at home with nothing queued the controller rests the arm (torque off); before the next command it wakes it without moving. The fake, sim and real arms implement both.
+- **The shared hardware layer in `arm/hardware.py`**, used by the recorder and `arm/real_arm.py`: retried bus reads, joint limits, gripper torque by situation, a thermal guard that raises `ArmFault` (the controller turns it into an error event that holds the arm), handoff detection.
+- **Release on pull.** The controller opens the gripper when the grip load collapses while the hand is at the handoff spot, or on "got it".
+- **Taught skills, the labeled backup.** `arm/taught.py` plays a few joint waypoints per item and direction, taught with `python -m arm.teach` (`docs/TEACH.md`). `--skills model|taught|auto` picks the source; `auto` uses the model for an item once a deployment exists and the item passed its last 3 real tries. Every pick and return event carries `skill_source`.
+- **The ops page and the doctor.** `GET /ops` shows the step, `skill_source` per item, arm temperatures and loads, camera rates, API latencies and last errors. `python -m controller.doctor` checks every service, key (names only) and log, and asks Gemini to turn recent errors into a short list.
 - **Thermal telemetry and the cool-down guard (recorder).** Every recorder session samples each motor at 2 Hz (temperature, load, position, goal, current, voltage) to `~/scrub-logs/thermal/` and to MongoDB. At 60 C the guard stops the arm and cools it, and it resumes at 50 C or when cooling levels off. `explore/thermal_analyze.py` reports which motor heats, how fast, and in which phase. `explore/thermal_web.py` serves a live temperature site on port 8093. Findings and the ranked causes are in `explore/research/overheating/README.md`. The main heat source is torque on at 12 V, so the arm now rests with torque off.
-- **Gripper torque by situation (recorder).** 15% when idle and shut, 35% when holding, 50% when moving, with a dead zone of 3. Overload flags are cleared at startup, bus reads are retried 3 times, and wrist_roll is held to plus or minus 150 degrees.
-- **Lift and pulled-out handoff detection (recorder).** Lift is the gripper tip height from the SO-101 model, at least 3 cm while holding. Pulled-out is the grip load collapsing while the leader still holds shut. Each episode ends with `lift_m`, `pulled` and `handoff_success`, and the report shows the handoff per episode.
-- **The recorder's page and controls (`explore/arm_session.py`, port 8090).** Both camera feeds and the loop rate, `n`/right arrow ends an episode, `r`/left arrow re-records, `q`/Esc saves, "End session" on the page, "Home + motors off" (glides to the saved home pose at 30 deg/s, then torque off) and "Motors on" (holds in place, then catches up to the leader). The home pose is in `explore/home_pose.json`.
-- **Dataset QA (`explore/dataset/`).** `qa` marks each demo PASS, WARN or FAIL (length, frozen arm, gripper, joint jumps, dropped frames, dark or frozen cameras, state lag). `variety` shows where grasps happened and where to record next. `replay` plays the recorded joints in the sim beside the real video. `aim` checks camera level and brightness. `arm.dataset_check` and `arm.train pipeline --check-only` gate every upload.
-- **Perceptron Robotics API client** (`arm/perceptron.py`, `arm/train.py`, `arm/pipeline.py`, `arm/upload_dataset.py`) with the team key accepted (HTTP 200 from `python -m deploy`).
-- **The video tool (`video/`).** `python -m video` has `corners`, `ingest`, `topdown`, `clean`, `find`, `overlay`, `cards`, `render`, `preview` and `demo-assets`. Every simulated or reconstructed shot is labeled, every number on screen comes from the ledger or the dataset, and speed changes carry a "2x" tag. Spec: `docs/VIDEO-TOOL.md`. 24 of its 25 tests pass here; the card test needs Playwright, which is not installed on the arm Mac yet.
+- **Gripper torque by situation.** 15% when idle and shut, 35% when holding, 50% when moving, with a dead zone of 3. Overload flags are cleared at startup, bus reads are retried 3 times, and wrist_roll is held to plus or minus 150 degrees.
+- **Lift and pulled-out handoff detection (recorder).** Lift is the gripper tip height from the SO-101 model, at least 3 cm while holding. Pulled-out is the grip load collapsing while the leader still holds shut. Each episode ends with `lift_m`, `pulled` and `handoff_success`.
+- **The recorder and the recording station (`explore/`).** `explore/arm_session.py` records with the leader and follower and serves its page on port 8090. `explore/station/` is a persistent station on port 8090: arms, cameras and dataset opened once, unlimited start, save and discard of episodes, a KILL switch, Home + motors off, Motors on, a cool-down lock and reconnect. The home pose is in `explore/home_pose.json`.
+- **Dataset QA (`explore/dataset/`).** `qa` marks each demo PASS, WARN or FAIL (length, frozen arm, gripper, joint jumps, dropped frames, dark or frozen cameras, state lag). `variety` shows where grasps happened and where to record next. `replay` plays the recorded joints in the sim beside the real video. `aim` checks camera level and brightness. `qa_video` flags a failed grasp or a drop with one bounded Perceptron call per episode. `arm.dataset_check` checks metadata, 30 fps timestamps, camera shapes and the six joints, and `arm.train pipeline --check-only` gates every upload.
+- **Perceptron Robotics API client** (`arm/perceptron.py`, `arm/train.py`, `arm/pipeline.py`, `arm/upload_dataset.py`). The team key returns HTTP 200 and the pipeline passes its offline self-tests. No job has been submitted and there are 0 deployments.
+- **Perceptron vision.** `vision/` calls the detect API for tray items and the hand; detect answered in 1.8 s in the integration run. `explore/recognition/bench.py` measured weak accuracy on 5 synthetic cases (found rate 0.4, median 2.7 s), so the tray reading needs checking on real frames (`docs/RECOGNITION.md`).
+- **The video tool (`video/`).** `python -m video` has `corners`, `ingest`, `topdown`, `clean`, `find`, `overlay`, `cards`, `render`, `preview`, `export-ledger` and `demo-assets`. Every simulated or reconstructed shot is labeled, every number on screen comes from the ledger or the dataset, and speed changes carry a "2x" tag. Spec: `docs/VIDEO-TOOL.md`. Its 25 tests pass when Playwright browsers are installed (the card test needs them).
 - **The shared design system (`design/`).** One stylesheet, `design/scrub.css`, with a paper theme and a monitor theme, copied by `design/sync.py` into the dashboard, the tablet view, the ledger pages and the sim viewer. The nurse and demo consoles keep their approved styling inside isolated blocks. Spec: `docs/DESIGN-SYSTEM.md`.
-- **The public page on Vultr.** `http://144.202.95.111/` serves the judge page from MongoDB through nginx. `bash ledger/push_public.sh root@<ip>` updates it.
+- **MongoDB Atlas and the public page on Vultr.** The ledger and thermal telemetry are in Atlas (`scrub.events`, `scrub.thermal`). `http://144.202.95.111/` serves the judge page from it through nginx, over HTTP only. `bash ledger/push_public.sh root@<ip>` updates it.
 
-### Partly done
+### Partly done or not working yet
 
-- **The real-arm path through the controller has never run on hardware.** `arm/real_arm.py` has the claw guard, the stale-move guard and the 30 Hz streaming. It does not yet have the recorder's retries, limits, gripper torque, thermal stop, `rest()` or `wake()`. Tonight's shared hardware layer fixes that (below).
+- **The real-arm path through the controller has not run a full case on hardware.** `arm/real_arm.py` has the hardware layer, rest, wake, telemetry and taught skills, and its tests pass offline. `SO101_PORT` is empty in the integration run, so it was not tried against the follower.
+- **No model is deployed.** `python -m arm.train deployments` shows 0, so `PERCEPTRON_DEPLOYMENT_ID` names nothing. Training run 1 has not finished. No "fine-tuned" or live-inference claim until it has and a model-driven pick is recorded.
 - **Rig and vision calibration.** `arm/rig.json` is an unmeasured template (`hardware_verified: false`). `vision/calibration.json` does not exist. Slot boxes are not marked, so the hand target and tray slots are defaults.
 - **Cameras.** At the last check the wrist camera ran at about 23 fps and was dark, and the side camera was not seen. Recording needs both at about 30 fps (`python -m arm.check_setup`).
-- **Training data.** No batch is logged in `docs/DATA-LOG.md` yet. No model has been tested on the arm.
-- **Accounts.** Perceptron, Gemini, ElevenLabs and MongoDB pass `python -m deploy`. Photon answers HTTP 403 and its phone line and SIP inbound are not confirmed. `ELEVENLABS_AGENT_ID` and `HF_TOKEN` are empty. HTTPS and the domain for the public page wait on GoDaddy.
-- **Tiger Data and Backboard.** The series and memory pages run from the local ledger. Both keys are empty, so neither service is in use. Any track claim for them is cut unless that changes.
-- **Design review.** The restyle is checked by script and by fetching every page. Browser screenshots are pending, and the design tests need updating after the `skill_source` edits to the dashboard land.
-
-### In progress tonight (other agents, landing within hours)
-
-- **The shared arm hardware layer in `arm/`**, used by both the recorder and the live arm: bus read retries, joint limits, gripper torque by situation, thermal telemetry, `rest()` and `wake()`, and a stop that goes safe when a motor passes the thermal limit (raising `ArmFault`, which the controller turns into an error event that holds the arm). The recorder keeps working on it.
-- **Release on pull** in the controller: open the gripper when the grip load collapses while the hand is at the handoff spot, or on "got it".
-- **Taught skills as a labeled backup.** `arm/taught.py` plays a few joint waypoints per item and direction, taught with `python -m arm.teach`. The controller flag `--skills model|taught|auto` picks the source. `auto` uses the model for an item once a deployment exists and the item passed its last 3 real tries. Every event carries `skill_source`.
-- **An ops page** (`controller/ops.html`): controller step, `skill_source` per item, arm temperatures and loads, camera rates, API latencies and last errors.
-- **A doctor command** (`python -m controller.doctor`): checks every service and key (never values) and asks Gemini to turn recent errors into a short list.
-- **A recognition bench** (`explore/recognition/bench.py`): Perceptron detect, Gemini image input and MediaPipe on real frames and saved tray images, with accuracy and latency, written up in `docs/RECOGNITION.md`.
+- **Training data.** No batch is logged in `docs/DATA-LOG.md` yet.
+- **The phone path.** Designed in `voice/README.md` (Photon number, SIP, an ElevenLabs agent with a Custom LLM pointing at `voice/`). `ELEVENLABS_AGENT_ID` is empty, no tunnel URL is recorded, and no Photon line exists. Photon keys load and the texting code passes its mocked test, but no real text has gone out. The ElevenLabs key works: the arm speaks in the room. The phone agent and the Photon line are being set up now.
+- **Hugging Face and GoDaddy.** `HF_TOKEN` is empty, so the training pipeline cannot start. No domain is bought, so the public page has no HTTPS and the replay link in the text has no host.
+- **Tiger Data and Backboard are not live.** `ledger/tiger.py` and `ledger/memory.py` exist, but both keys are empty. The series and memory pages answer from the local ledger. We make no track claim for either.
+- **Design review.** The restyle is checked by script and by fetching every page. Browser screenshots are pending.
 
 ### Dropped
 
 - **Dental.** No tools, no recordings, hidden everywhere a judge looks.
 - **A third setting.** The proposal's three trays are two.
-- **The idea prototypes.** The gallery in `explore/prototypes/` is inspiration only and moves to `team/` before the repo goes public.
+- **The idea prototypes.** The gallery in `explore/prototypes/` is inspiration only and moves out before the repo goes public.
 - **Claims with no real use behind them.** Any track claim that `docs/INTEGRATION.md` cannot prove with a command is cut.
 
 ## 5. How the system fits together
@@ -114,24 +112,25 @@ vision/ (overhead camera: tray + hand) ----------> controller/ ----> arm/ ----> 
                            ledger/ (MongoDB) + dashboard/ + ops page + public page (Vultr)
 ```
 
-Only the controller moves the arm. Everything else sends it information. The messages between parts are fixed in `docs/CONTRACTS.md`. A picture is in `docs/media/`.
+Only the controller moves the arm. Everything else sends it information. The messages between parts are fixed in `docs/CONTRACTS.md`. A picture is in `docs/media/`. `team/` holds the team's working notes and is removed before the repo goes public.
 
 | Part | Folder | Port | What it does | Built on |
 | --- | --- | --- | --- | --- |
-| Controller | `controller/` | 8000 | The brain: queue of commands, the step-by-step handoff (find, pick, check grasp, move to hand or safe spot, wait for pull, release, home, log), return, count, tray check, every safety rule, rest and wake between commands. Serves the dashboard, the nurse console and the demo page. `run_all.py` starts the whole stack | FastAPI |
-| Arm | `arm/` | | Connects to the SO-101 (LeRobot), runs the fine-tuned model (sends side and wrist images plus 6 joint angles, plays the returned moves at 30 Hz), the hand-reaching math (`move_to`, inverse kinematics), pose teaching, taught skills, the training pipeline. The shared hardware layer (reads, limits, torque, heat) is being added so the recorder and the live arm use the same code | LeRobot, Perceptron Robotics API |
-| Vision | `vision/` | 8001 | The overhead camera: MediaPipe finds the open hand and turns it into an arm target; Perceptron's vision API finds instruments and maps them to tray slots; tray check; lighting tags; event clips; a video stream with boxes | OpenCV, MediaPipe, Perceptron detect |
+| Controller | `controller/` | 8000 | The brain: queue of commands, the step-by-step handoff (find, pick, check grasp, move to hand or safe spot, wait for pull, release, home, log), return, count, tray check, every safety rule, rest and wake between commands. Serves the dashboard, the nurse console, the demo page and the ops page. `run_all.py` starts the whole stack; `doctor.py` checks it | FastAPI |
+| Arm | `arm/` | | Connects to the SO-101 (LeRobot), runs the fine-tuned model (sends side and wrist images plus 6 joint angles, plays the returned moves at 30 Hz), the hand-reaching math (`move_to`, inverse kinematics), pose teaching, taught skills, the training pipeline. The shared hardware layer (reads, limits, torque, heat) is used by both the recorder and the live arm | LeRobot, Perceptron Robotics API |
+| Vision | `vision/` | 8001 | The overhead camera: MediaPipe finds the open hand and turns it into an arm target; Perceptron's vision API finds instruments and maps them to tray slots; tray check; lighting tags; event clips with Perceptron captions; reading count sheets, tray tags and pack labels; a video stream with boxes | OpenCV, MediaPipe, Perceptron detect |
 | Voice | `voice/` | 3000 | The ElevenLabs agent's custom LLM endpoint: Gemini parses each phrase, "stop" goes straight to the controller, replies are spoken; texts in and out on the Photon thread; end-of-case summary | TypeScript, Gemini, Photon |
-| Ledger | `ledger/` | 8080 | Logs every event and test result to MongoDB Atlas (with a local file if Mongo is down), success tables with ranges, and the public pages: judge page, case list, case replay, QR table card. Runs on Vultr for the public | MongoDB |
+| Ledger | `ledger/` | 8080 | Logs every event and test result to MongoDB Atlas (with a local file if Mongo is down), success tables with ranges, and the public pages: judge page, case list, case replay, series, memory, QR table card. Series and memory read the local ledger. Runs on Vultr for the public | MongoDB |
 | Dashboard | `dashboard/` | served at 8000 | What judges watch: live camera, current step, what's out, event log, tray and lighting pickers, stop and reset. `tablet.html` is a large-text view | plain HTML/JS |
 | Settings | `settings/` | | One file per tray: items, the words people say, which item is sharp, slot boxes, the model instructions | JSON |
 | Sim | `sim/` | 8002 | A MuJoCo model of the SO-101 with the same arm interface. Used for testing without hardware, as the backup demo, and for replaying recorded joints | MuJoCo |
 | Design | `design/` | | The shared stylesheet and its sync and check scripts | CSS |
 | Video | `video/` | | Cleans real footage and builds the demo video and the Perceptron arm video from the ledger and dataset | OpenCV, ffmpeg |
 | Deploy | `deploy/` | | Puts the public page on a Vultr server; `python -m deploy` checks every key and service | |
-| Recorder and tools | `explore/` | 8090, 8093 | The recorder page, the temperature site, dataset QA and the overheating research. These are real tools; the rest of `explore/` is not (section 11) | LeRobot, MongoDB |
+| Recorder and tools | `explore/` | 8090, 8093 | The recorder and recording station, the temperature site, dataset QA, the recognition bench and the overheating research. These are real tools; the rest of `explore/` is not (section 11) | LeRobot, MongoDB |
+| Team notes | `team/` | | Status, tasks, pitch, prompts and QA notes. Removed before the repo goes public | |
 
-**One arm path.** The recorder (`explore/arm_session.py`) got every reliability fix first. The live demo goes through `controller/` and `arm/real_arm.py`. Tonight both move onto one hardware layer in `arm/`, so what makes recording safe also makes the live arm safe.
+**One arm path.** The recorder (`explore/arm_session.py`) got every reliability fix first. The live demo goes through `controller/` and `arm/real_arm.py`. Both use the hardware layer in `arm/hardware.py`, so what makes recording safe also makes the live arm safe.
 
 **Skill sources.** The arm objects (`FakeArm`, the sim arm and `arm/real_arm.py`) all take `run_skill(instruction, max_s, source)`. `source="model"` calls the deployment. `source="taught"` plays a taught skill. The controller picks the source per item from `--skills`, and tags the start and end events of each pick and return.
 
@@ -139,11 +138,11 @@ Only the controller moves the arm. Everything else sends it information. The mes
 
 ## 6. Data and training (plain version; details in `docs/TRAINING.md`)
 
-1. A person moves the **leader** arm and the **follower** copies it. The recorder (`python -m arm.record`, which runs `explore/arm_session.py`) saves both cameras (`side`, `wrist`, 640x480, 30 fps) and the 6 joint angles. One try is one **episode**. The recorder page on port 8090 shows both feeds and the loop rate.
+1. A person moves the **leader** arm and the **follower** copies it. The recorder (`python -m arm.record`, which runs `explore/arm_session.py` by default) saves both cameras (`side`, `wrist`, 640x480, 30 fps) and the 6 joint angles. One try is one **episode**. The recorder page on port 8090 shows both feeds and the loop rate.
 2. Each episode is labeled with its exact instruction: `pick the hemostat`, `return the hemostat`. One model learns every item and both directions.
 3. The recorder protects the arm while it records: joint limits, gripper torque by situation, retried bus reads, and the cool-down guard. It marks each episode with lift, pulled-out and handoff success, so a handover that did not lift or release is easy to find.
 4. We vary the item's position slightly and the lighting (bright, normal, dim), because operating lights cause glare on steel. Every batch gets a row in `docs/DATA-LOG.md`.
-5. Before anything uploads, dataset QA must pass: about 30 Hz on both cameras, no dark wrist frames, one task string per instruction, and the planned episode count. `python -m explore.dataset.qa` and `python -m arm.dataset_check` run it.
+5. Before anything uploads, dataset QA must pass: about 30 Hz on both cameras and no dark wrist frames. `python -m explore.dataset.qa --root <dataset>` and `python -m arm.dataset_check <dataset>` run it. Neither checks the task strings or the planned episode count (`dataset_check` only needs at least 2 episodes that agree with the metadata), so check those by hand against `docs/DATA-LOG.md` and Perceptron's `GET /validation`.
 6. The dataset goes to Hugging Face. Perceptron fine-tunes Isaac 0.5 on it (about an hour plus export) and gives us a deployment. Run 1 is the hemostat only. While it trains we record the Mayo scissors and the scalpel (its pick goes to the safe spot) into the same dataset and teach the backup skills. Run 2 uses the full surgical set if the data is clean.
 7. `arm/real_arm.py` streams camera frames and joint angles to the deployment and plays back the moves it returns. A late or stale move is never played.
 8. The model has no "done" signal, so our code decides when a pick is finished (gripper closed and still, or a time limit), checks the grasp, and the camera confirms the slot is empty.
@@ -168,19 +167,21 @@ Targets per item are in `docs/TRAINING.md`. The step-by-step operator walkthroug
 | Track | What we show |
 | --- | --- |
 | **Community Kitchen** (title) | Health care staffing gap; a working assistant a judge can use live; clean dashboard and table |
-| **Perceptron Robotics** | Isaac 0.5 fine-tuned on our own demos, one language-conditioned model for every item and both directions, success rates by item and lighting, the required arm video |
-| **Perceptron Perception** | Their vision API doing real work: tray state, grasp check, auto return, the count, tray check, labeled event clips |
-| **Photon** (+ best voice agent) | The whole case runs over a call to the Photon number; texts in (restock, what's out) and the summary out on the same thread |
+| **Perceptron Robotics** (pending) | The fine-tune pipeline and key work. Claim a fine-tuned Isaac 0.5 model, success rates by item and lighting, and the required arm video only after run 1 finishes and a model-driven pick is recorded |
+| **Perceptron Perception** | Their vision API doing real work: tray state, grasp check, auto return, the count, labeled event clips. The bench found accuracy weak, with numbers in `docs/RECOGNITION.md` |
+| **Photon** (pending) | Designed: the case runs over a call to the Photon number, with texts in and the summary out on the same thread. No line and no real text yet |
 | DubHacks NEXT | The business case in `docs/BUSINESS.md`: surgery centers first, priced per operating room per month |
-| MLH Gemini | Speech to command with structured output, the summary, texts |
-| MLH MongoDB Atlas | The ledger, case replay, success tables |
-| MLH Vultr + GoDaddy | The public judge page on a Vultr server at our domain |
+| MLH Gemini | Speech to command with structured output, the summary, texts, the doctor |
+| MLH MongoDB Atlas | The ledger, case replay, success tables, thermal telemetry |
+| MLH Vultr | The public judge page on a Vultr server |
 | MLH Commit Fellowship | Tick on Devpost + a form |
-| MLH DEV | A post after the event (draft at the end of `docs/DEVPOST.md`) |
+| MLH DEV | A post after the event (draft at the end of `team/DEVPOST.md`) |
+
+Dropped or held back: MLH Tiger Data and MLH Backboard (no key, nothing real runs against them), MLH GoDaddy (no domain bought; claim it only once one is), Hugging Face as a sponsor claim (no token). The basis for each row is the Track claims section of `docs/INTEGRATION.md`.
 
 ## 9. What already exists (prior work) and what's different
 
-Robot scrub nurses are an active research area (Penelope, Gestonurse, RoboNurse-VLA and newer VLA scrub nurses). None is on the market. Scrub differs by: a cheap open-source arm, voice over a real phone call, handoff to the actual hand, put-back to the exact slot, the automatic count with a camera check, sharps handled hands-free, more than one setting on one model, and measured lighting robustness. Details: `docs/PROPOSAL.md` (team notes) and `explore/research/SURGEON_RESEARCH.md` section 3.
+Robot scrub nurses are an active research area (Penelope, Gestonurse, RoboNurse-VLA and newer VLA scrub nurses). None is on the market. Scrub differs by: a cheap open-source arm, voice over a phone call (designed), handoff to the actual hand, put-back to the exact slot, the automatic count with a camera check, sharps handled hands-free, more than one setting on one model, and measured lighting robustness. Details: `team/PROPOSAL.md` (team notes) and `explore/research/SURGEON_RESEARCH.md` section 3.
 
 ## 10. The business (summary of `docs/BUSINESS.md`)
 
@@ -192,14 +193,17 @@ Start with surgery centers and training labs. Sell per operating room per month,
 
 | Path | What it is | Use it for |
 | --- | --- | --- |
-| `explore/arm_session.py`, `arm_ui.*` | The recorder that drives the real arm on the Mac, with camera and motor safety guards | **Real tool.** Being promoted to `arm/record.py` |
-| `explore/dataset/` | Checks recorded episodes (cadence, joint limits, camera aim, replay in sim) | **Real tool.** Run it before every training run |
+| `explore/arm_session.py`, `arm_ui.*` | The recorder that drives the real arm on the Mac, with camera and motor safety guards. `arm/record.py` runs it | **Real tool** |
+| `explore/station/` | The persistent recording station on port 8090 | **Real tool** |
+| `explore/thermal_*.py`, `home_pose.py`, `calibrate_follower.py` | Heat logging and analysis, the temperature site, the folded home pose, follower recalibration | **Real tools** |
+| `explore/recognition/` | The recognition bench and capture tool | **Real tool**, results in `docs/RECOGNITION.md` |
+| `explore/dataset/` | Checks recorded episodes (cadence, joint limits, camera aim, replay in sim, video QA) | **Real tool.** Run it before every training run |
 | `explore/bench/` | An on-device tray identifier | Experimental |
 | `explore/research/isaac-workshop-notes.md` | The Perceptron workshop deck as notes: commands, quotas, inference timing | **Reference.** Facts summarized in `docs/PERCEPTRON-ROBOTICS.md` |
 | `explore/research/SURGEON_RESEARCH.md` | Retained items, staffing, prior robotic scrub nurses, judging, risky claims | **Reference** for the pitch. Check every number |
 | `explore/research/01-04` | Startup tracks, medical go-to-market and FDA path, competitors and market, 30 build-out ideas | **Reference** for NEXT and Q&A. Ideas, not plans |
 | `explore/research/perceptron-mk15-notes.md`, `TRACKS.md` | Perception API notes, track descriptions | Reference |
-| `explore/prototypes/` (59 pages), `status-board/`, `pages/`, `IDEAS-BACKLOG.md` | Clickable mockups and idea lists from brainstorming, many for ideas we didn't build (kitchen, pills, telepresence, surgical skills) | Inspiration only. Planned for removal before the repo goes public |
+| `explore/prototypes/` (66 files), `status-board/`, `pages/`, `IDEAS-BACKLOG.md` | Clickable mockups and idea lists from brainstorming, many for ideas we didn't build (kitchen, pills, telepresence, surgical skills) | Inspiration only. Planned for removal before the repo goes public |
 
 ## 12. Which doc to read for what
 
@@ -207,16 +211,19 @@ Start with surgery centers and training labs. Sell per operating room per month,
 | --- | --- |
 | Rules for agents, who owns which files | `AGENTS.md` |
 | Message formats between parts | `docs/CONTRACTS.md` |
-| What's done and what's next | `docs/STATUS.md`, `docs/LEFT.md` |
-| Hardware steps left | `docs/HARDWARE-TODO.md` (after the comb), `docs/BRINGUP.md` |
-| Accounts and keys left | `docs/ACCOUNTS-TODO.md` (after the comb), `docs/SETUP.md` |
-| Training | `docs/TRAINING.md`, `docs/PERCEPTRON-ROBOTICS.md` |
-| Pitch and demo | `docs/PITCH.md`, `docs/DEMO.md`, `docs/QNA.md`, `docs/SLIDES.md` |
-| Devpost and posts | `docs/DEVPOST.md`, `docs/README-PUBLIC.md` |
+| What's done and what's next | `team/STATUS.md`, `team/LEFT.md` |
+| What each outside tool does today, with proof | `docs/INTEGRATION.md` |
+| Hardware steps left | `team/HARDWARE-TODO.md`, `docs/BRINGUP.md` |
+| Accounts and keys left | `team/ACCOUNTS-TODO.md`, `docs/SETUP.md` |
+| Training | `docs/TRAINING.md`, `docs/PERCEPTRON-ROBOTICS.md`, `docs/TEACH.md` |
+| Tray recognition numbers | `docs/RECOGNITION.md` |
+| Shared look and the video tool | `docs/DESIGN-SYSTEM.md`, `docs/VIDEO-TOOL.md` |
+| Pitch and demo | `team/PITCH.md`, `team/DEMO.md`, `team/QNA.md`, `team/SLIDES.md` |
+| Devpost and posts | `team/DEVPOST.md`, `docs/README-PUBLIC.md` (the future public README) |
 | Business case | `docs/BUSINESS.md` |
-| Original full proposal (some parts outdated: dental, three settings) | `docs/PROPOSAL.md` |
-| Bugs found | `docs/QA.md`, `docs/AUDIT.md`, `docs/REVIEW.md` |
-| The timeline | `docs/PLAN.md` |
+| Original full proposal (some parts outdated: dental, three settings) | `team/PROPOSAL.md` |
+| Bugs found | `team/QA.md`, `team/AUDIT.md` |
+| The timeline | `team/PLAN.md` |
 
 ## 13. Glossary
 
