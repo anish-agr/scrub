@@ -140,4 +140,4 @@ Vision probe note: `deploy/check_env.py` sends a 1x1 gray JPEG to `/v1/detect` a
 - Now: MISSING on this Mac. The page answers from the local ledger until both names are set.
 
 ### DEV (dev.to)
-- For: the MLH DEV writing track. Get it: https://dev.to, sign in, New Post, paste the writeup from `docs/DEV-POST.md`, add the hackathon tag the MLH page asks for, publish, and put the link in Devpost. Now: NOT DONE (nothing found here).
+- For: the MLH DEV writing track. Get it: https://dev.to, sign in, New Post, paste the writeup from `docs/DEVPOST.md` (the last section), add the hackathon tag the MLH page asks for, publish, and put the link in Devpost. Now: NOT DONE (nothing found here).
