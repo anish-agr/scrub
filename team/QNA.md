@@ -10,11 +10,11 @@ Who answers: Anish (arm, training, business), Caiden (voice, station, safety), B
 
 | # | Question | Answer | Who |
 | --- | --- | --- | --- |
-| 1 | Is the model fine-tuned? What runs the pick? | The pick you see is a skill we taught it. We recorded our own demonstrations of each pick on this arm with a leader arm. When you ask for an instrument, the arm plays the average of those demonstrations, speed-capped. We also started a Perceptron training run on the same demonstrations. That's separate: no model was deployed when we filmed, so no pick in the video or at the table is a model pick | Anish |
-| 2 | Why no hand tracking? | The camera frame rate is too low to track a moving hand safely. Our wrist camera runs at about 22 frames a second and we wanted 30. So the arm doesn't chase the hand. It goes to a fixed handoff point, slows as it nears it, and holds the instrument out until you pull | Caiden |
+| 1 | Is the model fine-tuned? What runs the pick? | The pick you see is a skill we taught it. We recorded our own demonstrations of each pick on this arm with a leader arm. When you ask for an instrument, the arm plays the average of those demonstrations, speed-capped. We haven't run a Perceptron training job on them yet: 0 jobs and 0 deployments as of 07:20. So no pick in the video or at the table is a model pick | Anish |
+| 2 | Why no hand tracking? | The camera frame rate is too low to track a moving hand safely. Our wrist camera runs at about 22 frames a second and we wanted 30. So the arm doesn't chase the hand. It goes to a fixed handoff point at a capped speed and holds the instrument out until you pull or say "let go". In our simulation the last leg into the handoff point runs at a third of normal speed | Caiden |
 | 3 | What about sterility? | Scrub never touches the patient and is a research prototype. A clinic version would run under a sterile drape on a medical-grade arm, like today's surgical robots, with trays and tools sterilized as usual. We don't claim it's sterile | Anish |
 | 4 | What happens if it gets hot? | It reads every motor's temperature every 2 seconds. The page warns at 55 C. At 60 C it stops the run, goes home and turns its motors off. It can run again once every motor is back to 50 C. Above 52 C its moves also take 1.6 times longer, and the gripper eases open at 62 C. Holding a tool still is what heats the motors most, so it doesn't hold longer than it has to | Caiden |
-| 5 | How fast is it? | Only say a number that's in `team/FACTS-0718.md` with its source. If it isn't there: "We didn't time it end to end today." Don't quote the 2 AM fake-arm voice timings as the arm's speed | Caiden |
+| 5 | How fast is it? | "We didn't time it end to end on the real arm today." The ledger has 0 real-arm tries, so there's no real latency to quote. Don't quote the 2 AM fake-arm voice timings as the arm's speed | Caiden |
 
 ## How it works
 
@@ -27,7 +27,7 @@ Who answers: Anish (arm, training, business), Caiden (voice, station, safety), B
 | 10 | Does it put tools back? | On the real arm, no. A person puts them back, and the video labels that manual. The video shows a return in simulation, modeled as an electromagnet pickup and labeled as simulation | Evan |
 | 11 | What does Perceptron's vision API do? | Detect finds the instruments in a tray photo; OCR reads the printed count sheet, with Gemini as the fallback. Both are tested on rendered props. Say a real-tray result only if shots 7 and 8 were recorded | Brandon |
 | 12 | What does the sim do? | A MuJoCo model of the SO-101 plays the same routine for the video and as our backup. It doesn't mirror the real arm live | Caiden |
-| 13 | How much data? | The number of recorded demonstrations per instrument comes from `team/FACTS-0718.md`. Don't guess | Anish |
+| 13 | How much data? | 29 recorded episodes, 24 usable, about 9 minutes. By task: scalpel handle 11, scalpel 5, hemostat 6, plus tweezers and spatula tests. We haven't recorded the Mayo scissors yet (update if that changes before judging) | Anish |
 | 14 | Where is the data stored? | Arm telemetry and saved demonstrations go to MongoDB Atlas. The public page on Vultr reads from it | Evan |
 
 ## Safety
@@ -59,16 +59,16 @@ Who answers: Anish (arm, training, business), Caiden (voice, station, safety), B
 | 27 | Does it pay for itself? | With setup spread over three years it's about $792 a room a month. At about $36 an operating room minute (JAMA Surgery, 2018), that's 22 minutes a month. We haven't measured minutes saved. A pilot would measure that first | Anish |
 | 28 | Does it replace scrub techs? | No. It hands over instruments so a scarce tech can focus on the field | Anish |
 | 29 | Has this been done before? | Research robots, for example RoboNurse-VLA (a 2024 paper). Ours runs on an open-source arm that costs a few hundred dollars | Anish |
-| 30 | What's next? | A medical-grade arm, a model pick once a deployment passes real tries, and talks with operating room nurses | Anish |
+| 30 | What's next? | More demonstrations, a Perceptron training run on them, a medical-grade arm, and talks with operating room nurses | Anish |
 
 ## By track
 
 | # | Question | Answer | Who |
 | --- | --- | --- | --- |
 | 31 | Community Kitchen: why does this fit? | It's aimed at a staffing gap in health care, with a tool you can try at the table by talking to it | Anish |
-| 32 | Perceptron Robotics: what's hard here? | Handing a steel instrument to a person, on a low-cost arm, safely. We collected our own demonstrations, taught the picks from them, and wrote the guards around the arm. The training run is separate and shown as its job id and state | Anish |
+| 32 | Perceptron Robotics: what's hard here? | Handing a steel instrument to a person, on a low-cost arm, safely. We collected our own demonstrations, taught the picks from them, and wrote the guards around the arm. No training job has run yet (0 jobs at 07:20) | Anish |
 | 33 | Perceptron Perception: what does vision decide? | Detect checks the tray and OCR reads the count sheet. Show the shot 7 and 8 recordings with their latency | Brandon |
-| 34 | Photon: why a phone call? | It needs no new app. Say we took a real call only if it's on video and logged | Caiden |
+| 34 | Photon: why a phone call? | It needs no new app. A voice command moved the real arm at 07:02, but it isn't confirmed that it came over the Photon line. Say we took a real call only if Photon or ElevenLabs call history shows it | Caiden |
 | 35 | MLH MongoDB Atlas: what's stored? | Arm telemetry and saved demonstrations | Evan |
 | 36 | MLH Vultr: what for? | The public judge page runs on a Vultr server | Evan |
 | 37 | DubHacks NEXT: what's the business? | A monthly fee per room, training labs then surgery centers. See 26 and 27 | Anish |

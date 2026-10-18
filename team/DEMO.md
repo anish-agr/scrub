@@ -17,7 +17,9 @@ Our own numbers come only from `team/FACTS-0718.md`. If a number isn't there, sk
 
 Run it only if the arm works at the table. Same four steps every time.
 
-1. **Hemostat.** Brandon: "Hemostat." The arm plays the hemostat skill, carries it to the handoff point (slowing as it gets there), holds it out. Brandon pulls it from the jaw. The arm goes home.
+Before 10:20, check against `team/FACTS-0718.md` (07:20): the dataset has 6 hemostat episodes and **0 Mayo scissors episodes**, and the only confirmed real handoffs are 2 scalpel passes. The Mayo step can't run until Mayo scissors demos are recorded and a pass works. The hemostat was offered twice with no confirmed handoff. If either still fails at 10:00, use the scalpel (2 confirmed handoffs) for that step and say so, or show it on the video.
+
+1. **Hemostat.** Brandon: "Hemostat." The arm plays the hemostat skill, carries it to the handoff point at a capped speed and holds it out. Brandon pulls it from the jaw. The arm goes home.
 2. **Mayo scissors.** Brandon: "Mayo scissors." Same as above.
 3. **Stop, then continue.** On a second Mayo scissors (or hemostat) request, Brandon says "Stop" partway through. The arm freezes where it is, still holding. Caiden points it out. Brandon: "Continue." The pass finishes and the arm goes home.
 4. **Manual return.** Evan puts each instrument back in its slot by hand and says so: "On the real arm, the return is manual. The video shows the return in simulation."
@@ -28,7 +30,7 @@ Between judges: Evan puts every instrument back, Caiden checks the station page 
 
 Point to the laptop for these:
 
-- Lighting: the bright, normal and dim tries (only if they were filmed and logged; the counts come from `team/FACTS-0718.md`).
+- Lighting: only if shot 5 was filmed. No lighting results were logged on the real arm, so show the clip and give no rate.
 - Thermal: the temperature graph during a hold, then the arm going home with its motors off.
 - The simulated return, labeled "SIMULATED RETURN (electromagnet)".
 - The count-sheet OCR and the tray check, if shots 7 and 8 were recorded.
