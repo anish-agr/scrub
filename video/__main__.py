@@ -5,7 +5,7 @@ import argparse
 import json
 import sys
 
-from .common import BASE, Workspace
+from .common import BASE, DEFAULT_DATASET, Workspace, default_events
 
 
 def parser():
@@ -14,6 +14,7 @@ def parser():
     sub = p.add_subparsers(dest="command", required=True)
     demo = sub.add_parser("demo-assets", help="generate labeled synthetic footage/photos/events/joints; never real results")
     demo.add_argument("--seconds", type=float, default=6)
+    sub.add_parser("export-ledger", help="write <root>/events.jsonl from the ledger (Atlas via MONGODB_URI plus ledger/buffer.jsonl)")
     c = sub.add_parser("corners", help="detect markerless tray and drag corners to fix")
     c.add_argument("--input", required=True)
     c.add_argument("--camera", required=True)
@@ -30,7 +31,7 @@ def parser():
     ingest.add_argument("--clap-second", type=float, help="omit for isolated audio-peak detection in first minute")
     top = sub.add_parser("topdown", help="plane warp, static photo plate or exact recorded-joint replay")
     top.add_argument("--mode", choices=["warp", "plate", "reconstruction"], required=True)
-    top.add_argument("--input", help="clip/image for warp; explicit dataset directory or six-joint JSON for reconstruction")
+    top.add_argument("--input", help="clip/image for warp; dataset directory or six-joint JSON for reconstruction (default ~/scrub-dataset, where arm.record writes)")
     top.add_argument("--camera", default="side")
     top.add_argument("--output", required=True)
     top.add_argument("--no-track", action="store_true", help="locked tripod only")
@@ -60,18 +61,18 @@ def parser():
     cl.add_argument("--audio", action="store_true", help="afftdn denoise + -16 LUFS target")
     cl.add_argument("--upscale", action="store_true", help="optional GPU path; unavailable models explicitly skipped")
     fi = sub.add_parser("find", help="rank/cut original takes correlated by ledger command_id")
-    fi.add_argument("--events", required=True)
+    fi.add_argument("--events", help="ledger JSONL; default <root>/events.jsonl from export-ledger")
     fi.add_argument("--manifest", default="manifest.json")
     fi.add_argument("--cut", action="store_true")
     fi.add_argument("--gemini", action="store_true", help="report optional scorer availability; never uploads by default")
     ov=sub.add_parser('overlay',help='burn ledger-backed request, timing, steps, lighting and count')
     ov.add_argument('--input',required=True)
-    ov.add_argument('--events',required=True)
+    ov.add_argument('--events',help='ledger JSONL; default <root>/events.jsonl from export-ledger')
     ov.add_argument('--output',required=True)
     ov.add_argument('--case-id')
     ov.add_argument('--allow-synthetic',action='store_true')
     ca=sub.add_parser('cards',help='render Scrub HTML cards through headless Chromium at 1080p')
-    ca.add_argument('--events',required=True,help='ledger JSONL export/buffer; rates require kind=test rows')
+    ca.add_argument('--events',help='ledger JSONL; default <root>/events.jsonl from export-ledger. Rates require kind=test rows')
     ca.add_argument('--allow-synthetic',action='store_true')
     re=sub.add_parser('render',help='strict 1080p/30 H.264/AAC EDL assembly; no missing-shot substitutions')
     re.add_argument('--edl',required=True,help='repository YAML path, not workspace-relative')
@@ -96,6 +97,9 @@ def main(argv=None):
             if not 2 <= finite(args.seconds) <= 60:
                 raise ValueError("Demo seconds must be between 2 and 60")
             result = demo_assets(ws, args.seconds)
+        elif args.command == "export-ledger":
+            from .common import export_ledger
+            result = export_ledger(ws)
         elif args.command == "corners":
             from .geometry import corners
             result = corners(ws, args.input, args.camera, args.width_mm, args.height_mm,
@@ -115,9 +119,8 @@ def main(argv=None):
                 result = photo_plate(ws, args.reference, args.photos, args.camera, args.output, args.empty_scene)
             else:
                 from .reconstruction import render_joints
-                if not args.input:
-                    raise ValueError("reconstruction needs recorded joints --input")
-                result = render_joints(ws, ws.source(args.input), ws.out(args.output), args.width, args.height,
+                source = ws.source(args.input) if args.input else DEFAULT_DATASET
+                result = render_joints(ws, source, ws.out(args.output), args.width, args.height,
                     args.episode, ws.source(args.plate) if args.plate else None, args.start_time,
                     ws.source(args.plate_alignment) if args.plate_alignment else None)
         elif args.command == "clean":
@@ -126,13 +129,13 @@ def main(argv=None):
                 args.faces,args.keep_team,args.idle_speed,args.cut_idle,args.idle_confirmed,args.analyze_only,args.audio,args.upscale)
         elif args.command == "find":
             from .takes import find
-            result = find(ws,args.events,args.manifest,args.cut,args.gemini)
+            result = find(ws,args.events or default_events(ws),args.manifest,args.cut,args.gemini)
         elif args.command == 'overlay':
             from .overlay import overlay
-            result=overlay(ws,args.input,args.events,args.output,args.case_id,args.allow_synthetic)
+            result=overlay(ws,args.input,args.events or default_events(ws),args.output,args.case_id,args.allow_synthetic)
         elif args.command == 'cards':
             from .cards import cards
-            result=cards(ws,args.events,args.allow_synthetic)
+            result=cards(ws,args.events or default_events(ws),args.allow_synthetic)
         elif args.command == 'render':
             from .edit import render
             result=render(ws,args.edl,args.bindings,args.output,args.demo)

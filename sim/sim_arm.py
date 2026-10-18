@@ -80,9 +80,8 @@ class SimArm:
             return {}
 
     def _pose(self, name):
-        p = self.rig.get(name if name != "safe" else "safe_spot")
-        if not (isinstance(p, list) and len(p) == 6):
-            p = self.layout["poses"].get(name)
+        # arm/rig.json poses are real-arm degrees in the real calibration; the sim's joint axes differ, so only layout.json poses apply
+        p = self.layout["poses"].get(name)
         return np.array(p, float) if p else None
 
     def _region(self):

@@ -301,6 +301,29 @@ class VideoTests(unittest.TestCase):
         tool.apply(original.copy())
         self.assertEqual(tool.trusted,[])
 
+    def test_default_events_and_dataset_paths(self):
+        import json
+        from unittest import mock
+        import ledger
+        from video import __main__ as cli
+        from video.common import default_events, events, export_ledger
+        with self.assertRaises(ValueError):
+            default_events(self.ws)
+        with mock.patch.object(ledger, "warm"), mock.patch.object(ledger, "stored_rows", return_value=([], [])):
+            with self.assertRaises(ValueError):
+                export_ledger(self.ws)
+        rows = ([{"type": "count", "t": 2.0, "when": object()}], [{"success": True, "t": 3.0}])
+        with mock.patch.object(ledger, "warm"), mock.patch.object(ledger, "stored_rows", return_value=rows):
+            self.assertEqual(export_ledger(self.ws)["tests"], 1)
+        self.assertEqual(default_events(self.ws), self.root / "events.jsonl")
+        self.assertEqual(len(events(default_events(self.ws))), 1)
+        self.assertEqual(json.loads((self.root / "events.jsonl").read_text().splitlines()[1])["kind"], "test")
+        seen = {}
+        with mock.patch("video.reconstruction.render_joints", lambda ws, source, *a, **k: seen.setdefault("source", source) and {}), \
+                mock.patch.object(cli, "DEFAULT_DATASET", self.root / "scrub-dataset"):
+            self.assertEqual(cli.main(["--root", str(self.root), "topdown", "--mode", "reconstruction", "--output", "x.mp4"]), 0)
+        self.assertEqual(seen["source"], self.root / "scrub-dataset")
+
     def test_every_command_on_markerless_synthetic_assets(self):
         import yaml
         from video.synthetic import demo_assets

@@ -156,3 +156,9 @@ def test_run_skill_accepts_hyphenated_names(arm):
     finally:
         arm.setting_override = None
         arm.reload()
+
+
+def test_rig_json_degree_poses_do_not_move_the_sim_home(arm):
+    arm.rig = {"home": [2.8, -102.2, 97.7, 72.3, -9.3, 4.8]}  # real-arm degrees, as arm/rig.json
+    assert list(arm._pose("home")) == arm.layout["poses"]["home"]
+    arm.rig = arm._read_rig()
