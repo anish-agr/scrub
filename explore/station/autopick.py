@@ -174,9 +174,9 @@ def gemini_box(bgr, label="scalpel handle", timeout=15.0):
 # Local detector (no network): the handle is the dark, long, thin shape on the white sheet inside the reach.
 # Measured on 8 saved side frames: handle 5.5-6.5 "cm" through table_H (the map shrinks lengths along the
 # view), elongation 14-30, gray 58-70; tray rim, small scissors, steel tools and the leader all fall outside.
-LOCAL_LEN_CM = (4.5, 8.5)
+LOCAL_LEN_CM = (4.0, 12.0)
 LOCAL_MIN_ELONG = 12.0
-LOCAL_MAX_GRAY = 88
+LOCAL_MAX_GRAY = 95
 
 
 def local_detect(bgr, H, workspace):
