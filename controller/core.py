@@ -22,9 +22,15 @@ except Exception:  # noqa: BLE001 - run without it
 
 HAND_STALE_S = 0.5          # contract: older Hand counts as seen: false
 TRACKING_ACTIVE_S = 5.0     # a Hand posted this recently means vision is running
-TRAY_STALE_S = 3.0
+# A TrayState older than this is no camera reading (.env TRAY_STALE_S). Vision posts after each Perceptron detect,
+# 3.8 to 4.7 s on 640x480 trays (docs/RECOGNITION.md), so 3 s made most reads stale and a gap over this resets
+# auto return. 8 s matches vision's own VISION_TRAY_STALE_S.
+TRAY_STALE_S = float(os.environ.get("TRAY_STALE_S") or 8.0)
 TRAY_LAG_S = 1.0            # a TrayState this soon after the pick may show the tray from before it
 HAND_WAIT_S = 10.0
+# Hand watcher: this many Hand posts in a row with open: false on the fast leg freezes the arm (0 = off).
+# One closed read is flicker; on the slow last leg a closing hand is the clinician taking the instrument.
+HAND_CLOSED_READS = int(os.environ.get("HAND_CLOSED_READS") or 3)
 PULL_WAIT_S = 30.0
 PULL_DELTA = float(os.environ.get("PULL_LOAD_DELTA", "80"))
 PULL_COLLAPSE = float(os.environ.get("PULL_COLLAPSE_FRAC", "0.3"))  # grip load at or under this share of the held load: let go
@@ -653,12 +659,12 @@ class Controller:
                 except Exception:  # noqa: BLE001 - stay awake rather than fail
                     self._idle_since = time.time() + 60  # don't retry every loop
                 continue
-            if self.resting:
-                try:
-                    self.arm.wake()  # torque on, holding the parked pose, before any motion
-                finally:
-                    self.resting = False
             try:
+                if self.resting:  # inside the try: a wake that raises holds as an error, never kills this thread
+                    try:
+                        self.arm.wake()  # torque on, holding the parked pose, before any motion
+                    finally:
+                        self.resting = False
                 if cmd["action"] == "handover":
                     self._handover(cmd, gen)
                 elif cmd["action"] == "reset":
@@ -844,11 +850,14 @@ class Controller:
             ok = self._call(gen, self.arm.move_to, *back, speed=SPEED_NORMAL)
             if not ok and not (watch and watch(peek=True)):
                 ok = True  # approach point outside the handoff region: go straight in, slowly
+            if watch:
+                watch(near_leg=True)  # from here a closing hand is a grab, not a stop
             ok = ok and self._call(gen, self.arm.move_to, x, y, z, speed=SPEED_NEAR)
         finally:
             lost = watch() if watch else None
         if lost:  # frozen with the item, near the hand; a reset carries it to the safe spot
-            self._hold(lines.PATH_BLOCKED if lost == "blocked" else lines.HAND_LOST, f"hand_{lost}")
+            say = {"blocked": lines.PATH_BLOCKED, "closed": lines.HAND_CLOSED}.get(lost, lines.HAND_LOST)
+            self._hold(say, f"hand_{lost}")
         if ok:
             return True
         self.emit("missed", say=lines.OUT_OF_REACH)
@@ -857,24 +866,32 @@ class Controller:
         return False
 
     def _watch_hand(self):
-        """Freeze the arm if the hand disappears or the path blocks while moving.
-        Returns a function that stops watching and gives why it froze: "lost", "blocked" or None."""
-        done, froze = threading.Event(), threading.Event()
+        """Freeze the arm if the hand disappears or the path blocks while moving, or (fast leg only) the hand
+        stays closed for HAND_CLOSED_READS posts in a row. Returns a function that stops watching and gives
+        why it froze: "lost", "blocked", "closed" or None. stop(near_leg=True) marks the slow last leg."""
+        done, near = threading.Event(), threading.Event()
         why = [None]
 
         def run():
+            closed, last_at = 0, None
             while not done.wait(0.05):
-                h = self.hand
-                fresh = h and h.get("seen") and time.time() - self.hand_at <= HAND_STALE_S
-                if not fresh or h.get("path_clear") is False:
-                    why[0] = "lost" if not fresh else "blocked"
-                    froze.set()
+                h, at = self.hand, self.hand_at
+                fresh = h and h.get("seen") and time.time() - at <= HAND_STALE_S
+                if fresh and at != last_at:  # count posts, not polls
+                    last_at = at
+                    closed = closed + 1 if h.get("open") is False else 0
+                shut = HAND_CLOSED_READS > 0 and closed >= HAND_CLOSED_READS and not near.is_set()
+                if not fresh or h.get("path_clear") is False or shut:
+                    why[0] = "lost" if not fresh else "blocked" if h.get("path_clear") is False else "closed"
                     self.arm.freeze()
                     return
         th = threading.Thread(target=run, daemon=True)
         th.start()
 
-        def stop(peek: bool = False):
+        def stop(peek: bool = False, near_leg: bool = False):
+            if near_leg:
+                near.set()
+                return why[0]
             if peek:
                 return why[0]
             done.set()
@@ -974,6 +991,13 @@ class Controller:
         ok, retries = self._pick(gen, it, it["return_instruction"], want_closed=False)
         if not ok:
             self.emit("missed", say=lines.couldnt_return(it["name"]), retries=retries)
+            if OPEN_MAX < self._call(gen, self.arm.gripper_position) < GRIPPER_CLOSED:
+                # Still holding it: carry it home and set it at the safe spot, as a reset would.
+                with self.lock:
+                    self.held = it["id"]
+                self.set_step("homing")
+                self._call(gen, self.arm.go_home)
+                self._set_down(gen, it, lines.set_down(it["name"]))
             self._home(gen)
             return
         with self.lock:

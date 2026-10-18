@@ -58,10 +58,10 @@ def says(evs):
     return [e["say"] for e in evs if e["say"]]
 
 
-def hand_feed(ctl, stop_evt, seen=lambda: True, clear=lambda: True):
+def hand_feed(ctl, stop_evt, seen=lambda: True, clear=lambda: True, open_=lambda: True):
     def loop():
         while not stop_evt.is_set():
-            ctl.post_hand({"seen": seen(), "open": True, "palm_px": [300, 200],
+            ctl.post_hand({"seen": seen(), "open": open_(), "palm_px": [300, 200],
                            "target": [0.22, -0.1, 0.18], "path_clear": clear(), "t": time.time()})
             time.sleep(0.05)
     threading.Thread(target=loop, daemon=True).start()
@@ -257,6 +257,26 @@ def rests_at_home_then_wakes_for_the_next_command():
 
 
 @test
+def a_wake_that_raises_holds_and_the_worker_lives():
+    old, core.REST_AFTER_S = core.REST_AFTER_S, 0.1
+    try:
+        ctl, arm = make()
+        assert wait_for(lambda: ctl.resting)
+
+        def bad_wake():
+            raise RuntimeError("bus timeout on torque on")
+        arm.wake = bad_wake
+        _, evs = run(ctl, HANDOVER)
+        assert ctl.step == "error" and says(evs)[-1] == lines.ERROR, says(evs)
+        arm.wake = FakeArm.wake.__get__(arm)
+        reset(ctl)
+        _, evs = run(ctl, HANDOVER)  # the worker thread is still there
+        assert "released" in types(evs), types(evs)
+    finally:
+        core.REST_AFTER_S = old
+
+
+@test
 def pull_detected_when_load_drops():
     ctl, arm = make(pull_s=None)
     t0 = [None]
@@ -378,7 +398,7 @@ def tray_check_falls_back_to_the_controllers_tray():
     tray_state["slots"][0]["present"] = False
     r = traycheck.check(surgical, fetch=lambda: traycheck.from_tray(tray_state, time.time()))
     assert not r["ok"] and r["say"] == "Missing the scalpel.", r
-    assert traycheck.from_tray(tray_state, time.time() - 5) is None  # older than 3 s
+    assert traycheck.from_tray(tray_state, time.time() - core.TRAY_STALE_S - 1) is None  # older than the cutoff
     assert traycheck.from_tray({**tray_state, "stale": True}, time.time()) is None
     assert traycheck.from_tray(None, 0.0) is None and traycheck.from_tray({"slots": []}, time.time()) is None
 
@@ -425,6 +445,33 @@ def hand_lost_mid_move_holds_until_reset():
     evs = reset(ctl)
     assert "setting_down" in steps(evs) and ctl.out == ["hemostat"] and arm.pose == "home", steps(evs)
     assert evs[-1]["say"] == lines.RESET
+
+
+@test
+def hand_closed_on_the_fast_leg_holds():
+    ctl, arm = make()
+    arm.scale = 0.5  # a 0.5 s first move: about ten Hand posts
+    stop = threading.Event()
+    hand_feed(ctl, stop, open_=lambda: len(arm.moves) == 0)  # the hand closes once the arm starts moving
+    _, evs = run(ctl, HANDOVER)
+    stop.set()
+    assert says(evs)[-1] == lines.HAND_CLOSED and ctl.step == "stopped", says(evs)
+    assert arm._frozen.is_set() and len(arm.moves) == 1 and ctl.out == ["hemostat"]
+    evs = reset(ctl)
+    assert "setting_down" in steps(evs) and arm.pose == "home", steps(evs)
+
+
+@test
+def hand_flicker_and_a_grab_at_the_hand_never_stop():
+    ctl, arm = make()
+    arm.scale = 0.5
+    stop = threading.Event()
+    flip = iter(range(10 ** 6))
+    # Fast leg: open and closed alternate (flicker). Slow last leg: closed (the clinician reaching for it).
+    hand_feed(ctl, stop, open_=lambda: len(arm.moves) < 2 and next(flip) % 2 == 0)
+    _, evs = run(ctl, HANDOVER, timeout=15)
+    stop.set()
+    assert "released" in types(evs) and ctl.step == "idle", says(evs)
 
 
 @test
@@ -530,6 +577,77 @@ def return_checked_against_the_tray():
     _, evs = run(ctl, {"action": "return", "item": "hemostat"})
     stop.set()
     assert says(evs)[-1] == lines.couldnt_return("hemostat") and ctl.out == ["hemostat"], says(evs)
+
+
+@test
+def failed_return_still_holding_sets_it_down():
+    ctl, arm = make()
+    run(ctl, HANDOVER)
+    arm._gripper = 0.6  # the return skill fails twice with the item still in the jaw
+    arm.force["skill_fail"] = 2
+    _, evs = run(ctl, {"action": "return", "item": "hemostat"})
+    assert lines.couldnt_return("hemostat") in says(evs) and "set_down" in types(evs), says(evs)
+    assert ctl.step == "idle" and arm.pose == "home" and arm._gripper == 0.0 and ctl.out == ["hemostat"]
+    assert steps(evs)[-3:] == ["setting_down", "homing", "idle"], steps(evs)
+
+
+@test
+def failed_return_with_an_open_gripper_just_homes():
+    ctl, arm = make()
+    run(ctl, HANDOVER)
+    arm.force["skill_fail"] = 2
+    _, evs = run(ctl, {"action": "return", "item": "hemostat"})
+    assert "set_down" not in types(evs) and arm.pose == "home" and ctl.out == ["hemostat"], types(evs)
+
+
+@test
+def tray_stale_cutoff_comes_from_env():
+    import subprocess
+    import sys
+    code = "from controller import core; print(core.TRAY_STALE_S)"
+    env = {**os.environ, "TRAY_STALE_S": "6.5"}
+    out = subprocess.run([sys.executable, "-c", code], env=env, capture_output=True, text=True).stdout
+    assert out.strip() == "6.5", out
+    env.pop("TRAY_STALE_S")
+    out = subprocess.run([sys.executable, "-c", code], env=env, capture_output=True, text=True).stdout
+    assert out.strip() == "8.0", out
+
+
+@test
+def slow_tray_posts_inside_the_cutoff_still_auto_return():
+    """Vision posting every 0.4 s with the cutoff at 0.3 s never auto-returns; a raised cutoff does."""
+    old = core.TRAY_STALE_S
+    try:
+        for cutoff, want in ((0.3, False), (1.0, True)):
+            core.TRAY_STALE_S = cutoff
+            ctl, arm = make()
+            run(ctl, HANDOVER)
+            scene = {"spot": "hemostat", "empty": {"hemostat"}}
+            stop = threading.Event()
+            scene_feed(ctl, stop, scene, period=0.4)
+            got = wait_for(lambda: autos(list(ctl.history)), timeout=2.0)
+            stop.set()
+            assert bool(got) == want, (cutoff, got)
+    finally:
+        core.TRAY_STALE_S = old
+
+
+@test
+def ops_page_shows_no_taught_skill_for_null():
+    import re
+    import subprocess
+    node = shutil.which("node")
+    if not node:
+        return  # no Node here: nothing to run the page script with
+    html = (Path(__file__).parent / "ops.html").read_text()
+    fn = re.search(r"function renderSkills\(.*?\n}\n", html, re.S).group(0)
+    esc = re.search(r"const esc = .*?;\n", html).group(0)
+    js = ("const el = {}; const $ = id => (el[id] = el[id] || {});\n" + esc + fn +
+          "renderSkills({skills: {mode: 'taught', items: {hemostat: 'taught', scalpel: null}}}, []);\n"
+          "console.log(el.skills.innerHTML);")
+    out = subprocess.run([node, "-e", js], capture_output=True, text=True)
+    assert out.returncode == 0, out.stderr
+    assert "no taught skill" in out.stdout and "<td>taught</td>" in out.stdout, out.stdout
 
 
 @test
@@ -1304,6 +1422,8 @@ def ops_page_and_design_are_served():
     assert client.get("/design/scrub.css").status_code == 200
     st = client.get("/state").json()
     assert {"skills", "latency_ms", "arm_telemetry"} <= set(st), st
+    nurse = client.get("/nurse").text  # its tray-age limit follows TRAY_STALE_S
+    assert nurse.count(f"tray_age_s>{core.TRAY_STALE_S:g}") == 2 and "tray_age_s>3" not in nurse
 
 
 def main():
@@ -1312,9 +1432,9 @@ def main():
         try:
             fn()
             print(f"pass  {fn.__name__}")
-        except AssertionError as e:
+        except Exception as e:  # noqa: BLE001 - one broken test must not hide the rest
             failed += 1
-            print(f"FAIL  {fn.__name__}: {e}")
+            print(f"FAIL  {fn.__name__}: {e!r}")
     print(f"{len(TESTS) - failed}/{len(TESTS)} passed")
     raise SystemExit(1 if failed else 0)
 
