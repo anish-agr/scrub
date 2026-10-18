@@ -8,6 +8,7 @@ Read this first; the detail is in the three research sections and in the telemet
 | [01-servo-physics.md](01-servo-physics.md) | STS3215 variants, memory table, protections, heat sources, register values to try |
 | [02-arm-mechanics.md](02-arm-mechanics.md) | gravity load per joint, kit variants, binding, power supply, ranked hardware causes |
 | [03-software-and-reports.md](03-software-and-reports.md) | LeRobot and phosphobot issues, control-side causes, telemetry cost, long-running strategies |
+| [HANDOFF.md](HANDOFF.md) | next experiments, hardware checks, rules, and a ready prompt for the next agent |
 | `explore/thermal_log.py` | telemetry to MongoDB + local files: `watch`, `snapshot`, `idle`, `upload` |
 | `explore/thermal_analyze.py` | report from the telemetry: which motor heats, how fast, under what load and phase |
 
