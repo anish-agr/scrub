@@ -16,7 +16,6 @@ Evan's tasks (E1 to E7) aren't listed here; he's on them. As of 5 PM he has push
 
 | # | What | Who |
 | --- | --- | --- |
-| Q2 | `controller/trials.py`: runs the success tests in `docs/PLAN.md` (N tries per item and lighting through the controller, logging each with `ledger.log_test`), with a prompt to the operator between tries | Codex |
 | Q3 | `docs/AUDIT.md`: read every part against `docs/CONTRACTS.md` and list mismatches and likely bugs, by owner. Done in the final verification pass | Caiden, final pass |
 | Q4 | A sim backup: a recorded full run on the MuJoCo sim arm with voice and the dashboard, in case the real arm fails at judging | Caiden, final pass |
 | R4 | Live bring-up with Anish once the arm is plugged in and the team key is in: capabilities, `real_arm --dry-run` against the real joints, the five-point `move_to` check, gripper load sign | Codex |
