@@ -26,3 +26,5 @@ Text the Photon number (same iMessage thread as the end-of-case summary). The li
 | anything else | one help line |
 
 Code in `src/texts.ts`; `npm test` runs it against a fake message stream and fake state, no network.
+
+The end-of-case text (saying "end of case" on the call, or `POST /summary`) goes to the number that called (`Caller:` in the agent's system prompt) or else `PHOTON_SUMMARY_TO`, on that same thread. It names the case: count first, then `Scrub case: surgical, started 2:41 PM (23 min)`, the items used, what was passed, set down or failed, and the median request-to-hand time. Events are grouped by the controller's `case_id` (a new `case_id` starts a new case); without it, one case runs until "end of case".

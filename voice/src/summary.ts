@@ -9,13 +9,29 @@ const ai = GEMINI_API_KEY ? new GoogleGenAI({ apiKey: GEMINI_API_KEY }) : null;
 
 let caseEvents: ScrubEvent[] = [];
 let caseStart = Date.now() / 1000;
+let caseId: string | null = null;  // the controller's case_id ("<setting>-<unix start>"), when events carry one
+let closedAt = 0;                  // last time the voice side closed a case ("end of case")
 let caller = "";
 
-export const recordEvent = (e: ScrubEvent) => { caseEvents.push(e); };
+// Events with a new case_id start a new case. Without case_id: one case until "end of case" (newCase).
+export function recordEvent(e: ScrubEvent) {
+  if (e.case_id && e.case_id !== caseId) {
+    const start = Number(e.case_id.match(/-(\d+(\.\d+)?)$/)?.[1]) || e.t;
+    // A changed case_id is a new case at the controller. The first one seen may predate a voice "end of case".
+    caseStart = caseId ? start : Math.max(start, closedAt);
+    if (caseId) caseEvents = [];
+    caseId = e.case_id;
+  }
+  caseEvents.push(e);
+}
 export const setCaller = (phone: string) => { if (phone && phone !== caller) { caller = phone; console.log(`[case] caller ${phone}`); } };
 
 // Starts a new case: forget the events so far.
-export function newCase() { caseEvents = []; caseStart = Date.now() / 1000; }
+export function newCase() { caseEvents = []; caseStart = closedAt = Date.now() / 1000; }
+
+// "2:41 PM" in the server's local time.
+export const clock = (t: number) =>
+  new Date(t * 1000).toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit" }).replace(/\s/g, " ");
 
 // What happened this case, counted from the events. Also the fallback text if Gemini is down.
 // Per command: a missed before the pick is a retry if the pick then worked, else a failed request;
@@ -29,9 +45,12 @@ export function caseFacts() {
   const times: number[] = [];
   let reported: string[] | null = null;  // the controller's own out list, on every event
   let derived: string[] = [];
-  const add = (id: string) => { derived = [...derived.filter((i) => i !== id), id]; };
+  const used: string[] = [];  // items passed or set down, in first-use order
+  let setting: string | null = caseId?.replace(/-[\d.]+$/, "") || null;
+  const add = (id: string) => { derived = [...derived.filter((i) => i !== id), id]; if (!used.includes(id)) used.push(id); };
   for (const e of caseEvents) {
     if (Array.isArray(e.out)) reported = e.out;
+    if (e.setting) setting = e.setting;
     const c = cmds.get(e.command_id || "") || { ok: false, pre: 0, post: 0 };
     cmds.set(e.command_id || "", c);
     if (e.type === "picked" || e.type === "returned") c.ok = true;
@@ -54,6 +73,7 @@ export function caseFacts() {
   const mid = Math.floor(times.length / 2);
   const median = !times.length ? null : times.length % 2 ? times[mid] : (times[mid - 1] + times[mid]) / 2;
   return {
+    case_id: caseId, setting, started: clock(caseStart), used,
     minutes: Math.round((Date.now() / 1000 - caseStart) / 60), still_out: reported ?? derived, passed,
     set_down_at_safe_spot: setDown, returned, failed_requests: failed, picks_retried: retried, stops,
     median_request_to_hand_s: median,
@@ -66,7 +86,8 @@ const list = (r: Record<string, number>) => Object.entries(r).map(([i, n]) => `$
 export function templateSummary(f: ReturnType<typeof caseFacts>): string {
   const lines = [
     f.still_out.length ? `Still out: ${f.still_out.map(name).join(", ")}. Check the count.` : "Count: everything is back on the tray.",
-    `Scrub case summary (${f.minutes} min)`,
+    `Scrub case: ${f.setting ?? "case"}, started ${f.started} (${f.minutes} min)`,
+    `Used: ${f.used.map(name).join(", ") || "none"}`,
     `Passed: ${list(f.passed) || "none"}`,
   ];
   if (Object.keys(f.set_down_at_safe_spot).length) lines.push(`Set at the safe spot: ${list(f.set_down_at_safe_spot)}`);
@@ -78,7 +99,7 @@ export function templateSummary(f: ReturnType<typeof caseFacts>): string {
 // Item names instead of ids, so the text says "mayo scissors", not "mayo_scissors".
 const renamed = (r: Record<string, number>) => Object.fromEntries(Object.entries(r).map(([i, n]) => [name(i), n]));
 const readable = (f: ReturnType<typeof caseFacts>) =>
-  ({ ...f, still_out: f.still_out.map(name), passed: renamed(f.passed), set_down_at_safe_spot: renamed(f.set_down_at_safe_spot) });
+  ({ ...f, used: f.used.map(name), still_out: f.still_out.map(name), passed: renamed(f.passed), set_down_at_safe_spot: renamed(f.set_down_at_safe_spot) });
 
 export async function writeSummary(): Promise<string> {
   const facts = caseFacts();
@@ -89,7 +110,7 @@ export async function writeSummary(): Promise<string> {
       model: GEMINI_MODEL,
       contents: `Write the end-of-case text message from Scrub, a robot arm that passed instruments to a clinician.
 Plain text, no markdown, under 400 characters, short lines. Start with the count: name every item still out, or say everything is back on the tray.
-Then what was passed, anything set at the safe spot, failed requests and stops, and the median request-to-hand time if known.
+Then name the case: the setting and its start time (as given, e.g. "2:41 PM"). Then the items used, what was passed, anything set at the safe spot, failed requests and stops, and the median request-to-hand time if known.
 Use only the numbers below. No greetings or sign-off.
 This case: ${JSON.stringify(readable(facts))}
 All-time ledger stats (may be null): ${JSON.stringify(stats)}`,

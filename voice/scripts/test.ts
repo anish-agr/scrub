@@ -5,7 +5,7 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import type { State } from "../src/controller.js";
 import { localParse } from "../src/parse.js";
-import { caseFacts, newCase, recordEvent, templateSummary } from "../src/summary.js";
+import { caseFacts, clock, endCase, newCase, recordEvent, setCaller, templateSummary } from "../src/summary.js";
 import type { Setting } from "../src/settings.js";
 import { HELP, countReply, handleText, localText, logRestock, runTexts, type InMessage, type InSpace, type Restock } from "../src/texts.js";
 
@@ -97,4 +97,37 @@ assert.match(await handleText("add another one", null, deps), /^Which instrument
 const tmp = path.join(mkdtempSync(path.join(tmpdir(), "scrub-")), "restocks.jsonl");
 logRestock(restocks[0], tmp);
 assert.equal(JSON.parse(readFileSync(tmp, "utf8").trim()).item, "hemostat");
+
+// Call-to-text memory (F4): events grouped by case_id, the text names the case, goes to the caller. Fake sender, no Gemini.
+const start = Math.floor(Date.now() / 1000) - 600;
+ev("released", { command_id: "z", item: "scalpel", case_id: `surgical-${start - 900}`, setting: "surgical" });  // an older case
+ev("picked", { command_id: "y", item: "hemostat", case_id: `surgical-${start}`, setting: "surgical" });
+ev("handed", { command_id: "y", item: "hemostat", request_to_hand_s: 4, case_id: `surgical-${start}`, setting: "surgical" });
+ev("released", { command_id: "y", item: "hemostat", case_id: `surgical-${start}`, setting: "surgical", out: ["hemostat"] });
+const g = caseFacts();
+assert.equal(g.case_id, `surgical-${start}`);
+assert.equal(g.setting, "surgical");
+assert.deepEqual(g.passed, { hemostat: 1 });  // the older case's scalpel is not in this one
+assert.deepEqual(g.used, ["hemostat"]);
+assert.equal(g.started, clock(start));
+assert.match(g.started, /^\d{1,2}:\d{2} [AP]M$/);
+assert.equal(g.minutes, 10);
+const lines = templateSummary(g).split("\n");
+assert.equal(lines[0], "Still out: hemostat. Check the count.");  // count first
+assert.equal(lines[1], `Scrub case: surgical, started ${clock(start)} (10 min)`);
+assert.equal(lines[2], "Used: hemostat");
+assert.match(templateSummary(g), /Median request to hand: 4\.0 s/);
+setCaller("+15555550123");
+const texted: [string, string][] = [];
+const r = await endCase(async (to, text) => { texted.push([to, text]); return true; }, async () => templateSummary(caseFacts()));
+assert.equal(r.sent, true);
+assert.equal(texted.length, 1);
+assert.equal(texted[0][0], "+15555550123");
+assert.match(texted[0][1], /^Still out: hemostat\. Check the count\.\nScrub case: surgical, started /);
+assert.deepEqual(caseFacts().passed, {});  // a new case after the text
+// No case_id on events: the current behaviour, one case until "end of case".
+newCase();
+ev("released", { command_id: "x", item: "hemostat" });
+assert.equal(caseFacts().case_id, `surgical-${start}`);  // still the controller's last case
+assert.deepEqual(caseFacts().passed, { hemostat: 1 });
 console.log("voice tests passed");
