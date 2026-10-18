@@ -736,6 +736,10 @@ function wire() {
   onCamera();
   const cases = $("cases-link");
   if (cases) cases.href = `${ledgerOrigin()}/cases.html`;
+  const series = $("series-link");
+  if (series) series.href = `${ledgerOrigin()}/series.html`;
+  const memory = $("memory-link");
+  if (memory) memory.href = `${ledgerOrigin()}/memory.html`;
   $("stop").addEventListener("click", stopArm);
   $("reset").addEventListener("click", resetArm);
   $("setting").addEventListener("change", (event) => changeSetting(event.target.value));
