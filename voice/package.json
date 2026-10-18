@@ -4,7 +4,7 @@
   "description": "Owner: Caiden. Tasks C3, C4, C7 in `docs/TASKS.md`.",
   "main": "index.js",
   "scripts": {
-    "test": "VOICE_NO_KEYS=1 CONTROLLER_URL=http://127.0.0.1:8269 tsx scripts/test.ts",
+    "test": "tsx scripts/test.ts",
     "dev": "tsx src/server.ts",
     "say": "tsx scripts/say.ts",
     "tunnel": "ssh -T -p 443 -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -o ServerAliveInterval=30 -R0:localhost:${VOICE_PORT:-3000} a.pinggy.io",

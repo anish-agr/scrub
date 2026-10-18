@@ -128,7 +128,7 @@ footer a{color:var(--mute)}
 <script>
 (()=>{
 const qs=new URLSearchParams(location.search);
-const API=(qs.get('api')||(location.protocol.startsWith('http')?location.origin:'http://localhost:8000')).replace(/\/$/,'');
+const API=(qs.get('api')||(location.port==='8000'?location.origin:'http://localhost:8000')).replace(/\/$/,'');
 const WSU=API.replace(/^http/,'ws')+'/events';
 const $=id=>document.getElementById(id);
 const sleep=ms=>new Promise(r=>setTimeout(r,ms));
