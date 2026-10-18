@@ -438,12 +438,24 @@ class Station:
 
         def run():
             try:
+                buf = self.ds.episode_buffer or {}  # copy the joint data before save_episode consumes it
+                joints = {k: [list(map(float, v)) for v in buf.get(k, [])] for k in ("observation.state", "action")}
+                stamps = [float(t) for t in buf.get("timestamp", [])]
                 self.ds.save_episode()
                 self.session_saved += 1
                 self._write_cadence(idx, cad)
                 self.event("episode_saved", episode=idx, frames=n, duration_s=cad["seconds"], cadence=cad,
                            session_done=self.session_saved, total=self.ds.meta.total_episodes)
                 self.note(f"episode {idx} saved ({self.ds.meta.total_episodes} in the dataset)")
+                try:  # joint data to MongoDB scrub.episodes, in the background
+                    sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "dataset"))
+                    import to_mongo
+                    names = self.ds.features["action"]["names"]
+                    threading.Thread(target=to_mongo.upload_episode, daemon=True, name="to_mongo", args=(
+                        self.root, idx, self.task, self.ds.fps, names, joints["observation.state"],
+                        joints["action"], stamps)).start()
+                except Exception as e:  # noqa: BLE001
+                    self.note(f"MongoDB episode upload skipped ({type(e).__name__})")
             except Exception as e:  # noqa: BLE001
                 self.note(f"SAVE FAILED for episode {idx}: {type(e).__name__}: {e}")
                 try:
