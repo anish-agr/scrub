@@ -171,6 +171,53 @@ def gemini_box(bgr, label="scalpel handle", timeout=15.0):
     return None
 
 
+# Local detector (no network): the handle is the dark, long, thin shape on the white sheet inside the reach.
+# Measured on 8 saved side frames: handle 5.5-6.5 "cm" through table_H (the map shrinks lengths along the
+# view), elongation 14-30, gray 58-70; tray rim, small scissors, steel tools and the leader all fall outside.
+LOCAL_LEN_CM = (4.5, 8.5)
+LOCAL_MIN_ELONG = 12.0
+LOCAL_MAX_GRAY = 88
+
+
+def local_detect(bgr, H, workspace):
+    """(u, v, angle, box) of the handle from pixels alone, or None. ~10 ms."""
+    import cv2
+    H = np.asarray(H, float)
+
+    def tab(u, v):
+        p = H @ np.array([u, v, 1.0])
+        return p[:2] / p[2]
+    g = cv2.cvtColor(bgr, cv2.COLOR_BGR2GRAY)
+    diff = cv2.subtract(cv2.medianBlur(g, 31), g)  # darker than the local background
+    m = ((diff > 45) & (g < 120)).astype(np.uint8)
+    m[: int(g.shape[0] * 0.53)] = 0  # the table starts below the horizon line
+    m = cv2.morphologyEx(m, cv2.MORPH_CLOSE, np.ones((3, 3), np.uint8))
+    n, lab, st_, _ = cv2.connectedComponentsWithStats(m, connectivity=8)
+    best = None
+    for i in range(1, n):
+        if st_[i, cv2.CC_STAT_AREA] < 150:
+            continue
+        ys, xs = np.nonzero(lab == i)
+        pts = np.c_[xs, ys].astype(float)
+        c = pts.mean(0)
+        xy = tab(*c)
+        if not (workspace["x"][0] <= xy[0] <= workspace["x"][1] and workspace["y"][0] <= xy[1] <= workspace["y"][1]):
+            continue
+        w, vec = np.linalg.eigh(np.cov(pts.T))
+        elong = math.sqrt(w[1] / max(w[0], 1e-6))
+        d = vec[:, 1]
+        proj = (pts - c) @ d
+        length = float(np.linalg.norm(tab(*(c + proj.min() * d)) - tab(*(c + proj.max() * d)))) * 100
+        gray = float(g[ys, xs].mean())
+        if elong < LOCAL_MIN_ELONG or not LOCAL_LEN_CM[0] <= length <= LOCAL_LEN_CM[1] or gray > LOCAL_MAX_GRAY:
+            continue
+        score = elong * len(xs)
+        if best is None or score > best[0]:
+            box = [float(xs.min()), float(ys.min()), float(xs.max()), float(ys.max())]
+            best = (score, c[0], c[1], float(math.degrees(math.atan2(d[1], d[0]))), box)
+    return None if best is None else best[1:]
+
+
 FRAMES_DIR = Path.home() / "scrub-logs" / "autopick-frames"  # every detection: frame + box, for fine-tuning later
 
 
@@ -258,6 +305,9 @@ class AutoPick:
         self.mode = args.get("mode", "handoff")
         if self.mode not in ("handoff", "hold", "offer"):
             raise ValueError("mode must be 'handoff' (wait for a hand, release, go home) or 'hold' (bring it home)")
+        self.detector_kind = args.get("detector", "local")
+        if self.detector_kind not in ("local", "gemini"):
+            raise ValueError("detector must be 'local' (on this Mac) or 'gemini' (cloud, then Perceptron)")
         offer = args.get("offer_xyz", OFFER_XYZ)
         try:
             self.offer_xyz = [float(v) for v in offer]
@@ -518,7 +568,12 @@ class AutoPick:
             def in_reach(u, v):
                 x, y = pixel_to_table(self.cal["table_H"], u, v)
                 return ws["x"][0] <= x <= ws["x"][1] and ws["y"][0] <= y <= ws["y"][1]
-            hit = detect_handle(frame, self.detector, self.label, in_reach)
+            if self.detector_kind == "local" and self.detector is None:
+                hit = local_detect(frame, self.cal["table_H"], ws)
+                if hit is not None:
+                    save_example(frame, hit[3], self.label, "local")
+            else:
+                hit = detect_handle(frame, self.detector, self.label, in_reach)
             if self._aborted:
                 return
             if hit is None:
