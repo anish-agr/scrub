@@ -341,7 +341,8 @@ def guard_joints() -> None:
     moves it back the other way."""
     from lerobot.robots.so_follower.so_follower import SOFollower
     send = SOFollower.send_action
-    st = {"since": {}, "hold": {}, "dir": {}, "temp": {}, "temp_t": 0.0, "limp": set(), "slew": {}, "last": {}}
+    st = {"since": {}, "hold": {}, "dir": {}, "temp": {}, "temp_t": 0.0, "limp": set(), "slew": {}, "last": {},
+          "park": {"state": None}}
 
     def guarded(self, action):
         now = time.perf_counter()
@@ -362,6 +363,53 @@ def guard_joints() -> None:
         if hottest >= COOL_TRIP and not st.get("cooling"):
             st["cooling"] = True
             _start_cooldown(st["temp"])
+        # Park: "Home + motors off" on the page glides to home, then torque off; "Motors on" wakes in place.
+        try:
+            import arm_ui
+            req, phase_now = arm_ui.S.pop("park_req", None), arm_ui.S.get("phase")
+        except ImportError:
+            arm_ui, req, phase_now = None, None, None
+        pk = st["park"]
+        if pk["state"] and phase_now == "recording":
+            req = "wake"  # an episode started: never record a parked arm
+        if req == "home" and pk["state"] is None:
+            span = max(abs(REST.get(m, pos[m]) - pos[m]) for m in ARM_JOINTS if m in pos)
+            pk.update(state="moving", start=dict(pos), t0=now, dur=max(0.5, span / REST_DEG_S), done_t=None)
+            _thermal_row({"kind": "event", "event": "park_start", "span_deg": round(span, 1)})
+            print(f"park: going home ({span:.0f} deg, {pk['dur']:.1f} s), then motors off", flush=True)
+        elif req == "wake" and pk["state"]:
+            if pk["state"] == "parked":
+                raw = self.bus.sync_read("Present_Position", normalize=False)
+                self.bus.sync_write("Goal_Position", raw, normalize=False)
+                self.bus.enable_torque()
+            pk["state"] = None
+            st["slew"].clear()  # a big gap to the leader now catches up at EASE_DEG_S
+            _thermal_row({"kind": "event", "event": "park_wake", "phase": phase_now})
+            print("park: motors on, following the leader again", flush=True)
+            if arm_ui:
+                arm_ui.S["parked"] = False
+        if pk["state"] == "moving":
+            f = min(1.0, (now - pk["t0"]) / pk["dur"])
+            act = dict(action)
+            for m in ARM_JOINTS:
+                if m + ".pos" in act and m in pk["start"]:
+                    a0 = pk["start"][m]
+                    act[m + ".pos"] = a0 + (REST.get(m, a0) - a0) * f
+            if "gripper" in pos:
+                act["gripper.pos"] = pos["gripper"]  # the claw stays as it is
+            if f >= 1.0:
+                pk["done_t"] = pk["done_t"] or now
+                if now - pk["done_t"] > 1.0:  # settled at home: motors off
+                    self.bus.disable_torque()
+                    pk["state"] = "parked"
+                    _thermal_row({"kind": "event", "event": "park_rest", "temps": dict(st["temp"])})
+                    print("park: at home, motors off", flush=True)
+                    if arm_ui:
+                        arm_ui.S["parked"] = True
+                    return action
+            return send(self, act)
+        if pk["state"] == "parked":
+            return action  # torque off: nothing is written until "Motors on"
         action = dict(action)
         for m in ARM_JOINTS:
             k = m + ".pos"
