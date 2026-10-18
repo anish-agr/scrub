@@ -13,6 +13,7 @@ import cv2
 import httpx
 
 from vision.geometry import center_inside, iou, normalize_label
+from vision import instances
 
 logger = logging.getLogger("vision.tray")
 ROOT = Path(__file__).resolve().parent.parent
@@ -315,11 +316,24 @@ def tray_from_detections(
 ) -> dict:
     """Build a TrayState. A slot with a null box counts a matching detection anywhere."""
     by_item: dict[str, list] = {item["id"]: [] for item in setting.get("items") or []}
+    physical: dict[str, list] = {}
     for detection in detections:
         item_id = match_item(detection.get("mention", ""), setting)
         box = detection_box(detection)
         if item_id and box is not None:
             by_item.setdefault(item_id, []).append(box)
+            if not setting.get("return_spot") or not _slot_hit(box, setting["return_spot"]):
+                physical.setdefault(item_id, []).append({**detection, "item": item_id, "box": box})
+
+    candidates, ambiguous = [], []
+    for item in setting.get("items") or []:
+        rows = physical.get(item["id"], [])
+        if item.get("variant"):
+            rows = [{"variant": item["variant"], **row} for row in rows]
+        options, unsafe = instances.candidates(rows, item["id"])
+        candidates.extend(options)
+        if unsafe or len(options) > 1:
+            ambiguous.append(item["id"])
 
     slots = []
     for item in setting.get("items") or []:
@@ -335,6 +349,7 @@ def tray_from_detections(
                 "present": present,
                 "confidence": 1.0,
                 "box": slot,
+                "kind": "configured",  # occupancy, not the identity of a physical detection
             }
         )
 
@@ -352,6 +367,8 @@ def tray_from_detections(
     state = {
         "setting": setting.get("id"),
         "slots": slots,
+        "candidates": candidates,
+        "ambiguous_items": ambiguous,
         "return_spot": {
             "item": return_item,
             "confidence": 1.0 if return_item else 0.0,

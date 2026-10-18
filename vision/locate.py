@@ -18,8 +18,9 @@ import cv2
 import numpy as np
 
 from vision.calibrate import arm_to_pixel, pixel_to_arm
-from vision.geometry import box_center
+from vision.geometry import box_center, center_inside
 from vision.local_detect import crop_box, occupied_crop
+from vision import instances
 from vision.tray import detection_box, match_item, normalize_label
 
 # Physical size of the tray (width, height) in mm, used to turn pixel offsets into mm when there is no calibration.
@@ -109,19 +110,27 @@ def perceptron_estimate(detector, frame, setting: dict, item: dict, slot) -> dic
         return {"ran": False, "present": False, "center": None}
     name = (item.get("name") or item["id"]).replace("_", " ")
     detections = detector.detect(frame, [name])
-    centers = []
+    rows = []
     for det in detections or []:
         if match_item(det.get("mention", ""), setting) != item["id"] and normalize_label(det.get("mention", "")) != normalize_label(name):
             continue
         box = detection_box(det)
         if box:
-            centers.append(box_center(box))
-    if not centers:
-        return {"ran": True, "present": False, "center": None}
-    if slot:
-        sc = box_center(slot)
-        centers.sort(key=lambda c: math.hypot(c[0] - sc[0], c[1] - sc[1]))
-    return {"ran": True, "present": True, "center": [float(centers[0][0]), float(centers[0][1])]}
+            if setting.get("return_spot") and center_inside(box, setting["return_spot"]):
+                continue
+            row = {**det, "item": item["id"], "box": box}
+            if item.get("variant") and not row.get("variant"):
+                row["variant"] = item["variant"]
+            rows.append(row)
+    options, unsafe = instances.candidates(rows, item["id"])
+    runtime = getattr(detector, "runtime", None)
+    previous = getattr(runtime, "tray", None) or {}
+    if previous.get("setting") == setting.get("id"):
+        options = instances.stabilize(options, previous.get("candidates", []))
+        unsafe = unsafe or any(c.get("identity_ambiguous") for c in options)
+    center = box_center(options[0]["box"]) if len(options) == 1 and not unsafe else None
+    return {"ran": True, "present": bool(options), "center": center,
+            "candidates": options, "ambiguous": unsafe or len(options) > 1, "unsafe": unsafe}
 
 
 # ---------------------------------------------------------------- gemini
@@ -196,14 +205,14 @@ def _dist_mm(a, b, mm_px: float) -> float:
 
 
 def locate(frame, setting, item_id, *, detector=None, local=None, gemini=None, calibration=None, tray_tag=None,
-           budget_s: float = BUDGET_S) -> dict:
+           budget_s: float = BUDGET_S, instance: dict | None = None) -> dict:
     """The item's pose against its slot. See SPEC "Located pose". gemini=None uses ask_gemini (a no-op without a key).
 
     local is a vision.local_detect.LocalDetector whose empty-slot references are used for presence, or None.
     """
     deadline = time.monotonic() + budget_s
     try:
-        return _locate(frame, setting, item_id, detector, local, gemini, calibration, tray_tag, deadline)
+        return _locate(frame, setting, item_id, detector, local, gemini, calibration, tray_tag, deadline, instance)
     except Exception as exc:  # never raise to the route
         return _miss(item_id, f"{type(exc).__name__}: {exc}")
 
@@ -217,7 +226,7 @@ def _call(pool: ThreadPoolExecutor, deadline: float, fn, *args):
         return None
 
 
-def _locate(frame, setting, item_id, detector, local, gemini, calibration, tray_tag, deadline) -> dict:
+def _locate(frame, setting, item_id, detector, local, gemini, calibration, tray_tag, deadline, instance=None) -> dict:
     if frame is None or not setting:
         return _miss(item_id, "no frame" if frame is None else "no setting")
     item, slot, corners = _find_slot(frame, setting, item_id)
@@ -225,14 +234,14 @@ def _locate(frame, setting, item_id, detector, local, gemini, calibration, tray_
     if tray_tag:
         out["tray"] = tray_tag.get("tray")
         out["setting_ok"] = (tray_tag.get("tray") == setting.get("id")) if tray_tag.get("tray") else None
-    if item is None or not slot:
+    if item is None:
         return out
-    sc = box_center(slot)
-    out["slot_center_px"] = [float(sc[0]), float(sc[1])]
+    sc = box_center(slot) if slot else None
+    out["slot_center_px"] = [float(sc[0]), float(sc[1])] if sc else None
     mm_px = _mm_per_px(frame, setting, corners)
 
     reference = (getattr(local, "references", None) or {}).get(item_id)
-    loc = local_estimate(frame, slot, reference)
+    loc = local_estimate(frame, slot, reference) if slot else {"present": False, "center": None, "yaw": None, "conf": 0}
     loc_center = loc["center"] or (list(sc) if loc["present"] else None)
 
     pool = ThreadPoolExecutor(max_workers=2)
@@ -242,6 +251,23 @@ def _locate(frame, setting, item_id, detector, local, gemini, calibration, tray_
             got = _call(pool, deadline, perceptron_estimate, detector, frame, setting, item, slot)
             if got is not None:
                 per = got
+
+        if per.get("ambiguous") or instance:
+            options = per.get("candidates", [])
+            chosen = instances.select(options, instance) if not per.get("ambiguous") or len(options) > 1 else None
+            # Duplicate/invalid metadata is never resolved by a relative hint.
+            _, unsafe = instances.candidates(options, item_id)
+            if not chosen or unsafe or per.get("unsafe"):
+                return {**out, "ambiguous": True, "candidates": options, "method": "perceptron" if per["ran"] else "none"}
+            center = box_center(chosen["box"])
+            out.update(instance=chosen["instance"], candidate=chosen, candidates=options,
+                       instance_validated=True, found=True, method="perceptron", confidence=0.8,
+                       center_px=list(center))
+            return _pose_fields(out, center, sc, mm_px, calibration)
+        if per.get("candidates"):
+            out["candidates"] = per["candidates"]
+        if not slot:
+            return out
 
         both = per["ran"]
         if both:
@@ -290,13 +316,17 @@ def _locate(frame, setting, item_id, detector, local, gemini, calibration, tray_
 
     out.update(found=True, center_px=[round(center[0], 1), round(center[1], 1)], agree=agree, method=method,
                confidence=round(float(conf), 2), yaw_deg=None if yaw is None else round(float(yaw), 1))
-    dx, dy = center[0] - sc[0], center[1] - sc[1]
+    return _pose_fields(out, center, sc, mm_px, calibration)
+
+
+def _pose_fields(out, center, sc, mm_px, calibration):
+    dx, dy = (center[0] - sc[0], center[1] - sc[1]) if sc else (0, 0)
     out["offset_px"] = [round(dx, 1), round(dy, 1)]
     out["offset_mm"] = [round(dx * mm_px, 1), round(dy * mm_px, 1)]
     if calibration and calibration.get("homography"):
         h = calibration["homography"]
         ax, ay = pixel_to_arm(h, center[0], center[1])
-        bx, by = pixel_to_arm(h, sc[0], sc[1])
+        bx, by = pixel_to_arm(h, sc[0], sc[1]) if sc else (ax, ay)
         out["arm_xy"] = [round(ax, 4), round(ay, 4)]
         out["arm_offset"] = [round(ax - bx, 4), round(ay - by, 4)]
         out["offset_mm"] = [round((ax - bx) * 1000, 1), round((ay - by) * 1000, 1)]  # calibration beats the tray size
@@ -417,7 +447,7 @@ def register(app, runtime) -> None:
             threading.Thread(target=refresh_tag, args=(frame.copy(),), daemon=True).start()
         return cache["tag"]
 
-    def work_locate(item_id):
+    def work_locate(item_id, instance=None):
         latest = runtime.grabber.latest()
         if latest is None:
             return _miss(item_id, "no overhead frame yet")
@@ -425,12 +455,13 @@ def register(app, runtime) -> None:
         hooks = app.state.locate_hooks
         return locate(frame, setting_document(runtime), item_id, detector=hooks.get("detector") or RuntimeDetector(runtime),
                       local=runtime.local_detector, gemini=hooks.get("gemini"), calibration=runtime.calibration,
-                      tray_tag=current_tag(frame))
+                      tray_tag=current_tag(frame), instance=instance)
 
     @app.get("/locate")
-    async def locate_route(item: str = ""):
+    async def locate_route(item: str = "", variant: str | None = None, side: str | None = None, slot: int | None = None):
         try:
-            return await asyncio.wait_for(run_in_threadpool(work_locate, item), BUDGET_S + 0.5)
+            hint = {k: v for k, v in {"variant": variant, "side": side, "slot": slot}.items() if v is not None}
+            return await asyncio.wait_for(run_in_threadpool(work_locate, item, hint or None), BUDGET_S + 0.5)
         except asyncio.TimeoutError:
             return _miss(item, "timeout")
         except Exception as exc:

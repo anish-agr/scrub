@@ -164,6 +164,57 @@ class LocateTests(unittest.TestCase):
             if old is not None:
                 os.environ["GEMINI_API_KEY"] = old
 
+    def test_multiple_detections_clarify_instead_of_nearest_slot_guess(self):
+        detector = FakeDet([det("hemostat", [130, 90, 290, 130]), det("hemostat", [320, 180, 460, 220])])
+        gem = Gem({"found": True, "center_px": [200, 110], "yaw_deg": 0})
+        out = L.locate(make_frame(), make_setting(), "hemostat", detector=detector, gemini=gem)
+        self.assertFalse(out["found"])
+        self.assertTrue(out["ambiguous"])
+        self.assertEqual([c["side"] for c in out["candidates"]], ["left", "right"])
+        self.assertIsNone(out["center_px"])
+        self.assertEqual(gem.calls, 0)  # Gemini must not silently choose for the surgeon
+
+    def test_right_hint_uses_right_detection_not_local_or_nearest_slot(self):
+        detector = FakeDet([det("hemostat", [130, 90, 290, 130]), det("hemostat", [320, 180, 460, 220])])
+        cal = calibration_from_points([[0, 0], [480, 0], [480, 400], [0, 400]],
+                                      [[0.30, -0.24, 0], [0.30, 0.24, 0], [0.10, 0.24, 0], [0.10, -0.24, 0]])
+        out = L.locate(make_frame(), make_setting(), "hemostat", detector=detector, gemini=Gem(None),
+                       calibration=cal, instance={"side": "right"})
+        self.assertTrue(out["found"])
+        self.assertTrue(out["instance_validated"])
+        self.assertEqual(out["center_px"], [390, 200])
+        self.assertEqual(out["instance"], {"side": "right", "slot": 2})
+        self.assertGreater(out["arm_xy"][1], 0.1)
+
+    def test_closest_uses_surgeon_bottom_orientation_and_ties_do_not_guess(self):
+        detector = FakeDet([det("hemostat", [10, 10, 50, 30]), det("hemostat", [100, 180, 140, 210]),
+                            det("hemostat", [320, 60, 460, 100])])
+        out = L.locate(make_frame(), make_setting(), "hemostat", detector=detector, instance={"side": "closest"})
+        self.assertTrue(out["found"])
+        self.assertEqual(out["center_px"], [120, 195])
+        self.assertEqual(out["instance"]["slot"], 2)
+        detector.detections[2] = det("hemostat", [320, 180, 460, 210])
+        tied = L.locate(make_frame(), make_setting(), "hemostat", detector=detector, instance={"side": "closest"})
+        self.assertFalse(tied["found"])
+        self.assertTrue(tied["ambiguous"])
+
+    def test_conflicting_hint_and_overlapping_detections_fail_closed(self):
+        detector = FakeDet([det("hemostat", [10, 10, 50, 30]), det("hemostat", [320, 60, 460, 100])])
+        out = L.locate(make_frame(), make_setting(), "hemostat", detector=detector, instance={"side": "right", "slot": 1})
+        self.assertFalse(out["found"])
+        detector.detections[1] = det("hemostat", [20, 15, 60, 40])
+        out = L.locate(make_frame(), make_setting(), "hemostat", detector=detector, instance={"slot": 1})
+        self.assertFalse(out["found"])
+        self.assertTrue(out["ambiguous"])
+
+    def test_named_variant_is_validated_from_settings(self):
+        setting = make_setting()
+        setting["items"][0]["variant"] = "curved"
+        out = L.locate(make_frame(), setting, "hemostat", detector=FakeDet([det("hemostat", [132, 90, 292, 130])]),
+                       instance={"variant": "curved"})
+        self.assertTrue(out["found"])
+        self.assertTrue(out["instance_validated"])
+
 
 class SafeZoneTests(unittest.TestCase):
     def setUp(self):
@@ -255,6 +306,17 @@ class RouteTests(unittest.TestCase):
         r = client2.get("/locate", params={"item": "hemostat"})
         self.assertEqual(r.status_code, 200)
         self.assertEqual(client2.get("/locate").status_code, 200)
+
+    def test_locate_route_forwards_instance_queries(self):
+        client, app, _rt = self.make_client(make_frame())
+        app.state.locate_hooks["detector"] = FakeDet([det("hemostat", [10, 10, 50, 30]),
+                                                         det("hemostat", [320, 60, 460, 100])])
+        out = client.get("/locate", params={"item": "hemostat", "side": "right", "slot": 2}).json()
+        self.assertTrue(out["found"])
+        self.assertEqual(out["center_px"], [390, 80])
+        wrong = client.get("/locate", params={"item": "hemostat", "slot": 99}).json()
+        self.assertFalse(wrong["found"])
+        self.assertTrue(wrong["ambiguous"])
 
     def test_safe_zone_route(self):
         client, _app, _rt = self.make_client(make_frame())
