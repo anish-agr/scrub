@@ -2,9 +2,9 @@
 
 A robot arm that passes surgical instruments when you ask out loud. Built at DubHacks '26 (Oct 17 to 18, 2026) by Anish, Caiden, Brandon and Evan.
 
-You ask for the scalpel, the hemostat or the Mayo scissors. The SO-101 arm picks it from the tray and holds it out at the handoff point. It lets go when you pull it or say "let go", then goes straight home. "Stop" freezes the arm where it is.
+You ask for the scalpel, the hemostat or the Mayo scissors. The SO-101 arm picks it from the tray, carries it at a capped speed and holds the handle out at the handoff point. It lets go when you pull it or say "let go", then goes straight home. "Stop" freezes the arm where it is.
 
-On the real arm, the picks are taught skills: replays of demonstrations we recorded ourselves (29 episodes, 24 usable). We did not run a fine-tuning job, so no model drives the arm. In the simulation, the controller slows the arm for the last stretch to the handoff point.
+On the real arm, the picks are taught skills: replays of demonstrations we recorded ourselves (29 episodes, 24 usable). We did not run a fine-tuning job, so no model drives the arm. The real arm has passed the scalpel to a hand twice and offered the hemostat; with no Mayo scissors demonstrations yet, the scissors run only in the simulation. In the simulation, the controller also checks the grasp and slows the arm for the last stretch to the handoff point.
 
 Scrub is a research prototype, not a medical device. It never touches the patient and makes no clinical claims.
 
@@ -24,8 +24,8 @@ Hospitals can't hire enough scrub techs. A surgical tech job takes about 120 day
 
 - "Stop" freezes the arm where it is. In the controller it stays frozen until a reset (`controller/core.py`).
 - Motor temperatures are checked every couple of seconds. At 60 C the arm goes home and turns the motors off until they cool (`arm/thermal.py`, `explore/station/station.py`).
-- Every move is speed-capped: 45 degrees a second peak on the real arm, slower once a motor passes 52 C (`explore/station/autopick.py`).
-- In the controller, joint commands are clamped to the arm's limits and the grasp is checked before carrying (`arm/real_arm.py`, `controller/core.py`).
+- Every move is speed-capped and kept inside each joint's range: 45 degrees a second peak on the real arm, slower once a motor passes 52 C (`explore/station/autopick.py`, `explore/arm_session.py`).
+- Sim only: the controller checks the grasp before carrying and slows near the handoff point (`controller/core.py`). The real arm does neither yet.
 - It lets go when you pull the instrument or tell it to.
 
 ## How to run

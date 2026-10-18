@@ -30,11 +30,11 @@ The count and the sharps matter too. One Mayo Clinic study found an item left in
 
 ## What it does
 
-You ask for an instrument out loud. The tray holds a scalpel, a hemostat and Mayo scissors. Scrub's SO-101 arm picks the one you named, holds it out at the handoff point, lets go when you pull it or say "let go", and goes straight home on its own. Say "stop" and it freezes where it is.
+You ask for an instrument out loud. The tray holds a scalpel, a hemostat and Mayo scissors. Scrub's SO-101 arm picks the one you named, carries it at a capped speed, holds the handle out at the handoff point, lets go when you pull it or say "let go", and goes straight home on its own. Say "stop" and it freezes where it is.
 
 Plain names work, and so do the names people use in the room: "Kelly" is the hemostat, "Mayo" is the scissors.
 
-On the real arm, each pick is a skill we taught it: a replay of demonstrations we recorded with a leader arm. In the simulation, our controller runs the flow and slows the arm down for the last stretch to the handoff point.
+On the real arm, each pick is a skill we taught it: a replay of demonstrations we recorded with a leader arm. So far the real arm has passed the scalpel to a hand twice and offered the hemostat; we have no Mayo scissors demonstrations yet, so the scissors run only in the simulation. In the simulation, our controller also checks the grasp and slows the arm for the last stretch to the handoff point.
 
 In the video, putting an instrument back on the tray is simulated (an electromagnet pickup) and labeled that way. On the real arm a person puts it back.
 
@@ -55,13 +55,13 @@ Scrub is a research prototype. It never touches the patient and makes no clinica
 **Safety.**
 - "Stop" freezes the arm where it is. In the controller it stays frozen until someone resets it.
 - The arm checks motor temperatures every couple of seconds. At 60 C it goes home and turns the motors off, and it waits for them to cool before it runs again.
-- Every move is speed-capped. On the real arm the peak joint speed is 45 degrees a second, and moves take 1.6 times longer once a motor passes 52 C.
-- In the controller, every joint command is clamped to the arm's limits, and the grasp is checked before the arm carries anything.
+- Every move is speed-capped and kept inside each joint's range. On the real arm the peak joint speed is 45 degrees a second, and moves take 1.6 times longer once a motor passes 52 C.
+- In the simulation, the controller checks the grasp before carrying and slows down near the handoff point. The real arm doesn't do either yet.
 - It lets go when you pull the instrument or tell it to.
 
 ## Challenges
 
-The camera frame rate was too low to follow a moving hand, so we dropped hand tracking. The handoff point is fixed, and in the controller the arm slows down as it gets close.
+The camera frame rate was too low to follow a moving hand, so we dropped hand tracking. The arm goes to a fixed handoff point and holds the tool out.
 
 The servos heat up when they hold a pose. We logged motor temperatures to Atlas while recording and set the cool-down rule from that data.
 
