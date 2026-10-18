@@ -5,7 +5,7 @@ import path from "node:path";
 import { REPO_DIR } from "./config.js";
 import { getSetting, JUDGE_LINE, postAlias, type AliasReply } from "./controller.js";
 
-export interface Item { id: string; name: string; aliases: string[]; sharp: boolean }
+export interface Item { id: string; name: string; aliases: string[]; sharp: boolean; group?: string; variant?: string }
 export interface Setting { id: string; label: string; items: Item[] }
 
 const item = (id: string, aliases: string[], sharp = false): Item =>
@@ -32,7 +32,8 @@ const FALLBACK: Record<string, Setting> = {
 
 const fromFile = (raw: any): Setting => ({
   id: raw.id, label: raw.label || raw.id,
-  items: raw.items.map((i: any) => ({ id: i.id, name: i.name || i.id, aliases: i.aliases || [], sharp: !!i.sharp })),
+  items: raw.items.map((i: any) => ({ id: i.id, name: i.name || i.id, aliases: i.aliases || [], sharp: !!i.sharp,
+    ...(typeof i.group === "string" ? { group: i.group } : {}), ...(typeof i.variant === "string" ? { variant: i.variant } : {}) })),
 });
 
 // The controller's setting is cached so a turn doesn't wait on GET /setting before Gemini.

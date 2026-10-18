@@ -4,8 +4,9 @@ import { appendFileSync } from "node:fs";
 import path from "node:path";
 import { GoogleGenAI, Type } from "@google/genai";
 import { GEMINI_API_KEY, GEMINI_MODEL, VOICE_DIR } from "./config.js";
-import { getState, postRestock, type State } from "./controller.js";
-import { isEndCase, isTrayCheck, parseAlias, readAction } from "./parse.js";
+import { getState, makeCommand, postCommand, postRestock, postStop, type Command, type CommandReply, type State } from "./controller.js";
+import { isEndCase, isStop, isTrayCheck, localParse, parse, parseAlias, readAction, type Parsed, type ParseResult } from "./parse.js";
+import { dialogue } from "./dialogue.js";
 import { handlePhoto, READ_ACTIONS, textRead, type Photo, type ReadAction } from "./reads.js";
 import { currentSetting, teach, type Setting } from "./settings.js";
 import type { AliasReply } from "./controller.js";
@@ -145,25 +146,44 @@ export interface TextDeps {
   teach: (item: string, alias: string) => Promise<AliasReply>;
   read: (action: ReadAction, text: string) => Promise<string>;
   photo: (photo: Photo, text: string, from: string | null) => Promise<string>;
+  command: (command: Command) => Promise<CommandReply>;
+  stop: () => Promise<{ accepted: boolean }>;
+  parseCommand: (text: string, setting: Setting) => Promise<Parsed>;
+  notify?: (line: string) => void;
 }
 const DEFAULTS: TextDeps = { state: getState, setting: currentSetting, parse: parseText, log: logRestock,
   summary: () => closeCaseWithLink(), trayCheck: () => textTrayCheck(), switchTo: (id) => switchSetting(id), teach,
-  read: (action, text) => textRead(action, text), photo: (p, text, from) => handlePhoto(p, text, from) };
+  read: (action, text) => textRead(action, text), photo: (p, text, from) => handlePhoto(p, text, from),
+  command: postCommand, stop: postStop, parseCommand: parse };
 
 // One text in -> the reply text.
-export async function handleText(text: string, from: string | null, deps: Partial<TextDeps> = {}): Promise<string> {
+export async function handleText(text: string, from: string | null, deps: Partial<TextDeps> = {}, thread = from || "anonymous"): Promise<string> {
   const d = { ...DEFAULTS, ...deps };
+  const context = `text:${thread}`;
+  // Safety first: even an outstanding question or a slow setting fetch cannot delay a texted stop.
+  if (isStop(text)) {
+    dialogue.clear();
+    return d.stop().catch(() => d.stop()).then(() => "Stopped.", () => "I can't reach the arm controller.");
+  }
   if (isTrayCheck(text)) { console.log(`[text] ${from ?? "?"}: ${text} -> tray check`); return d.trayCheck(); }
   const st = await d.state().catch(() => null);
   const setting = await d.setting(st?.setting || "surgical");
+  const answer = dialogue.answer(context, text, setting);
+  if (answer && "say" in answer) return answer.say;
+  const local = localParse(text, setting);
+  const restock = /\b(add|added|restock|restocked|refill|extra|new)\b/i.test(text);
+  if (answer && "parsed" in answer) return sendTextCommand(answer.parsed, text, context, setting, d);
+  if (!restock && !parseAlias(text, setting) && ["handover", "return", "got_it"].includes(local.action)) {
+    return sendTextCommand(local, text, context, setting, d);
+  }
   const p = await d.parse(text, setting);
   console.log(`[text] ${from ?? "?"}: ${text} -> ${p.kind}${p.item ? ` ${p.qty} ${p.item}` : ""}`);
   if (p.kind === "count") return st ? countReply(st) : "I can't reach the arm controller.";
-  if (p.kind === "summary") return d.summary();
+  if (p.kind === "summary") { dialogue.clear(context); return d.summary(); }
   if (READ_ACTIONS.includes(p.kind as ReadAction)) return st?.judge ? JUDGE : d.read(p.kind as ReadAction, text);
   // Judge mode: the controller only takes handover, count, stop and got_it. Don't post a switch, a word or a restock.
   if (st?.judge && (p.kind === "setting" || p.kind === "alias" || p.kind === "restock")) return JUDGE;
-  if (p.kind === "setting") return p.setting ? d.switchTo(p.setting) : `Which tray? ${SETTINGS.join(", ")}.`;
+  if (p.kind === "setting") { dialogue.clear(context); return p.setting ? d.switchTo(p.setting) : `Which tray? ${SETTINGS.join(", ")}.`; }
   if (p.kind === "alias") {
     if (!p.item || !p.alias) return `Say it like: call the ${setting.items[0]?.name ?? "hemostat"} a clamp. On this tray: ${setting.items.map((i) => i.name).join(", ")}.`;
     return d.teach(p.item, p.alias).then((r) => r.say, () => "I can't reach the arm controller.");
@@ -175,11 +195,37 @@ export async function handleText(text: string, from: string | null, deps: Partia
     await d.log({ type: "restock", item: p.item, qty: p.qty, setting: tray, from, heard: text, case_id: st?.case_id ?? null, t: Date.now() / 1000 });
     return `Logged: +${p.qty} ${name(p.item)} on the ${tray} tray.`;
   }
+  if (/\b(hand|bring|give|pass|grab|get)\b/i.test(text)) {
+    const command = await d.parseCommand(text, setting);
+    if (command.action !== "unknown") return sendTextCommand(command, text, context, setting, d);
+  }
   return HELP;
 }
 
+async function sendTextCommand(p: ParseResult, text: string, context: string, setting: Setting, d: TextDeps): Promise<string> {
+  const question = dialogue.askParsed(context, p, setting);
+  if (question) return question;
+  const cmd = makeCommand(p.action, p.item, text);
+  if (p.instance) cmd.instance = p.instance;
+  let waiting = true;
+  const early: string[] = [];
+  let last = "";
+  const notify = (line: string) => {
+    if (line === last) return;
+    last = line;
+    if (waiting) early.push(line); else d.notify?.(line);
+  };
+  dialogue.track(context, cmd, setting, notify);
+  try {
+    const r = await d.command(cmd);
+    waiting = false;
+    if (r.clarify) return dialogue.ask(context, r.clarify, setting, cmd.action, false, false);
+    return early.join(" ") || r.say || (r.accepted ? "Request sent." : "The controller couldn't accept that request.");
+  } catch { waiting = false; return "I can't reach the arm controller."; }
+}
+
 // The bits of Spectrum's [Space, Message] this uses, so tests can feed a fake stream.
-export interface InSpace { send(text: string): Promise<unknown> }
+export interface InSpace { id?: string; send(text: string): Promise<unknown> }
 // Spectrum (iMessage) content: a text is {type: "text"}; a photo alone is {type: "attachment", mimeType, name, read()}
 // (read() downloads the bytes); a photo with a caption is {type: "group", items: [Message, Message]}.
 export interface InContent { type: string; text?: string; mimeType?: string; name?: unknown; read?: () => Promise<Buffer>; items?: { content: InContent }[] }
@@ -203,7 +249,8 @@ export async function runTexts(stream: AsyncIterable<[InSpace, InMessage]>, deps
     // One text at a time: a reply that hangs (Photon, or a slow summary) must not hold up every text after it.
     // A photo gets longer: the download, then vision's read (up to 25 s).
     try {
-      const reply = image ? photo(image, text, from) : handleText(text, from, deps);
+      const reply = image ? photo(image, text, from) : handleText(text, from, { ...deps,
+        notify: (line) => { void space.send(line).catch(() => {}); } }, space.id || from || "anonymous");
       await withTimeout(reply.then((r) => space.send(r)), image ? 45_000 : 30_000, "text reply");
     }
     catch (e) { console.log(`[text] reply failed: ${(e as Error).message}`); }
