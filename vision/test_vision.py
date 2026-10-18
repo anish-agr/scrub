@@ -739,6 +739,199 @@ class VisionFixesTests(unittest.TestCase):
         self.assertGreater(int(annotated.sum()), 1000)
 
 
+class ExtensionTests(unittest.TestCase):
+    def test_x3_tray_check_all_items_present_and_correct(self):
+        from vision.tray import fallback_setting
+        from vision.tray_check import check_tray
+
+        setting = fallback_setting("surgical")
+        setting["items"][0]["slot"] = [30, 40, 140, 110]
+        setting["items"][1]["slot"] = [180, 40, 290, 110]
+        setting["items"][2]["slot"] = [330, 40, 440, 110]
+        setting["return_spot"] = [480, 320, 590, 390]
+
+        detections = [
+            {"mention": "scalpel", "point_box": {"top_left": {"x": 30, "y": 40}, "bottom_right": {"x": 140, "y": 110}}},
+            {"mention": "hemostat", "point_box": {"top_left": {"x": 180, "y": 40}, "bottom_right": {"x": 290, "y": 110}}},
+            {"mention": "mayo scissors", "point_box": {"top_left": {"x": 330, "y": 40}, "bottom_right": {"x": 440, "y": 110}}},
+        ]
+
+        res = check_tray(setting, detections)
+        self.assertTrue(res["ok"])
+        self.assertTrue(res["ready"])
+        self.assertEqual(len(res["missing"]), 0)
+        self.assertEqual(len(res["wrong_slot"]), 0)
+        self.assertEqual(len(res["correct"]), 3)
+        self.assertIn("ready", res["summary"].lower())
+
+    def test_x3_tray_check_missing_item(self):
+        from vision.tray import fallback_setting
+        from vision.tray_check import check_tray
+
+        setting = fallback_setting("surgical")
+        setting["items"][0]["slot"] = [30, 40, 140, 110]
+        setting["items"][1]["slot"] = [180, 40, 290, 110]
+        setting["items"][2]["slot"] = [330, 40, 440, 110]
+
+        # Scalpel is missing
+        detections = [
+            {"mention": "hemostat", "point_box": {"top_left": {"x": 180, "y": 40}, "bottom_right": {"x": 290, "y": 110}}},
+            {"mention": "mayo scissors", "point_box": {"top_left": {"x": 330, "y": 40}, "bottom_right": {"x": 440, "y": 110}}},
+        ]
+
+        res = check_tray(setting, detections)
+        self.assertFalse(res["ok"])
+        self.assertFalse(res["ready"])
+        self.assertIn("scalpel", res["missing"])
+        self.assertEqual(len(res["wrong_slot"]), 0)
+        self.assertIn("scalpel", res["summary"])
+
+    def test_x3_tray_check_wrong_slot(self):
+        from vision.tray import fallback_setting
+        from vision.tray_check import check_tray
+
+        setting = fallback_setting("surgical")
+        setting["items"][0]["slot"] = [30, 40, 140, 110]
+        setting["items"][1]["slot"] = [180, 40, 290, 110]
+        setting["items"][2]["slot"] = [330, 40, 440, 110]
+
+        # Hemostat placed in Scalpel's slot
+        detections = [
+            {"mention": "hemostat", "point_box": {"top_left": {"x": 30, "y": 40}, "bottom_right": {"x": 140, "y": 110}}},
+            {"mention": "mayo scissors", "point_box": {"top_left": {"x": 330, "y": 40}, "bottom_right": {"x": 440, "y": 110}}},
+        ]
+
+        res = check_tray(setting, detections)
+        self.assertFalse(res["ok"])
+        self.assertIn("scalpel", res["missing"])
+        self.assertEqual(len(res["wrong_slot"]), 1)
+        self.assertEqual(res["wrong_slot"][0]["item"], "hemostat")
+        self.assertEqual(res["wrong_slot"][0]["found_in"], "scalpel")
+
+    def test_x3_tray_check_http_endpoint(self):
+        capture = FakeCapture()
+        lock_controls(capture)
+        runtime = build_runtime(capture, fake_hands=lambda _f: [], detector=FakeDetector())
+        client = _client(runtime)
+
+        resp = client.get("/tray_check")
+        self.assertEqual(resp.status_code, 200)
+        body = resp.json()
+        self.assertIn("ok", body)
+        self.assertIn("ready", body)
+        self.assertIn("missing", body)
+        self.assertIn("wrong_slot", body)
+        self.assertIn("summary", body)
+        runtime.grabber.stop()
+
+    def test_x4_clip_recording_and_event_metadata(self):
+        from vision.clips import ClipManager
+
+        tmp_dir = Path(tempfile.mkdtemp())
+        mgr = ClipManager(clips_dir=tmp_dir)
+
+        # Buffer synthetic frames
+        now = time.time()
+        for i in range(15):
+            frame = np.zeros((480, 640, 3), dtype=np.uint8)
+            cv2.circle(frame, (100 + i * 10, 100), 20, (255, 255, 255), -1)
+            mgr.add_frame(frame, timestamp=now - 1.5 + (i * 0.2))
+
+        event = {
+            "type": "set_down",
+            "item": "scalpel",
+            "case_id": "case-test-1",
+            "t": now,
+        }
+        clip = mgr.record_event(event)
+        self.assertIsNotNone(clip)
+        self.assertEqual(clip["case_id"], "case-test-1")
+        self.assertEqual(clip["event_type"], "set_down")
+        self.assertTrue(Path(clip["path"]).exists())
+        self.assertTrue(Path(clip["thumbnail"]).exists())
+
+        clips = mgr.get_clips("case-test-1")
+        self.assertEqual(len(clips), 1)
+
+    def test_x4_clip_labeling_clinical_format(self):
+        from vision.clips import ClipManager
+
+        tmp_dir = Path(tempfile.mkdtemp())
+        mgr = ClipManager(clips_dir=tmp_dir)
+
+        event = {
+            "type": "set_down",
+            "item": "scalpel",
+            "case_id": "case-test-label",
+            "t": 1760731320.0,
+        }
+        clip = mgr.record_event(event)
+        label = mgr.label_clip(clip, api_key="")
+        self.assertIn("scalpel set at the safe spot", label)
+
+        # Label case
+        labeled_case = mgr.label_case("case-test-label", api_key="")
+        self.assertEqual(len(labeled_case), 1)
+        self.assertEqual(labeled_case[0]["label"], label)
+
+    def test_x4_clips_http_endpoints(self):
+        capture = FakeCapture()
+        lock_controls(capture)
+        runtime = build_runtime(capture, fake_hands=lambda _f: [], detector=FakeDetector())
+        client = _client(runtime)
+
+        case_id = f"case-http-{int(time.time() * 1000)}"
+        # Record a clip via HTTP
+        event = {
+            "type": "picked",
+            "item": "hemostat",
+            "case_id": case_id,
+            "t": time.time(),
+        }
+        rec_resp = client.post("/clips/record", json=event)
+        self.assertEqual(rec_resp.status_code, 200)
+        self.assertTrue(rec_resp.json()["ok"])
+
+        # List clips
+        list_resp = client.get(f"/clips?case_id={case_id}")
+        self.assertEqual(list_resp.status_code, 200)
+        clips = list_resp.json()
+        self.assertEqual(len(clips), 1)
+
+        # Label clips with clinical fallback
+        lbl_resp = client.post("/clips/label", json={"case_id": case_id, "api_key": ""})
+        self.assertEqual(lbl_resp.status_code, 200)
+        labeled = lbl_resp.json()["clips"]
+        self.assertIn("hemostat picked", labeled[0]["label"])
+
+        # Fetch clip file
+        clip_file_resp = client.get(f"/clips/{case_id}/{labeled[0]['filename']}")
+        self.assertEqual(clip_file_resp.status_code, 200)
+        self.assertEqual(clip_file_resp.headers["content-type"], "video/mp4")
+
+        runtime.grabber.stop()
+
+    def test_x4_perceptron_api_labeling_mocked(self):
+        from unittest.mock import MagicMock, patch
+        from vision.clips import ClipManager
+
+        tmp_dir = Path(tempfile.mkdtemp())
+        mgr = ClipManager(clips_dir=tmp_dir)
+
+        event = {"type": "set_down", "item": "scalpel", "case_id": "case-mock", "t": time.time()}
+        clip = mgr.record_event(event)
+
+        mock_resp = MagicMock()
+        mock_resp.status_code = 200
+        mock_resp.json.return_value = {
+            "choices": [{"message": {"content": "scalpel set down on the safe spot, 14:02"}}]
+        }
+
+        with patch("httpx.post", return_value=mock_resp):
+            label = mgr.label_clip(clip, api_key="dummy_key")
+            self.assertEqual(label, "scalpel set down on the safe spot, 14:02")
+
+
 def _free_port() -> int:
     import socket
 
