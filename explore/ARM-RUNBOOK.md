@@ -13,7 +13,7 @@ the linked READMEs. Every command runs from the repo root with `.venv/bin/python
    ```
    `run_station.sh` keeps it running: a hung camera or the page's **Reconnect** makes the station save and exit, and the supervisor starts it again (~15 s). Ctrl-C stops it for good.
    `--task` must be an exact instruction from `settings/*.json` (pick/return the hemostat, mayo scissors, scalpel, bench items). Free text needs `--any-task` and is marked NOT FOR TRAINING. Change the task between episodes with the task buttons or the task box.
-3. Page http://localhost:8090. It starts with **motors off**: press **Motors on**, then **Start episode** (Space), do the demo, **Save episode** (Space) or **Discard** (Backspace). **KILL** (Escape) turns torque off at once and discards the open episode; a raised arm drops. **Home + motors off** glides to the saved home, then torque off.
+3. Page http://localhost:8090. It starts with **motors off**: press **Motors on**, then **Start episode** (Space), do the demo, **Save episode** (Space) or **Discard** (Backspace). **KILL** (Escape) turns torque off at once and discards the open episode; a raised arm drops. **Home** glides to the saved home, then torque off.
 4. Watch temperatures on http://localhost:8093 (its buttons go through the station while it runs).
 5. Stop with **Ctrl-C once** and let it finish: it parks, closes the dataset properly (the last episode's index is only written then) and turns torque off. Never force-quit it.
 6. After a session: `.venv/bin/python explore/dataset/to_mongo.py` (fills in video locations), `.venv/bin/python -m explore.dataset.qa --root <dataset> --out ~/qa.html` (re-record FAILs), `.venv/bin/python explore/thermal_analyze.py` (heat report).
@@ -44,7 +44,7 @@ Details: `explore/station/README.md` (Run mode, AutoPick modes, Talk tab and voi
 | `explore/calibrate_follower.py` | Recalibrate the follower safely (pre-checks, forced calibration, range check) |
 | `explore/thermal_log.py`, `thermal_analyze.py`, `thermal_web.py` | Telemetry to MongoDB, the heat report, the live temperature site with arm buttons |
 | `explore/dataset/` | `qa.py` (episode QA), `to_mongo.py` (joint data to MongoDB), `retask.py` (fix an episode range's task text), `replay.py`, `variety.py`, `aim.py` |
-| `explore/research/overheating/` | Why it overheats: README (findings, schema), 01-03 research, HANDOFF (experiments, real-arm notes) |
+| `explore/research/overheating/` | Why it overheats: README (findings, telemetry schema, rest at home) |
 | `controller/core.py` | Rests the arm at home between commands (`REST_AFTER_S`, `arm.rest()` / `arm.wake()`) |
 
 ## Safety layer (all in software, all logged)
@@ -65,7 +65,7 @@ Details: `explore/station/README.md` (Run mode, AutoPick modes, Talk tab and voi
 
 ## Data
 
-- **Dataset on disk** (LeRobot v3; what training reads): `~/scrub-dataset` has 14 episodes (as of Oct 18 02:20). Episodes 0-2 are `pick the spatula` and weak (barely move / no grasp); episodes 3-13 were relabelled to `pick the scalpel handle` with `retask.py` (backup at `~/scrub-dataset.backup-20261018-021651`). Episode 4 is 105 s, mostly idle. Neither label is a settings instruction, so new training data goes in a fresh root with exact instructions (see step 2).
+- **Dataset on disk** (LeRobot v3): the station writes to `--root` (default `~/scrub-dataset`). 29 episodes are recorded, 24 usable for training; counts per task are in `docs/DATA.md` (regenerate with `.venv/bin/python -m explore.analysis`). `retask.py` fixes an episode range's task text when a label is wrong. New data should use exact settings instructions (see step 2 above).
 - **MongoDB** (`MONGODB_URI`, cluster0.vzwywla, database `scrub`): `thermal` (temperatures at 2 Hz, grasps, lifts, pull-outs, episode lifecycle, button presses), `episodes` (one doc per episode: task, 30 Hz follower state and leader actions, timestamps, video locations, handoff result), `events` (team ledger). Videos stay on disk (too big for the free tier); push the dataset to Hugging Face to share them.
 - **Handoff tracking:** each episode logs grab -> lift (tip rises >= 3 cm, from the URDF model) -> pulled out by hand (grip load collapses while the leader still holds shut) and `handoff_success`.
 
@@ -77,7 +77,6 @@ Details: `explore/station/README.md` (Run mode, AutoPick modes, Talk tab and voi
 | Wrist roll counts past one turn after hand-turning or a fast move | Don't turn the claw by hand with torque off; recover by turning back and power-cycling the 12 V (USB alone is not enough) |
 | Wrist camera 13-23 fps (needs 30), and it hangs | Own USB port straight into the Mac, check the cable, more light. A hang now restarts the station by itself (run it with `run_station.sh`), or press Reconnect |
 | USB / power drops (all motors silent at once) | Arm and cameras on separate ports or a powered hub; seat the 12 V and motor cables |
-| `arm/real_arm.py` rest()/wake() and rig home | Being added by the full-pass session; home raw values `[2063, 849, 3041, 2825, 1942, 1511]` |
 | Controller asks "pick the scalpel" | Matches settings; train on exact settings instructions so run time and training agree |
 | Servo variant (C001 7.4 V vs C018/C047 12 V) | Read the labels; Max_Voltage_Limit 140 hints 12 V parts |
 

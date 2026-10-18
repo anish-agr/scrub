@@ -1,20 +1,16 @@
 # Why the SO-101 follower overheats, and how to keep it running
 
 Owner: Caiden (explore/). Started Oct 17, 2026, after repeated overloads and crashes during teleop and recording.
-Read this first; the detail is in the three research sections and in the telemetry.
+Read this first; the raw detail is in the telemetry.
 
 | File | What it covers |
 | --- | --- |
-| [01-servo-physics.md](01-servo-physics.md) | STS3215 variants, memory table, protections, heat sources, register values to try |
-| [02-arm-mechanics.md](02-arm-mechanics.md) | gravity load per joint, kit variants, binding, power supply, ranked hardware causes |
-| [03-software-and-reports.md](03-software-and-reports.md) | LeRobot and phosphobot issues, control-side causes, telemetry cost, long-running strategies |
-| [HANDOFF.md](HANDOFF.md) | next experiments, hardware checks, rules, and a ready prompt for the next agent |
 | `explore/thermal_log.py` | telemetry to MongoDB + local files: `watch`, `snapshot`, `idle`, `upload` |
 | `explore/thermal_analyze.py` | report from the telemetry: which motor heats, how fast, under what load and phase |
 
 ## Bottom line
 
-1. **Having torque on at 12 V is the main heat source, not the work the arm does.** Measured tonight (below): holding still at the folded rest pose with zero current on four joints, every motor rose about 5 C in 4 minutes, fastest in the first minute, flattening toward the mid 50s. With torque off, powered motors idle at 45-47 C (the leader arm, which never has torque on, sits there too). The datasheet operating limit is 60 C and shutdown is 70 C. So the arm starts every session with only a few degrees of headroom, and any real load (gripper squeeze, a blocked joint, gravity at full reach) uses it up in minutes.
+1. **Having torque on at 12 V is the largest heat source we measured, not the work the arm does.** Measured tonight (below): holding still at the folded rest pose with zero current on four joints, every motor rose about 5 C in 4 minutes, fastest in the first minute, flattening toward the mid 50s. With torque off, powered motors idle at 45-47 C (the leader arm, which never has torque on, sits there too). The datasheet operating limit is 60 C and shutdown is 70 C. So the arm starts every session with only a few degrees of headroom, and any real load (gripper squeeze, a blocked joint, gravity at full reach) uses it up in minutes.
 2. **Stalls made it worse and caused the crashes:** the gripper squeezing a metal instrument (overload trip), the wrist pressing past its calibrated range into the hard stop, the folded arm pushing into its stops with torque left on after exit. These are fixed in software (guards, recalibration, torque off at rest).
 3. **Unknowns to check by hand:** the servo variant (label C001 = 7.4 V part overvolted at 12.2 V; C018/C047 = 12 V part). Every motor's Max_Voltage_Limit reads 140 (14 V), which hints 12 V parts, but the leader normally uses 7.4 V servos and reads the same, so read the labels. Also room temperature and airflow.
 
@@ -59,6 +55,8 @@ Calibration was redone tonight (wrist_flex range moved off the encoder wrap: 813
 
 Joints drawing no measurable current heated as much as loaded ones, so the dominant term is the servo electronics with torque enabled, not winding current. Raw rows: MongoDB `thermal`, `kind: "experiment"`.
 
+A later fit of the same hold (session 20261017-231317-0f3d, 24 readings over 230 s) gives about 0.8-1.1 C/min per motor, gripper fastest. It supports torque-on self-heating as a concern but does not prove the electronics dominate: current resolution, thermal lag, different starting temperatures and no matched torque-off control leave that open. The short recorder runs that night (2-48 s) were too short to compare recording, preview, holding or moving.
+
 ## Ranked causes and what to do
 
 1. **Torque-on self-heating at 12 V, little headroom (measured).**
@@ -67,9 +65,9 @@ Joints drawing no measurable current heated as much as loaded ones, so the domin
    - Keep sessions short (record in batches of 5-10 episodes) and let the cool-down do its job (60 C trip, resume at 50 C or when cooling levels off).
    - Experiment: the 12 V variant runs from 4-14 V; a 9-10 V supply would cut driver losses (and torque). Only after the label check.
 2. **Stalls: gripper squeeze, joints pressing into stops (history: overloads, crashes).** Fixed: gripper guard (gentle squeeze, eases on strain, overload or 62 C), joint stall guard (holds instead of pushing), clamp to calibrated range, recalibrated wrist, torque off at rest on exit, max_relative_target 15, catch-up at 45 deg/s.
-3. **Gravity holding on shoulder_lift** (358 mA even folded; about 8 kg.cm at full reach per 02). Rest folded between episodes; a counterbalance spring or band at the shoulder is the mechanical fix (02, section 3).
+3. **Gravity holding on shoulder_lift** (358 mA even folded). At full reach the shoulder holds about 8 kg.cm, which needs about 0.7 A at 12 V and is above the 7.4 V part's 5 kg.cm rated torque; folded, it drops to 1-2 kg.cm. Rest folded between episodes; a counterbalance spring or band at the shoulder is the mechanical fix (an estimate, not tested).
 4. **Variant or supply** (unverified): read the labels; measure the supply under a fast multi-joint move (should stay above 11.5 V); separate USB ports or a powered hub for the cameras.
-5. **Control settings** (try one at a time, measure C/min): P 16 to 12 on shoulder_lift and elbow, dead zone 1 to 2-3, Torque_Limit 1000 to 750 on the body joints. Values and verification steps in 01, section 5.
+5. **Control settings** (try one at a time, measure C/min): P 16 to 12 on shoulder_lift and elbow, dead zone 1 to 2-3, Torque_Limit 1000 to 750 on the body joints. Verify each with a 60 s hold: log Present_Current mean and spread and position jitter (current oscillating at idle means the servo is hunting), and check the arm does not sag. These values are our starting points, not Feetech guidance.
 
 ## Telemetry: what is logged and how to use it
 
@@ -118,3 +116,11 @@ db.thermal.aggregate([{$match: {kind: "sample"}}, {$group: {_id: "$session", pea
 2. Change one thing: fan on, a register value, supply voltage, a guard threshold. Write it in the session's notes, or run a snapshot first so the registers are on record.
 3. Record or teleop a fixed routine for 10 minutes.
 4. `thermal_analyze.py --session <id>` for each run; compare C/min per motor, holding-still vs moving, and time to the 60 C trip.
+
+## Real arm: rest at home between commands
+
+The controller parks the arm when idle: after a command ends at home and nothing is queued for 2 s it calls `arm.rest()`, and it calls `arm.wake()` before the next command (`controller/core.py`, `REST_AFTER_S`; test `rests_at_home_then_wakes_for_the_next_command`).
+
+- `rest()` (`arm/real_arm.py`): moves home if any joint is more than 5 degrees away, then torque off on all six motors. Playback keeps reading joints and temperatures and writes nothing until `wake()`.
+- `wake()`: Goal_Position = Present_Position on all six, then torque on. Nothing moves.
+- Home is the folded pose measured Oct 18, which stays put with torque off (`explore/home_pose.py test`, drift under 1 degree): raw steps `[2063, 849, 3041, 2825, 1942, 1511]` (pan, lift, elbow, wrist_flex, wrist_roll, gripper), degrees in `arm/rig.json` `"home"` and `explore/home_pose.json`.
