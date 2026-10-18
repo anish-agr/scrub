@@ -1,4 +1,4 @@
-Handoff from Anish's laptop session, Sun Oct 18 about 7 AM. You are taking over everything below. Final Devpost by 9:30 AM (it locks at 10:00), the video on YouTube unlisted by 9:00, everyone in the HUB Ballroom by 10:20, judging from 10:30. Work without asking me; anything only a person can do goes to me as one short line with the exact command. Use as many subagents as it needs. Commit small, `git pull --rebase` before every push, never print or commit a key.
+Handoff from Anish's laptop session, Sun Oct 18 about 7 AM. You are taking over everything below. Final Devpost by 9:30 AM (it locks at 10:00), the video on YouTube unlisted by 9:00, everyone in the HUB Ballroom by 10:20, judging from 10:30. Work without asking me; anything only a person can do goes to me as one short line with the exact command. Use a lot of subagents: split every small task (each doc, each claim check, each sim fix, each video slot, each test run) into its own agent and run them in parallel, so the work finishes fast. You only coordinate and verify. Commit small, `git pull --rebase` before every push, never print or commit a key.
 
 ## Read first, in this order
 
@@ -47,6 +47,8 @@ Ideas worth adding if time allows: a side-by-side of the real handoff and the si
 
 ## Fix the sim (`video/simdemo.py`), then show Anish stills before rendering
 
+Go through the sim play by play: make a 1 fps contact sheet of the whole run (`python -m video.simdemo sheet --every 1 --out ...`), then stills at every event (each grab, release, home, stop, return) and look at each one. Write down every problem you see (pose, jaw, item position, flicker, camera, caption timing), fix it, and repeat until a full pass is clean. One agent per segment.
+
 Anish's notes on the draft:
 - The gripper is rotated 90 degrees the whole time. The wrist roll in the IK keyframes (the `READY` pose has roll 1.59 and `across` is tangential) must match how the real SO-101 holds a tool from above: compare against the photos and the real arm, pick the roll that matches, and keep it consistent.
 - Rendering glitches on the scissors and during the return (items flicker or jump). Check `Player.items_at`: the grab/place offsets, the `appear` event, the settle-flat step, and that hidden items don't pop in. Look at 1 fps contact sheets around each event, not just a few stills.
@@ -56,7 +58,9 @@ Anish's notes on the draft:
 - The draft is 15 fps on purpose. The final is 30 fps 1080p (about 8 minutes to render). Send Anish a contact sheet and wait for his okay before the final render.
 - The overlay and cards must not look AI-made: no step strip, no glowing boxes, no decorative labels, plain type.
 
-## The video
+## The video (you own all of it)
+
+You build the whole video. We will send you the recordings as we film them (files named `V<slot>-take<n>.mp4` and voice memos). Get everything ready now so each file drops in: pick the best take, trim it, put it in `data/video/kit/real/V<slot>.mp4`, rebuild with `python -m video.roughcut`, and keep a current cut we can watch at any time. Before any recordings arrive, make sure the pipeline works end to end with the sim stand-ins and the cards (run it, watch the output, fix anything broken), and update `video/roughcut.py`'s slots and cards to the new script and scope. Captions burned in for every spoken line, plain white text, nothing that looks AI-made. Tell us which slots are still missing each time you rebuild.
 
 - Length: 2 to 3 minutes, under 3:00. The script Anish's team wrote runs to about 2:40 and plays as narration over the clips.
 - Fix the script to match the scope: drop the safe spot and "never hand to hand", drop hand tracking (say the arm slows near the handoff), keep "model trained on our demonstrations" only if that clip is a real model pick (otherwise "a skill we taught it"), drop "if a motor goes down, degraded control keeps working" unless it's tested on video, drop "texts a case summary" unless Photon works, keep the lighting line only after real lighting tries are logged.
@@ -79,18 +83,14 @@ Anish's notes on the draft:
 - Community Kitchen (title).
 - Perceptron Robotics: the arm on video, plus a real model pick if deployed; otherwise the training job id and its state, said plainly.
 - Perceptron Perception: the tray check and the OCR read on video with latency.
-- Photon: only if a real call or text works on +1 785 867 1047. Otherwise don't enter it and remove every phone claim.
+- Photon: the call on +1 785 867 1047 (already set up), on video.
 - DubHacks NEXT.
 - MLH Gemini API, MLH MongoDB Atlas, MLH Vultr (the public page, after the redeploy).
 - Not entered: Tiger Data, Backboard, GoDaddy. DEV writing is a blog post that can go up after the event.
 
-## Voice and Photon (the call)
+## Voice
 
-- Anish owns the Photon project. Project id `pho_prj_01m544gk29esk81gbm6dj5n2yr`. He made an SMS number, +1 785 867 1047, which can take calls (the old shared iMessage line could not). He will DM you an API key from the Photon dashboard as `SPECTRUM_PROJECT_SECRET`. Put `SPECTRUM_PROJECT_ID`, `SPECTRUM_PROJECT_SECRET` and `PHOTON_LINE=+17858671047` in the repo-root `.env`.
-- Then `cd voice && npm run photon -- status` (the key works), `npm run photon -- use-line +17858671047` (routes calls to the ElevenLabs agent), and `npm run agent -- status`.
-- Set the Gemini lines from `team/LEFT.md` and restart the voice server.
-- Test: call the number with the controller and voice server running, say "hemostat", watch the arm move, and log it. Record that call for shot 1. If it fails by 7:45, the video uses the laptop mic through the same voice server (`npm run say` or the talk page) and Photon is not entered.
-- ElevenLabs: Anish DMed you a new `sk_` key. It has text-to-speech and agent permission but not user_read, so `deploy/check_env.py`'s `GET /v1/user` probe will show FAIL for it; change that probe to `GET /v1/models` or `/v1/convai/agents`.
+Photon is already set up on your side. Don't redo it. Confirm one real call on +1 785 867 1047 moved the arm and is logged, and make sure the Gemini lines from `team/LEFT.md` are in your `.env`. The new ElevenLabs `sk_` key has no user_read permission, so change `deploy/check_env.py`'s `GET /v1/user` probe to `GET /v1/models` so it doesn't show a false FAIL.
 
 ## Vultr
 
