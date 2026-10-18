@@ -39,6 +39,50 @@ Signed uploads use a third, unauthenticated client; a 303 is followed by GET
 without replaying upload bytes or headers. Local datasets are read only when
 the operator explicitly invokes `upload`; no dataset was inspected in setup.
 
+## Training pipeline (R1)
+
+```text
+python -m arm.train pipeline <local-export> --cadence-report <cadence.json> --check-only
+python -m arm.train pipeline <local-export> --cadence-report <cadence.json> --repo-id <user>/scrub --revision <HF-commit> --idempotency-key scrub-run-1 --confirmed-replay --confirmed-hf-matches-local
+```
+
+The first command is entirely offline. The second spends one training submission
+only after local checks, a ready dataset and completed service validation. Use
+an immutable HF commit when possible; publishing to HF is a separate step, and
+the operator must confirm that repo/revision contains this local export.
+No actual dataset was read or job submitted while implementing this command.
+
+Local preflight checks LeRobot v2.0/v2.1/v3.0, fps=30, exactly side/wrist RGB
+640x480 metadata, six float32 joint names in contract order, >=2 episodes,
+episode lengths/counts, finite state/actions and gripper bounds, continuous
+frame indices/timestamps in parquet, and measured recording cadence for **every**
+episode. Media dimensions come from metadata; decode/replay and the service
+validator remain mandatory. `pyarrow` is used for parquet, without loading LeRobot.
+
+Supply cadence evidence transcribed from recording's wall-clock cadence reports,
+not computed from frame-index timestamps. Format:
+
+```json
+{"episodes": [{"episode_index": 0, "measured_fps": 29.88}, {"episode_index": 1, "measured_fps": 30.0}]}
+```
+
+Each episode must measure 29..31 Hz. A dataset declaring 30 fps but recorded at
+25 Hz fails if its measured report is honest; metadata alone cannot detect that.
+
+The pipeline polls ingestion/validation, follows logs and metrics with cursors,
+then waits for a ready deployment matching **this job's checkpoint**, never an
+unrelated ready model. It writes only `PERCEPTRON_DEPLOYMENT_ID` to the local
+`.env`, preserving other entries, and does not auto-pin a motion contract.
+Unknown API response shapes fail safely rather than selecting an arbitrary model.
+
+Retry the **same** command/key to resume. IDs and the local snapshot hash are
+saved in root `.env.pipeline-<key>.json` (already git-ignored); this state has no
+credentials. Changed inputs are rejected, registration/job retries use stable
+keys, and failed jobs are not automatically replaced. Optional `--state-file`,
+`--env-file`, `--interval` and `--timeout` support testing/recovery. Timeouts do
+not cancel remote jobs. Keep this state until deployment succeeds. Only two
+successful jobs are budgeted; never change the run key just to retry a lost reply.
+
 ## Offline arm / IK (A7, A6)
 
 ```text
