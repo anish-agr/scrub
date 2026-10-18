@@ -119,6 +119,7 @@ Shared line: only the registered phone can text it. A judge can text Scrub after
 | --- | --- | --- |
 | "grab me the kelly" | `[heard] grab me the kelly`, `[command] handover hemostat` | "Hemostat coming." |
 | "got it" | `[command] got_it` | nothing (released) |
+| "let go", "drop it", "open the clasp" | `[command] let_go` | "Letting go." The gripper opens. "I'm not holding anything." if the jaw is empty |
 | "knife please" | `[command] handover scalpel` | "Scalpel to the safe spot." then "Scalpel down." (sharps never go hand to hand) |
 | "what's out" | `[command] count` | "Out: hemostat, scalpel." |
 | "stop" | `[command] stop (POST /stop)` | "Stopped." |

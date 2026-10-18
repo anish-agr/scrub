@@ -51,6 +51,7 @@ def main(argv: list[str] | None = None) -> None:
             fake_hands=lambda _frame: [synthetic_landmarks(True)],
             detector=detector,
             fake_calibration=True,
+            fake=True,
         )
         logger.info("fake camera, exposure locked=%s", controls)
     elif args.source == "sim":

@@ -1082,6 +1082,62 @@ class CombTests(unittest.TestCase):
         self.assertEqual(mgr.buffer[0][1].shape, (360, 640, 3))
 
 
+class SharpCameraTests(unittest.TestCase):
+    def test_crop_uses_the_matching_detection(self):
+        from vision.sharp import crop_jpeg
+
+        frame = np.zeros((200, 300, 3), dtype=np.uint8)
+        frame[40:90, 100:180] = (0, 0, 255)
+        detections = [{
+            "mention": "scalpel",
+            "point_box": {"top_left": {"x": 100, "y": 40}, "bottom_right": {"x": 180, "y": 90}},
+        }]
+        jpeg = crop_jpeg(frame, detections, "scalpel")
+        image = cv2.imdecode(np.frombuffer(jpeg, np.uint8), cv2.IMREAD_COLOR)
+        self.assertEqual(image.shape[:2], (50, 80))
+
+    def test_gemini_sharp_reads_the_json_and_skips_without_a_key(self):
+        from vision import sharp
+
+        called = []
+
+        class Response:
+            status_code = 200
+
+            def json(self):
+                return {"candidates": [{"content": {"parts": [{"text": '{"sharp": true}'}]}}]}
+
+        def fetch(url, headers, payload, timeout):
+            called.append(url)
+            self.assertNotIn("GEMINI", json.dumps(payload))
+            self.assertIn("inlineData", json.dumps(payload))
+            return Response()
+
+        old = os.environ.get("GEMINI_API_KEY")
+        os.environ["GEMINI_API_KEY"] = "test-not-a-real-key"
+        try:
+            self.assertIs(sharp.gemini_sharp(b"jpeg-bytes", "scalpel", fetch=fetch), True)
+            self.assertEqual(len(called), 1)
+        finally:
+            if old is None:
+                os.environ.pop("GEMINI_API_KEY", None)
+            else:
+                os.environ["GEMINI_API_KEY"] = old
+        blank = os.environ.pop("GEMINI_API_KEY", None)
+        try:
+            self.assertIsNone(sharp.gemini_sharp(b"jpeg-bytes", "scalpel", fetch=fetch))
+            self.assertEqual(len(called), 1)
+        finally:
+            if blank is not None:
+                os.environ["GEMINI_API_KEY"] = blank
+
+    def test_fake_camera_marks_only_the_scalpel(self):
+        from vision.sharp import fake_sharp
+
+        self.assertTrue(fake_sharp("scalpel"))
+        self.assertFalse(fake_sharp("hemostat"))
+
+
 def load_tests(loader, standard_tests, pattern):
     suite = unittest.TestSuite()
     suite.addTests(standard_tests)

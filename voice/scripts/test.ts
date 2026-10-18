@@ -15,7 +15,7 @@ import { BUSY_LINE, activeCall, claimCall, forgetCalls } from "../src/calls.js";
 import { publicBase } from "../src/config.js";
 import { forgetTimings, recordTiming, timingLine, timingStats } from "../src/timing.js";
 import { TALK_HTML } from "../src/talk.js";
-import { isGotIt, isStop, isTrayCheck, localParse, parseAlias } from "../src/parse.js";
+import { isGotIt, isLetGo, isStop, isTrayCheck, localParse, parseAlias } from "../src/parse.js";
 import { caseFacts, caseLink, clock, closeCaseWithLink, endCase, newCase, recordEvent, setCaller, templateSummary, textCaller, withTimeout } from "../src/summary.js";
 import type { Setting } from "../src/settings.js";
 import { CANT_CHECK, textTrayCheck, trayReadyText, voiceTrayCheck } from "../src/tray.js";
@@ -38,6 +38,8 @@ assert.deepEqual(localParse("let's go", blank), { action: "unknown", item: null 
 // M4: common phrasings the local match missed when Gemini is off or slow.
 for (const g of ["thanks got it", "thanks, got it", "okay got it", "ok, I've got it", "thank you", "got it.", "release"]) assert.ok(isGotIt(g), g);
 for (const g of ["got it hemostat", "thanks for the scalpel", "give me the thing"]) assert.ok(!isGotIt(g), g);
+for (const s of ["let go", "drop it", "open the clasp"]) assert.ok(isLetGo(s), s);
+for (const s of ["got it", "release", "let the hemostat"]) assert.ok(!isLetGo(s), s);
 const scissors: Setting = { id: "surgical", label: "Operating room", items: [{ id: "mayo_scissors", name: "mayo scissors", aliases: [], sharp: false }] };
 assert.deepEqual(localParse("take back the mayo scissors", scissors), { action: "return", item: "mayo_scissors" });
 assert.deepEqual(localParse("put the mayo scissors back", scissors), { action: "return", item: "mayo_scissors" });
