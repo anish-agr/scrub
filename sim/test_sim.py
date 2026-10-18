@@ -92,6 +92,7 @@ def test_http_reach_and_state(arm):
     assert [x["reachable"] for x in far] == [True, False]
     s = c.get("/state").json()
     assert len(s["q"]) == 6 and len(s["names"]) == 6 and "holding" in s
+    assert set(s["items"]) == {"hemostat", "scalpel", "mayo_scissors"} and all(len(v) == 3 for v in s["items"].values())
     assert c.get("/layout").json()["setting"] == "surgical"
 
 
@@ -223,3 +224,16 @@ def test_safe_zone_default_hover_and_crossing_refusal(arm):
     finally:
         arm.sharp_mode(False)
     assert arm.state()["holding"] is None
+
+
+def test_out_of_range_pose_is_clamped_not_a_long_move(arm):
+    # the old backup FAIL: arm/rig.json degrees read as radians made every go_home an 85 s joint move
+    old = arm.layout["poses"]["home"]
+    arm.layout["poses"]["home"] = [2.8, -102.2, 97.7, 72.3, -9.3, 4.8]
+    try:
+        t0 = time.time()
+        assert arm.go_home()
+        assert time.time() - t0 < 6, time.time() - t0
+    finally:
+        arm.layout["poses"]["home"] = old
+        assert arm.go_home()

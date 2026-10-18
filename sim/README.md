@@ -34,7 +34,7 @@ python3.10 -m venv .venv && .venv/bin/pip install -r sim/requirements.txt   # on
 | Endpoint | Returns |
 | --- | --- |
 | `GET /stream` | MJPEG of the `overhead` camera, 640x480 (`/stream?cam=wrist` for the wrist camera). Point vision or the dashboard at it as a fake camera |
-| `GET /state` | `{"q":[6 rad],"names":[...],"gripper":0..1,"holding":item_id or null}` |
+| `GET /state` | `{"q":[6 rad],"names":[...],"gripper":0..1,"holding":item_id or null,"items":{"<id>":[x,y,z m]}}` (items: the current setting's items, where the sim has them) |
 | `GET /reach?x=&y=&z=` | `{"reachable":bool,"error_m":float,"q":[6]}` |
 | `POST /reach/batch` `{"points":[[x,y,z],...]}` | `{"results":[{"reachable","error_m","q"},...]}` |
 | `GET /layout`, `PUT /layout` | read or write `layout.json` (PUT rebuilds the scene and reloads the arm) |

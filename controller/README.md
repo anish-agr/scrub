@@ -43,7 +43,7 @@ websocat ws://localhost:8000/events      # or open http://localhost:8000/
 | `smoke.py` | full runs against a live controller (C5, C8) |
 | `trials.py` | operator-gated trial matrix over HTTP, written to the ledger |
 | `doctor.py` | one-command health check of every service, key, log and the arm port |
-| `test_flows.py`, `test_doctor.py`, `test_run_all.py` | tests (see Tests) |
+| `test_flows.py`, `test_doctor.py`, `test_run_all.py`, `test_backup.py` | tests (see Tests); `test_backup.py` runs the sim backup end to end on free ports (about 40 s). `conftest.py` keeps every test off the shared ledger |
 
 ## Behaviour other parts should know
 
@@ -74,6 +74,8 @@ websocat ws://localhost:8000/events      # or open http://localhost:8000/
 - Switching trays (`POST /setting`) only works when idle or stopped. It keeps `out`: an instrument still out from the last tray stays in the count until it comes back or `POST /reset {"clear_count": true}`. A switch never clears a stop or an error; only a reset rearms the arm. A `return` with no item only picks from what's out of the current tray.
 - Stop takes the lock for an instant to bump the run generation and clear the queue together, so a queued handover can never start after a stop. Every event carries `fake_arm` (true for the fake and the sim arm), and so does a restock row.
 - `GET /stats` without the ledger answers in the ledger's shape (`by_item` rows with `attempts`, `successes`, `success_rate`), so the dashboard tables still fill.
+- `GET /state` and every event carry `arm` (`fake`, `sim` or `real`) and `sim` (bool). `fake_arm` stays `true` for anything but the real arm (the sim too), so the ledger and trials keep sim runs out of real numbers. With no hand tracked, the sim arm hands over at its layout hand zone (`SimArm.handoff_spot`), the spot the viewer and the overhead render draw.
+- `run_all backup` refuses when its controller port is already taken (it names the pid) instead of running the script on someone else's controller: use `--base-port 8200`, or `--url` to use that controller on purpose.
 - `case_id` (`<setting>-<unix start seconds>`) is in `GET /state` and on every event. A new case starts at controller start, on `POST /setting`, and on `POST /reset {"clear_count": true}`; a plain reset keeps it.
 - `ledger` is used if `ledger.log` exists; otherwise `/stats` comes from memory.
 - Robot model sessions (L2): if the arm has `prepare(instructions)` (`arm/real_arm.py` does), the controller pre-opens a Perceptron session for every item's pick and return instruction at start, on each `POST /setting`, and after a reset when the last prepare didn't finish (a stop cancels it inside the arm). It runs on its own daemon thread, never under the lock, so stop and the setting change never wait on it. An API error is retried up to `PREPARE_TRIES` (3) times, `PREPARE_RETRY_S` (5 s) apart (not for 401/403), and spoken once per setting change as an `error` event with `code`, `reason` and `command_id: null`; the step is unchanged. Other prepare failures (frozen, no deployment id) are only printed. Skills open sessions on demand anyway.

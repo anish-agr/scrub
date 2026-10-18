@@ -11,6 +11,8 @@ from . import core, lines, settings
 from .core import Controller
 from .fake_arm import FakeArm
 
+core.ledger = None  # never write the shared ledger (MongoDB): see conftest.py
+
 core.HAND_WAIT_S = 1.0
 core.PULL_WAIT_S = 1.0
 core.TRAY_LAG_S = 0.05
@@ -1204,6 +1206,16 @@ def events_say_fake_arm():
     assert evs and all(e["fake_arm"] is True for e in evs), [e.get("fake_arm") for e in evs]
     real = Controller(RecordingArm(motion_s=0.1), fake_arm=False)
     assert real.emit("step")["fake_arm"] is False
+    assert evs[-1]["arm"] == "fake" and evs[-1]["sim"] is False and ctl.state()["arm"] == "fake"
+    assert real.emit("step")["arm"] == "real" and real.state()["sim"] is False
+
+
+@test
+def sim_arm_reports_sim_and_stays_out_of_real_numbers():
+    sim = Controller(RecordingArm(motion_s=0.1), fake_arm=True, arm_kind="sim")
+    st, ev = sim.state(), sim.emit("step")
+    assert (st["fake_arm"], st["arm"], st["sim"]) == (True, "sim", True), st
+    assert (ev["fake_arm"], ev["arm"], ev["sim"]) == (True, "sim", True), ev
 
 
 @test
@@ -1764,6 +1776,12 @@ def main():
             print(f"FAIL  {fn.__name__}: {e!r}")
     print(f"{len(TESTS) - failed}/{len(TESTS)} passed")
     raise SystemExit(1 if failed else 0)
+
+
+
+test.__test__ = False  # the decorator; pytest runs each flow below as test_<name>
+for _fn in TESTS:
+    globals()[f"test_{_fn.__name__}"] = _fn
 
 
 if __name__ == "__main__":

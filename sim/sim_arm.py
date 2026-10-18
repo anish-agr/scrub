@@ -89,6 +89,11 @@ class SimArm:
         p = self.layout["poses"].get(name)
         return np.array(p, float) if p else None
 
+    @property
+    def handoff_spot(self):
+        """Where the controller hands over when no hand is tracked: the layout's hand zone (x, y, z, m)."""
+        return [float(v) for v in self.layout["hand_zone"]]
+
     def _region(self):
         r = self.rig.get("handoff_region") or self.layout["handoff_region"]
         if "min" in r:
@@ -140,6 +145,8 @@ class SimArm:
         """Straight line in joint space at `rate` rad/s (arm joints only)."""
         q0 = self._q()
         goal = np.array(goal, float)
+        r = self.model.jnt_range[:5]  # a pose out of range (e.g. degrees read as radians) never means a 90 s move
+        goal[:5] = np.clip(goal[:5], r[:, 0], r[:, 1])
         T = max(float(np.abs(goal[:5] - q0[:5]).max()) / (rate * self._speed_scale), 0.1)
         t0 = time.time()
         while (f := (time.time() - t0) / T) < 1:
@@ -417,9 +424,12 @@ class SimArm:
 
     # ---- for the server --------------------------------------------------
     def state(self):
+        shown = self.layout["setting_items"].get(self.layout["setting"], [])
         with self.lock:
             q = [float(v) for v in self.data.qpos[:6]]
-        return {"q": q, "names": NAMES, "gripper": self.gripper_position(), "holding": self.holding}
+            items = {i: [round(float(v), 4) for v in self.data.mocap_pos[self._mocap[i]]] for i in shown if i in self._mocap}
+        # items: where each item of the current setting is (m, base frame), so the viewer draws what the sim does
+        return {"q": q, "names": NAMES, "gripper": self.gripper_position(), "holding": self.holding, "items": items}
 
     def tip(self):
         with self.lock:

@@ -129,9 +129,10 @@ def _api_error(e: Exception) -> tuple[int | None, str] | None:
 class Controller:
     def __init__(self, arm, fake_arm: bool, setting_id: str = "surgical", judge: bool = False,
                  state_file: str | Path | None = None, skills: str = "model", deployment: bool = True,
-                 tries_file: str | Path | None = None):
+                 tries_file: str | Path | None = None, arm_kind: str | None = None):
         self.arm = arm
-        self.fake_arm = fake_arm
+        self.fake_arm = fake_arm  # true for anything but the real arm (fake and sim): kept out of real stats
+        self.arm_kind = arm_kind or ("fake" if fake_arm else "real")  # "fake" | "sim" | "real", on /state and events
         if skills not in SKILL_MODES:
             raise ValueError(f"skills must be one of {SKILL_MODES}")
         self.skills = skills            # --skills model|taught|auto
@@ -208,7 +209,7 @@ class Controller:
             "request_to_hand_s": kw.pop("request_to_hand_s", None), "retries": kw.pop("retries", None),
             "setting": self.setting["id"], "lighting": self.lighting,
             "command_id": kw.pop("command_id", cmd["id"] if cmd else None), "out": list(self.out),
-            "case_id": self.case_id, "judge": self.judge, "fake_arm": self.fake_arm, "t": time.time(),
+            "case_id": self.case_id, "judge": self.judge, "fake_arm": self.fake_arm, **self._arm_tags(), "t": time.time(),
         }
         if self.skill_source and type_ not in ("command", "count"):
             ev["skill_source"] = self.skill_source
@@ -246,7 +247,7 @@ class Controller:
             st = {
                 "step": self.step, "item": self.item, "queue": [j["item"] for j in self.jobs],
                 "out": list(self.out), "setting": self.setting["id"], "lighting": self.lighting,
-                "fake_arm": self.fake_arm, "hand_seen": self._hand_fresh() is not None,
+                "fake_arm": self.fake_arm, **self._arm_tags(), "hand_seen": self._hand_fresh() is not None,
                 "out_camera": self._camera_out()[0], "case_id": self.case_id, "judge": self.judge,
                 "resting": self.resting, "t": now,
                 "sheet": self.sheet, "packs": list(self.packs),
@@ -277,6 +278,10 @@ class Controller:
         rows = [r for r in self.tries.get(f"{self.setting['id']}/{item_id}", []) if r.get("source") == "model"]
         rows = rows[-AUTO_TRIES:]
         return len(rows) == AUTO_TRIES and all(r.get("ok") for r in rows)
+
+    def _arm_tags(self) -> dict:
+        """arm: which arm runs ("fake", "sim", "real"); sim: true on the sim (the ledger and video tell it from the fake arm)."""
+        return {"arm": self.arm_kind, "sim": self.arm_kind == "sim"}
 
     def _record_try(self, item_id: str, direction: str, source: str, ok: bool) -> None:
         """One real-arm try for --skills auto, saved to tries_file (worker thread; never the event loop)."""
@@ -424,7 +429,7 @@ class Controller:
         rec = {"type": "restock", "item": body.get("item"), "qty": int(body.get("qty") or 1),
                "setting": body.get("setting") or self.setting["id"], "from": body.get("from"),
                "heard": body.get("heard"), "case_id": self.case_id, "fake_arm": self.fake_arm,
-               "t": body.get("t") or time.time()}
+               **self._arm_tags(), "t": body.get("t") or time.time()}
         if ledger is None:
             return False
         self._ledger_pool.submit(ledger.log, rec)
@@ -966,8 +971,8 @@ class Controller:
                 self._home(gen)
                 return False
             target = list(hand["target"])
-        else:
-            target = _saved_spot()
+        else:  # the sim arm names its own spot (its hand zone), so the viewer and the overhead render show the real target
+            target = list(getattr(self.arm, "handoff_spot", None) or _saved_spot())
         x, y, z = target
         r = math.hypot(x, y)
         k = max(0.0, 1 - APPROACH_BACK_M / r) if r else 1.0
