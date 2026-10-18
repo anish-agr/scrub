@@ -4,6 +4,7 @@ python -m sim.which_one_smoke --base-port 8300
 Uses run_all --offline --base-port 8300 --setting bench --no-open --arm sim.
 """
 import argparse
+import json
 import os
 import tempfile
 import time
@@ -56,6 +57,8 @@ def run(base_port=8300):
                     time.sleep(0.1)
                 answer = client.post(voice + "/heard", json={"text": "Phillips", "context": "which-one-smoke"}).json()
                 print("SIMULATION answer:", " ".join(answer["say"]))
+                assert not any("can't reach" in line.lower() or "timed out" in line.lower() for line in answer["say"]), answer
+                assert any("Phillips screwdriver" in line for line in answer["say"]), answer
                 deadline = time.monotonic() + 25
                 while time.monotonic() < deadline:
                     ev = client.get(ctl + "/events/recent?n=200").json()
@@ -69,6 +72,29 @@ def run(base_port=8300):
                 assert client.get(sim + "/state").json()["items"]["flathead_screwdriver"] == before
                 assert any(e["type"] == "clarify_answer" for e in ev), "the answer must be logged"
                 print("SIMULATION PASS: no pick before answer; picked Phillips; flathead untouched; question and answer logged.")
+                # The phone uses this streaming endpoint. It must hear the question immediately,
+                # then the timeout line without having to send another utterance.
+                lines = []
+                started = time.monotonic()
+                with client.stream("POST", voice + "/v1/chat/completions", json={
+                    "stream": True, "conversation_id": "sim-expiry-proof",
+                    "messages": [{"role": "system", "content": "Conversation: sim-expiry-proof"},
+                                 {"role": "user", "content": "screwdriver"}],
+                }) as reply:
+                    reply.raise_for_status()
+                    for row in reply.iter_lines():
+                        if row.startswith("data: ") and row != "data: [DONE]":
+                            text = json.loads(row[6:])["choices"][0].get("delta", {}).get("content", "")
+                            if text:
+                                if not lines:
+                                    assert time.monotonic() - started < 3, "the question did not stream immediately"
+                                lines.append(text)
+                assert any("Which screwdriver" in line for line in lines), lines
+                assert any("I'll wait for you to ask again" in line for line in lines), lines
+                assert 14 <= time.monotonic() - started < 22, "the question did not expire at about 15 seconds"
+                ev = client.get(ctl + "/events/recent?n=200").json()
+                assert [e["item"] for e in ev if e["type"] == "picked"] == ["phillips_screwdriver"]
+                print("SIMULATION PASS: call question streamed immediately, expired at 15 s, and authorized no extra pick.")
         finally:
             stack.stop()
 
