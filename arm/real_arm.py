@@ -18,6 +18,7 @@ from .backends import LeRobotBackend, SavedImageBackend
 from .kinematics import Kinematics
 from .motion import CartesianMotion
 from .sessions import DryPolicySession, PolicySession
+from .session_pool import SessionPool
 from .streaming import DELAY, HZ, STRIDE, Timeline
 
 
@@ -34,10 +35,12 @@ class Arm:
         self._backend_args = (side_image, wrist_image, port, robot_id, side_index, wrist_index)
         self._session_factory = session_factory
         self._session = None
-        self._instruction = None
         self._lock = threading.Lock()
         self._operation = threading.Lock()
         self._frozen = threading.Event()
+        self._sessions = SessionPool(self._new_session,
+                                     lambda: (self.deployment_id, self.rig.get("verified_contract_id")),
+                                     self._frozen.is_set)
         self._shutdown = threading.Event()
         self._done = threading.Event()
         self._thread = None
@@ -268,21 +271,26 @@ class Arm:
             raise RuntimeError("Gripper load unavailable; use explicit got_it release")
         return self._load
 
+    def _new_session(self, instruction):
+        if self._session_factory:
+            return self._session_factory(instruction)
+        if self.dry_run:
+            return DryPolicySession(instruction)
+        if not self.deployment_id:
+            raise RuntimeError("PERCEPTRON_DEPLOYMENT_ID is required")
+        return PolicySession(self.deployment_id, instruction, self.rig.get("verified_contract_id"))
+
+    def prepare(self, instructions):
+        """Optional, blocking pre-open hook for a controller worker, not its event loop.
+
+        No robot connection or motion is needed. Repeated preparation reuses good
+        sessions, drops obsolete instructions, and never clears a freeze.
+        """
+        with self._operation:
+            return self._sessions.prepare(instructions)
+
     def _get_session(self, instruction):
-        if self._session is not None and self._instruction != instruction:
-            self._session.close()
-            self._session = None
-        if self._session is None:
-            if self._session_factory:
-                self._session = self._session_factory(instruction)
-            elif self.dry_run:
-                self._session = DryPolicySession(instruction)
-            else:
-                if not self.deployment_id:
-                    raise RuntimeError("PERCEPTRON_DEPLOYMENT_ID is required")
-                self._session = PolicySession(self.deployment_id, instruction,
-                                              self.rig.get("verified_contract_id"))
-            self._instruction = instruction
+        self._session = self._sessions.get(instruction)
         return self._session
 
     def run_skill(self, instruction, max_s=20.0):
@@ -365,7 +373,7 @@ class Arm:
                 try:
                     session.reset()
                 except Exception:
-                    session.close()
+                    self._sessions.discard(session)
                     self._session = None
             return success
 
@@ -393,8 +401,7 @@ class Arm:
                 if self._thread.is_alive():
                     raise RuntimeError("Motor I/O did not stop; inspect hardware before disconnecting")
                 self._thread = None
-            if self._session:
-                self._session.close()
-                self._session = None
+            self._sessions.close()
+            self._session = None
             if self._backend:
                 self._backend.disconnect()
