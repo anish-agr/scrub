@@ -824,10 +824,17 @@ def main() -> None:
     p.add_argument("--no-browser", action="store_true")
     a = p.parse_args()
     start_log()
-    wait_for_devices(a)
     A.lenient_motor_check()
     A.retry_bus_reads()
-    A.ease(a.follower, a.leader, a.ease_s)
+    while True:  # a port just released by another recorder, or a motor blip: wait and try again
+        wait_for_devices(a)
+        try:
+            A.ease(a.follower, a.leader, a.ease_s)
+            break
+        except (ConnectionError, RuntimeError, OSError) as e:
+            print(f"arm not ready ({type(e).__name__}: {str(e).strip().splitlines()[0][:120] if str(e).strip() else ''}): "
+                  "retrying in 3 s", flush=True)
+            time.sleep(3)
     A.clamp_follower()     # innermost: the gripper guard sees and sends clamped goals
     A.guard_gripper()
     A.guard_joints()       # outermost: safety, park, temperatures, telemetry
