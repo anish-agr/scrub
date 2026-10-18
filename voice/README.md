@@ -131,3 +131,13 @@ Shared line: only the registered phone can text it. A judge can text Scrub after
 | "call the hemostat a crile" | `[alias] crile -> hemostat` | "Got it: crile means the hemostat." Then "crile please" hands the hemostat |
 
 `(local)` or `(gemini)` after each command says which parser ran. After "stop", reset the controller (`curl -XPOST localhost:8000/reset`) before the next request. If the call connects but Scrub is silent, check terminal 2: no `[heard]` means the Custom LLM URL is stale (new tunnel URL) or wrong (`[server] 404`); a phone that doesn't ring means Photon inbound or the agent assignment (Photon's troubleshooting table in the cookbook, and **SIP Messages** on the ElevenLabs number page).
+
+## Real arm through the recording station (STATION_URL)
+
+With `STATION_URL=http://localhost:8090` in `.env` (the station from `explore/station/station.py`), voice also drives
+the real arm there: a handover ("get the hemostat", "scalpel please") wakes the arm and runs that instrument's
+**averaged demo replay** (`autopick` mode `average`, task = the item's `pick_instruction` in `settings/*.json`);
+"let go" / "got it" opens the jaw while it holds the item out; "stop" stops the run (the arm goes home, motors off).
+The controller still gets every command; if the controller is not running, the station alone answers
+("Getting the hemostat."). Log lines: `[station] handover hemostat: RUN autopick ...`. Code: `src/station.ts`,
+test: `scripts/test-station.ts`. Empty `STATION_URL` turns the bridge off.
