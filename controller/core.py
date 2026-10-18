@@ -471,6 +471,8 @@ class Controller:
             question = {"say": say, "item": cmd["item"], "candidates": options,
                         "question_id": uuid.uuid4().hex, "expires": time.monotonic() + CLARIFY_S,
                         "gen": gen, "setting": sid, "confirm": confirm, "action": cmd["action"]}
+            if cmd["action"] == "handover" and len(options) > 1:
+                self._known_instances[cmd["item"]] = options
             self.clarification = question
             self._expired_choice = None
             self._emit_command(cmd, False, "clarification needed", None)
@@ -545,6 +547,14 @@ class Controller:
                 return self._refuse_choice(cmd, "choice expired", lines.CHOICE_EXPIRED)
             if not hint and not qid:
                 self._expired_choice = None  # a fresh full request, never a late answer
+            if not hint and item_id in self._known_instances:
+                # A question expiring (or vision timing out) is not evidence that a duplicate disappeared.
+                # Only a subsequent fresh detection post can clear this knowledge.
+                choices = [c for c in self._known_instances[item_id] if not self._candidate_is_out(c)]
+                if not choices and item_id in self.out:
+                    return self._refuse_choice(cmd, "already out", lines.with_you(it["name"]))
+                say = lines.other_instance(it["name"]) if item_id in self.out and len(choices) == 1 else None
+                return self._ask_choice(cmd, choices, gen, sid, say, confirm=bool(say))
             options, unsafe = self._tray_candidates(item_id)
             all_options = options
             options = [c for c in options if not self._candidate_is_out(c)]
@@ -559,6 +569,10 @@ class Controller:
                 hint = dict(chosen["instance"])
                 cmd["instance"] = hint
                 cmd["question_id"] = pending["question_id"]
+                if unsafe:
+                    # Old/local occupancy cannot reject a by-sight answer or authorize its pose.
+                    # Let locate validate it afresh; never use these boxes as a timeout fallback.
+                    options = []
             elif unsafe or len(options) > 1 and not hint:
                 return self._ask_choice(cmd, options, gen, sid)
             elif item_id in self.out and (not hint or named_variant) and options:
@@ -586,6 +600,7 @@ class Controller:
                 return self._refuse_choice(cmd, "request cancelled", lines.CHOICE_EXPIRED)
             if loc and (loc.get("ambiguous") or len(loc.get("candidates") or []) > 1 and not hint):
                 choices, bad = instances.candidates(loc.get("candidates") or [], item_id)
+                self._known_instances[item_id] = choices
                 choices = [c for c in choices if not self._candidate_is_out(c)]
                 if not choices and item_id in self.out:
                     return self._refuse_choice(cmd, "already out", lines.with_you(it["name"]))
@@ -626,6 +641,8 @@ class Controller:
                     return self._refuse_choice(cmd, "instance unverified", lines.CHOICE_UNVERIFIED)
                 cmd["_physical"] = physical
             cmd["_located"] = loc
+            if not hint and pending and pending["item"] == item_id and item_id not in self._known_instances:
+                self.clarification = None  # a fresh detection disproved multiplicity; this is a new full request
             if answering:
                 if self.clarification is not pending or time.monotonic() >= pending["expires"]:
                     return self._refuse_choice(cmd, "choice expired", lines.CHOICE_EXPIRED)
