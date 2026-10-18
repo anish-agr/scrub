@@ -33,7 +33,12 @@ ROLES = {
             ("HF_TOKEN", True),
             ("SO101_PORT", True),
         ],
-        "ledger": [("MONGODB_URI", True)],
+        "ledger": [
+            ("MONGODB_URI", True),
+            ("TIGER_DATABASE_URL", True),
+            ("BACKBOARD_API_KEY", True),
+            ("BACKBOARD_ASSISTANT_ID", True),
+        ],
         "vision": [
             ("PERCEPTRON_API_KEY", True),
             ("CAMERA_INDEX", False),
@@ -228,6 +233,41 @@ def check_mongo() -> tuple[str, str, str]:
         return row("MongoDB Atlas", False, type(exc).__name__)
 
 
+def check_tiger() -> tuple[str, str, str]:
+    blocked = need("TIGER_DATABASE_URL")
+    if blocked:
+        return ("Tiger Data", *blocked[1:])
+    try:
+        import psycopg
+    except ImportError:
+        return row("Tiger Data", False, "psycopg is not installed")
+    try:
+        with psycopg.connect(os.environ["TIGER_DATABASE_URL"], connect_timeout=8) as connection:
+            with connection.cursor() as cursor:
+                cursor.execute("SELECT 1")
+        return row("Tiger Data", True, "connected")
+    except Exception as exc:
+        return row("Tiger Data", False, type(exc).__name__)
+
+
+def check_backboard() -> tuple[str, str, str]:
+    if not present("BACKBOARD_API_KEY") or not present("BACKBOARD_ASSISTANT_ID"):
+        return row("Backboard", False, "missing BACKBOARD_API_KEY or BACKBOARD_ASSISTANT_ID")
+    assistant = os.environ["BACKBOARD_ASSISTANT_ID"].strip()
+    try:
+        response = httpx.get(
+            f"https://app.backboard.io/api/assistants/{assistant}/memories",
+            headers={"X-API-Key": os.environ["BACKBOARD_API_KEY"].strip()},
+            params={"page": 1, "page_size": 1},
+            timeout=15,
+        )
+        if response.status_code in (200, 201):
+            return row("Backboard", True, "HTTP 200")
+        return row("Backboard", False, f"HTTP {response.status_code}")
+    except httpx.HTTPError as exc:
+        return row("Backboard", False, type(exc).__name__)
+
+
 def check_hf() -> tuple[str, str, str]:
     blocked = need("HF_TOKEN")
     if blocked:
@@ -281,6 +321,8 @@ def live_rows() -> list[tuple[str, str, str]]:
         check_elevenlabs(),
         check_photon(),
         check_mongo(),
+        check_tiger(),
+        check_backboard(),
         check_hf(),
         check_port("controller :8000", controller + "/state"),
         check_port("vision :8001", vision + "/health"),
