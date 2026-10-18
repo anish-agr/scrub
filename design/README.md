@@ -1,7 +1,7 @@
 # Scrub interface system
 
 Swiss status board on paper. Medical device HMI on monitor. The reference is
-Caiden's `explore/status-board/`, especially the ruled masthead, instrument
+Caiden's `team/status-board/`, especially the ruled masthead, instrument
 sheet and wall display. Use semantic colors, square controls, Archivo labels
 and IBM Plex Mono readouts. There are no decorative accent colors.
 

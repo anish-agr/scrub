@@ -1,6 +1,6 @@
 # ledger
 
-Owner: Evan. Task E3 in `docs/TASKS.md`.
+Owner: Evan. Task E3 in `team/LEFT.md`.
 
 `log(event)`, `log_test(...)` and `stats()` per `docs/CONTRACTS.md`. The controller should return `stats()` from `GET /stats` unchanged.
 
@@ -83,7 +83,7 @@ The `/api/*` routes send `Access-Control-Allow-Origin: *` and answer `OPTIONS`. 
 
 Each results row also has `wilson_low` and `wilson_high`. `next_likely` is a suggestion only.
 
-The series page and the memory page turn two prototypes into running pages. Series is the OR timeline (`explore/prototypes/29-or-timeline.html`) on the Tiger Data track. Memory is "the arm remembers" (`explore/prototypes/16-robot-memory.html`) on the Backboard track. Both run with no key. A key only changes where the rows are stored.
+The series page and the memory page turn two prototypes into running pages. Series is the OR timeline (`team/prototypes/29-or-timeline.html`) on the Tiger Data track. Memory is "the arm remembers" (`team/prototypes/16-robot-memory.html`) on the Backboard track. Both run with no key. A key only changes where the rows are stored.
 
 ```
 python -m ledger serve
