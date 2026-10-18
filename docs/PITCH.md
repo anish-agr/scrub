@@ -1,80 +1,103 @@
-# Pitch, demo and video
+# Pitch
 
-Owner: Anish. Fill the [measured] numbers from the success tables on Sunday morning.
+Three minutes, spoken over the live demo. The beats and times match the demo console (`http://localhost:8000/demo`) and the table in `docs/DEMO.md`. Questions are in `docs/QNA.md`.
 
-## The pitch
+Fill every `[measured]` from the dashboard tables (`GET /stats`) on Sunday morning. If a number is not on the dashboard yet, skip the sentence. Never guess a number.
 
-About 2 minutes 30 seconds of speaking. The demo runs at the same time so both fit within 3 minutes. One person speaks. Teammates run the arm and the trays.
+## Who does what
 
-> In an operating room, surgeons work with a scrub tech who hands them instruments. Hospitals cannot hire enough of them. A surgical tech job stays open about four months.
+| Person | Where they stand | Speaks | Also does |
+| --- | --- | --- | --- |
+| Anish | Next to the judge, facing them | The problem, "This is Scrub", the second tray, the close | Calls "go to backup" if the arm dies |
+| Caiden | At the demo laptop, one hand near Space | Sharps and stop, the judge's turn, the return and the count | Runs the console keys and the stop key |
+| Evan | Beside the lamp and the spare tray | The lighting test and the tables (short) | Lamp on and off, swaps trays, resets the tray |
+| Brandon | Across the tray from the arm, as the clinician | Hand tracking (short) | Asks for each instrument on the phone, takes the handoffs |
+
+## The script
+
+Spoken words only. About 400 words, which is about 3 minutes at 130 words a minute.
+
+**0:00 The problem (Anish).** Brandon stands with his hands busy.
+
+> Every operation has a scrub tech. They hand the surgeon each instrument and keep the count. Hospitals can't hire enough of them. A surgical tech job takes about 120 days to fill.
 >
-> When nobody is there, the doctor turns away from the patient. They put down what they are holding. They search the tray.
->
-> This is Scrub. The clinician asks for what they need out loud. Scrub picks the tool from the tray. It brings the tool to their open hand, handle first. It lets go when they take it.
->
-> Scalpels never pass hand to hand. Scrub places them in a fixed safe spot. That follows standard operating room safety rules for sharps.
->
-> When a doctor finishes with an instrument, they place it in the return spot. Scrub returns it to its slot. Scrub also tracks the count so nothing stays behind.
->
-> We taught Scrub from our own demonstrations. We fine-tuned Perceptron's Isaac model on them. Clinic lights are bright. Shiny steel throws harsh glare. We trained and tested under bright, normal and dim light. Our success rate is [measured]% under normal light and [measured]% under bright glare. The median handoff takes [measured] seconds.
->
-> Scrub is built for the operating room. The same system also works in a second setting: a robotics bench tray. Each setting uses its own demonstrations. Neither needed new code. Adding the bench setting took [measured] minutes.
->
-> Scrub runs on an open-source arm that costs a few hundred dollars. The software connects through one clean interface, so it is ready for a medical-grade arm. We are starting with surgery centers and operating rooms. This is a training and research prototype with no clinical claims.
+> So the surgeon looks away from the patient, puts down what they're holding, and searches the tray. And when an instrument is missing, the case waits. One study found those delays ran about ten minutes.
 
-## The demo
+**0:30 The first handoff (Anish, then Brandon).**
 
-The judge asking for an instrument is the moment that sells it. We practice this step the most.
+> This is Scrub. You ask for what you need, out loud.
 
-**Setup:** operating room tray on the blue towel. Desk lamp turned off. Dashboard facing the judge. Phone on speaker connected to Scrub's phone number.
+Brandon: "Hemostat."
 
-| Time | What is said | What happens |
-| --- | --- | --- |
-| 0:00 | Clinic staffing problem | Teammate stands as clinician with hands busy |
-| 0:30 | "This is Scrub." | Teammate says "hemostat" to the phone. Scrub answers on speaker. The arm delivers the hemostat handle first. Teammate pulls and the gripper opens. Dashboard shows [measured] seconds |
-| 0:50 | Sharps safe spot | Teammate says "scalpel." Scrub places it in the safe spot and announces "scalpel down" |
-| 1:05 | "Try it." | The judge asks for scissors out loud. Scrub delivers them to the judge's open hand |
-| 1:20 | Taking items back | Teammate sets the hemostat in the return spot. Scrub says "returning the hemostat" and returns it to its slot |
-| 1:40 | Harsh lighting test | Turn on the lamp right over the tray. Steel reflects glare. A request still succeeds. Point to the dashboard lighting table |
-| 2:00 | Second setting: swap to the bench tray and ask for the pliers | Swap to the bench tray and ask for the pliers. Same code, different settings file |
-| 2:30 | Count and summary | Say "count." Scrub reads back what is out. The case ends and a summary text arrives on the phone |
-| 3:00 | Questions | Entire team answers |
+> Scrub picks it from the tray. It brings it to Brandon's open hand, handle first, and lets go when he pulls. The dashboard times every handoff.
 
-For a judge with only one minute, run the 0:30, 1:05 and 2:30 steps.
+**0:50 Sharps and stop (Caiden).** Brandon: "Scalpel."
+
+> Scalpels never go hand to hand. Nurses and techs get cut most often while passing sharps. US hospital staff have about 385,000 needle and sharps injuries a year. So Scrub sets the scalpel on a safe spot and says "scalpel down." Anyone can say stop, and the arm freezes until a person resets it.
+
+**1:05 The judge's turn (Caiden, then Brandon).**
+
+> Your turn. Ask for the scissors.
+
+The judge asks. The Mayo scissors arrive in their hand.
+
+Brandon:
+
+> A camera over the tray finds your open hand ten times a second. The arm slows down near it. If your hand leaves, the arm holds still.
+
+**1:20 Return and count (Caiden).** Brandon sets the hemostat in the return spot.
+
+> Done with a tool? Set it in the return spot. Scrub puts it back in its slot by itself. It also keeps the count. That matters. A Mayo Clinic study found an item left inside a patient about once in every 5,500 operations. Most of those counts had been called correct.
+
+**1:40 Glare and the tables (Evan).** Evan turns the lamp on over the tray.
+
+> Operating lights are bright, and steel throws glare. So we test every item in bright, normal and dim light. Brandon, ask again.
+
+Brandon asks for any instrument. It arrives.
+
+> Every try is saved in MongoDB. This table is live. [measured] percent in bright light, [measured] in normal. The range next to each one shows how sure we are.
+
+**2:00 A second tray (Anish).** Evan turns the lamp off and swaps to the bench tray. Caiden presses `2`. Brandon: "Needle-nose pliers."
+
+> Scrub is built for the operating room. But this is a robotics bench tray. Same arm, same code. We fine-tuned Perceptron's Isaac model on our own demonstrations. For this tray we only recorded new ones and wrote one settings file. It took [measured] minutes.
+
+**2:30 The close (Brandon, Caiden, Anish).** Brandon: "Count." Then: "End of case."
+
+Caiden:
+
+> It reads back what's still out. When the case ends, the summary comes as a text on the same phone.
+
+Anish:
+
+> Scrub runs on an open-source arm that costs a few hundred dollars. We'd sell it per operating room, starting with surgery centers. It helps scrub techs. It doesn't replace them. This is a research prototype, not a medical device. Questions?
+
+## If a beat fails
+
+Keep talking. The fix for each beat is in the "If it fails" column of `docs/DEMO.md`. A stop is a feature: say so.
+
+## Sources
+
+Every number above was checked against its source on Oct 17, 2026. Say only these numbers.
+
+| What we say | Source |
+| --- | --- |
+| A surgical tech job takes about 120 days to fill | Periop Leader (OR Manager) survey, Aug 28, 2024: "Filling a surgical technologist position takes an average of 120 days." https://www.periopleader.com/survey-staffing-woes-ease-slightly-but-challenges-remain/ (excerpt shown on https://periopleader.com/tag/surgical-technologists) |
+| Instrument delays ran about ten minutes | Nichol et al., BMC Surgery 2024, 7 pediatric operating rooms: "The average length of delays per case was 10.16 min." Most errors were missing instruments. https://doi.org/10.1186/s12893-024-02407-1 |
+| About 385,000 needle and sharps injuries a year to US hospital staff | CDC Sharps Safety: "approximately 385,000 needlesticks and other sharps-related injuries to hospital-based healthcare personnel each year." https://www.cdc.gov/sharpssafety/ |
+| Nurses and techs get cut most often while passing sharps | American Nurse, citing data from 87 US hospitals: injuries to nurses and technicians "most often occurred when they passed or disassembled devices." https://www.myamericannurse.com/practical-strategies-to-prevent-surgical-sharps-injuries/ |
+| An item left inside about once in 5,500 operations, most with a correct count | Cima et al., J Am Coll Surg 2008 (Mayo Clinic, 191,168 operations): "approximately 1:5,500 operations", and 21 of 34 (62%) had a count reported as correct. https://pubmed.ncbi.nlm.nih.gov/18589366/ and https://psnet.ahrq.gov/issue/incidence-and-characteristics-potential-and-actual-retained-foreign-object-events-surgical |
+
+Also checked, used in `docs/QNA.md` and `docs/NEXT.md` only:
+
+| What we say | Source |
+| --- | --- |
+| About 8,600 openings a year for surgical assistants and technologists | US Bureau of Labor Statistics, Occupational Outlook Handbook (2025 to 2035): "About 8,600 openings for surgical assistants and technologists are projected each year, on average, over the decade." https://www.bls.gov/ooh/healthcare/surgical-technologists.htm |
+| Hands-free passing used at least 75% of the time: 35% fewer incidents | Stringer et al., Public Health Reports 2009: "the HFT-associated reduction in rate was 35%" (cuts, glove tears and contamination together). https://pmc.ncbi.nlm.nih.gov/articles/PMC2708668/ |
+| Operating room time costs about $36 a minute | Childers and Maggard-Gibbons, JAMA Surgery 2018: "The mean cost of OR time was $36 to $37 per minute using financial data from California's short-term general and specialty hospitals in FY2014." https://jamanetwork.com/journals/jamasurgery/fullarticle/2673385 |
+| RoboNurse-VLA, a 2024 research robot scrub nurse driven by voice | arXiv 2409.19590, submitted Sep 29, 2024. https://arxiv.org/abs/2409.19590 |
+
+Do not say on stage: that Scrub prevents retained items (it adds a second check), that it replaces scrub techs, that it is ready for patients, or anything about FDA being easy. See `explore/research/SURGEON_RESEARCH.md` section 6.
 
 ## Demo video (2 to 3 minutes, required)
 
-Shot list in order. Record each shot several times and keep the cleanest take. Evan edits.
-
-1. Title card (slide 1), 5 seconds.
-2. A clinician with busy hands says "hemostat" to the speakerphone. Close-up of the arm picking it, the hand receiving it handle first, and the gripper opening on pull.
-3. "Scalpel." The scalpel moves to the safe spot. Scrub says "scalpel down."
-4. The return: hemostat placed in the return spot, then returned to its slot.
-5. Lamp turns on. Glare shows on the steel. A handoff still succeeds. Cut to the lighting table on the dashboard.
-6. The bench tray (pliers): the second setting, same code.
-7. "Count." The voice readback, then the summary text arriving on the phone screen.
-8. The dashboard: system diagram and live success tables.
-9. Close on the team and the arm.
-
-Record the phone audio clearly. Place a second phone or a laptop microphone right next to the speakerphone.
-
-## Perceptron arm video
-
-A separate clip for the robotics track. The arm performs several picks and returns across items and lighting without edits. Show the dashboard success table at the end.
-
-## Judge questions and answers
-
-| Question | Answer |
-| --- | --- |
-| Has this been done before? | Research labs have built robot scrub nurses, like RoboNurse-VLA in 2025. None is on the market. Scrub runs one model across two settings on a low-cost arm. It puts instruments back in their slots, tracks the count, passes sharps hands-free, and handles bright glare |
-| Would a clinic let this near a patient? | It never touches the patient. In a clinic it sits under a sterile drape on a medical-grade arm. Surgery centers and operating rooms come first. This is a training and research prototype with no clinical claims |
-| What if it drops something or misses? | Every grasp is checked twice. The arm checks gripper closure and the overhead camera checks the slot. If a grasp fails, it retries once. If it misses again, it reports it out loud. Grasp check accuracy is [measured]% |
-| What if the person moves their hand? | An overhead camera tracks the hand at 10 Hz. The arm updates its target to stay 8 cm short of the palm. If the hand leaves or an arm blocks the path, the robot freezes in place within [measured] ms |
-| Why voice? Operating rooms are loud | Clinicians already ask for tools out loud. Scrub runs on a phone call with noise cancellation. A spacebar or foot pedal acts as an instant backup stop |
-| How fast is it? | The median request-to-hand time is [measured] seconds. The dashboard displays the timer for each handoff |
-| How much data did it need? | We recorded 3 surgical items at 20 picks and 10 returns each, and 3 bench items at 15 picks and 10 returns each. Adding the bench setting took [measured] minutes of demonstration time |
-| Why use Perceptron's model instead of scripted paths? | Scripted motions fail when an item sits at an angle or lighting changes. The fine-tuned model handles shifts in angle, position, and glare. The success table shows [measured]% reliability |
-| How does safety work? | The arm slows down near the hand. It stops short of the skin. The spacebar, voice command, or dashboard button stops the arm instantly in [measured] ms. Stop latches until an operator resets it |
-| Who pays for this? | Surgery centers and operating rooms first. They pay a monthly subscription per room. It costs less than covering one unfilled scrub tech shift |
-| Does it replace assistants? | No. It handles passing and counting. That frees scarce assistants to support more rooms and focus on patient care |
-| What is next? | We plan to test on a medical-grade arm. We also plan to hand instruments before the doctor asks, based on the procedural step |
+The shot list and the edit plan are in `docs/DEVPOST.md` ("Video shot list" and "Video edit plan"). The spoken track can reuse this script. Anish records the separate Perceptron arm video: one unedited roll of picks and returns across items and lighting, with the success table at the end.
