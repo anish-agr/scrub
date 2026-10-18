@@ -76,11 +76,17 @@ def demo_assets(ws, seconds=6):
             stream.write(json.dumps({**row, "t": 1792285200.0 + offset, "command_id": "demo-command",
                 "case_id": "demo-case", "item": "hemostat", "setting": "surgical", "lighting": "normal",
                 "synthetic": True, "fake_arm": True}) + "\n")
+        for success in (True,False):
+            stream.write(json.dumps({'kind':'test','doc':{'t':1792285200.0+seconds,
+                'item':'hemostat','setting':'surgical','lighting':'normal','success':success,
+                'seconds':seconds/2 if success else None,'retries':0,'synthetic':True}})+'\n')
     write_json(ws.out("demo/truth.json"), {"corners": quad.tolist(), "width_mm": 300, "height_mm": 180})
     write_json(ws.out("demo/plate-alignment.json"), {"synthetic": True,
         "world_corners_m": [[.19,-.13,0], [.29,-.13,0], [.29,.13,0], [.19,.13,0]]})
     write_json(ws.out("sync.json"), {"demo.mp4": {"start_time": 1792285200.0,
         "method": "synthetic fixture clock", "kind": "simulation"}})
+    bindings={key:{'source':'raw/demo.mp4'} for key in ['N7','A1','A2','A3','A4','A5','A6','A7','A8','ARM_ROLL']}
+    write_json(ws.out('demo/edit.json'),bindings)
     # Real SO-101 MuJoCo renderer, not a fabricated success trajectory.
     from .reconstruction import render_joints
     render_joints(ws, dataset, ws.out("raw-sim/so101.mp4"), width=640, height=480)

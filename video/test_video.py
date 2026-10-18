@@ -151,6 +151,52 @@ class VideoTests(unittest.TestCase):
         self.assertLess(table[0]['low'],.5)
         self.assertGreater(table[0]['high'],.5)
 
+    def make_short_edit(self,kind='simulation'):
+        from video.common import save_provenance,write_json
+        path=self.ws.out('fixture.png')
+        cv2.imwrite(str(path),np.zeros((240,320,3),np.uint8))
+        save_provenance(path,kind=kind,synthetic=kind=='simulation')
+        bindings=self.ws.out('edit.json')
+        write_json(bindings,{'ONE':{'source':'fixture.png'},'TWO':{'source':'fixture.png'}})
+        edl=self.ws.out('edit.yaml')
+        edl.write_text('version: 1\nwidth: 1920\nheight: 1080\nfps: 30\nduration_s: 1\nshots:\n - {slot: ONE, duration_s: 0.4}\n - {slot: TWO, duration_s: 0.6}\n')
+        return edl,bindings
+
+    def test_render_matches_edl_frames_and_burns_simulation_on_every_shot(self):
+        from video.edit import render
+        from video.common import frame_at
+        edl,bindings=self.make_short_edit()
+        report=render(self.ws,edl,bindings,'renders/test.mp4',demo=True)
+        self.assertEqual(report['frames'],30)
+        self.assertEqual(report['duration_s'],1)
+        self.assertEqual([s['frames'] for s in report['shots']],[12,18])
+        for t in (0,.4,.9):
+            frame=frame_at(self.root/'renders/test.mp4',t)
+            self.assertGreater(float(frame[:18].mean()),100)
+            self.assertLess(float(frame[-20:].mean()),10)
+        self.assertTrue(info(self.root/'renders/test.mp4')['audio'])
+
+    def test_production_render_refuses_synthetic_or_missing_bindings(self):
+        from video.edit import resolve_plan
+        from video.common import write_json
+        edl,bindings=self.make_short_edit()
+        with self.assertRaises(ValueError):
+            resolve_plan(self.ws,edl,bindings,demo=False)
+        write_json(bindings,{})
+        with self.assertRaises(ValueError):
+            resolve_plan(self.ws,edl,bindings,demo=True)
+
+    def test_reader_never_loops_an_unlabelled_or_real_clip(self):
+        from video.common import encode,save_provenance
+        from video.edit import Reader
+        path=self.ws.out('fixture.mp4')
+        encode(self.ws,path,(np.zeros((120,160,3),np.uint8) for _ in range(3)))
+        save_provenance(path,kind='real')
+        reader=Reader(path,demo=True)
+        self.addCleanup(reader.close)
+        with self.assertRaises(ValueError):
+            reader.get(1)
+
 
 if __name__ == "__main__":
     unittest.main()

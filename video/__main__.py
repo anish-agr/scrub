@@ -73,6 +73,11 @@ def parser():
     ca=sub.add_parser('cards',help='render Scrub HTML cards through headless Chromium at 1080p')
     ca.add_argument('--events',required=True,help='ledger JSONL export/buffer; rates require kind=test rows')
     ca.add_argument('--allow-synthetic',action='store_true')
+    re=sub.add_parser('render',help='strict 1080p/30 H.264/AAC EDL assembly; no missing-shot substitutions')
+    re.add_argument('--edl',required=True,help='repository YAML path, not workspace-relative')
+    re.add_argument('--bindings',required=True,help='workspace JSON mapping slot names to source/in_s/treatment inputs')
+    re.add_argument('--output',default='renders/final.mp4')
+    re.add_argument('--demo',action='store_true',help='synthetic tests only: permanently labeled, may loop fixture footage')
     return p
 
 
@@ -123,6 +128,9 @@ def main(argv=None):
         elif args.command == 'cards':
             from .cards import cards
             result=cards(ws,args.events,args.allow_synthetic)
+        elif args.command == 'render':
+            from .edit import render
+            result=render(ws,args.edl,args.bindings,args.output,args.demo)
         else:
             raise ValueError("Unknown command")
         print(json.dumps(result, indent=2, allow_nan=False))
