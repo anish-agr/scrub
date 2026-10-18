@@ -222,6 +222,21 @@ def _read_mongo() -> tuple[list[dict], list[dict]]:
         return [], []
 
 
+def _num(value) -> float | None:
+    """A finite number, or None. A bad timestamp must not wipe the tables."""
+    try:
+        number = float(value)
+    except (TypeError, ValueError):
+        return None
+    if number != number or number in (float("inf"), float("-inf")):
+        return None
+    return number
+
+
+def _when(event: dict) -> float:
+    return _num(event.get("t")) or 0.0
+
+
 def _median(values: list[float]) -> float | None:
     nums = sorted(value for value in values if isinstance(value, (int, float)))
     if not nums:
@@ -240,14 +255,18 @@ def _samples(tests: list[dict], events: list[dict], **match) -> list[float]:
         if event.get("request_to_hand_s") is None:
             continue
         if all(event.get(key) == expected for key, expected in match.items()):
-            values.append(float(event["request_to_hand_s"]))
+            number = _num(event.get("request_to_hand_s"))
+            if number is not None:
+                values.append(number)
     if values:
         return values
     for test in tests:
         if test.get("seconds") is None:
             continue
         if all(test.get(key) == expected for key, expected in match.items()):
-            values.append(float(test["seconds"]))
+            number = _num(test.get("seconds"))
+            if number is not None:
+                values.append(number)
     return values
 
 
@@ -285,7 +304,7 @@ def _out(events: list[dict]) -> list[str]:
     step it emits after a reset or a tray change. Replaying `handed` and
     `returned` from the whole history keeps items that were cleared.
     """
-    ordered = sorted(events, key=lambda event: float(event.get("t") or 0))
+    ordered = sorted(events, key=_when)
     for event in reversed(ordered):
         listed = event.get("out")
         if isinstance(listed, list):
@@ -331,7 +350,7 @@ def next_likely(events: list[dict]) -> dict | None:
 
     A suggestion only. Nothing here moves the arm.
     """
-    ordered = sorted(events, key=lambda event: float(event.get("t") or 0))
+    ordered = sorted(events, key=_when)
     setting = None
     for event in reversed(ordered):
         if event.get("setting"):
@@ -349,7 +368,7 @@ def next_likely(events: list[dict]) -> dict | None:
             continue
         cid = str(event.get("case_id") or "no-case")
         sequences.setdefault(cid, []).append(event["item"])
-        stamp = float(event.get("t") or 0)
+        stamp = _when(event)
         if stamp >= last_t:
             last_t = stamp
             last_item = event["item"]

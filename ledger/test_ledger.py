@@ -10,6 +10,7 @@ from pathlib import Path
 import ledger
 from ledger.cases import case_view, list_cases
 from ledger.logbook import log_batch
+from ledger.qr import png_bytes
 
 
 class OutTests(unittest.TestCase):
@@ -71,6 +72,13 @@ class StatsTests(unittest.TestCase):
         self.assertGreater(high, low)
         self.assertTrue(self.buffer.exists())
 
+    def test_a_bad_timestamp_does_not_blank_the_tables(self):
+        ledger.log({"type": "step", "out": ["hemostat"], "setting": "surgical", "t": "nope"})
+        ledger.log_test("hemostat", "surgical", "normal", True, 4.0, 0)
+        report = ledger.stats()
+        self.assertEqual(report["by_item"][0]["successes"], 1)
+        self.assertEqual(report["out"], ["hemostat"])
+
     def test_likely_next_uses_what_usually_follows(self):
         stamp = 1
         for case, second in enumerate(("scalpel", "scalpel", "mayo_scissors")):
@@ -110,6 +118,41 @@ class StatsTests(unittest.TestCase):
         view = case_view("case-0")
         self.assertIn("hemostat", view["summary"])
         self.assertEqual(len(view["events"]), 2)
+
+    def test_even_count_median_uses_both_middle_times(self):
+        events = [
+            {
+                "type": "handed",
+                "item": "mayo_scissors",
+                "request_to_hand_s": 2.0,
+                "setting": "surgical",
+                "case_id": "even",
+                "out": ["mayo_scissors"],
+                "t": 1,
+            },
+            {
+                "type": "handed",
+                "item": "mayo_scissors",
+                "request_to_hand_s": 4.0,
+                "setting": "surgical",
+                "case_id": "even",
+                "out": ["mayo_scissors"],
+                "t": 2,
+            },
+            {"type": "step", "case_id": "bad", "setting": "bench", "t": "nope"},
+            {"type": "step", "case_id": "later", "setting": "bench", "t": 9},
+        ]
+        view = case_view("even", events)
+        self.assertIn("mayo scissors in 2.0s", view["summary"])
+        self.assertIn("Median request to hand 3.0s", view["summary"])
+        rows = list_cases(events)
+        self.assertEqual(rows[0]["case_id"], "later")
+
+
+class QrTests(unittest.TestCase):
+    def test_png_bytes_is_a_png(self):
+        body = png_bytes("http://127.0.0.1:8080")
+        self.assertTrue(body.startswith(b"\x89PNG"))
 
 
 class LogbookTests(unittest.TestCase):
