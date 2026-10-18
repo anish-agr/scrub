@@ -1,5 +1,7 @@
 # Chat B: the phone call, finished and proven (MUST FINISH)
 
+**Oct 18 update:** Start with [HANDOFF-CAIDEN-VOICE.md](HANDOFF-CAIDEN-VOICE.md). Which one is now on main, and the live station and controller are separate motor-owner paths. The newer handoff adds clarification, stop, context and current integration checks to this older phone prompt. Audit current code and account state before using the historical setup notes below.
+
 Say to a new Claude Code chat on the arm Mac: "Pull, then follow team/RUN-PHOTON.md exactly."
 
 ---
