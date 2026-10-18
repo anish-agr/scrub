@@ -83,10 +83,14 @@ explore/arm_session.py is running. Keep every change small and measured.
 
 ## For Anish: rest at home between commands (real arm)
 
-The controller now parks the arm: after a command finishes at home and nothing is queued for 2 s it calls `arm.rest()`, and it calls `arm.wake()` before the next command (`controller/core.py`, `REST_AFTER_S`; test `rests_at_home_then_wakes_for_the_next_command`). It skips this when the arm has no `rest`, so `arm/real_arm.py` needs:
+The controller now parks the arm: after a command finishes at home and nothing is queued for 2 s it calls `arm.rest()`, and it calls `arm.wake()` before the next command (`controller/core.py`, `REST_AFTER_S`; test `rests_at_home_then_wakes_for_the_next_command`). It skips this when the arm has no `rest`.
 
-- `rest()`: be at home (call `go_home()` if not), then torque off on all six motors (`bus.disable_torque()`); the playback loop must not re-enable torque while resting.
-- `wake()`: write Goal_Position = Present_Position for all six, then `bus.enable_torque()`. Nothing moves.
+**Implemented Oct 18** in `arm/real_arm.py` (shared helpers in `arm/hardware.py`, `arm/thermal.py`, `arm/handoff.py`; `arm/README.md`, "Hardware layer"):
+
+- `rest()`: goes home if more than 5 degrees away, then torque off on all six motors (`hardware.rest`). The playback loop keeps reading joints and temperatures and writes nothing until `wake()`.
+- `wake()`: Goal_Position = Present_Position for all six, then torque on (`hardware.wake`). Nothing moves.
+- Also in the live path now: bus reads retried 3x, joint clamp with wrist_roll +-150, overload cleared before connect, gripper Torque_Limit 150/350/500 with dead zone 3, temperatures once a second (`arm.telemetry()`), and the 60 C thermal guard (stop, fold home if the jaw is empty, raise `ArmFault`; resume at 50 C or when cooling levels off).
+- `"home"` in `arm/rig.json` is set to the pose below, in LeRobot degrees.
 
 Home (measured Oct 18, folded, stays put with torque off: `explore/home_pose.py test` PASS, drift under 1 deg) for `arm/rig.json` `"home"`, raw steps in joint order pan, lift, elbow, wrist_flex, wrist_roll, gripper:
 

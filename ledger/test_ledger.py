@@ -4,8 +4,12 @@ from __future__ import annotations
 
 import json
 import os
+import sys
 import tempfile
+import threading
+import time
 import unittest
+from unittest import mock
 from pathlib import Path
 
 import ledger
@@ -193,6 +197,166 @@ class StatsTests(unittest.TestCase):
         ]
         view = case_view("s", events)
         self.assertEqual([e["skill_source"] for e in view["events"]], ["taught", None])
+
+
+class FakeCollection:
+    def __init__(self, db, name):
+        self.db, self.name, self.rows, self.batches = db, name, [], []
+
+    def insert_one(self, doc):
+        self.db.gate()
+        doc["_id"] = len(self.rows) + 1000 * len(self.name)
+        self.rows.append(dict(doc))
+
+    def insert_many(self, docs):
+        # a real client must not be called while the ledger lock is held
+        free = ledger._lock.acquire(blocking=False)
+        if free:
+            ledger._lock.release()
+        self.db.lock_free.append(free)
+        self.db.gate()
+        if self.db.fail_after is not None and len(self.batches) >= self.db.fail_after:
+            raise RuntimeError("mongo went away")
+        self.batches.append(len(docs))
+        for doc in docs:
+            doc["_id"] = len(self.rows) + 1000 * len(self.name)
+            self.rows.append(dict(doc))
+
+    def find(self, _query):
+        self.db.gate()
+        return [dict(row) for row in self.rows]
+
+
+class FakeDb:
+    """Stands in for client["scrub"]. `block` holds every call until it is set."""
+
+    def __init__(self):
+        self.events = FakeCollection(self, "events")
+        self.tests = FakeCollection(self, "tests")
+        self.block = threading.Event()
+        self.block.set()
+        self.fail_after = None
+        self.lock_free = []
+
+    def gate(self):
+        self.block.wait(10)
+
+    def __getitem__(self, name):
+        return getattr(self, name)
+
+
+class MongoTests(unittest.TestCase):
+    """Atlas is a fake client here. Nothing reaches a real cluster."""
+
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        self.saved = (ledger.BUFFER, ledger._db, ledger._uri, ledger._cache, list(ledger._recent), ledger._next_try)
+        ledger.BUFFER = Path(self.tmp.name) / "buffer.jsonl"
+        ledger._db = None
+        ledger._uri = lambda: ""
+        ledger._cache = {"events": [], "tests": [], "start": 0.0, "at": 0.0}
+        ledger._recent[:] = []
+        ledger._next_try = 0.0
+        self.db = FakeDb()
+        self._memory = (memory.NOTES, ledger._side_tracks)
+        memory.NOTES = Path(self.tmp.name) / "memory-buffer.jsonl"
+        ledger._side_tracks = lambda doc: None
+
+    def tearDown(self):
+        self.db.block.set()
+        time.sleep(0.05)
+        ledger.BUFFER, ledger._db, ledger._uri, ledger._cache, _recent, ledger._next_try = self.saved
+        ledger._recent[:] = _recent
+        memory.NOTES, ledger._side_tracks = self._memory
+        self.tmp.cleanup()
+
+    def fill_buffer(self, count):
+        for n in range(count):
+            ledger._append("event", {"type": "step", "n": n, "t": n})
+
+    def test_reconnect_uploads_in_batches_outside_the_lock(self):
+        self.fill_buffer(1200)
+        ledger._append("test", {"item": "hemostat", "success": True})
+        ledger._db = self.db
+        ledger._flush()
+        self.assertEqual(self.db.events.batches, [500, 500, 200])
+        self.assertEqual(self.db.tests.batches, [1])
+        self.assertTrue(all(self.db.lock_free))
+        self.assertFalse(ledger.BUFFER.exists())
+        self.assertFalse(ledger._flushing().exists())
+
+    def test_a_failed_batch_goes_back_to_the_buffer(self):
+        self.fill_buffer(1200)
+        self.db.fail_after = 1
+        ledger._db = self.db
+        ledger._flush()
+        self.assertEqual(self.db.events.batches, [500])
+        self.assertEqual(len(ledger.BUFFER.read_text().splitlines()), 700)
+        self.assertIsNone(ledger._db)
+        self.assertFalse(ledger._flushing().exists())
+
+    def test_rows_logged_during_a_flush_are_kept(self):
+        self.fill_buffer(3)
+        ledger._db = self.db
+        self.db.block.clear()
+        worker = threading.Thread(target=ledger._flush)
+        worker.start()
+        time.sleep(0.2)
+        ledger._append("event", {"type": "step", "n": "late", "t": 9})  # lands while insert_many waits
+        self.db.block.set()
+        worker.join(5)
+        self.assertEqual(len(self.db.events.rows), 3)
+        self.assertEqual(len(ledger.BUFFER.read_text().splitlines()), 1)
+
+    def test_stats_does_not_wait_while_mongo_is_down(self):
+        ledger._db = self.db
+        ledger.log({"type": "handed", "item": "hemostat", "request_to_hand_s": 5.0, "out": ["hemostat"], "t": 1})
+        self.db.block.clear()  # every Mongo call now hangs
+        ledger._cache["at"] = time.monotonic() - 60  # stale, so a refresh starts in the background
+        began = time.time()
+        report = ledger.stats()
+        self.assertLess(time.time() - began, 0.5)
+        self.assertEqual(report["out"], ["hemostat"])
+
+    def test_stats_does_not_wait_for_the_first_connection(self):
+        client = mock.Mock()
+        client.admin.command.side_effect = lambda *_: self.db.block.wait(10)
+        fake = mock.Mock(MongoClient=mock.Mock(return_value=client))
+        ledger._uri = lambda: "mongodb://fake"
+        self.db.block.clear()
+        ledger._append("event", {"type": "handed", "item": "hemostat", "out": ["hemostat"], "t": 1})
+        with mock.patch.dict(sys.modules, {"pymongo": fake}):
+            began = time.time()
+            report = ledger.stats()
+            self.assertLess(time.time() - began, 0.5)
+            self.assertEqual(report["out"], ["hemostat"])
+            self.db.block.set()
+            time.sleep(0.2)
+
+    def test_connect_flushes_and_loads_the_atlas_copy(self):
+        client = {"scrub": self.db}
+        fake_client = mock.MagicMock()
+        fake_client.__getitem__.side_effect = client.__getitem__
+        fake = mock.Mock(MongoClient=mock.Mock(return_value=fake_client))
+        ledger._uri = lambda: "mongodb://fake"
+        self.fill_buffer(4)
+        with mock.patch.dict(sys.modules, {"pymongo": fake}):
+            ledger._connect()
+        self.assertEqual(len(self.db.events.rows), 4)
+        self.assertFalse(ledger.BUFFER.exists())
+        ledger._uri = lambda: ""
+        events, _tests = ledger.stored_rows()
+        self.assertEqual(len(events), 4)
+        self.assertNotIn("_id", events[0])
+
+    def test_a_direct_insert_shows_once_not_twice(self):
+        ledger._db = self.db
+        ledger.log({"type": "handed", "item": "hemostat", "request_to_hand_s": 5.0, "out": ["hemostat"], "t": 1})
+        events, _tests = ledger.stored_rows()
+        self.assertEqual(len(events), 1)
+        ledger._refresh_cache()  # the read now includes the same row
+        events, _tests = ledger.stored_rows()
+        self.assertEqual(len(events), 1)
 
 
 class TrackTests(unittest.TestCase):

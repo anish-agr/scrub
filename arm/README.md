@@ -155,6 +155,49 @@ tested here. Install its workshop-approved source checkout with Feetech/camera
 extras in the arm environment, then verify these imports there. The dependency
 file here covers offline tests/client code, not LeRobot's heavy hardware stack.
 
+## Hardware layer: hardware.py, thermal.py, handoff.py
+
+Shared by `real_arm.py` and the recorder (`explore/arm_session.py`, which imports them instead of its own
+copies). Each function takes a LeRobot `MotorsBus` or a fake with the same methods (`test_hardware.py`).
+
+- `hardware.py`: `retry_reads` (a dropped reply is retried 3 times; an overload reply still raises),
+  `joint_limits` (calibrated range 1 degree inside the ends, wrist_roll held to +-150) and `clamp_action`,
+  `hold_present` (Goal_Position := Present_Position, which also clears a stale overload), `rest` / `wake`,
+  `gripper_torque_want` / `set_gripper_torque` (Torque_Limit 150 shut on nothing for 1.5 s, 350 holding an
+  item, 500 moving), `set_dead_zone` (gripper dead zone 3), `stuck_motors` (before LeRobot opens the port:
+  clear overload flags, report a joint past its range), and `ArmFault` (a RuntimeError).
+- `thermal.py`: `read_temps`, `read_loads`, `too_hot` (60 C trip), `Cooling` (resume at 50 C, or after
+  180 s with no further drop at or below 55 C), `fault_message`, and the `telemetry()` row shape.
+- `handoff.py`: `tip_z` (tip height from the URDF), `track_lift` (3 cm above the grab), `pulled_out`
+  (grip load collapses below 30% of a real squeeze for 0.3 s while the claw is still told to hold).
+
+What `real_arm.Arm` does with them (all bus I/O stays on the 30 Hz playback thread):
+
+- Every LeRobot bus read retries. Before LeRobot opens the port, overload flags are cleared (skipped while
+  another process holds the port).
+- Every skill and move row is clamped to the URDF limits, the calibrated range and wrist_roll +-150. A
+  measured joint may sit up to 5 degrees past a URDF limit (the folded home reads lift -102.2, elbow 97.7).
+- Gripper Torque_Limit by situation, written only when the level changes.
+- `rest()`: go home if more than 5 degrees away, then torque off on all six; playback still reads joints
+  and temperatures but writes nothing. `wake()`: goal := present, then torque on; nothing moves. Motion
+  calls while resting raise.
+- Temperatures and loads of all six motors once a second; `telemetry()` returns
+  `{"temps", "loads", "hottest", "cooling", "t"}` (None without a bus).
+- Thermal guard: a motor at 60 C during a skill or move stops the arm where it is (keeping the grip). With
+  an empty jaw it folds home; holding an item it holds in place and never opens. Then it raises
+  `ArmFault("Too hot: <motor> <C> C. Cooling down.")`. Until the cool-down rule clears, `run_skill`,
+  `move_to` and `go_carry` raise the same fault; `go_home`, `rest`, `set_down_safe_spot` and
+  `open_gripper` still work.
+- `run_skill(instruction, max_s=20.0, source="taught")` plays `taught.load(item, direction, setting=arm.setting)`
+  with `taught_controls()`: each waypoint is a rig-speed trajectory through the same playback, clamp, claw
+  guard and thermal guard, stopped by `freeze()` or `max_s`. A jaw closing on an item counts as done when
+  the claw guard holds at contact.
+
+`rig.json` `home` is the measured folded pose in LeRobot degrees (gripper 0-100):
+`[2.8, -102.2, 97.7, 72.3, -9.3, 4.8]` (raw steps `[2063, 849, 3041, 2825, 1942, 1511]`,
+`explore/home_pose.json`). Moves to it are clamped to the URDF limits (lift -100, elbow 96.8); with torque
+off it settles the last 2 degrees and stays put.
+
 ## Pre-open instruction sessions (R3)
 
 `Arm.prepare(instructions)` is optional; the base arm contract is unchanged.
@@ -285,3 +328,9 @@ another script, connects with `python -m controller --real-arm`.
 4. Decide a return-completion condition from tray perception; max_s is a
    timeout, not proof of successful put-back. Current generic closed-and-still
    termination can occur before the end of a return trajectory.
+
+## Taught skills (backup, labeled "taught")
+- Teach: .venv/bin/python -m arm.teach skill hemostat pick --setting surgical --supported-and-empty  (Enter/g/o/u/p/q)
+- Files: arm/skills/<setting>/<item>-<direction>.json; arm/skills/example/ is a format example, never played.
+- Check: .venv/bin/python -m arm.taught --check --setting surgical [--fake]  (real run replays at speed 0.15, no instrument)
+- Steps and timing: docs/TEACH.md. API: arm.taught.load / play(skill, goto=, set_gripper=, stopped=, offset=None).

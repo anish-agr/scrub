@@ -29,6 +29,11 @@ _client = None
 _db = None
 _connecting = False
 _next_try = 0.0
+CACHE_S = 5.0  # how old the Atlas copy may get before a background refresh
+BATCH = 500  # rows per insert_many on reconnect
+_cache: dict = {"events": [], "tests": [], "start": 0.0, "at": 0.0}  # last Atlas read, rows keep their _id
+_recent: list = []  # (monotonic, kind, doc) inserted since the last read started, so stats see them at once
+_refreshing = False
 
 
 def _uri() -> str:
@@ -73,7 +78,8 @@ def _connect() -> None:
         _client = client
         _db = db
         _connecting = False
-        _flush_locked()
+    _flush()
+    _refresh_cache()
 
 
 def _append(kind: str, doc: dict) -> None:
@@ -87,37 +93,94 @@ def _collection(kind: str) -> str:
     return "events" if kind == "event" else "tests"
 
 
-def _flush_locked() -> None:
-    if _db is None or not BUFFER.exists():
-        return
+def _flushing() -> Path:
+    return BUFFER.with_name(BUFFER.stem + ".flushing" + BUFFER.suffix)
+
+
+def _flush() -> None:
+    """Upload the local buffer to Mongo in batches. The lock is held only to move the file."""
+    global _db, _next_try
+    with _lock:
+        if _db is None:
+            return
+        db = _db
+        moving = _flushing()
+        if not moving.exists():  # a leftover from a crash is uploaded first
+            if not BUFFER.exists():
+                return
+            try:
+                BUFFER.replace(moving)
+            except OSError:
+                return
     try:
-        lines = BUFFER.read_text(encoding="utf-8").splitlines()
+        lines = moving.read_text(encoding="utf-8").splitlines()
     except Exception:
         return
-    kept: list[str] = []
+    rows: dict[str, list[tuple[str, dict]]] = {"events": [], "tests": []}
     for line in lines:
-        if not line.strip():
-            continue
         try:
             row = json.loads(line)
-            _db[_collection(row["kind"])].insert_one(dict(row["doc"]))
+            rows[_collection(row["kind"])].append((line, dict(row["doc"])))
         except Exception:
-            kept.append(line)
+            continue  # a line that cannot be parsed can never be uploaded
+    failed: list[str] = []
+    broken = False  # once Mongo fails, everything not yet uploaded goes back to the buffer
+    for name, pairs in rows.items():
+        for start in range(0, len(pairs), BATCH):
+            chunk = pairs[start : start + BATCH]
+            if not broken:
+                try:
+                    db[name].insert_many([doc for _line, doc in chunk])
+                    continue
+                except Exception as error:
+                    broken = True
+                    chunk = chunk[(getattr(error, "details", None) or {}).get("nInserted", 0) :]
+            failed.extend(line for line, _doc in chunk)
+    with _lock:
+        for line in failed:
+            try:
+                with BUFFER.open("a", encoding="utf-8") as handle:
+                    handle.write(line + "\n")
+            except Exception:
+                pass
+        if failed:
+            _db = None  # reconnect later and try again
+            _next_try = time.time() + 15
+        try:
+            moving.unlink()
+        except Exception:
+            pass
+
+
+def _refresh_cache() -> None:
+    """Read Atlas into the local copy. Only ever runs on a background thread."""
+    global _cache, _refreshing
+    with _lock:
+        db = _db
+        if db is None or _refreshing:
+            return
+        _refreshing = True
+    start = time.monotonic()
     try:
-        if kept:
-            BUFFER.write_text("\n".join(kept) + "\n", encoding="utf-8")
-        else:
-            BUFFER.unlink()
+        events = list(db.events.find({}))
+        tests = list(db.tests.find({}))
+        with _lock:
+            _cache = {"events": events, "tests": tests, "start": start, "at": time.monotonic()}
+            _recent[:] = [row for row in _recent if row[0] >= start]
     except Exception:
         pass
+    finally:
+        with _lock:
+            _refreshing = False
 
 
-def _wait_for_connect(timeout: float = 1.0) -> None:
+def warm(timeout: float = 3.0) -> None:
+    """Wait for the first Atlas connection and read. For one-shot use (`python -m ledger`); stats() never waits."""
     _kick_connect()
     deadline = time.time() + timeout
     while time.time() < deadline:
         with _lock:
-            if _db is not None or not _connecting:
+            if _cache["at"] or (_db is None and not _connecting):
                 return
         time.sleep(0.05)
 
@@ -135,7 +198,11 @@ def _store(kind: str, doc: dict) -> None:
         if kick:
             _kick_connect()
             return
-        db[_collection(kind)].insert_one(dict(doc))
+        row = dict(doc)
+        db[_collection(kind)].insert_one(row)
+        with _lock:
+            _recent.append((time.monotonic(), kind, row))
+            del _recent[:-2000]
     except Exception:
         try:
             with _lock:
@@ -227,16 +294,21 @@ def _read_buffer() -> tuple[list[dict], list[dict]]:
 
 
 def _read_mongo() -> tuple[list[dict], list[dict]]:
+    """The last Atlas copy plus rows inserted since. Never waits on Mongo."""
     with _lock:
         db = _db
-    if db is None:
-        return [], []
-    try:
-        events = list(db.events.find({}, {"_id": 0}))
-        tests = list(db.tests.find({}, {"_id": 0}))
-        return events, tests
-    except Exception:
-        return [], []
+        cache = _cache
+        recent = list(_recent)
+        stale = time.monotonic() - cache["at"] > CACHE_S
+    if db is not None and stale:
+        threading.Thread(target=_refresh_cache, name="ledger-mongo-read", daemon=True).start()
+    out = {"event": list(cache["events"]), "test": list(cache["tests"])}
+    seen = {row["_id"] for rows in out.values() for row in rows if "_id" in row}
+    for mono, kind, row in recent:
+        if mono >= cache["start"] and row.get("_id") not in seen:
+            out[kind].append(row)
+    strip = lambda rows: [{k: v for k, v in row.items() if k != "_id"} for row in rows]
+    return strip(out["event"]), strip(out["test"])
 
 
 def _num(value) -> float | None:
@@ -350,11 +422,9 @@ def _wilson(successes: int, attempts: int, z: float = 1.96) -> tuple[float | Non
 
 
 def stored_rows() -> tuple[list[dict], list[dict]]:
-    """Events and trials from Atlas plus anything still in the local buffer."""
+    """Events and trials from the Atlas copy plus anything still in the local buffer. Never waits on Mongo."""
     try:
-        _wait_for_connect(2.5 if _uri() else 0)
-        with _lock:
-            _flush_locked()
+        _kick_connect()
         mongo_events, mongo_tests = _read_mongo()
         file_events, file_tests = _read_buffer()
         return mongo_events + file_events, mongo_tests + file_tests

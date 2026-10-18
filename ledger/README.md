@@ -4,7 +4,9 @@ Owner: Evan. Task E3 in `docs/TASKS.md`.
 
 `log(event)`, `log_test(...)` and `stats()` per `docs/CONTRACTS.md`. The controller should return `stats()` from `GET /stats` unchanged.
 
-`MONGODB_URI` in the repo-root `.env` points at MongoDB Atlas, database name `scrub`, collections `events` and `tests`. If the URI is missing or Atlas is down, calls still succeed and append to `ledger/buffer.jsonl` (git-ignored). A later successful connection flushes that file.
+`MONGODB_URI` in the repo-root `.env` points at MongoDB Atlas, database name `scrub`, collections `events` and `tests`. If the URI is missing or Atlas is down, calls still succeed and append to `ledger/buffer.jsonl` (git-ignored). A later successful connection uploads that file in batches of 500 rows, without holding the lock, and puts back any rows Atlas refused.
+
+`stats()` and the `/api/*` routes never wait on MongoDB. They read the last copy of Atlas kept in memory (refreshed in the background every 5 s and updated on each insert) plus the local buffer, so a down Atlas does not slow `GET /stats`. `python -m ledger` waits up to 3 s for the first connection so a one-shot print includes Atlas.
 
 `stats()` shape:
 
@@ -32,6 +34,8 @@ python -m ledger
 ```
 
 That prints the current tables. Never raises.
+
+Folder contents: `__init__.py` (log, stats), `cases.py` (case replay), `serve.py` and `public/` (the public page), `memory.py` (Backboard track), `tiger.py` (Tiger Data track), `qr.py`, `logbook.py` (data log), `shots.py` (Devpost screenshots), `push_public.sh` and `install_public.sh` (server install), `test_ledger.py`.
 
 The public read-only page (the count and the tables, no arm controls):
 
@@ -73,6 +77,8 @@ That copies `ledger/` (without `buffer.jsonl`) and `deploy/`, writes a server `.
 
 Fake-arm and sim runs: the controller may add `"fake_arm": true` (or `"sim": true`) to an event. `stats()` leaves those events out of the rates and the median (`GET /api/stats?sim=1` or `stats(include_sim=True)` counts them). The count `out` always reads every event. Untagged events count as real.
 
+Routes: `/api/stats`, `/api/cases`, `/api/case?id=`, `/api/series`, `/api/public`, `/api/memory` (GET, and POST with `{"q": ...}`), `/qr.png`.
+
 The `/api/*` routes send `Access-Control-Allow-Origin: *` and answer `OPTIONS`. They are read-only GETs.
 
 Each results row also has `wilson_low` and `wilson_high`. `next_likely` is a suggestion only.
@@ -99,7 +105,7 @@ BACKBOARD_ASSISTANT_ID=
 
 Saturday Oct 17.
 
-- `python -m unittest ledger.test_ledger` passed, 9 tests. A bad timestamp does not blank the tables. A NaN trial does not put `NaN` in the JSON.
+- `python -m unittest ledger.test_ledger` passed, 9 tests (now `.venv/bin/python -m pytest -q ledger/test_ledger.py design/test_ui.py`, 31 passed, with a fake Mongo client for the reconnect and no-wait tests). A bad timestamp does not blank the tables. A NaN trial does not put `NaN` in the JSON.
 - `MONGODB_URI` was unset. The running public page read `ledger/buffer.jsonl`. A throwaway case showed up on `GET /api/cases` and was then removed from that file.
 - Judge page, case list, one real case, a missing case, and the table card, desktop and a 390px phone width. No horizontal overflow. No console errors. The phone judge page uses the numbered steps instead of the wide diagram. The missing case says "That case is not in the ledger."
 - A bad `/api/stats` body and an empty body did not throw. Empty tables show "No measured trials yet." An empty `out` list shows "Nothing out."
