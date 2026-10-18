@@ -77,6 +77,23 @@ class VideoTests(unittest.TestCase):
         with self.assertRaises(ValueError):
             ingest(self.ws, kind='real')
 
+    def test_photo_sift_alignment_has_low_error(self):
+        from video.topdown import align_photo
+        rng = np.random.default_rng(17)
+        image = rng.integers(0,255,(240,320,3), dtype=np.uint8)
+        reference = cv2.warpAffine(image, np.float32([[1,0,4],[0,1,-3]]), (320,240))
+        matrix, report = align_photo(image, reference)
+        self.assertLess(report['median_error_px'], 1)
+        np.testing.assert_allclose(matrix[:2,2], [4,-3], atol=.5)
+
+    def test_invalid_joint_units_are_rejected_not_silently_converted(self):
+        from video.common import write_json
+        from video.reconstruction import load_joints
+        path = self.ws.out('joints.json')
+        write_json(path, {'units':'radians','fps':30,'states':[[0]*6]})
+        with self.assertRaises(ValueError):
+            load_joints(path)
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -16,11 +16,16 @@ def demo_assets(ws, seconds=6):
     rng = np.random.default_rng(2026)
     plate = np.full((360, 600, 3), (216, 222, 225), np.uint8)
     # Natural-looking fine tray texture, no fiducials or corner markers.
-    noise = rng.normal(0, 7, plate.shape[:2]).astype(np.int16)
+    noise = rng.normal(0, 16, plate.shape[:2]).astype(np.int16)
     plate = np.clip(plate.astype(np.int16) + noise[..., None], 0, 255).astype(np.uint8)
     for _ in range(400):
         x, y = rng.integers([4, 4], [596, 356])
         cv2.circle(plate, (int(x), int(y)), 1, (170, 175, 180), -1)
+    for _ in range(140):
+        x,y = rng.integers([12,12], [588,348])
+        dx,dy = rng.integers(-9,10,2)
+        shade = int(rng.integers(130,210))
+        cv2.line(plate, (int(x),int(y)), (int(x+dx),int(y+dy)), (shade,shade,shade), 2)
     for x in (150, 300, 450):
         cv2.line(plate, (x, 115), (x, 245), (85, 90, 95), 9)
         cv2.circle(plate, (x-12, 245), 11, (95, 100, 105), 3)
@@ -36,7 +41,7 @@ def demo_assets(ws, seconds=6):
         shift = np.float32([[1, 0, (i-3)*1.2], [0, 1, (i%3-1)*1.0]])
         photo = cv2.warpAffine(background, shift, (640, 480), borderMode=cv2.BORDER_REFLECT)
         name = ws.root / "photos" / f"demo-{i:02d}.png"
-        cv2.imwrite(str(name), photo)
+        cv2.imwrite(str(name), stamp(photo, {"kind":"simulation", "synthetic":True}))
         save_provenance(name, kind="simulation", synthetic=True)
     meta = {"kind": "simulation", "synthetic": True}
     def sequence():
@@ -72,6 +77,8 @@ def demo_assets(ws, seconds=6):
                 "case_id": "demo-case", "item": "hemostat", "setting": "surgical", "lighting": "normal",
                 "synthetic": True, "fake_arm": True}) + "\n")
     write_json(ws.out("demo/truth.json"), {"corners": quad.tolist(), "width_mm": 300, "height_mm": 180})
+    write_json(ws.out("demo/plate-alignment.json"), {"synthetic": True,
+        "world_corners_m": [[.19,-.13,0], [.29,-.13,0], [.29,.13,0], [.19,.13,0]]})
     write_json(ws.out("sync.json"), {"demo.mp4": {"start_time": 1792285200.0,
         "method": "synthetic fixture clock", "kind": "simulation"}})
     # Real SO-101 MuJoCo renderer, not a fabricated success trajectory.
