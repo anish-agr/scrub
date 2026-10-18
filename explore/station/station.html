@@ -60,16 +60,34 @@ button.big:disabled{opacity:.3;cursor:default}
 #joints{font-size:14px;color:var(--muted);margin-top:8px;line-height:1.5}
 #log{flex:1;min-height:120px;max-height:260px;overflow-y:auto;background:#000;border:1px solid var(--line);padding:8px 10px;font-size:13px;line-height:1.45;color:#b8c4d0;white-space:pre-wrap}
 #keys{font-size:12px;color:var(--muted)}
+#tasks{display:flex;flex-wrap:wrap;gap:6px;background:var(--panel);border:1px solid var(--line);padding:8px 12px}
+#tasks button{font:inherit;font-size:16px;font-weight:600;padding:8px 12px;background:var(--panel2);color:var(--text);border:1px solid var(--line);cursor:pointer}
+#tasks button.on{background:var(--teal);color:#021a17;border-color:var(--teal)}
+#tasks button.sep{margin-left:14px}
+#tasks button:disabled{opacity:.35;cursor:default}
+#notrain{display:none;background:#000;color:var(--amber);outline:3px solid var(--amber);padding:10px 16px;font-size:clamp(20px,2.4vw,32px);font-weight:700;text-align:center;letter-spacing:.04em}
+#rerec{display:none;background:var(--red);color:#fff;padding:14px 16px;font-size:clamp(22px,2.8vw,40px);font-weight:700;align-items:center;gap:16px}
+#rerec .msgs{flex:1}
+#rerec button{font:inherit;font-size:16px;font-weight:700;padding:10px 14px;background:#fff;color:var(--red);border:0;cursor:pointer}
+#qa{font-size:13px;line-height:1.5;max-height:150px;overflow-y:auto}
+#qa .PASS{color:var(--green)} #qa .FAIL{color:var(--red);font-weight:700} #qa .checking{color:var(--amber)}
+#tcounts{font-size:13px;line-height:1.5}
+#tcounts .g{margin-bottom:6px}
+#tcounts .bar{height:6px;background:var(--panel2);margin-top:2px}
+#tcounts .bar i{display:block;height:100%;background:var(--teal)}
 @media (max-width:900px){#main{grid-template-columns:1fr}#cams{grid-template-columns:1fr}#counts{text-align:left}}
 </style>
 </head>
 <body>
 <div id="top">
   <div id="badge">CONNECTING</div>
-  <div id="taskbox"><input id="task" placeholder="task, e.g. pick the spatula" autocomplete="off"><button id="settask">Set task</button></div>
+  <div id="taskbox"><input id="task" placeholder="task" autocomplete="off" readonly><button id="settask">Set task</button></div>
   <div id="clock" class="mono">00:00</div>
   <div id="counts" class="mono"></div>
 </div>
+<div id="tasks"></div>
+<div id="notrain"></div>
+<div id="rerec"><div class="msgs"></div><button id="b-qaack">Noted</button></div>
 <div id="disc">Disconnected: is station.py running?</div>
 <div id="warn"></div>
 <div id="main">
@@ -86,6 +104,8 @@ button.big:disabled{opacity:.3;cursor:default}
       <button class="big" id="b-wake">Motors on<small>holds, then follows</small></button>
     </div>
     <button class="big" id="b-reconnect">Reconnect arms<small>after a USB or power drop</small></button>
+    <div class="card"><h3>Episodes per task (this dataset)</h3><div id="tcounts" class="mono"></div></div>
+    <div class="card"><h3>Episode QA (this session)</h3><div id="qa" class="mono">no episodes saved yet</div></div>
     <div class="card"><h3>Motor temperatures</h3><div id="temps"></div><div id="joints" class="mono"></div></div>
     <div id="log" class="mono"></div>
     <div id="keys">Space start/save &middot; Esc KILL &middot; Backspace discard (not while typing the task)</div>
@@ -113,7 +133,38 @@ function setCam(name,s){
 }
 ["side","wrist"].forEach(n=>{const img=$("cam-"+n).querySelector("img");
   img.addEventListener("error",()=>setTimeout(()=>{img.src="/stream/"+n+"?t="+Date.now();},2000));});
+let tasksKey="";
+function renderTasks(s){
+  const list=s.allowed_tasks||[], key=list.join("|")+"#"+s.any_task;
+  if(key!==tasksKey){tasksKey=key;
+    $("tasks").replaceChildren(...list.map((t,i)=>{const b=document.createElement("button");b.textContent=t;b.dataset.task=t;
+      if(i>0&&t.startsWith("pick")&&i%2===0)b.className="sep";
+      b.onclick=()=>{send("task",{task:t});b.blur();};return b;}));
+    $("task").readOnly=!s.any_task; $("settask").style.display=s.any_task?"":"none";
+    $("task").placeholder=s.any_task?"any task text (NOT FOR TRAINING)":"pick a task button";}
+  $("tasks").querySelectorAll("button").forEach(b=>{b.classList.toggle("on",b.dataset.task===s.task);
+    b.disabled=s.state==="recording";});
+  const nt=$("notrain");
+  nt.style.display=s.any_task?"block":"none";
+  nt.textContent=s.task_ok?"--any-task is on: free text allowed. Episodes with a non-settings task are NOT FOR TRAINING"
+    :`NOT FOR TRAINING: "${s.task}" is not a settings instruction`;
+  nt.style.color=s.task_ok?"var(--amber)":"var(--red)";
+  const rr=s.rerecord||[], box=$("rerec");
+  box.style.display=rr.length?"flex":"none";
+  box.querySelector(".msgs").replaceChildren(...rr.map(x=>{const d=document.createElement("div");d.textContent=x;return d;}));
+  const c=s.counts||{}, by=c.by_task||{};
+  $("tcounts").replaceChildren(...(c.targets||[]).map(g=>{const d=document.createElement("div");d.className="g";
+    const per=Object.entries(g.tasks).map(([t,v])=>`${t} ${v.done}${v.target?"/"+v.target:""}`).join(" · ");
+    d.innerHTML=`<b>${g.label}</b>: ${g.done} of ${g.min}-${g.max}<br>${per}<div class="bar"><i style="width:${Math.min(100,100*g.done/g.max)}%"></i></div>`;
+    return d;}));
+  const other=Object.entries(by).filter(([t,v])=>v.total&&!(c.targets||[]).some(g=>t in g.tasks));
+  if(other.length){const d=document.createElement("div");d.textContent="other: "+other.map(([t,v])=>`${t} ${v.total}`).join(" · ");$("tcounts").appendChild(d);}
+  const q=s.qa||[];
+  if(q.length)$("qa").replaceChildren(...q.slice().reverse().map(r=>{const d=document.createElement("div");d.className=r.status;
+    d.textContent=`ep ${r.episode} ${r.task}: ${r.status}${r.reasons.length?" - "+r.reasons.join("; "):""}${r.status!=="checking"&&!r.video_done?" (video check running)":""}`;return d;}));
+}
 function render(s){
+  renderTasks(s);
   const b=$("badge"); b.className=s.state; b.textContent=LABEL[s.state]||String(s.state).toUpperCase();
   if(!taskDirty&&document.activeElement!==$("task"))$("task").value=s.task||"";
   $("clock").textContent=fmt(s.recording_s||0); $("clock").style.color=s.state==="recording"?"var(--red)":"var(--muted)";
@@ -149,6 +200,7 @@ $("b-kill").onclick=()=>send("kill");
 $("b-home").onclick=()=>send("home");
 $("b-wake").onclick=()=>send("wake");
 $("b-reconnect").onclick=()=>send("reconnect");
+$("b-qaack").onclick=()=>send("qa_ack");
 document.querySelectorAll("button").forEach(b=>b.addEventListener("click",()=>b.blur()));  // Space never double-fires
 $("task").addEventListener("input",()=>taskDirty=true);
 const setTask=()=>{send("task",{task:$("task").value});taskDirty=false;$("task").blur();};

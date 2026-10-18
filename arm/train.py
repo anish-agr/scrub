@@ -12,7 +12,54 @@ import time
 
 from .perceptron import APIError, Perceptron
 from .upload_dataset import upload
-from .pipeline import run_pipeline
+from .pipeline import run_pipeline, preflight
+
+SHA = re.compile(r"[0-9a-f]{40}")
+
+
+def commit_sha(value):
+    """argparse type for an HF --revision: a pinned 40-hex commit, never main/master/empty (finding 3)."""
+    if not isinstance(value, str) or not SHA.fullmatch(value):
+        raise argparse.ArgumentTypeError(f"--revision must be a 40-character lowercase hex commit SHA, not {value!r} "
+                                         "(a branch like main moves after the local check)")
+    return value
+
+
+def run_preflight(root, cadence_report=None, accept_qa_fail="", *, out=print, qa=None, qa_video=None):
+    """python -m arm.train preflight <root>: local_check + qa + qa_video, PASS/FAIL. Returns the exit code."""
+    root = Path(root).expanduser()
+    cadence = Path(cadence_report).expanduser() if cadence_report else Path(f"{root}-cadence.json")
+    result = preflight(root, cadence, qa=qa, qa_video=qa_video, accept_qa_fail=accept_qa_fail)
+    out(f"dataset: {root}")
+    out(f"cadence: {cadence}")
+    report = result["local_check"]
+    if report:
+        out(f"local_check: {report['episodes']} episodes, {report['frames']} frames, loop "
+            f"{report['measured_fps_min']:.2f}..{report['measured_fps_max']:.2f} Hz")
+    out("episodes per task:")
+    for task, count in (result["tasks"] or {}).items():
+        out(f"  {count:4d}  {task}")
+    if not result["tasks"]:
+        out("  (unknown: local_check did not finish)")
+    if result["qa"]:
+        verdict = result["qa"]
+        out(f"qa: {len(verdict['pass'])} pass, {len(verdict['warn'])} warn, {len(verdict['fail'])} fail "
+            f"of {verdict['episodes']}")
+    if result["qa_video"]:
+        video = result["qa_video"]
+        out(f"qa_video: {len(video.get('unreadable') or {})} unreadable, {len(video.get('dark') or [])} dark "
+            f"of {video['episodes']}")
+    for warning in result["warnings"]:
+        out(f"warning: {warning}")
+    if result["accepted"]:
+        out(f"accepted after review: {result['accepted']}")
+    if result["ok"]:
+        out("PREFLIGHT PASS")
+        return 0
+    out("PREFLIGHT FAIL")
+    for reason in result["reasons"]:
+        out(f"  - {reason}")
+    return 1
 
 
 def emit(value):
@@ -179,10 +226,16 @@ def main(argv=None):
     sub = parser.add_subparsers(dest="command", required=True)
     sub.add_parser("capabilities")
     sub.add_parser("self-test", help="offline tests of public run-info export; no key or training")
+    checking = sub.add_parser("preflight", help="local_check + explore/dataset qa + qa_video; prints "
+                                                "PREFLIGHT PASS or PREFLIGHT FAIL and every reason. No network")
+    checking.add_argument("root")
+    checking.add_argument("--cadence-report", help="default <root>-cadence.json")
+    checking.add_argument("--accept-qa-fail", default="",
+                          help="episode indexes a person reviewed and accepts despite a QA FAIL, e.g. 1,5,7")
     register = sub.add_parser("register-hf")
     register.add_argument("repo_id")
     register.add_argument("--name", required=True)
-    register.add_argument("--revision", default="main")
+    register.add_argument("--revision", type=commit_sha, required=True, help="pushed 40-hex commit SHA")
     register.add_argument("--idempotency-key", required=True)
     direct = sub.add_parser("upload")
     direct.add_argument("root")
@@ -215,7 +268,8 @@ def main(argv=None):
                                "hf: register an already pushed public HF repo (--repo-id, --revision)")
     pipeline.add_argument("--repo-id", help="HF user/repo, only with --source hf")
     pipeline.add_argument("--name", default="scrub")
-    pipeline.add_argument("--revision", default="main", help="HF commit SHA, only with --source hf")
+    pipeline.add_argument("--revision", type=commit_sha, default=None,
+                          help="pushed 40-hex HF commit SHA, required with --source hf (main/master refused)")
     pipeline.add_argument("--idempotency-key")
     pipeline.add_argument("--state-file")
     pipeline.add_argument("--env-file")
@@ -233,6 +287,10 @@ def main(argv=None):
     args = parser.parse_args(argv)
     if args.command == "self-test":
         raise SystemExit(self_test())
+    if args.command == "preflight":
+        raise SystemExit(run_preflight(args.root, args.cadence_report, args.accept_qa_fail))
+    if args.command == "pipeline" and args.source == "hf" and not args.revision:
+        parser.error("--source hf requires --revision <40-hex commit SHA>")
     api = None
     try:
         if args.command == "pipeline":
@@ -257,7 +315,8 @@ def main(argv=None):
             # Present the complete evidence before the explicit quota-spending call.
             validation, capabilities = api.validation(args.dataset_id), api.capabilities()
             emit({"validation": validation, "capabilities": capabilities})
-            from .pipeline import capabilities_allow, validation_complete
+            from .pipeline import capabilities_allow, validation_complete, validation_ok
+            validation_ok(validation)  # raises on errors, a false flag or a failed status
             if not validation_complete(validation):
                 raise APIError("Validation has not passed; training not submitted")
             capabilities_allow(capabilities, {"backend": args.backend, "mode": args.mode, "steps": args.steps,
@@ -384,7 +443,8 @@ def self_test():
                                       "state_file": Path(self.temp.name) / "state.json",
                                       "env_file": Path(self.temp.name) / ".env"})
             self.api.capabilities.return_value = {"backends": {"standard": ["expert_only"]}, "action_horizons": [30],
-                                                  "rtc": [False, True], "steps": [1000]}
+                                                  "rtc": [False, True], "steps": [1000],
+                                                  "quotas": {"successful_jobs_per_team": 5}}
             self.api.register_dataset.return_value = {"id": "ds_test"}
             self.api.dataset.return_value = {"status": "ready"}
             self.api.validation.return_value = {"status": "passed"}
@@ -394,7 +454,8 @@ def self_test():
             self.api.deployments.return_value = {"items": [{"id": "dep_test", "checkpoint_id": "cp_test", "status": "ready"}]}
             self.api.contract.return_value = {"contract_id": "contract_test"}
             with patch("arm.pipeline.local_check", return_value={"fingerprint": "test-local-snapshot", "episodes": 2}), \
-                    patch("arm.pipeline.qa_check", return_value={"episodes": 2, "pass": [0, 1], "warn": [], "fail": {}}):
+                    patch("arm.pipeline.qa_check", return_value={"episodes": 2, "pass": [0, 1], "warn": [], "fail": {}}), \
+                    patch("arm.pipeline.qa_video_check", return_value={"episodes": 2, "unreadable": {}, "dark": []}):
                 pipeline_with_run_info(args, output=lambda value: None, api_factory=lambda: self.api)
             info = json.loads(self.path.read_text())
             self.assertEqual((info["job_id"], info["checkpoint_id"], info["deployment_id"]), ("job_test", "cp_test", "dep_test"))

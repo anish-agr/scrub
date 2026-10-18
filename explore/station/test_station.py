@@ -18,8 +18,10 @@ import time
 import urllib.error
 import urllib.request
 from pathlib import Path
+from types import SimpleNamespace
 
 import numpy as np
+import pytest
 
 HERE = Path(__file__).resolve().parent
 sys.path.insert(0, str(HERE))
@@ -84,6 +86,7 @@ class FakeRobot:
 
     def __init__(self):
         self.bus = FakeBus()
+        self.config = SimpleNamespace(use_degrees=True)
         self.cameras = {"side": FakeCam(), "wrist": FakeCam()}
         self.observation_features = {**{f"{m}.pos": float for m in MOTORS}, "side": (H, W, 3), "wrist": (H, W, 3)}
         self.action_features = {f"{m}.pos": float for m in MOTORS}
@@ -133,6 +136,7 @@ class FakeRobot:
 class FakeTeleop:
     def __init__(self):
         self.bus = FakeBus()
+        self.config = SimpleNamespace(use_degrees=True)
         self.t = 0
 
     def get_action(self):
@@ -185,11 +189,104 @@ def events():
     return rows
 
 
-def make(root):
+def make(root, task="pick the hemostat", **kw):
     robot, teleop = FakeRobot(), FakeTeleop()
     ds = S.open_dataset(root, robot)
-    st = S.Station(robot, teleop, ds, "pick the spatula", root, reconnect=fake_reconnect)
+    st = S.Station(robot, teleop, ds, task, root, reconnect=fake_reconnect, **kw)
     return robot, teleop, ds, st
+
+
+def write_video(path, frames, fps=30):
+    """A small mp4 (mp4v) from BGR frames."""
+    h, w = frames[0].shape[:2]
+    vw = S_cv2().VideoWriter(str(path), S_cv2().VideoWriter_fourcc(*"mp4v"), fps, (w, h))
+    for f in frames:
+        vw.write(f)
+    vw.release()
+    return {"path": str(path), "from_s": 0.0, "to_s": len(frames) / fps}
+
+
+def S_cv2():
+    import cv2
+    return cv2
+
+
+def test_allowed_tasks_and_refusals():
+    allowed = S.allowed_tasks()
+    assert allowed[:6] == ["pick the hemostat", "return the hemostat", "pick the mayo scissors",
+                           "return the mayo scissors", "pick the scalpel", "return the scalpel"]
+    assert S.check_task("pick the hemostat") == (True, None)
+    for bad in ("pick the spatula", "Pick the hemostat", "pick the hemostat ", ""):
+        ok, why = S.check_task(bad)
+        assert not ok and why, bad
+    assert S.check_task("wave hello", any_task=True)[0]
+    # --task at startup: refused before any log, port or hardware is touched
+    with pytest.raises(SystemExit) as e:
+        S.main(["--task", "pick the spatula", "--no-browser"])
+    assert "pick the spatula" in str(e.value) and "pick the hemostat" in str(e.value)
+    with pytest.raises(ValueError):
+        make(TMP / "refused", task="pick the spatula")
+
+
+def test_quick_flags():
+    ok = {"camera_fps": {"side": 30.0, "wrist": 29.4}, "seconds": 12.0}
+    assert S.quick_flags(ok) == []
+    f = S.quick_flags({"camera_fps": {"side": 30.0, "wrist": 22.5}, "seconds": 21.0})
+    assert any("wrist camera 22.5 fps" in x for x in f) and any("over 20 s" in x for x in f)
+    assert any("side camera fps unknown" in x for x in S.quick_flags({"camera_fps": {"wrist": 30}, "seconds": 3}))
+
+
+def test_video_qa_flags():
+    rng = np.random.default_rng(0)
+    good = [rng.integers(60, 200, (48, 64, 3), dtype=np.uint8) for _ in range(60)]
+    res = S.video_qa({"episode_index": 0, "tasks": ["pick the hemostat"], "length": 60,
+                      "videos": {"observation.images.side": write_video(TMP / "good.mp4", good)}})
+    assert res["flags"] == [], res
+    rep = [good[i - i % 2] for i in range(60)]           # every frame twice: a 15 fps camera
+    res = S.video_qa({"episode_index": 1, "tasks": ["pick the hemostat"], "length": 60,
+                      "videos": {"observation.images.wrist": write_video(TMP / "rep.mp4", rep)}})
+    assert res["flags"] == ["repeated_frames"] and "under 29" in res["reasons"][0], res
+    dark = [np.full((48, 64, 3), 10, np.uint8)] * 60
+    res = S.video_qa({"episode_index": 2, "tasks": ["pick the hemostat"], "length": 60,
+                      "videos": {"observation.images.side": write_video(TMP / "dark.mp4", dark)}})
+    assert {"dark", "frozen"} <= set(res["flags"]), res
+    # the same check through the subprocess the station uses (never on the loop's GIL)
+    res = S.video_qa_subprocess({"episode_index": 2, "tasks": [], "length": 60,
+                                 "videos": {"observation.images.side": {"path": str(TMP / "dark.mp4"),
+                                                                        "from_s": 0.0, "to_s": 2.0}}})
+    assert "frozen" in res["flags"]
+
+
+def test_any_task_and_qa_banner():
+    calls = []
+
+    def fake_qa(ep, fps):
+        calls.append(ep["episode_index"])
+        return {"flags": ["dark"], "reasons": ["side: dark, luminance 12 < 40"]}
+
+    robot, teleop, ds, st = make(TMP / "anytask", task="wave hello", any_task=True, video_qa_fn=fake_qa)
+    s = st.status()
+    assert s["any_task"] and not s["task_ok"]
+    assert any("NOT FOR TRAINING" in w for w in s["warnings"])
+    assert st.control("task", "wave goodbye")["ok"] and st.task == "wave goodbye"
+    assert st.control("task", "pick the hemostat")["ok"] and st.status()["task_ok"]
+    assert not any("NOT FOR TRAINING" in w for w in st.status()["warnings"])
+    # QA: a quick flag shows at once; the video result is added from the background worker
+    ep = {"episode_index": 7, "tasks": ["pick the hemostat"], "length": 30, "videos": {}}
+    st._qa_begin(7, "pick the hemostat", {"camera_fps": {"side": 30, "wrist": 24.0}, "seconds": 5}, ep)
+    s = st.status()
+    assert s["last_qa"]["episode"] == 7 and s["last_qa"]["status"] == "FAIL"
+    until(lambda: st.qa_idle(), what="qa worker")
+    s = st.status()
+    assert calls == [7] and s["last_qa"]["video_done"]
+    assert s["rerecord"] == ["RE-RECORD episode 7: wrist camera 24 fps (under 29); side: dark, luminance 12 < 40"]
+    assert 7 in s["counts"]["flagged_session"]
+    st._qa_begin(8, "pick the hemostat", {"camera_fps": {"side": 30, "wrist": 30}, "seconds": 5}, None)
+    assert st.status()["qa"][-1]["status"] == "PASS"     # no video span: quick checks only
+    assert st.control("qa_ack")["ok"] and st.status()["rerecord"] == []
+    qa_file = json.loads(Path(f"{TMP / 'anytask'}-station-qa.json").read_text())
+    assert [e["episode"] for e in qa_file["episodes"]] == [7, 8]
+    ds.finalize()
 
 
 def test_cooling_rule():
@@ -218,7 +315,10 @@ def test_station_end_to_end():
     try:
         assert b"Scrub Station" in get("/")
         s = status()
-        assert s["state"] == "idle" and s["episodes_total"] == 0 and s["task"] == "pick the spatula"
+        assert s["state"] == "idle" and s["episodes_total"] == 0 and s["task"] == "pick the hemostat"
+        assert not s["any_task"] and s["task_ok"] and s["use_degrees"] is True
+        assert s["allowed_tasks"][0] == "pick the hemostat" and s["last_qa"] is None
+        assert b"NOT FOR TRAINING" in get("/") and b'id="tasks"' in get("/")
         until(lambda: status()["loop_hz"] is not None, what="loop rate")
 
         # MJPEG stream
@@ -230,7 +330,7 @@ def test_station_end_to_end():
         assert post("start")["ok"]
         assert status()["state"] == "recording"
         assert not post("home")["ok"]                    # refused while recording
-        assert not post("task", task="other")["ok"]      # refused while recording
+        assert not post("task", task="return the hemostat")["ok"]  # refused while recording
         time.sleep(1.2)
         s = status()
         assert s["frames"] > 25 and s["recording_s"] > 1.0, s
@@ -270,9 +370,11 @@ def test_station_end_to_end():
         until(lambda: not status()["parked"], what="unparked")
         assert status()["state"] == "idle"
 
-        # task change
-        assert post("task", task="pick the hemostat")["ok"] and status()["task"] == "pick the hemostat"
-        assert post("task", task="pick the spatula")["ok"]
+        # task change: only exact settings instructions
+        assert not post("task", task="pick the spatula")["ok"] and status()["task"] == "pick the hemostat"
+        assert not post("task", task="pick the Hemostat")["ok"]
+        assert post("task", task="return the hemostat")["ok"] and status()["task"] == "return the hemostat"
+        assert post("task", task="pick the hemostat")["ok"]
 
         # cool-down while recording: discard, park, locked until <= 50 C, then parked
         assert post("start")["ok"]
@@ -297,6 +399,22 @@ def test_station_end_to_end():
         time.sleep(0.6)
         S.stdin_loop(st, io.StringIO("\n"))
         until(lambda: not status()["saving"] and status()["episodes_total"] == 2, 60, "second save")
+        until(lambda: st.qa_idle(), 120, "video QA")
+        s = status()
+        assert [r["episode"] for r in s["qa"]] == [0, 1] and s["last_qa"]["episode"] == 1
+        for r in s["qa"]:
+            assert r["status"] in ("PASS", "FAIL") and r["video_done"], r
+            assert "error" not in (r["video"] or {}), r
+            assert not set(r["video"]["flags"]) & {"dark", "frozen", "unreadable"}, r
+            for cam in ("side", "wrist"):
+                assert r["video"]["cameras"][cam]["frames"] > 10, r  # the saved AV1 span really decoded
+        c = s["counts"]
+        assert c["by_task"]["pick the hemostat"] == {"dataset": 0, "session": 2, "total": 2}
+        assert c["by_task"]["return the hemostat"]["total"] == 0
+        run1 = c["targets"][0]
+        assert run1["done"] == 2 and (run1["min"], run1["max"]) == (30, 40)
+        assert run1["tasks"]["pick the hemostat"] == {"target": 24, "done": 2}
+        assert run1["tasks"]["return the hemostat"]["target"] == 12
 
         # toggle via the page action (Space) and a camera going down mid-episode
         assert post("toggle")["ok"] and status()["state"] == "recording"
@@ -349,11 +467,13 @@ def test_station_end_to_end():
     assert back.num_frames > 40
     item = back[0]
     assert tuple(item["observation.images.side"].shape) == (3, H, W)
-    assert item["task"] == "pick the spatula"
+    assert item["task"] == "pick the hemostat"
     if n_ep0:
         assert back.meta.episodes[0]["length"] == n_ep0
     cad = json.loads(Path(f"{root}-cadence.json").read_text())["episodes"]
     assert [e["episode_index"] for e in cad] == [0, 1]
+    for e in cad:
+        assert e["use_degrees"] is True and e["task"] == "pick the hemostat", e
 
     # telemetry
     rows = events()
@@ -369,6 +489,7 @@ def test_station_end_to_end():
     # resume the same dataset, record one more, reload
     robot2, teleop2, ds2, st2 = make(root)
     assert ds2.meta.total_episodes == 2
+    assert st2.counts()["by_task"]["pick the hemostat"] == {"dataset": 2, "session": 0, "total": 2}
     st2.start_thread()
     try:
         assert st2.control("start")["ok"]
@@ -381,6 +502,10 @@ def test_station_end_to_end():
 
 
 if __name__ == "__main__":
+    test_allowed_tasks_and_refusals()
+    test_quick_flags()
+    test_video_qa_flags()
+    test_any_task_and_qa_banner()
     test_cooling_rule()
     test_meta_only_dataset_moved_aside()
     test_station_end_to_end()

@@ -17,6 +17,9 @@ from .kinematics import FEATURES
 
 CAMERAS = ("observation.images.side", "observation.images.wrist")
 SETTINGS = Path(__file__).resolve().parents[1] / "settings"
+MIN_EPISODES_PER_TASK = 10  # the service splits ~90/10 by whole episode, stratified by task
+SHOULDER_LIFT = 1           # state index; this arm rests near -100 deg, so degrees leave -10..10
+RADIANS_BAND = 10.0
 
 
 def instructions(settings=SETTINGS):
@@ -70,6 +73,7 @@ def local_check(root, cadence_report):
         episodes = [row for path in metadata_files for row in pq.ParquetFile(path).read().to_pylist()]
     allowed = instructions()
     lengths = {}
+    task_counts = {}
     for episode in episodes:
         tasks = episode.get("tasks")
         tasks = [tasks] if isinstance(tasks, str) else list(tasks or [])
@@ -81,13 +85,20 @@ def local_check(root, cadence_report):
         if type(index) is not int or type(length) is not int or length < 2 or index in lengths:
             raise ValueError("Invalid, empty or duplicate episode metadata")
         lengths[index] = length
+        for task in set(tasks):
+            task_counts[task] = task_counts.get(task, 0) + 1
     if set(lengths) != set(range(count)):
         raise ValueError("Episode metadata count/indexes do not match info.json")
+    few = {task: n for task, n in sorted(task_counts.items()) if n < MIN_EPISODES_PER_TASK}
+    if few:
+        raise ValueError(f"Need at least {MIN_EPISODES_PER_TASK} episodes per task (the service splits ~90/10 "
+                         f"stratified by task); too few: " + ", ".join(f"{t!r}={n}" for t, n in few.items()))
 
     data_files = sorted((root / "data").rglob("*.parquet"))
     if not data_files:
         raise ValueError("No local data parquet files")
     seen = {index: [] for index in lengths}
+    lift_peak = 0.0  # largest |shoulder_lift| in observation.state over the whole dataset
     for path in data_files:
         for batch in pq.ParquetFile(path).iter_batches(columns=["episode_index", "frame_index", "timestamp", "observation.state", "action"]):
             for row in batch.to_pylist():
@@ -100,11 +111,17 @@ def local_check(root, cadence_report):
                     values = np.asarray(row[name], dtype=float)
                     if values.shape != (6,) or not np.isfinite(values).all() or not 0 <= values[5] <= 100:
                         raise ValueError("Invalid six-value state/action or gripper range")
+                    if name == "observation.state":
+                        lift_peak = max(lift_peak, abs(float(values[SHOULDER_LIFT])))
                 seen[index].append(frame)
     if any(sorted(frames) != list(range(lengths[index])) for index, frames in seen.items()):
         raise ValueError("Missing, duplicated or incomplete episode frames")
     if sum(lengths.values()) != info.get("total_frames"):
         raise ValueError("Episode lengths disagree with total_frames")
+    if lift_peak <= RADIANS_BAND:
+        raise ValueError(f"Every shoulder_lift state sample stays within -{RADIANS_BAND:g}..{RADIANS_BAND:g}: "
+                         "this looks like radians or a non-degree recording (the arm rests near -100 deg). "
+                         "Re-record with --robot.use_degrees=true --teleop.use_degrees=true")
 
     cadence_path = Path(cadence_report)
     cadence = json.loads(cadence_path.read_text())
@@ -119,6 +136,9 @@ def local_check(root, cadence_report):
             if not isinstance(fps, (int, float)) or not math.isfinite(fps) or not 29 <= fps <= 31:
                 raise ValueError(f"Episode {index} {cam} camera ran at {fps} fps; every episode needs "
                                  "camera_fps side and wrist measured at 29..31 (re-record it)")
+        if entry.get("use_degrees") is not True:
+            raise ValueError(f"Episode {index} cadence entry lacks \"use_degrees\": true; the recorder must "
+                             "write it only when --robot.use_degrees=true and --teleop.use_degrees=true were passed")
         measured[index] = hz
     if set(measured) != set(lengths):
         raise ValueError("Cadence evidence must cover every recorded episode")
@@ -137,7 +157,7 @@ def local_check(root, cadence_report):
                 for block in iter(lambda: stream.read(1024**2), b""):
                     digest.update(block)
     digest.update(cadence_path.read_bytes())
-    return {"episodes": count, "frames": sum(lengths.values()), "fps": 30,
+    return {"episodes": count, "frames": sum(lengths.values()), "fps": 30, "tasks": dict(sorted(task_counts.items())),
             "measured_fps_min": min(measured.values()), "measured_fps_max": max(measured.values()),
             "fingerprint": digest.hexdigest(),
             "note": "Media dimensions are checked from metadata, not decoded. Replay and service validation are still required."}
