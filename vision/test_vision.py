@@ -4,11 +4,15 @@ from __future__ import annotations
 
 import json
 import math
+import os
 import tempfile
 import threading
 import time
 import unittest
 from pathlib import Path
+
+# Never read a live controller on :8000 (FakeDetector asks GET /state during picks); tests must be hermetic.
+os.environ["CONTROLLER_URL"] = "http://127.0.0.1:9"
 
 import cv2
 import numpy as np
@@ -420,13 +424,13 @@ class PreviewServerTests(unittest.TestCase):
         runtime.grabber.stop()
 
 class ToolingTests(unittest.TestCase):
-    def test_fake_mark_writes_settings_for_all_three_trays(self):
+    def test_fake_mark_writes_settings_for_the_demo_trays(self):
         from vision.mark_slots import main
         from vision.service import ROOT
 
         out = Path(tempfile.mkdtemp())
         main(["--fake", "--repo", str(ROOT), "--out", str(out)])
-        for setting_id in ("surgical", "dental", "bench"):
+        for setting_id in ("surgical", "bench"):  # dental is hidden: marked only with --setting dental
             document = json.loads((out / f"{setting_id}.json").read_text(encoding="utf-8"))
             self.assertEqual(document["id"], setting_id)
             self.assertEqual(len(document["items"]), 3)

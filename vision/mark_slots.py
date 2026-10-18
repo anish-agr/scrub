@@ -239,7 +239,7 @@ def main(argv: list[str] | None = None) -> None:
 
     parser = argparse.ArgumentParser(description="Mark slot boxes on a tray photo or live frame")
     parser.add_argument("--setting", default="surgical")
-    parser.add_argument("--all", action="store_true", help="process surgical, dental, and bench settings")
+    parser.add_argument("--all", action="store_true", help="process the surgical and bench settings (dental is hidden; use --setting dental)")
     parser.add_argument("--repo", default=".")
     parser.add_argument("--clicks", help="x,y,x,y,... two corners per slot, then the return spot")
     parser.add_argument("--image", help="saved tray photo to click on")
@@ -260,7 +260,7 @@ def main(argv: list[str] | None = None) -> None:
             return
         folder = out_path
         folder.mkdir(parents=True, exist_ok=True)
-        for setting_id in ("surgical", "dental", "bench"):
+        for setting_id in ("surgical", "bench"):
             setting = load_setting(repo, setting_id)
             frame_path = folder / f"{setting_id}.jpg"
             grab_live_frame(frame_path, fake=True)
@@ -270,7 +270,7 @@ def main(argv: list[str] | None = None) -> None:
                 apply_boxes_to_setting(setting, labeled_boxes(setting, boxes_from_clicks(clicks)))
         return
 
-    settings_to_run = ["surgical", "dental", "bench"] if args.all else [args.setting]
+    settings_to_run = ["surgical", "bench"] if args.all else [args.setting]
     for s in settings_to_run:
         setting = load_setting(repo, s)
         prompts = [item["id"] for item in setting.get("items") or []] + ["return_spot"]
