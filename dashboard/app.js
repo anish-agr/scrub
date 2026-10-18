@@ -559,6 +559,8 @@ function paintStats(report) {
   }
   fillTable("by-item", itemRows, "item");
   fillTable("by-lighting", lightRows, "lighting");
+  const empty = $("tables-empty");
+  if (empty) empty.textContent = "No real-arm tries yet.";
   document.querySelector(".tables").classList.toggle("has-rows", rows > 0);
 }
 
