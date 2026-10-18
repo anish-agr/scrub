@@ -97,6 +97,15 @@ class PreservationTests(unittest.TestCase):
                 self.assertIn("Privacy", text)
                 self.assertNotIn("\u2014", text)
 
+    def test_ops_page_uses_shared_design_system(self):
+        text = (ROOT / "controller/ops.html").read_text(encoding="utf-8")
+        tags = Tags(text)
+        self.assertIn("design/scrub.css", text)
+        self.assertEqual(tags.body.get("class"), "scrub-ui")
+        self.assertEqual(len(tags.ids), len(set(tags.ids)))
+        self.assertIn("stopBtn", tags.ids)
+        self.assertNotIn("\u2014", text)
+
 
 if __name__ == "__main__":
     unittest.main()
