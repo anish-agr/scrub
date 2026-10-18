@@ -8,6 +8,7 @@ import { countTurn, isEndCase, isStop, isTrayCheck, parse, parseAlias } from "./
 import { currentSetting, forgetSetting, teach } from "./settings.js";
 import { canText, endCase, recordEvent } from "./summary.js";
 import { voiceTrayCheck } from "./tray.js";
+import { blankTiming, recordTiming, type TurnTiming } from "./timing.js";
 
 type Say = (line: string) => void;
 type Hold = (types: string[], holdS: number, commandId?: string) => void;
@@ -67,9 +68,13 @@ export function startEvents() {
   }, recordEvent);  // missed while reconnecting: counted in the summary, never spoken
 }
 
-export async function handleTurn(heard: string, say: Say, signal?: AbortSignal): Promise<void> {
+// t0: when the request arrived (the server passes it, so the timings include reading the body).
+export async function handleTurn(heard: string, sayTo: Say, signal?: AbortSignal, t0 = Date.now()): Promise<void> {
   countTurn();
   console.log(`[heard] ${heard}`);
+  const tm = blankTiming();
+  const say: Say = (line) => { tm.first_line_ms ??= Date.now() - t0; sayTo(line); };
+  let logged = false;
   const done = new Promise<void>((resolve) => {
     let timer: NodeJS.Timeout | undefined;
     let waitFor: string[] = [];
@@ -88,10 +93,15 @@ export async function handleTurn(heard: string, say: Say, signal?: AbortSignal):
       if (e.type === "error") return e.step === "error" || (!!cmdId && e.command_id === cmdId);
       return !cmdId || !e.command_id || e.command_id === cmdId;
     };
-    const finish = () => { clearTimeout(timer); if (open?.say === say) open = null; resolve(); };
+    const finish = () => {
+      clearTimeout(timer);
+      if (open?.say === say) open = null;
+      if (!logged) { logged = true; recordTiming(tm); }
+      resolve();
+    };
     signal?.addEventListener("abort", finish);
     open = { say, onEvent: (e) => { seen.push(e); if (ends(e)) setTimeout(finish, 300); } };
-    run(heard, (types, holdS, id) => {
+    run(heard, { tm, t0 }, (types, holdS, id) => {
       waitFor = types;
       cmdId = id;
       timer = setTimeout(finish, holdS * 1000);
@@ -106,16 +116,22 @@ export async function handleTurn(heard: string, say: Say, signal?: AbortSignal):
 }
 
 // POST /stop: skips the controller's queue and is always accepted. Nothing awaits Gemini, settings or state first.
-async function stopNow(hold: Hold) {
-  await io.postStop().catch(() => io.postStop());  // one retry: a dropped connection must not lose a stop
+async function stopNow(hold: Hold, clock: Clock) {
+  const sent = posting(clock);
+  await io.postStop().catch(() => io.postStop());
+  clock.tm.controller_ms = Date.now() - sent;  // one retry: a dropped connection must not lose a stop
   console.log("[command] stop (POST /stop)");
   flushPending();
   hold(DONE.stop, 1.5);
 }
 
-async function run(heard: string, hold: Hold) {
+// The turn's timings and when its request arrived.
+type Clock = { tm: TurnTiming; t0: number };
+const posting = ({ tm, t0 }: Clock) => { const now = Date.now(); tm.heard_to_command_ms = now - t0; return now; };
+
+async function run(heard: string, clock: Clock, hold: Hold) {
   // Stop first, before Gemini or anything else that takes time.
-  if (isStop(heard)) return stopNow(hold);
+  if (isStop(heard)) { clock.tm.parser = "local"; return stopNow(hold, clock); }
   flushPending();
   if (isEndCase(heard)) {
     // Only promise a text that can be sent; with no Photon keys or no number the summary is just logged.
@@ -151,12 +167,17 @@ async function run(heard: string, hold: Hold) {
     hold([], 0.5);
     return;
   }
+  const parsed = Date.now();
   const p = await io.parse(heard, setting);
+  clock.tm.parser = p.via;
+  if (p.via === "gemini") clock.tm.gemini_ms = Date.now() - parsed;
   // Gemini heard a stop the local words missed ("hold on, freeze it up"): the POST /stop fast path, not the queue.
-  if (p.action === "stop") { console.log(`[command] stop  (${p.via})`); return stopNow(hold); }
+  if (p.action === "stop") { console.log(`[command] stop  (${p.via})`); return stopNow(hold, clock); }
   const cmd = makeCommand(p.action, p.item, heard);
   console.log(`[command] ${cmd.action}${cmd.item ? " " + cmd.item : ""}  (${p.via})`);
+  const sent = posting(clock);
   const reply = await io.postCommand(cmd);
+  clock.tm.controller_ms = Date.now() - sent;
   // Lines come from the events only; the reply's `say` repeats the event's.
   if (!reply.accepted) console.log(`[command] rejected: ${reply.reason}`);
   hold(reply.accepted ? DONE[cmd.action] : [], reply.accepted && DONE[cmd.action].length ? HOLD_FOR[cmd.action] ?? HOLD_S : 1, cmd.id);
