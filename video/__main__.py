@@ -59,6 +59,11 @@ def parser():
     cl.add_argument("--analyze-only", action="store_true")
     cl.add_argument("--audio", action="store_true", help="afftdn denoise + -16 LUFS target")
     cl.add_argument("--upscale", action="store_true", help="optional GPU path; unavailable models explicitly skipped")
+    fi = sub.add_parser("find", help="rank/cut original takes correlated by ledger command_id")
+    fi.add_argument("--events", required=True)
+    fi.add_argument("--manifest", default="manifest.json")
+    fi.add_argument("--cut", action="store_true")
+    fi.add_argument("--gemini", action="store_true", help="report optional scorer availability; never uploads by default")
     return p
 
 
@@ -100,6 +105,9 @@ def main(argv=None):
             from .clean import clean
             result = clean(ws,args.input,args.output,args.stabilize,args.reference,args.deflicker,args.denoise,
                 args.faces,args.keep_team,args.idle_speed,args.cut_idle,args.idle_confirmed,args.analyze_only,args.audio,args.upscale)
+        elif args.command == "find":
+            from .takes import find
+            result = find(ws,args.events,args.manifest,args.cut,args.gemini)
         else:
             raise ValueError("Unknown command")
         print(json.dumps(result, indent=2, allow_nan=False))
