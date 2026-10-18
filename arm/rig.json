@@ -7,7 +7,7 @@
   "joint_offsets_deg": [0, 0, 0, 0, 0],
   "base_to_urdf": [[1, 0, 0, 0], [0, 1, 0, 0], [0, 0, 1, 0], [0, 0, 0, 1]],
   "handoff_region": {"min": [0.05, -0.25, 0.08], "max": [0.35, 0.25, 0.35]},
-  "home": null,
+  "home": [2.8, -102.2, 97.7, 72.3, -9.3, 4.8],
   "carry": null,
   "safe_spot": null,
   "max_joint_speed_deg_s": 20.0,

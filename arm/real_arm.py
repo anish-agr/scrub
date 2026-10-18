@@ -15,8 +15,10 @@ import time
 import numpy as np
 from dotenv import load_dotenv
 
-from .backends import LeRobotBackend, SavedImageBackend
-from .kinematics import Kinematics
+from . import hardware, thermal
+from .backends import LeRobotBackend, SavedImageBackend, port_holders
+from .hardware import ArmFault
+from .kinematics import JOINTS, Kinematics
 from .motion import CartesianMotion
 from .perceptron import APIError
 from .sessions import DryPolicySession, PolicySession
@@ -38,6 +40,10 @@ PREDICT_TRIES = 5       # consecutive failed predicts before a skill gives up an
 REGRANT = (401, 404, 410)        # expired grant or robot session gone: fresh grant and session, once
 RESTART = (409, 422)             # sequence, timestamp or prior chunk refused: reset the session history
 TRANSIENT = (None, 429, 500, 502, 503, 504)  # hold and send a fresh frame
+THERMAL_EVERY_S = 1.0   # temperatures and loads of all six motors, read by the playback thread
+STATE_MARGIN_DEG = 5.0  # a measured joint may sit this far past the URDF limit (folded home: lift -102, elbow 98)
+HOME_TOL_DEG = 5.0      # rest() skips the home move when every joint is this close to home
+SHUT_FRACTION = 0.94    # jaw at least this closed is shut on nothing (6 of 100 units, hardware.GRIP_CLOSED_POS)
 
 
 def _status(error):
@@ -84,6 +90,22 @@ class Arm:
         self._was_closed = False
         self._grip = {"ref": None, "since": 0.0, "hold": None}
         self._settle = {"anchor": None, "since": 0.0}
+        self._gt = {}            # gripper torque level state (hardware.gripper_torque_want)
+        self._resting = False    # torque off at home; playback writes nothing until wake()
+        self._request = None     # "rest" or "wake", served by the playback thread (the bus owner)
+        self._request_done = threading.Event()
+        self._request_error = None
+        self._telemetry = None
+        self._thermal_t = 0.0
+        self._cooling = None     # thermal.Cooling while a motor is (or was) at the trip temperature
+        self._fault = None       # its ArmFault message
+        self._trip = None        # set by playback when the trip stopped a skill or move; raised by the caller
+        self.setting = None      # tray setting for taught skills (None: first match)
+        # Joint limits in LeRobot degrees: the URDF's, tightened at connect by the calibrated range and
+        # wrist_roll +-150. Every skill and move row is clamped to them.
+        a, b = self.kin.from_urdf(self.kin.lower), self.kin.from_urdf(self.kin.upper)
+        self._urdf_lo, self._urdf_hi = np.minimum(a, b), np.maximum(a, b)
+        self._set_limits(None)
         self.last_reason = "not connected"
         self.counters = {"accepted": 0, "late": 0, "holds": 0, "ticks": 0, "overruns": 0, "api_errors": 0}
 
@@ -103,6 +125,7 @@ class Arm:
                 port = port or os.getenv("SO101_PORT")
                 if not port:
                     raise RuntimeError("SO101_PORT is required")
+                self._clear_overload(port)
                 # Camera ids: OpenCV indexes, or on the Mac name parts like "C920" (backends.camera_index).
                 self._backend = LeRobotBackend(
                     port, robot_id or os.getenv("SO101_ROBOT_ID", "scrub_follower"),
@@ -110,11 +133,21 @@ class Arm:
                     wrist_index if wrist_index is not None else os.getenv("SO101_WRIST_CAMERA", "1"))
         try:
             self._backend.connect()
+            bus = self._bus()
+            if bus is not None:
+                hardware.retry_reads(bus)
+                self._set_limits(hardware.joint_limits(bus) if getattr(bus, "calibration", None) else None)
+                try:
+                    hardware.set_dead_zone(bus)
+                except Exception:  # noqa: BLE001 - the factory dead zone still works
+                    pass
             state = np.asarray(self._backend.read_joints(), dtype=float)
             self._validate_state(state)
         except Exception:
             self._backend.disconnect()
             raise
+        self._resting = False
+        self._request = None
         self._state = state
         self._last_sent = state.copy()
         self._grip = {"ref": None, "since": 0.0, "hold": None}
@@ -126,18 +159,55 @@ class Arm:
         self._thread = threading.Thread(target=self._playback, name="scrub-arm-30hz", daemon=True)
         self._thread.start()
 
+    def _bus(self):
+        """The LeRobot motor bus behind the backend (or a test's fake bus); None for saved images."""
+        bus = getattr(self._backend, "bus", None)
+        return bus if bus is not None else getattr(getattr(self._backend, "robot", None), "bus", None)
+
+    @staticmethod
+    def _clear_overload(port):
+        """Before LeRobot opens the port: clear a stale overload flag (its start-up check would refuse the
+        motor) and refuse a joint that sits past its range. Skipped while another process has the port."""
+        if port_holders(port):
+            return  # LeRobotBackend.connect refuses with the pid
+        try:
+            stuck = hardware.stuck_motors(port)
+        except ImportError:
+            return
+        if stuck:
+            raise RuntimeError("; ".join(stuck))
+
+    def _set_limits(self, calibrated):
+        lo = self._urdf_lo + .01
+        hi = self._urdf_hi - .01
+        for i, m in enumerate(JOINTS):
+            if calibrated and m in calibrated:
+                lo[i], hi[i] = max(lo[i], calibrated[m][0]), min(hi[i], calibrated[m][1])
+        r = JOINTS.index("wrist_roll")
+        lo[r], hi[r] = max(lo[r], -hardware.ROLL_LIMIT_DEG), min(hi[r], hardware.ROLL_LIMIT_DEG)
+        grip = sorted((self.rig["gripper_open"], self.rig["gripper_closed"]))
+        self._lo, self._hi = np.r_[lo, grip[0]], np.r_[hi, grip[1]]
+
+    def _clamp(self, row):
+        return np.clip(np.asarray(row, dtype=float), self._lo, self._hi)
+
     def _validate_state(self, row):
-        if row.shape != (6,) or not np.isfinite(row).all() or not self.kin.valid(row[:5]) or not 0 <= row[5] <= 100:
+        if (row.shape != (6,) or not np.isfinite(row).all() or not 0 <= row[5] <= 100
+                or np.any(row[:5] < self._urdf_lo - STATE_MARGIN_DEG) or np.any(row[:5] > self._urdf_hi + STATE_MARGIN_DEG)):
             raise ValueError("Measured joints exceed configured limits or units")
 
     def _tick(self, now=None):
         return math.floor(((time.perf_counter() if now is None else now) - self._epoch) * HZ + 1e-7)
 
-    def _ready(self):
+    def _ready(self, hot_ok=False):
         if self._thread is None or not self._thread.is_alive():
             raise RuntimeError("Arm is not connected")
         if self._error:
             raise RuntimeError(self._error)
+        if self._resting:
+            raise RuntimeError("Arm is resting with torque off: wake() first")
+        if self._cooling is not None and not hot_ok:
+            raise ArmFault(self._fault)
         return not self._frozen.is_set()
 
     def joints(self):
@@ -180,7 +250,9 @@ class Arm:
         error = np.max(abs(state[:5] - goal[:5]))
         if error >= 1.0 and not (error < SETTLE_MAX_DEG and now - s["since"] >= SETTLE_STILL_S):
             return False
-        return abs(rows[0][5] - goal[5]) <= GRIP_MOVE or abs(state[5] - goal[5]) < GRIP_SETTLE
+        # A jaw closing on an item never reaches its goal: the claw guard holding at contact counts as done.
+        return (abs(rows[0][5] - goal[5]) <= GRIP_MOVE or abs(state[5] - goal[5]) < GRIP_SETTLE
+                or self._grip["hold"] is not None)
 
     def _commanded_start(self):
         """Measured joints with the commanded jaw. A move starts where the arm is but keeps the grip
@@ -188,7 +260,7 @@ class Arm:
         start = self.joints()
         with self._lock:
             start[5] = self._last_sent[5]
-        return start
+        return self._clamp(start)  # the folded home sits a little past the URDF limits
 
     def _closed_fraction(self, raw):
         return float(np.clip((raw - self.rig["gripper_open"]) /
@@ -218,7 +290,10 @@ class Arm:
             next_tick = tick + 1  # never burst old rows to catch up
             try:
                 state = np.asarray(self._backend.read_joints(), dtype=float)
-                self._validate_state(state)
+                if not self._resting:
+                    self._validate_state(state)
+                elif state.shape != (6,) or not np.isfinite(state).all():
+                    raise ValueError("Bad joint reading")
                 now = time.perf_counter()
                 # Load is optional. A missing bus reading never becomes fake zero.
                 if now - self._load_time >= .1:
@@ -227,14 +302,27 @@ class Arm:
                         self._load_time = now
                     except Exception:
                         self._load = None
+                bus = self._bus()
+                sample = self._read_thermal(bus, now)
+                if self._request is not None:
+                    self._serve_request(bus, state)
+                if self._resting:  # torque off: read, never write
+                    with self._lock:
+                        self._state, self._state_time = state, now
+                        self._thermal_update(sample)
+                    continue
                 with self._lock:
                     self._state, self._state_time = state, now
+                    tripped = self._thermal_update(sample)
                     # Hold means resend the last command. Sending the measured joints back would let
                     # the P-only servos sag under gravity every tick and the jaw relax its grip.
                     prev = self._last_sent.copy()
                     row = prev.copy()
                     if self._frozen.is_set():
                         self._finish("frozen")
+                    elif tripped:
+                        row = state.copy()  # stop where it is, keeping the commanded grip
+                        row[5] = prev[5]
                     elif self._mode == "skill":
                         if now >= self._skill_deadline:
                             self._finish("max_s")
@@ -253,7 +341,7 @@ class Arm:
                             if done:
                                 self._finish("released_and_still" if self._skill_return else "closed_and_still", True)
                             else:
-                                row = self._timeline.command(tick, self._last_sent)
+                                row = self._clamp(self._timeline.command(tick, self._last_sent))
                                 if self._timeline.active(tick) is not None:
                                     if not self._played:
                                         anchor, still_since = state.copy(), now
@@ -272,6 +360,11 @@ class Arm:
                             row = rows[index]
                     row = self._guard_grip(row, state, now)
                     self._last_sent = row.copy()
+                    want = None if bus is None else hardware.gripper_torque_want(
+                        self._gt, 100 * (1 - self._closed_fraction(state[5])), 100 * (1 - self._closed_fraction(row[5])),
+                        self._grip["hold"] is not None, now)
+                if want is not None:
+                    hardware.set_gripper_torque(bus, self._gt, want)  # writes only when the level changes
                 # Recheck after planning. freeze() never waits for this thread.
                 if self._frozen.is_set():
                     row = prev
@@ -288,9 +381,90 @@ class Arm:
                 # No blind writes after losing valid feedback.
                 break
 
-    def _execute(self, rows):
-        if not self._ready():
+    def _read_thermal(self, bus, now):
+        """(temps, loads) every THERMAL_EVERY_S, None between samples or when the read fails."""
+        if bus is None or now - self._thermal_t < THERMAL_EVERY_S:
+            return None
+        self._thermal_t = now
+        try:
+            return thermal.read_temps(bus), thermal.read_loads(bus)
+        except Exception:  # noqa: BLE001 - a missed sample is not a fault; the next one counts
+            return None
+
+    def _thermal_update(self, sample):
+        """Caller holds _lock. Starts or ends a cool-down; True when the trip stopped a skill or move."""
+        if not sample:
             return False
+        temps, loads = sample
+        tripped = False
+        if self._cooling is not None:
+            if self._cooling.done(max(temps.values(), default=None)):
+                self._cooling = self._fault = None
+        elif thermal.too_hot(temps):
+            self._cooling = thermal.Cooling()
+            self._fault = thermal.fault_message(thermal.too_hot(temps))
+            if self._mode in ("skill", "motion"):
+                self._trip = self._fault
+                self._finish("too_hot")
+                tripped = True
+        self._telemetry = thermal.telemetry(temps, loads, self._cooling is not None)
+        return tripped
+
+    def _serve_request(self, bus, state):
+        """rest/wake on the playback thread, the only bus owner."""
+        try:
+            if self._request == "rest":
+                if bus is not None:
+                    hardware.rest(bus)
+                with self._lock:
+                    self._mode, self._motion = "hold", None
+                    self._resting = True
+            elif self._request == "wake":
+                self._validate_state(state)  # moved by hand past its limits while limp: stay off
+                if bus is not None:
+                    hardware.wake(bus)
+                with self._lock:
+                    self._last_sent = state.copy()
+                    self._grip = {"ref": None, "since": 0.0, "hold": None}
+                    self._resting = False
+        except Exception as error:  # noqa: BLE001 - handed to the caller of rest()/wake()
+            self._request_error = error
+        finally:
+            self._request = None
+            self._request_done.set()
+
+    def _bus_request(self, name):
+        self._request_error = None
+        self._request_done.clear()
+        self._request = name
+        if not self._request_done.wait(2):
+            self._request = None
+            raise RuntimeError(f"Arm did not {name}: playback is not answering")
+        if self._request_error is not None:
+            raise RuntimeError(f"Arm {name} failed ({type(self._request_error).__name__}: {self._request_error})")
+
+    def _take_trip(self):
+        """After a skill or move: if the thermal trip stopped it, go safe and raise ArmFault."""
+        with self._lock:
+            message, self._trip = self._trip, None
+            hold = self._grip["hold"]
+            state = self._state.copy()
+        if message is None:
+            return
+        closed = self._closed_fraction(state[5])
+        holding = hold is not None or self.rig["grasp_closed_fraction"] <= closed < SHUT_FRACTION
+        if not holding and self.rig.get("home") is not None and not self._frozen.is_set():
+            try:
+                self._pose("home", hot_ok=True)  # empty jaw: fold home to cool; never opens
+            except Exception:  # noqa: BLE001 - holding where it stopped is safe too
+                pass
+        self.last_reason = "too_hot"
+        raise ArmFault(message)
+
+    def _execute(self, rows, hot_ok=False):
+        if not self._ready(hot_ok):
+            return False
+        rows = np.array([self._clamp(r) for r in rows])
         with self._lock:
             self._done.clear()
             self._skill_success = False
@@ -298,11 +472,14 @@ class Arm:
             self._settle = {"anchor": None, "since": 0.0}
             self._mode = "motion"
         deadline = time.perf_counter() + len(rows) / HZ + 3
+        timed_out = False
         while not self._done.wait(.02):
             if time.perf_counter() >= deadline:
                 self.freeze()
-                return False
-        return self._skill_success and not self._frozen.is_set()
+                timed_out = True
+                break
+        self._take_trip()
+        return not timed_out and self._skill_success and not self._frozen.is_set()
 
     def move_to(self, x, y, z, speed=0.3):
         with self._operation:
@@ -310,21 +487,49 @@ class Arm:
                 return False
             return CartesianMotion(self.kin, self._commanded_start, self._execute).move_to(x, y, z, speed)
 
-    def _pose(self, name):
+    def _pose_goal(self, name):
         pose = self.rig.get(name)
         if pose is None:
             raise RuntimeError(f"Measure and save the {name} pose in rig.json")
-        start = self._commanded_start()
         goal = np.asarray(pose, dtype=float).copy()
         if goal.shape != (6,):
-            raise ValueError("Saved poses need six raw joint values")
+            raise ValueError("Saved poses need six joint values (LeRobot degrees, gripper 0-100)")
+        return self._clamp(goal)  # the folded home sits a little past the URDF limits; it settles there unpowered
+
+    def _pose(self, name, hot_ok=False):
+        goal = self._pose_goal(name)
+        start = self._commanded_start()
         goal[5] = start[5]  # moving to a saved pose must never release a held tool
-        return self._execute(self.kin.trajectory(start, goal))
+        return self._execute(self.kin.trajectory(start, goal), hot_ok)
 
     def go_home(self):
-        with self._operation:
-            if not self._ready() or not self._pose("home"):
+        with self._operation:  # allowed while cooling down: home is where it cools
+            if not self._ready(hot_ok=True) or not self._pose("home", hot_ok=True):
                 raise RuntimeError("Home motion stopped")
+
+    def rest(self):
+        """Be at home, then torque off on all six motors. Playback reads (joints, temperatures) but writes
+        nothing until wake(). The folded home stays put unpowered (drift under 1 degree)."""
+        with self._operation:
+            if self._resting:
+                return
+            if not self._ready(hot_ok=True):
+                raise RuntimeError("Arm is stopped")
+            here, home = self.joints(), self._pose_goal("home")
+            if np.max(abs(here[:5] - home[:5])) > HOME_TOL_DEG and not self._pose("home", hot_ok=True):
+                raise RuntimeError("Home motion stopped")
+            self._bus_request("rest")
+
+    def wake(self):
+        """Goal_Position := Present_Position on all six, then torque on. Nothing moves."""
+        with self._operation:
+            if self._resting:
+                self._bus_request("wake")
+
+    def telemetry(self):
+        """{"temps", "loads", "hottest", "cooling", "t"} from the last bus sample, or None."""
+        t = self._telemetry
+        return None if t is None else {**t, "temps": dict(t["temps"]), "loads": dict(t["loads"])}
 
     def go_carry(self):
         with self._operation:
@@ -335,17 +540,18 @@ class Arm:
         with self._operation:
             # Match the fake-arm contract: the controller emits set_down after
             # this call, without an extra open_gripper. Release only on arrival.
-            if not self._ready() or not self._pose("safe_spot"):
+            # Allowed while cooling down: setting a sharp down is the safe thing to do with it.
+            if not self._ready(hot_ok=True) or not self._pose("safe_spot", hot_ok=True):
                 return False
             return self._open_gripper()
 
     def _open_gripper(self):
-        if not self._ready():
+        if not self._ready(hot_ok=True):
             return False
         start = self._commanded_start()
         goal = start.copy()
         goal[5] = self.rig["gripper_open"]
-        return self._execute(self.kin.trajectory(start, goal))
+        return self._execute(self.kin.trajectory(start, goal), hot_ok=True)
 
     def open_gripper(self):
         with self._operation:
@@ -382,9 +588,62 @@ class Arm:
         self._session = self._sessions.get(instruction)
         return self._session
 
-    def run_skill(self, instruction, max_s=20.0):
+    def taught_controls(self, deadline=None, max_speed=1.0):
+        """goto, set_gripper, stopped for taught.play, through the same 30 Hz playback, trajectories
+        (rig speed limits), joint clamp, claw guard and thermal trip as every other move. Caller holds
+        _operation."""
+        stopped = lambda: self._frozen.is_set() or (deadline is not None and time.perf_counter() >= deadline)  # noqa: E731
+
+        def goto(joints, speed=0.3):
+            if stopped():
+                return False
+            start = self._commanded_start()
+            goal = start.copy()
+            for i, name in enumerate(JOINTS):
+                value = joints.get(name, joints.get(name + ".pos"))
+                if value is not None:
+                    goal[i] = float(value)
+            goal = self._clamp(goal)
+            goal[5] = start[5]  # a waypoint never changes the grip; set_gripper does
+            return self._execute(self.kin.trajectory(start, goal, min(max(float(speed), .05), max_speed)))
+
+        def set_gripper(fraction_closed):
+            if stopped():
+                return False
+            start = self._commanded_start()
+            goal = start.copy()
+            f = min(1.0, max(0.0, float(fraction_closed)))
+            goal[5] = self.rig["gripper_open"] + f * (self.rig["gripper_closed"] - self.rig["gripper_open"])
+            return self._execute(self.kin.trajectory(start, self._clamp(goal), max_speed))
+
+        return goto, set_gripper, stopped
+
+    def _run_taught(self, instruction, max_s):
+        from . import taught
+        parsed = taught.parse_instruction(instruction)
+        if parsed is None:
+            raise ValueError(f"Not a pick or return instruction: {instruction!r}")
+        skill = taught.load(*parsed, setting=self.setting)
+        if skill is None:
+            raise RuntimeError(f"No taught skill for {parsed[0]} {parsed[1]}: teach it with python -m arm.teach")
+        with self._operation:
+            if not self._ready():
+                return False
+            deadline = time.perf_counter() + max_s
+            goto, set_gripper, stopped = self.taught_controls(deadline)
+            ok = bool(taught.play(skill, goto=goto, set_gripper=set_gripper, stopped=stopped))
+            ok = ok and not self._frozen.is_set()
+            self.last_reason = ("taught_done" if ok else "frozen" if self._frozen.is_set()
+                                else "max_s" if time.perf_counter() >= deadline else "taught_stopped")
+            return ok
+
+    def run_skill(self, instruction, max_s=20.0, source="model"):
         if not instruction or not math.isfinite(max_s) or max_s <= 0:
             raise ValueError("Need an instruction and positive finite max_s")
+        if source == "taught":
+            return self._run_taught(instruction, max_s)
+        if source != "model":
+            raise ValueError(f"source must be model or taught, got {source!r}")
         with self._operation:
             if not self._ready():
                 return False
@@ -497,6 +756,7 @@ class Arm:
                 except Exception:
                     self._sessions.discard(session)
                     self._session = None
+            self._take_trip()
             return success
 
     def freeze(self):
