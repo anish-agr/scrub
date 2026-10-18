@@ -4,6 +4,7 @@ import assert from "node:assert/strict";
 import http from "node:http";
 import { spawn } from "node:child_process";
 import path from "node:path";
+import { readFileSync } from "node:fs";
 import { WebSocketServer } from "ws";
 import { Dialogue, dialogue, QUESTION_MS } from "../src/dialogue.js";
 import { localParse, parse, validateGemini } from "../src/parse.js";
@@ -20,7 +21,12 @@ const setting: Setting = { id: "surgical", label: "Surgical", items: [
 const parsed = localParse("scissors", setting);
 assert.equal(parsed.item, null);
 assert.deepEqual(parsed.clarify?.candidates.map((c) => c.item), ["mayo_straight", "mayo_curved"]);
-assert.match(parsed.clarify!.say, /Which one/);
+assert.equal(parsed.clarify!.say, "Which scissors: straight or curved?");
+const actualBench: Setting = JSON.parse(readFileSync(new URL("../../settings/bench.json", import.meta.url), "utf8"));
+assert.equal(localParse("screwdriver", actualBench).clarify?.say, "Which screwdriver: flathead or Phillips?");
+assert.equal((await parse("screwdriver", actualBench)).clarify?.say, "Which screwdriver: flathead or Phillips?");
+assert.equal(validateGemini({ action: "clarify", item: "none", candidates: ["flathead_screwdriver", "phillips_screwdriver"] }, actualBench).clarify?.say,
+  "Which screwdriver: flathead or Phillips?");
 assert.equal((await parse("scissors", setting)).via, "local");
 assert.equal(localParse("curved scissors", setting).item, "mayo_curved");
 assert.equal(localParse("straight Mayo scissors please", setting).item, "mayo_straight");
@@ -52,7 +58,7 @@ d.ask("call:a", question, setting);
 assert.equal(d.answer("call:b", "curved", setting), null);
 assert.equal(d.answer("text:a", "curved", setting), null);
 assert.ok(d.pending("call:a"));
-assert.match((d.answer("call:a", "banana", setting) as { say: string }).say, /Which one/);
+assert.match((d.answer("call:a", "banana", setting) as { say: string }).say, /Which scissors/);
 now += QUESTION_MS;
 assert.match((d.answer("call:a", "curved", setting) as { say: string }).say, /timed out/);
 assert.ok(!d.pending("call:a"));
@@ -134,9 +140,9 @@ const turn = async (text: string, context = "call:test") => {
   return said.join(" ");
 };
 try {
-  assert.match(await turn("scissors"), /Which one/);
+  assert.match(await turn("scissors"), /Which scissors/);
   assert.equal(posted.length, 0, "no controller command before clarification");
-  assert.match(await handleText("scissors", "+a", td), /Which one/);
+  assert.match(await handleText("scissors", "+a", td), /Which scissors/);
   assert.equal(posted.length, 0);
   assert.equal(await handleText("curved", "+a", td), "Test request received.");
   assert.equal(posted.at(-1)?.item, "mayo_curved");
@@ -283,9 +289,9 @@ try {
       messages: [{ role: "system", content: `Conversation: ${conv}` }, { role: "user", content: text }] }) })).json();
     return reply.choices[0].message.content;
   };
-  assert.match(await heard("scissors"), /Which one/);
+  assert.match(await heard("scissors"), /Which scissors/);
   assert.equal(commands.length, 0);
-  assert.match(await chat("scissors"), /Which one/);
+  assert.match(await chat("scissors"), /Which scissors/);
   assert.equal(commands.length, 0);
   assert.match(await chat("curved"), /Already out/);
   assert.equal(commands.at(-1)?.item, "mayo_curved");
@@ -297,7 +303,7 @@ try {
   assert.equal(await chat("kelly"), "Left or right?");
   assert.match(await chat("left"), /Already out/);
   assert.deepEqual(commands.at(-1)?.instance, { side: "left", slot: 0 });
-  assert.match(await chat("scissors"), /Which one/);
+  assert.match(await chat("scissors"), /Which scissors/);
   const n = commands.length;
   assert.equal(await chat("stop"), "Stopped.");
   assert.equal(commands.length, n);

@@ -12,7 +12,10 @@ export interface Command {
   instance?: Instance;
 }
 export interface Instance { variant?: string; side?: "left" | "right" | "closest"; slot?: number }
-export interface Candidate { item?: string; id?: string; label?: string; variant?: string; side?: string; slot?: number; instance?: Instance }
+export interface Candidate {
+  item?: string; id?: string; label?: string; group?: string; variant?: string; side?: string; slot?: number; instance?: Instance;
+  distance?: number; distance_m?: number; position?: number[]; center_px?: number[]; arm_xy?: number[];
+}
 export interface Clarification { say: string; item?: string | null; candidates: Candidate[]; question_id?: string }
 export interface CommandReply { accepted: boolean; reason: string | null; say: string | null; clarify?: Clarification }
 export interface ScrubEvent {
@@ -58,7 +61,7 @@ async function call(method: string, path: string, body?: unknown, ms = 3000): Pr
 export const postCommand = (c: Command): Promise<CommandReply> => call("POST", "/command", c);
 export interface ClarifyLog {
   type: "clarify" | "clarify_answer"; say?: string; item?: string | null; candidates?: Candidate[];
-  question_id?: string; answer?: string; answer_ms?: number; context?: string;
+  question_id?: string; answer?: string; answer_ms?: number; context?: string; reason?: string; status?: string;
 }
 export const postClarify = (body: ClarifyLog): Promise<unknown> => call("POST", "/clarify", body);
 export const postStop = (): Promise<{ accepted: boolean }> => call("POST", "/stop");
