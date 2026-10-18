@@ -30,12 +30,19 @@ frames: dict = {}                 # camera name -> latest RGB frame
 cam_ticks: dict = {}              # camera name -> deque of hardware read times
 loop_ticks: deque = deque(maxlen=60)
 events: dict = {}
+stalls: dict = {}                 # camera name -> stalls this episode
 cfg = {"root": None, "episode_s": None, "reset_s": None, "cams": {}}
 lock = threading.Lock()
 
 
 def note(line: str) -> None:
     S["log"].append(time.strftime("%H:%M:%S ") + line)
+
+
+def camera_stall(index) -> None:
+    name = cfg["cams"].get(index, str(index))
+    stalls[name] = stalls.get(name, 0) + 1
+    note(f"{name} camera stalled")
 
 
 def phase(name: str, seconds=None) -> None:
@@ -102,6 +109,7 @@ def install(mode: str, task, episodes, episode_s, reset_s, root, cams: dict) -> 
         def said(text, *a, **kw):
             if text.startswith("Recording episode"):
                 S["episode"] = int(text.split()[-1])
+                stalls.clear()
                 phase("recording", cfg["episode_s"])
             elif text.startswith("Reset"):
                 phase("resetting", cfg["reset_s"])
@@ -164,6 +172,9 @@ def status() -> dict:
             warn.append(f"{k.capitalize()} camera is dark (brightness {c['brightness']})")
         if c["fps"] is not None and c["fps"] < 25:
             warn.append(f"{k.capitalize()} camera {c['fps']:.0f} fps (needs 30)")
+    for k, n in stalls.items():
+        warn.append(f"{k.capitalize()} camera stalled {n}x" +
+                    (" this episode: re-record it" if out["mode"] == "record" else ""))
     if out["loop_hz"] is not None and out["loop_hz"] < 27 and out["phase"] in ("recording", "resetting", "teleop"):
         warn.append(f"Control loop {out['loop_hz']:.0f} Hz (needs 30)")
     out["warnings"] = warn
