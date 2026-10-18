@@ -100,10 +100,15 @@ h1{font-size:18px;margin:0}.meta{font:13px "IBM Plex Mono",monospace;color:var(-
 .chart{background:var(--panel);border:1px solid var(--rule);margin-top:12px;padding:8px}svg{width:100%;height:auto;display:block}
 .legend{display:flex;flex-wrap:wrap;gap:4px 14px;font:12px "IBM Plex Mono",monospace;padding:4px}.legend i{display:inline-block;width:14px;height:3px;margin-right:6px;vertical-align:middle}
 #ev{font:13px "IBM Plex Mono",monospace;color:var(--mute);margin-top:10px;white-space:pre-wrap}
+.ab{background:var(--panel);color:var(--fg);border:1px solid var(--fg);padding:9px 14px;font:500 14px "IBM Plex Sans",sans-serif;cursor:pointer;border-radius:0}
+.ab:disabled{opacity:.4;cursor:not-allowed}
 select{background:var(--panel);color:var(--fg);border:1px solid var(--rule);font:13px "IBM Plex Mono",monospace}
 </style></head><body>
 <header><h1>Arm temperatures</h1><span class="meta" id="meta">loading</span>
 <span class="meta">window <select id="win"><option value="10">10 min</option><option value="30" selected>30 min</option><option value="120">2 h</option><option value="480">8 h</option></select></span></header>
+<div id="armbar" style="display:flex;flex-wrap:wrap;gap:8px;align-items:center;margin-bottom:12px">
+<button class="ab" data-a="home">Home + motors off</button><button class="ab" data-a="on">Motors on</button><button class="ab" data-a="off">Motors off</button>
+<span class="meta" id="armst">arm: checking</span></div>
 <div class="grid" id="grid"></div>
 <div class="chart"><svg id="svg" viewBox="0 0 900 320"></svg><div class="legend" id="legend"></div></div>
 <div id="ev"></div>
@@ -132,8 +137,69 @@ async function tick(){
   document.getElementById("legend").innerHTML=N.map((n,i)=>`<span><i style="background:${C[i]}"></i>${n}</span>`).join("");
   document.getElementById("ev").textContent=d.events.length?"recent guard events:\n"+d.events.map(e=>`${new Date(e.t*1000).toLocaleTimeString()}  ${e.event}${e.motor?" "+e.motor:""}`).join("\n"):"";
 }
-document.getElementById("win").onchange=tick; tick(); setInterval(tick,3000);
+async function armTick(){
+  let a; try{a=await (await fetch("/api/arm")).json()}catch(e){return}
+  const free=a.free; document.querySelectorAll(".ab").forEach(b=>b.disabled=!free||busy);
+  if(!busy) document.getElementById("armst").textContent=free?`arm: motors ${a.torque_on?"ON ("+a.torque_on+"/6)":"OFF"}`:"arm: in use by a recording session (buttons off)";
+}
+let busy=false;
+document.querySelectorAll(".ab").forEach(b=>b.onclick=async()=>{
+  busy=true; document.querySelectorAll(".ab").forEach(x=>x.disabled=true);
+  const st=document.getElementById("armst"); st.textContent=b.dataset.a==="home"?"moving home...":"working...";
+  try{const r=await (await fetch("/api/arm/"+b.dataset.a,{method:"POST"})).json();
+    st.textContent=r.ok?(b.dataset.a==="home"?`home reached, motors OFF (off by ${JSON.stringify(r.result.off_by_deg)})`:`motors ${b.dataset.a.toUpperCase()}`):"error: "+r.error;}
+  catch(e){st.textContent="error: "+e}
+  busy=false; setTimeout(armTick,1500);
+});
+document.getElementById("win").onchange=tick; tick(); setInterval(tick,3000); armTick(); setInterval(armTick,4000);
 </script></body></html>"""
+
+
+_ARM_LOCK = __import__("threading").Lock()
+
+
+def _recorder_running() -> bool:
+    import subprocess
+    return bool(subprocess.run(["pgrep", "-f", "arm_session.py|lerobot-"], capture_output=True).stdout)
+
+
+@app.post("/api/arm/{action}")
+def arm_action(action: str):
+    """Home + motors off / motors on / motors off, only while no recorder owns the arm. Local use only."""
+    import home_pose
+    if action not in ("home", "on", "off"):
+        return {"ok": False, "error": "unknown action"}
+    if _recorder_running():
+        return {"ok": False, "error": "a recording session owns the arm: stop it first"}
+    if not _ARM_LOCK.acquire(blocking=False):
+        return {"ok": False, "error": "busy with the last button"}
+    try:
+        result = {"home": home_pose.go_home_and_rest, "on": lambda: home_pose.torque(True),
+                  "off": lambda: home_pose.torque(False)}[action]()
+        T.get({"source": "thermal_web"}).write({"kind": "event", "event": f"button_{action}", "result": result})
+        return {"ok": True, "result": result}
+    except SystemExit as e:  # home_pose exits with a readable reason (port busy, no power)
+        return {"ok": False, "error": str(e)}
+    except Exception as e:  # noqa: BLE001
+        return {"ok": False, "error": f"{type(e).__name__}: {e}"}
+    finally:
+        _ARM_LOCK.release()
+
+
+@app.get("/api/arm")
+def arm_state():
+    if _recorder_running():
+        return {"free": False}
+    try:
+        import home_pose
+        scs, ph, pk = home_pose._bus()
+        try:
+            tq = [pk.read1ByteTxRx(ph, i, 40)[0] for i in range(1, 7)]
+        finally:
+            ph.closePort()
+        return {"free": True, "torque_on": sum(tq), "of": 6}
+    except BaseException as e:  # noqa: BLE001
+        return {"free": False, "error": str(e)}
 
 
 @app.get("/", response_class=HTMLResponse)
