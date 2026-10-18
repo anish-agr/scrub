@@ -26,11 +26,20 @@ export const PHOTON_SECRET = keys.PHOTON_API_KEY || keys.SPECTRUM_PROJECT_SECRET
 // Who gets the end-of-case text when the call didn't carry a caller id.
 export const SUMMARY_TO = env.PHOTON_SUMMARY_TO || "";
 // Public dashboard base for the "Case replay: <url>/case.html?id=<case_id>" text after the summary. Empty = no link.
-export const PUBLIC_URL = (env.SCRUB_PUBLIC_URL || "").trim().replace(/\/+$/, "");
+// SCRUB_PUBLIC_URL first; else the Vultr box by IP (nginx on port 80 proxies / to the ledger page, which serves
+// /case.html), so the link still works before a domain is set up.
+export function publicBase(url = "", ip = ""): string {
+  const u = url.trim(), i = ip.trim();
+  const base = u || (i ? (/^https?:\/\//.test(i) ? i : `http://${i}`) : "");
+  return base.replace(/\/+$/, "");
+}
+export const PUBLIC_URL = publicBase(env.SCRUB_PUBLIC_URL, env.SCRUB_SERVER_IP);
 // Shared secret ElevenLabs sends as "Authorization: Bearer ..." (its OPENAI_API_KEY secret). Empty = no check.
 export const LLM_SECRET = keys.VOICE_LLM_SECRET || "";
 // How long a reply stays open to speak follow-up event lines (seconds).
 export const HOLD_S = Number(env.VOICE_HOLD_S || 14);
+// A second call is told Scrub is busy while the active call spoke in the last this-many seconds.
+export const BUSY_S = Number(env.VOICE_BUSY_S || 45);
 // How long the judge-mode flag from GET /state is trusted before asking again (ms).
 export const JUDGE_TTL_MS = Number(env.VOICE_JUDGE_TTL_MS || 3000);
 // Vision (port 8001), for a photo texted to the Photon thread: POST {VISION_URL}/read/<kind>.

@@ -10,7 +10,11 @@ import { spawn } from "node:child_process";
 import http from "node:http";
 import type { AddressInfo } from "node:net";
 import { WebSocketServer } from "ws";
-import { callerFrom, heardFrom } from "../src/chat.js";
+import { callerFrom, conversationFrom, heardFrom } from "../src/chat.js";
+import { BUSY_LINE, activeCall, claimCall, forgetCalls } from "../src/calls.js";
+import { publicBase } from "../src/config.js";
+import { forgetTimings, recordTiming, timingLine, timingStats } from "../src/timing.js";
+import { TALK_HTML } from "../src/talk.js";
 import { isGotIt, isStop, isTrayCheck, localParse, parseAlias } from "../src/parse.js";
 import { caseFacts, caseLink, clock, closeCaseWithLink, endCase, newCase, recordEvent, setCaller, templateSummary, textCaller, withTimeout } from "../src/summary.js";
 import type { Setting } from "../src/settings.js";
@@ -292,6 +296,40 @@ heardBack.length = 0;
 await handleTurn("stop", (l) => heardBack.push(l));
 assert.deepEqual(heardBack, []);  // flushed once, not again
 
+// Per-turn timings: arrival -> command posted, Gemini parse, the POST round trip, arrival -> first line. Faked io.
+forgetTimings();
+const wait = (ms: number) => new Promise((r) => setTimeout(r, ms));
+Object.assign(io, {
+  currentSetting: async () => surgical,
+  parse: async () => { await wait(40); return { action: "unknown" as const, item: null, via: "gemini" as const }; },
+  postCommand: async () => { await wait(30); speak("Which instrument?"); return { accepted: true, reason: null, say: null }; },
+});
+const quit = new AbortController();
+const arrived = Date.now() - 20;  // the body took 20 ms to read
+const timed = handleTurn("hand me the bovie", () => {}, quit.signal, arrived);
+await wait(150);
+quit.abort();
+await timed;
+const ts = timingStats();
+assert.equal(ts.turns, 1);
+assert.ok(ts.gemini_p50_ms! >= 38 && ts.gemini_p50_ms! < 140, `gemini ${ts.gemini_p50_ms}`);
+assert.ok(ts.heard_to_command_p50_ms! >= ts.gemini_p50_ms! + 20, `heard->command ${ts.heard_to_command_p50_ms}`);
+assert.ok(ts.controller_p50_ms! >= 28 && ts.controller_p50_ms! < 140, `controller ${ts.controller_p50_ms}`);
+assert.ok(ts.first_line_p50_ms! >= ts.heard_to_command_p50_ms! + 28, `first line ${ts.first_line_p50_ms}`);
+assert.equal(ts.last?.parser, "gemini");
+await handleTurn("stop", () => {});  // stop: local, no Gemini time; "Stopped." comes from the event, none here
+assert.deepEqual({ ...timingStats().last, heard_to_command_ms: 0, controller_ms: 0 },
+  { heard_to_command_ms: 0, gemini_ms: null, parser: "local", controller_ms: 0, first_line_ms: null });
+assert.equal(timingStats().turns, 2);
+assert.equal(timingStats().gemini_p50_ms, ts.gemini_p50_ms);  // a turn without Gemini doesn't count toward its median
+assert.equal(timingLine({ heard_to_command_ms: 12, gemini_ms: 380, parser: "gemini", controller_ms: 25, first_line_ms: 410 }),
+  "[timing] heard->command 12ms, gemini 380ms, controller 25ms, first line 410ms");
+assert.equal(timingLine({ heard_to_command_ms: 3, gemini_ms: null, parser: "local", controller_ms: 4, first_line_ms: null }),
+  "[timing] heard->command 3ms, gemini local, controller 4ms, first line -");
+for (let i = 0; i < 60; i++) recordTiming({ ...timingStats().last! });
+assert.equal(timingStats().turns, 50);  // the last 50 only
+forgetTimings();
+
 // Call-to-text memory (F4): events grouped by case_id, the text names the case, goes to the caller. Fake sender, no Gemini.
 const start = Math.floor(Date.now() / 1000) - 600;
 ev("released", { command_id: "z", item: "scalpel", case_id: `surgical-${start - 900}`, setting: "surgical" });  // an older case
@@ -379,6 +417,39 @@ assert.equal(callerFrom([sys("Caller: {{system__caller_id}}")]), "");
 assert.equal(callerFrom([sys("Caller: ")]), "");
 assert.equal(heardFrom([sys("x"), { role: "user", content: [{ type: "text", text: "knife please" }] }]), "knife please");
 assert.equal(heardFrom([sys("x"), { role: "user", content: "kelly" }, { role: "assistant", content: "Hemostat coming." }]), "");
+// Which call a turn is from: "Conversation: {{system__conversation_id}}" in the system prompt, filled in by ElevenLabs.
+assert.equal(conversationFrom([sys("You are Scrub.\nCaller: +15555550123\nConversation: conv_01jxk2abc")]), "conv_01jxk2abc");
+assert.equal(conversationFrom([sys("Caller: +15555550123. Conversation id: conv_9")]), "conv_9");
+assert.equal(conversationFrom([sys("Conversation: {{system__conversation_id}}")]), "");  // unfilled: unknown
+assert.equal(conversationFrom([sys("Keep the conversation: short and calm.")]), "");  // a word, not an id
+assert.equal(conversationFrom([sys("You are Scrub.")]), "");
+assert.equal(conversationFrom([sys("x")], { elevenlabs_extra_body: { conversation_id: "conv_x1" } }), "conv_x1");
+assert.equal(conversationFrom([sys("x")], { user_id: "conv_u2" }), "conv_u2");
+assert.equal(conversationFrom([sys("x")], { user_id: "+15555550123", elevenlabs_extra_body: {} }), "");  // a user, not a call
+assert.equal(conversationFrom([sys("Conversation: conv_p")], { elevenlabs_extra_body: { conversation_id: "conv_x1" } }), "conv_p");
+// One call at a time (fake clock): another conversation is busy while the active one spoke in the last 45 s.
+forgetCalls();
+assert.ok(claimCall("conv_a", 0, 45));
+assert.ok(claimCall("conv_a", 10_000, 45));            // the same call: always
+assert.ok(!claimCall("conv_b", 54_000, 45));           // 44 s after A's last turn: busy
+assert.ok(claimCall("", 54_000, 45));                  // unknown id (say.ts, /heard, a simulated call): never busy
+assert.equal(activeCall(54_000, 45), "conv_a");        // ... and doesn't take over
+assert.ok(claimCall("conv_b", 55_001, 45));            // A quiet for 45 s: B gets Scrub
+assert.ok(!claimCall("conv_a", 60_000, 45));
+assert.equal(activeCall(200_000, 45), null);
+forgetCalls();
+assert.equal(BUSY_LINE, "Scrub is busy with another call. Try again in a minute.");
+// The case replay link: SCRUB_PUBLIC_URL, else the Vultr box by SCRUB_SERVER_IP (nginx :80 -> the ledger page).
+assert.equal(publicBase("https://scrub.example/", "1.2.3.4"), "https://scrub.example");
+assert.equal(publicBase("", "144.202.95.111"), "http://144.202.95.111");
+assert.equal(publicBase("", " http://144.202.95.111/ "), "http://144.202.95.111");
+assert.equal(publicBase("", ""), "");
+assert.equal(publicBase(undefined, undefined), "");
+assert.equal(caseLink("surgical-1760731200", publicBase("", "144.202.95.111")), "Case replay: http://144.202.95.111/case.html?id=surgical-1760731200");
+// The no-phone page: self-contained, posts to /heard, speaks the lines.
+assert.match(TALK_HTML, /<title>Scrub — talk without a phone<\/title>/);
+for (const s of ["webkitSpeechRecognition", "speechSynthesis", '"/heard"', "401"]) assert.ok(TALK_HTML.includes(s), s);
+assert.ok(!/<script[^>]+src=|<link[^>]+href=/.test(TALK_HTML), "no outside files");
 
 // The real server against a fake controller: SSE chunk shape, stop skips Gemini and /command, caller id.
 const hits: string[] = [];
@@ -448,7 +519,7 @@ const ctlPort = (ctl.address() as AddressInfo).port;
 const voicePort = 3024 + offset;
 const out: string[] = [];
 const child = spawn(process.execPath, ["--import", "tsx", "src/server.ts"], { cwd: path.resolve(import.meta.dirname, ".."),
-  env: { ...process.env, VOICE_NO_KEYS: "1", CONTROLLER_URL: `http://localhost:${ctlPort}`, VOICE_PORT: String(voicePort), VOICE_HOLD_S: "2", VOICE_JUDGE_TTL_MS: "0" } });
+  env: { ...process.env, VOICE_NO_KEYS: "1", CONTROLLER_URL: `http://localhost:${ctlPort}`, VOICE_PORT: String(voicePort), VOICE_HOLD_S: "2", VOICE_JUDGE_TTL_MS: "0", VOICE_BUSY_S: "1.5" } });
 child.stdout.on("data", (d) => out.push(String(d)));
 child.stderr.on("data", (d) => out.push(String(d)));
 const base = `http://localhost:${voicePort}`;
@@ -456,10 +527,10 @@ try {
   for (let i = 0; i < 100 && !out.join("").includes("[events] connected"); i++) await new Promise((r) => setTimeout(r, 100));
   assert.ok(out.join("").includes("[events] connected"), out.join(""));
 
-  const turn = async (heard: string) => {
+  const turn = async (heard: string, prompt = "You are Scrub.\nCaller: +15555550123\nConversation: {{system__conversation_id}}") => {
     const res = await fetch(`${base}/v1/chat/completions`, { method: "POST", headers: { "content-type": "application/json" },
       body: JSON.stringify({ model: "scrub", stream: true, temperature: 0.5, max_tokens: 5000, tools: [], elevenlabs_extra_body: {},
-        messages: [sys("You are Scrub.\nCaller: +15555550123"), { role: "assistant", content: "Scrub here." }, { role: "user", content: heard }] }) });
+        messages: [sys(prompt), { role: "assistant", content: "Scrub here." }, { role: "user", content: heard }] }) });
     assert.match(res.headers.get("content-type") || "", /text\/event-stream/);
     const raw = await res.text();
     assert.ok(raw.endsWith("data: [DONE]\n\n"), raw);
@@ -556,6 +627,43 @@ try {
   assert.equal(health.gemini_ms, null);  // no key: Gemini never ran
   assert.equal(health.gemini_p50_ms, null);
   assert.equal((await fetch(`${base}/health`)).headers.get("access-control-allow-origin"), "*");
+  // Per-turn timings: one [timing] line a turn, medians of the last 50 in /health.
+  assert.match(out.join(""), /\[timing\] heard->command \d+ms, gemini local, controller \d+ms, first line \d+ms/);
+  assert.deepEqual(Object.keys(health.timing).sort(),
+    ["controller_p50_ms", "first_line_p50_ms", "gemini_p50_ms", "heard_to_command_p50_ms", "last", "turns"]);
+  assert.ok(health.timing.turns > 5 && health.timing.turns <= 50, String(health.timing.turns));
+  for (const k of ["heard_to_command_p50_ms", "controller_p50_ms", "first_line_p50_ms"]) assert.equal(typeof health.timing[k], "number", k);
+  assert.equal(health.timing.gemini_p50_ms, null);  // no key: Gemini never ran
+  assert.equal(health.active_call, false);
+
+  // The no-phone page, and its /heard turn is timed like a call.
+  const page = await fetch(`${base}/talk`);
+  assert.match(page.headers.get("content-type") || "", /text\/html/);
+  assert.match(await page.text(), /<title>Scrub — talk without a phone<\/title>/);
+  const timedBefore = out.join("").split("[timing]").length;
+  const viaHeard = await (await fetch(`${base}/heard`, { method: "POST", body: JSON.stringify({ text: "what's out" }) })).json();
+  assert.deepEqual(viaHeard, { heard: "what's out", say: ["Out: hemostat."] });
+  assert.equal(out.join("").split("[timing]").length, timedBefore + 1);
+
+  // Overlapping calls (VOICE_BUSY_S 1.5 here): call A holds Scrub; call B hears the busy line and moves nothing,
+  // but B's "stop" still stops the arm. Unknown ids (no Conversation line filled) are never busy.
+  const callA = "You are Scrub.\nCaller: +15555550123\nConversation: conv_aaa111";
+  const callB = "You are Scrub.\nCaller: +15555550999\nConversation: conv_bbb222";
+  assert.equal(await turn("grab me the kelly", callA), "Hemostat coming.");
+  assert.equal((await (await fetch(`${base}/health`)).json()).active_call, true);
+  hits.length = 0;
+  assert.equal(await turn("grab me the kelly", callB), BUSY_LINE);
+  assert.equal(await turn("what's out", callB), BUSY_LINE);
+  assert.equal(hits.length, 0, hits.join());  // no setting, no command
+  assert.ok(!out.join("").includes("[case] caller +15555550999"));  // the busy call doesn't take the summary text
+  assert.equal(await turn("stop", callB), "Stopped.");  // safety first: a stop from any call
+  assert.deepEqual(hits, ["POST /stop"]);
+  assert.match(out.join(""), /\[busy\] conv_bbb222 said "stop" while conv_aaa111 is on: stopping anyway/);
+  assert.equal(await turn("what's out"), "Out: hemostat.");  // unknown id: never busy
+  assert.equal(await turn("what's out", callA), "Out: hemostat.");  // A still has Scrub
+  await new Promise((r) => setTimeout(r, 1600));  // A quiet past VOICE_BUSY_S: free
+  assert.equal(await turn("what's out", callB), "Out: hemostat.");
+  assert.ok(out.join("").includes("[case] caller +15555550999"));
 
   // AUDIT Low: passes made while the events socket is down are counted after the reconnect (GET /events/recent).
   await fetch(`${base}/summary`, { method: "POST" });  // a fresh case
