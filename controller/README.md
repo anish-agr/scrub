@@ -49,6 +49,7 @@ websocat ws://localhost:8000/events      # or open http://localhost:8000/
 - Out of region: if the point 8 cm short of the hand is refused (and the hand watcher didn't freeze it), the arm goes straight to the hand slowly. Only if the hand point itself is refused does it say "That's out of my reach" and set the item down (`/fake/force {"out_of_region": 2}` forces that). With no Hand posts at all it goes to the saved spot (`handoff_spot` in `arm/rig.json`, else `[0.22, -0.10, 0.18]`).
 - `return` with no item takes the return-spot item from a fresh TrayState, else the last item out.
 - Auto return (F1): if TrayStates show the same item in the return spot for `AUTO_RETURN_S` (2 s) with the arm idle and nothing queued, Scrub says "Returning the X." and runs the normal return; its `command` event has `source: "auto"`, `action: "return"`. Once per visit (the item must leave the spot first), never while stopped or busy, and `stop` interrupts it like any return.
+- Count from the camera (F2): `GET /state` and `count` events carry `out_camera` (empty slots minus the return-spot item, from a fresh TrayState; `null` without one). If it disagrees with `out`, the count line adds "Camera also sees the X gone." and/or "Camera sees the X back."; otherwise the line is unchanged.
 - `count` answers at once, even mid-handover. Up to 3 handovers queue; `stop` clears the queue.
 - Switching trays (`POST /setting`) only works when idle or stopped, and clears `out`.
 - `ledger` is used if `ledger.log` exists; otherwise `/stats` comes from memory.

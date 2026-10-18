@@ -74,14 +74,19 @@ def tray_feed(ctl, stop_evt, item, present=lambda: True):
     threading.Thread(target=loop, daemon=True).start()
 
 
+def post_scene(ctl, scene):
+    """One TrayState from a scene: {"spot": item or None, "empty": set of item ids off their slots}."""
+    ctl.post_tray({"setting": "surgical",
+                   "slots": [{"item": i, "present": i not in scene["empty"], "confidence": 0.9, "box": None}
+                             for i in ("scalpel", "hemostat", "mayo_scissors")],
+                   "return_spot": {"item": scene["spot"], "confidence": 0.9, "box": None}, "t": time.time()})
+
+
 def scene_feed(ctl, stop_evt, scene, period=0.05):
-    """TrayStates from a mutable scene: {"spot": item or None, "empty": set of item ids off their slots}."""
+    """TrayStates from a mutable scene, like vision posting them."""
     def loop():
         while not stop_evt.is_set():
-            ctl.post_tray({"setting": "surgical",
-                           "slots": [{"item": i, "present": i not in scene["empty"], "confidence": 0.9, "box": None}
-                                     for i in ("scalpel", "hemostat", "mayo_scissors")],
-                           "return_spot": {"item": scene["spot"], "confidence": 0.9, "box": None}, "t": time.time()})
+            post_scene(ctl, scene)
             time.sleep(period)
     threading.Thread(target=loop, daemon=True).start()
 
@@ -441,6 +446,34 @@ def return_checked_against_the_tray():
     _, evs = run(ctl, {"action": "return", "item": "hemostat"})
     stop.set()
     assert says(evs)[-1] == lines.couldnt_return("hemostat") and ctl.out == ["hemostat"], says(evs)
+
+
+@test
+def count_agrees_with_the_camera():
+    ctl, arm = make()
+    run(ctl, HANDOVER)
+    assert ctl.state()["out_camera"] is None  # no TrayState yet
+    post_scene(ctl, {"spot": None, "empty": {"hemostat"}})
+    assert ctl.state()["out_camera"] == ["hemostat"]
+    reply, evs = run(ctl, {"action": "count"})
+    assert reply["say"] == "Out: hemostat." and evs[-1]["out_camera"] == ["hemostat"], reply
+
+
+@test
+def count_says_when_the_camera_disagrees():
+    ctl, arm = make()
+    run(ctl, HANDOVER)
+    post_scene(ctl, {"spot": None, "empty": {"hemostat", "mayo_scissors"}})
+    reply, _ = run(ctl, {"action": "count"})
+    assert reply["say"] == "Out: hemostat. " + lines.camera_gone(ctl._names(["mayo_scissors"])), reply
+    post_scene(ctl, {"spot": "hemostat", "empty": {"hemostat"}})  # set down in the return spot
+    assert ctl.state()["out_camera"] == []
+    reply, _ = run(ctl, {"action": "count"})
+    assert reply["say"] == "Out: hemostat. " + lines.camera_back(["hemostat"]), reply
+    ctl.tray["stale"] = True  # stale: back to the plain line
+    assert ctl.state()["out_camera"] is None
+    assert run(ctl, {"action": "count"})[0]["say"] == "Out: hemostat."
+    ctl.stop()
 
 
 @test

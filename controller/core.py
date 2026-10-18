@@ -116,7 +116,8 @@ class Controller:
             return {
                 "step": self.step, "item": self.item, "queue": [j["item"] for j in self.jobs],
                 "out": list(self.out), "setting": self.setting["id"], "lighting": self.lighting,
-                "fake_arm": self.fake_arm, "hand_seen": self._hand_fresh() is not None, "t": time.time(),
+                "fake_arm": self.fake_arm, "hand_seen": self._hand_fresh() is not None,
+                "out_camera": self._camera_out()[0], "t": time.time(),
             }
 
     # ---------- inputs ----------
@@ -133,9 +134,9 @@ class Controller:
             self._emit_command(cmd, True, None, None)
             return {"accepted": True, "reason": None, "say": lines.STOPPED}
         if action == "count":
-            say = lines.count(self._names(self.out))
+            say, cam = self._count_line()
             self._emit_command(cmd, True, None, None)
-            self.emit("count", say=say, item=None, command_id=cmd["id"], out=list(self.out))
+            self.emit("count", say=say, item=None, command_id=cmd["id"], out=list(self.out), out_camera=cam)
             return {"accepted": True, "reason": None, "say": say}
         with self.lock:
             ok, reason, say = self._check(cmd)
@@ -310,6 +311,32 @@ class Controller:
         if not self.tray or time.time() - self.tray_at > TRAY_STALE_S:
             return None
         return (self.tray.get("return_spot") or {}).get("item")
+
+    def _camera_out(self) -> tuple[list | None, set]:
+        """F2: (items whose slot is empty minus the return-spot item, items the camera reports on)
+        from a fresh TrayState, else (None, empty set)."""
+        tray = self.tray
+        if not tray or tray.get("stale") or time.time() - self.tray_at > TRAY_STALE_S:
+            return None, set()
+        spot = (tray.get("return_spot") or {}).get("item")
+        slots = [s for s in tray.get("slots", []) if settings.item(self.setting, s.get("item") or "")]
+        out = [s.get("item") for s in slots if not s.get("present") and s.get("item") != spot]
+        return out, {s.get("item") for s in slots} | ({spot} if spot else set())
+
+    def _count_line(self) -> tuple[str, list | None]:
+        """The count line, plus a short note where the camera disagrees with `out`."""
+        with self.lock:
+            out = list(self.out)
+            cam, known = self._camera_out()
+        say = lines.count(self._names(out))
+        if cam is not None:
+            gone = [i for i in cam if i not in out]
+            back = [i for i in out if i not in cam and i in known]
+            if gone:
+                say += " " + lines.camera_gone(self._names(gone))
+            if back:
+                say += " " + lines.camera_back(self._names(back))
+        return say, cam
 
     def _names(self, ids) -> list[str]:
         return [(settings.item(self.setting, i) or {"name": i})["name"] for i in ids]
