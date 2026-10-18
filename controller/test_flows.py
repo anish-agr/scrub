@@ -920,6 +920,139 @@ def judge_flag_starts_in_judge_mode():
     assert ctl.state()["judge"] and ctl.submit({"action": "return"})["reason"] == "judge mode"
 
 
+@test
+def stop_never_lets_a_queued_job_run():
+    """A slow freeze must not open a gap where the worker pops the next queued job under the new gen."""
+    ctl, arm = make()
+    skills = []
+    orig_skill, orig_freeze = arm.run_skill, arm.freeze
+
+    def run_skill(instruction, max_s=20.0):
+        skills.append(instruction)
+        return orig_skill(instruction, max_s)
+
+    def slow_freeze():
+        orig_freeze()
+        time.sleep(0.3)
+    arm.run_skill, arm.freeze = run_skill, slow_freeze
+    arm.scale = 1.0
+    ctl.submit(dict(HANDOVER))
+    ctl.submit({"action": "handover", "item": "mayo_scissors"})
+    assert wait_for(lambda: ctl.step == "picking")
+    ctl.stop()
+    n = len(ctl.history)
+    time.sleep(0.5)
+    later = [e for e in list(ctl.history)[n:] if e["type"] != "command"]
+    assert ctl.step == "stopped" and later == [] and skills == ["pick the hemostat"], (ctl.step, later, skills)
+
+
+@test
+def setting_change_never_clears_a_stop():
+    ctl, arm = stop_at("moving_to_hand")
+    ctl.set_setting("bench")
+    assert ctl.step == "stopped" and arm._frozen.is_set()
+    r = ctl.submit({"action": "handover", "item": "hex_key"})
+    assert not r["accepted"] and r["say"] == lines.NEEDS_RESET, r
+    evs = reset(ctl)
+    assert ctl.step == "idle" and "setting_down" in steps(evs), steps(evs)  # the held hemostat went to the safe spot
+
+
+@test
+def stop_during_reset_rearm_stays_frozen():
+    ctl, arm = stop_at("picking")
+    orig = arm.resume
+
+    def resume():
+        ctl.stop()  # a stop lands just as the reset starts to rearm
+        orig()
+    arm.resume = resume
+    ctl.reset()
+    time.sleep(0.4)
+    assert ctl.step == "stopped" and arm._frozen.is_set(), (ctl.step, arm._frozen.is_set())
+
+
+@test
+def bad_hand_target_is_never_a_move():
+    ctl, arm = make()
+    stop = threading.Event()
+
+    def loop():
+        while not stop.is_set():
+            ctl.post_hand({"seen": True, "open": True, "palm_px": [300, 200], "target": [float("nan"), -0.1, 0.18],
+                           "path_clear": True, "t": time.time()})
+            time.sleep(0.05)
+    threading.Thread(target=loop, daemon=True).start()
+    _, evs = run(ctl, HANDOVER)
+    stop.set()
+    assert arm.moves == [] and says(evs)[-1] == lines.no_hand("hemostat"), (arm.moves, says(evs))
+
+
+@test
+def events_say_fake_arm():
+    ctl, _ = make()
+    _, evs = run(ctl, HANDOVER)
+    assert evs and all(e["fake_arm"] is True for e in evs), [e.get("fake_arm") for e in evs]
+    real = Controller(RecordingArm(motion_s=0.1), fake_arm=False)
+    assert real.emit("step")["fake_arm"] is False
+
+
+@test
+def tray_switch_keeps_what_is_still_out():
+    ctl, arm = make()
+    run(ctl, HANDOVER)
+    assert ctl.out == ["hemostat"]
+    ctl.set_setting("bench")
+    assert ctl.out == ["hemostat"] and ctl.state()["out"] == ["hemostat"]  # never dropped by a switch
+    reply, _ = run(ctl, {"action": "count"})
+    assert reply["say"] == "Out: hemostat.", reply
+    r = ctl.submit({"action": "return"})  # nothing from the bench tray is out
+    assert not r["accepted"] and r["say"] == lines.NOTHING_OUT, r
+    ctl.reset(clear_count=True)
+    assert wait_for(lambda: ctl.out == [] and ctl.step == "idle" and ctl.cmd is None), (ctl.out, ctl.step)
+
+
+@test
+def stats_without_the_ledger_has_the_ledger_shape():
+    ctl, _ = make()
+    run(ctl, HANDOVER)
+    saved, core.ledger = core.ledger, None
+    try:
+        st = ctl.stats()
+    finally:
+        core.ledger = saved
+    row = st["by_item"][0]
+    assert isinstance(st["by_item"], list) and st["by_lighting"] == [] and st["out"] == ["hemostat"], st
+    assert (row["item"], row["attempts"], row["successes"], row["success_rate"]) == ("hemostat", 1, 1, 1.0), row
+    assert row["median_request_to_hand_s"] and st["median_request_to_hand_s"] == row["median_request_to_hand_s"]
+
+
+@test
+def restocks_say_fake_arm():
+    ctl, _ = make()
+    logged = []
+
+    class Ledger:
+        log = staticmethod(logged.append)
+    saved, core.ledger = core.ledger, Ledger
+    try:
+        assert ctl.log_restock({"item": "hemostat", "qty": 2})
+        assert wait_for(lambda: logged)
+    finally:
+        core.ledger = saved
+    assert logged[0]["type"] == "restock" and logged[0]["fake_arm"] is True, logged
+
+
+@test
+def a_closed_page_never_breaks_events():
+    import asyncio
+    ctl, _ = make()
+    dead = asyncio.new_event_loop()
+    dead.close()
+    ctl.listeners.append((dead, asyncio.Queue()))
+    _, evs = run(ctl, HANDOVER)
+    assert "released" in types(evs) and ctl.step == "idle", types(evs)
+
+
 def main():
     failed = 0
     for fn in TESTS:

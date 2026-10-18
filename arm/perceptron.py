@@ -11,6 +11,12 @@ from dotenv import load_dotenv
 
 USER_AGENT = "Scrub-DubHacks2026/0.1 (anish-agr/dubhacks-2026; SO-101)"
 BASE_URL = "https://robotics.perceptron.inc"
+# Inference timeouts, seconds. A predict past the 400 ms deadline is dropped anyway, so it gets no
+# longer. Opening a robot session can wait on a cold model container; reset and delete sit between
+# skills, so they get a few seconds instead of failing at 0.4 s and costing a fresh grant.
+PREDICT_TIMEOUT_S = 0.4
+SESSION_TIMEOUT_S = 15.0
+CLEANUP_TIMEOUT_S = 3.0
 
 
 class APIError(RuntimeError):
@@ -121,7 +127,7 @@ class Inference:
         endpoint = grant.get("endpoint_url") or BASE_URL + "/v1/inference"
         if urlparse(endpoint).scheme != "https":
             raise ValueError("Inference endpoint requires HTTPS")
-        self.http = httpx.Client(base_url=endpoint.rstrip("/") + "/", timeout=0.4,
+        self.http = httpx.Client(base_url=endpoint.rstrip("/") + "/", timeout=CLEANUP_TIMEOUT_S,
                                  follow_redirects=False, transport=transport,
                                  headers={"User-Agent": USER_AGENT,
                                           "Authorization": "Bearer " + grant["application_session_token"],
@@ -137,18 +143,20 @@ class Inference:
             raise APIError("Perceptron inference transport failed") from None
 
     def contract(self, deployment_id):
-        return self.request("GET", f"deployments/{identity(deployment_id)}/contract")
+        return self.request("GET", f"deployments/{identity(deployment_id)}/contract",
+                            timeout=SESSION_TIMEOUT_S)
 
     def create_session(self, deployment_id, instruction, contract_id):
         return self.request("POST", f"deployments/{identity(deployment_id)}/sessions",
                             json={"instruction": instruction, "rtc_enabled": True,
-                                  "contract_id": contract_id})
+                                  "contract_id": contract_id}, timeout=SESSION_TIMEOUT_S)
 
     def predict(self, session_id, metadata, side: bytes, wrist: bytes):
         return self.request("POST", f"sessions/{identity(session_id)}/predict",
                             data={"metadata": json.dumps(metadata)},
                             files={"side": ("side.png", side, "image/png"),
-                                   "wrist": ("wrist.png", wrist, "image/png")})
+                                   "wrist": ("wrist.png", wrist, "image/png")},
+                            timeout=PREDICT_TIMEOUT_S)
 
     def reset(self, session_id):
         return self.request("POST", f"sessions/{identity(session_id)}/reset")

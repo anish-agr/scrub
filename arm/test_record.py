@@ -65,9 +65,26 @@ class CommandTests(unittest.TestCase):
     def setUp(self):
         self.tmp = tempfile.TemporaryDirectory()
         self.root = Path(self.tmp.name) / "scrub-dataset"
+        self.real_busy_ports = record.busy_ports
+        busy = mock.patch.object(record, "busy_ports", return_value={})  # never lsof the real arm's ports here
+        busy.start()
+        self.addCleanup(busy.stop)
 
     def tearDown(self):
         self.tmp.cleanup()
+
+    def test_refuses_while_the_arm_port_is_in_use(self):
+        a = args("--task", "pick the hex key", "--lighting", "normal", "--follower", "/dev/tty.usbmodemA",
+                 "--leader", "/dev/tty.usbmodemB")
+        self.assertEqual(self.real_busy_ports(a, holders=lambda p: [7] if p.endswith("A") else []),
+                         {"/dev/tty.usbmodemA": [7]})
+        with mock.patch.object(record, "busy_ports", return_value={"/dev/tty.usbmodemA": [7]}), \
+                mock.patch.object(record, "load_env"), mock.patch.object(record, "use_degrees_default", return_value=True), \
+                mock.patch.object(record.subprocess, "Popen") as popen, contextlib.redirect_stdout(io.StringIO()), \
+                mock.patch.dict(os.environ, {"HF_USER": "me"}):
+            with self.assertRaisesRegex(SystemExit, "in use"):
+                record.main(["--task", "pick the hex key", "--lighting", "normal", "--root", str(self.root)])
+        popen.assert_not_called()
 
     def test_arm_session_command_maps_settings(self):
         a = args("--task", "pick the hemostat", "--lighting", "bright", "--episodes", "7",
