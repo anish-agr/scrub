@@ -75,6 +75,8 @@ function paint(report) {
   fillTable("by-item", itemRows, "item");
   fillTable("by-lighting", lightRows, "lighting");
   const rows = itemRows.length + lightRows.length;
+  const empty = $("tables-empty");
+  if (empty) empty.textContent = "No real-arm tries yet.";
   document.querySelector("main").classList.toggle("has-rows", rows > 0);
   $("status").hidden = true;
 }
