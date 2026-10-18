@@ -37,7 +37,7 @@ STYLE: Swiss Design on an OR wall display. Charcoal ground, strict 12-column gri
 -->
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link href="https://fonts.googleapis.com/css2?family=Archivo:wght@400;600;800&family=Archivo+Narrow:wght@500;700&family=IBM+Plex+Mono:wght@400;600&display=swap" rel="stylesheet">
-<link rel="stylesheet" href="/style.css">
+<link rel="stylesheet" href="/style.css" onerror="this.onerror=null;this.href='../dashboard/style.css'">
 </head>
 <body class="scrub-console" data-page="demo">
 <header>
@@ -160,38 +160,38 @@ const ITEM_NAMES={scalpel:"scalpel",hemostat:"hemostat",mayo_scissors:"Mayo scis
 const SETTING_ITEMS={surgical:["hemostat","scalpel","mayo_scissors"],bench:["needle_nose_pliers","wire_cutters","hex_key"]};  // dental is hidden
 const FULL=[
  {at:0,end:30,title:"The problem",who:"Anish",
-  line:"“Every operation has a scrub tech. They hand the surgeon each instrument and keep the count. Hospitals can't hire enough of them. A surgical tech job takes about 120 days to fill. So the surgeon looks away from the patient, puts down what they're holding, and searches the tray. And when an instrument is missing, the case waits. One study found those delays ran about ten minutes.”",
+  line:"\u201cEvery operation has a scrub tech. They hand the surgeon each instrument and keep the count. Hospitals can't hire enough of them. A surgical tech job takes about 120 days to fill. So the surgeon looks away from the patient, puts down what they're holding, and searches the tray. And when an instrument is missing, the case waits. One study found those delays ran about ten minutes.\u201d",
   brandon:"Stand as the clinician, hands busy.", evan:"OR tray on the blue towel. Lamp off. Hands clear.",
-  caiden:"Dashboard faces the judge. Press Enter when Anish says “This is Scrub.”", goals:[]},
- {at:30,end:50,title:"“This is Scrub.”",who:"Anish",
-  line:"“This is Scrub. You ask for what you need, out loud.” After Brandon's request: “Scrub picks it from the tray. It brings it to Brandon's open hand, handle first, and lets go when he pulls. The dashboard times every handoff.”",
-  brandon:"Say “hemostat.” Open hand, take it by the handle, pull.", evan:"Stay out of the camera.",
+  caiden:"Dashboard faces the judge. Press Enter when Anish says \u201cThis is Scrub.\u201d", goals:[]},
+ {at:30,end:50,title:"\u201cThis is Scrub.\u201d",who:"Anish",
+  line:"\u201cThis is Scrub. You ask for what you need, out loud.\u201d After Brandon's request: \u201cScrub picks it from the tray. It brings it to Brandon's open hand, handle first, and lets go when he pulls. The dashboard times every handoff.\u201d",
+  brandon:"Say \u201chemostat.\u201d Open hand, take it by the handle, pull.", evan:"Stay out of the camera.",
   caiden:"Point at the request-to-hand time when it lands.", goals:[{k:"hand",item:"hemostat"}]},
  {at:50,end:65,title:"Sharps and stop",who:"Caiden",
-  line:"“Scalpels never go hand to hand. Nurses and techs get cut most often while passing sharps. US hospital staff have about 385,000 needle and sharps injuries a year. So Scrub sets the scalpel on a safe spot and says “scalpel down.” Anyone can say stop, and the arm freezes until a person resets it.”",
-  brandon:"Say “scalpel.” Wait for “scalpel down,” then pick it up from the safe spot.", evan:"Stay out of the camera.",
+  line:"\u201cScalpels never go hand to hand. Nurses and techs get cut most often while passing sharps. US hospital staff have about 385,000 needle and sharps injuries a year. So Scrub sets the scalpel on a safe spot and says \u201cscalpel down.\u201d Anyone can say stop, and the arm freezes until a person resets it.\u201d",
+  brandon:"Say \u201cscalpel.\u201d Wait for \u201cscalpel down,\u201d then pick it up from the safe spot.", evan:"Stay out of the camera.",
   caiden:"You speak this one. Watch the path. Space if anything crosses it.", goals:[{k:"down",item:"scalpel"}]},
  {at:65,end:80,title:"The judge's turn",who:"Caiden, then Brandon",
-  line:"Caiden: “Your turn. Ask for the scissors.” Once the scissors arrive, Brandon: “A camera over the tray finds your open hand ten times a second. The arm slows down near it. If your hand leaves, the arm holds still.”",
+  line:"Caiden: \u201cYour turn. Ask for the scissors.\u201d Once the scissors arrive, Brandon: \u201cA camera over the tray finds your open hand ten times a second. The arm slows down near it. If your hand leaves, the arm holds still.\u201d",
   brandon:"Step back so the judge's hand is the only open hand. Then the hand-tracking line.", judge:"Asks for the scissors out loud and takes them.", evan:"Nothing.",
   caiden:"If voice misses, press C to send the request.", goals:[{k:"hand",item:"mayo_scissors"}]},
  {at:80,end:100,title:"Return and count",who:"Caiden",
-  line:"“Done with a tool? Set it in the return spot. Scrub puts it back in its slot by itself. It also keeps the count. That matters. A Mayo Clinic study found an item left inside a patient about once in every 5,500 operations. Most of those counts had been called correct.”",
+  line:"\u201cDone with a tool? Set it in the return spot. Scrub puts it back in its slot by itself. It also keeps the count. That matters. A Mayo Clinic study found an item left inside a patient about once in every 5,500 operations. Most of those counts had been called correct.\u201d",
   brandon:"Set the hemostat in the return spot. Wait about 2 s for the automatic return.", evan:"Nothing.",
-  caiden:"You speak this one. Watch for “Hemostat back in its slot.”", goals:[{k:"returned",item:"hemostat"}]},
+  caiden:"You speak this one. Watch for \u201cHemostat back in its slot.\u201d", goals:[{k:"returned",item:"hemostat"}]},
  {at:100,end:120,title:"Glare and the tables",who:"Evan",
-  line:"“Operating lights are bright, and steel throws glare. So we test every item in bright, normal and dim light. Brandon, ask again.” After the handoff: “Every try is saved in MongoDB. This table is live. [measured] percent in bright light, [measured] in normal. The range next to each one shows how sure we are.”",
+  line:"\u201cOperating lights are bright, and steel throws glare. So we test every item in bright, normal and dim light. Brandon, ask again.\u201d After the handoff: \u201cEvery try is saved in MongoDB. This table is live. [measured] percent in bright light, [measured] in normal. The range next to each one shows how sure we are.\u201d",
   brandon:"Once the lamp is on, ask for any instrument on the tray.", evan:"Lamp on, aimed at the tray. You speak this one.",
   caiden:"Press L when the lamp is on (POST /lighting bright). Point at the lighting table.",
   goals:[{k:"light",value:"bright"},{k:"hand",item:"*"}]},
  {at:120,end:150,title:"A second tray",who:"Anish",
-  line:"“Scrub is built for the operating room. But this is a robotics bench tray. Same arm, same code. We fine-tuned Perceptron's Isaac model on our own demonstrations. For this tray we only recorded new ones and wrote one settings file. It took [measured] minutes.”",
-  brandon:"Say “needle-nose pliers.”", evan:"Lamp off. Swap to the bench tray.",
+  line:"\u201cScrub is built for the operating room. But this is a robotics bench tray. Same arm, same code. We fine-tuned Perceptron's Isaac model on our own demonstrations. For this tray we only recorded new ones and wrote one settings file. It took [measured] minutes.\u201d",
+  brandon:"Say \u201cneedle-nose pliers.\u201d", evan:"Lamp off. Swap to the bench tray.",
   caiden:"L back to normal. Key 2 once the bench tray is down.",
   goals:[{k:"setting",value:"bench"},{k:"hand",item:"needle_nose_pliers"}]},
  {at:150,end:180,title:"The close",who:"Brandon, Caiden, then Anish",
-  line:"Brandon: “Count.” Then: “End of case.” Caiden: “It reads back what's still out. When the case ends, the summary comes as a text on the same phone.” Anish: “Scrub runs on an open-source arm that costs a few hundred dollars. We'd sell it per operating room, starting with surgery centers. It helps scrub techs. It doesn't replace them. This is a research prototype, not a medical device. Questions?”",
-  brandon:"Say “count,” then “end of case.”", evan:"Hold up the phone so the summary text shows.",
+  line:"Brandon: \u201cCount.\u201d Then: \u201cEnd of case.\u201d Caiden: \u201cIt reads back what's still out. When the case ends, the summary comes as a text on the same phone.\u201d Anish: \u201cScrub runs on an open-source arm that costs a few hundred dollars. We'd sell it per operating room, starting with surgery centers. It helps scrub techs. It doesn't replace them. This is a research prototype, not a medical device. Questions?\u201d",
+  brandon:"Say \u201ccount,\u201d then \u201cend of case.\u201d", evan:"Hold up the phone so the summary text shows.",
   caiden:"Speak the readback line. Press Enter when Anish finishes. That ends and logs the run.", goals:[{k:"count"}], manualEnd:true},
 ];
 const SHORT_IDX=[1,3,7];
@@ -458,7 +458,7 @@ async function doCue(){
   else if(g&&g.k==="count")cmd={action:"count",item:null};
   else {flash(g?"this cue is a key, not a request: "+goalLabel(g):"no request on this cue",true);return}
   try{const r=await http("POST","/command",Object.assign(cmd,{source:"dashboard",t:Date.now()/1000}));
-    flash("/command "+cmd.action+(cmd.item?" "+cmd.item:"")+": "+(r.accepted?"accepted":"refused, "+r.reason)+(r.say?". Says “"+r.say+"”":""),!r.accepted)}
+    flash("/command "+cmd.action+(cmd.item?" "+cmd.item:"")+": "+(r.accepted?"accepted":"refused, "+r.reason)+(r.say?". Says \u201c"+r.say+"\u201d":""),!r.accepted)}
   catch(e){flash("/command failed: "+e.message,true)}
 }
 async function doGot(){
@@ -524,7 +524,7 @@ function paintArm(){
   $("evlog").innerHTML=events.map(ev=>{
     const tt=new Date(ev.t*1000).toTimeString().slice(0,8);
     const what=ev.type==="command"?(ev.action+(ev.item?" "+ev.item:"")+(ev.accepted===false?" refused":"")):(ev.type==="step"?ev.step:(ev.item||""));
-    return `<li class="${ev.type==="stopped"?"stop":""}"><span>${tt}</span><b>${ev.type}</b><span>${esc(what)}${ev.say?" “"+esc(ev.say)+"”":""}${ev.heard&&ev.heard.startsWith("(mock")?" (mock clinician)":""}</span></li>`}).join("");
+    return `<li class="${ev.type==="stopped"?"stop":""}"><span>${tt}</span><b>${ev.type}</b><span>${esc(what)}${ev.say?" \u201c"+esc(ev.say)+"\u201d":""}${ev.heard&&ev.heard.startsWith("(mock")?" (mock clinician)":""}</span></li>`}).join("");
   drawTop();
 }
 const esc=s=>String(s).replace(/[&<>"]/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c]));
