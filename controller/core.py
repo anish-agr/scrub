@@ -37,6 +37,7 @@ AUTO_RETURN_S = 2.0         # an item in the return spot this long with the arm 
 PREPARE_TRIES = 3           # pre-opening the robot model's sessions (L2): tries per setting change
 PREPARE_RETRY_S = 5.0
 JUDGE_ACTIONS = ("handover", "count", "stop", "got_it")  # all a judge may ask for (L3)
+STATE_MAX_AGE_S = 6 * 3600  # a saved count older than this is from another day: start a fresh case
 
 
 def _saved_spot() -> list:
@@ -48,6 +49,30 @@ def _saved_spot() -> list:
     except Exception:  # noqa: BLE001
         pass
     return list(DEFAULT_SPOT)
+
+
+def _load_state(path, setting_id: str) -> dict | None:
+    """The saved {out, case_id, setting, t} if it is for this setting and under STATE_MAX_AGE_S old."""
+    try:
+        d = json.loads(Path(path).read_text())
+        if (d.get("setting") == setting_id and time.time() - float(d.get("t", 0)) < STATE_MAX_AGE_S
+                and isinstance(d.get("out"), list) and d.get("case_id")):
+            return d
+    except Exception:  # noqa: BLE001 - missing or bad file: a fresh case
+        pass
+    return None
+
+
+def _save_state(path, d: dict) -> None:
+    """Temp file plus rename, so a crash mid-write never leaves half a file."""
+    try:
+        p = Path(path)
+        p.parent.mkdir(parents=True, exist_ok=True)
+        tmp = p.with_name(p.name + ".tmp")
+        tmp.write_text(json.dumps(d))
+        os.replace(tmp, p)
+    except Exception as e:  # noqa: BLE001 - never let a disk problem touch the arm
+        print(f"[state] not saved: {e!r}", flush=True)
 
 
 class Stopped(Exception):
@@ -67,7 +92,8 @@ def _api_error(e: Exception) -> tuple[int | None, str] | None:
 
 
 class Controller:
-    def __init__(self, arm, fake_arm: bool, setting_id: str = "surgical", judge: bool = False):
+    def __init__(self, arm, fake_arm: bool, setting_id: str = "surgical", judge: bool = False,
+                 state_file: str | Path | None = None):
         self.arm = arm
         self.fake_arm = fake_arm
         self.lock = threading.RLock()
@@ -76,6 +102,15 @@ class Controller:
         self.item = None
         self.out: list[str] = []
         self.case_id = self._new_case()
+        # The count survives a controller restart mid-case: {out, case_id, setting, t} saved on change (None = off).
+        self.state_file = state_file
+        self._saved = None              # (out, case_id, setting) last written
+        self._state_pool = ThreadPoolExecutor(1) if state_file else None
+        saved = _load_state(state_file, self.setting["id"]) if state_file else None
+        if saved:
+            self.out, self.case_id = [str(i) for i in saved["out"]], str(saved["case_id"])
+            self._saved = (tuple(self.out), self.case_id, self.setting["id"])
+            print(f"[state] restored case {self.case_id}, out: {self.out or 'nothing'}", flush=True)
         self.lighting = "normal"
         self.lux = None
         self.judge = judge              # L3: only handover, count, stop and got_it from /command
@@ -118,6 +153,12 @@ class Controller:
         }
         ev.update(kw)
         self.history.append(ev)
+        if self._state_pool is not None:
+            key = (tuple(ev["out"]), ev["case_id"], ev["setting"])
+            if key != self._saved:  # only on a change, and off this thread (never block a stop or the loop)
+                self._saved = key
+                self._state_pool.submit(_save_state, self.state_file,
+                                        {"out": ev["out"], "case_id": ev["case_id"], "setting": ev["setting"], "t": ev["t"]})
         for loop, q in list(self.listeners):
             try:
                 loop.call_soon_threadsafe(q.put_nowait, ev)
@@ -353,9 +394,13 @@ class Controller:
                               error=repr(e), code=api[0], reason=api[1])
 
     def _unknown_line(self) -> str:
-        """Ask which instrument, with a teaching hint from this tray (the first non-sharp item with an alias)."""
-        it = next((i for i in self.setting["items"] if i.get("aliases") and not i.get("sharp")), None)
-        return lines.unknown(it["name"], settings.norm(it["aliases"][0])) if it else lines.UNKNOWN
+        """Ask which instrument, with a teaching hint: the first non-sharp item and an example word this tray
+        doesn't have yet (hinting the item's own alias, "call the hemostat a kelly", taught a word that already works)."""
+        it = next((i for i in self.setting["items"] if not i.get("sharp")), None)
+        have = {settings.norm(w) for i in self.setting["items"]
+                for w in [i["name"], i["id"].replace("_", " "), *(i.get("aliases") or [])]}
+        word = next((w for w in lines.HINT_WORDS if w not in have), None)
+        return lines.unknown(it["name"], word) if it and word else lines.UNKNOWN
 
     def add_alias(self, item_id: str, alias: str) -> dict:
         """X6: a clinic-taught word for an item in the current setting. Writes settings/<id>.local.json and
@@ -631,7 +676,11 @@ class Controller:
         if self._tracking():
             hand = self._wait(gen, self._hand_ready, HAND_WAIT_S, lines.SHOW_HAND)
             if hand is None:
-                self._set_down(gen, it, lines.no_hand(it["name"]), None, None)
+                # A hand seen but with the path blocked is not "No hand": say what is wrong.
+                h = self._hand_fresh()
+                blocked = h is not None and h.get("path_clear") is False
+                say = lines.path_blocked_down(it["name"]) if blocked else lines.no_hand(it["name"])
+                self._set_down(gen, it, say, None, None)
                 self._home(gen)
                 return False
             target = list(hand["target"])

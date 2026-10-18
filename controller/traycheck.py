@@ -2,9 +2,11 @@
 
 Vision answers {"ok", "setting", "missing": [ids], "wrong_slot": [{"item", "in_slot_of"}], "extra": [ids],
 "stale", "t"}; anything missing or extra is tolerated. Vision down, 404, timeout or a stale view:
-ok false and "I can't check the tray right now."
+ok false and "I can't check the tray right now." With no vision process (the sim and backup stacks), the
+controller's own fresh TrayState answers instead (from_tray).
 """
 import os
+import time
 
 import httpx
 
@@ -26,6 +28,18 @@ def fetch() -> dict | None:
     except (httpx.HTTPError, ValueError):
         return None
     return data if isinstance(data, dict) else None
+
+
+def from_tray(tray: dict | None, at: float, max_age: float = 3.0) -> dict | None:
+    """The same answer from a TrayState the controller holds (sim_vision posts one in-process), if it is fresh.
+    It can't see a wrong slot or an extra item, only what is missing."""
+    if not tray or tray.get("stale") or time.time() - at > max_age:
+        return None
+    slots = [s for s in tray.get("slots") or [] if isinstance(s, dict) and s.get("item")]
+    if not slots:
+        return None
+    missing = [s["item"] for s in slots if not s.get("present")]
+    return {"ok": not missing, "setting": tray.get("setting"), "missing": missing, "stale": False, "t": tray.get("t")}
 
 
 def _ids(v) -> list[str]:

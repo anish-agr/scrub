@@ -147,7 +147,9 @@ def make_app(ctl: Controller, extra=None) -> FastAPI:
     @app.get("/tray_check")
     async def tray_check():
         """X3: vision's GET /tray_check for the current setting, plus the spoken `say`. In a thread: never blocks stop."""
-        return await asyncio.to_thread(traycheck.check, ctl.setting)
+        # No vision process (sim, backup): the controller's own fresh TrayState instead.
+        fetch = lambda: traycheck.fetch() or traycheck.from_tray(ctl.tray, ctl.tray_at)  # noqa: E731
+        return await asyncio.to_thread(traycheck.check, ctl.setting, fetch)
 
     @app.post("/fake/force")
     async def fake_force(body: Force):
@@ -177,6 +179,8 @@ def make_app(ctl: Controller, extra=None) -> FastAPI:
             while True:
                 await ws.send_json(await q.get())
         except (WebSocketDisconnect, RuntimeError):
+            pass
+        except asyncio.CancelledError:  # shutdown: uvicorn cancels open sockets after timeout_graceful_shutdown
             pass
         finally:
             ctl.listeners.remove(entry)

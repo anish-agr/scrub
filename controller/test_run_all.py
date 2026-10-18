@@ -5,6 +5,7 @@
 Uses ports 8260 to 8263 only (a fake HTTP server and one fake-arm controller). No voice, no tunnel, no browser.
 """
 import json
+import os
 import signal
 import subprocess
 import sys
@@ -178,6 +179,11 @@ class TestPlan(unittest.TestCase):
         env = self.plan(["--offline"])[0][0].env
         self.assertEqual((env["VOICE_NO_KEYS"], env["MONGODB_URI"]), ("1", ""))
 
+    def test_check_stack_saves_no_count(self):
+        self.assertEqual(self.plan(["check", "--base-port", "8240"])[0][0].env["SCRUB_STATE_FILE"], "")
+        a = R.parse([])
+        self.assertEqual(R.child_env(a, R.ports(a)).get("SCRUB_STATE_FILE"), os.environ.get("SCRUB_STATE_FILE"))
+
 
 class TestUrls(unittest.TestCase):
     def table(self, argv, **kw):
@@ -195,6 +201,12 @@ class TestUrls(unittest.TestCase):
         self.assertEqual(t["voice health"], "http://localhost:3000/health")
         self.assertNotIn("sim viewer", t)
         self.assertNotIn("ledger page", t)
+
+    def test_moved_stack_dashboard_names_its_vision_and_ledger(self):
+        """M6: on moved ports the dashboard would read the live :8001 camera and :8080 ledger without these."""
+        t = self.table(["--base-port", "8240"])
+        self.assertEqual(t["dashboard"], "http://localhost:8240/?vision=http://localhost:8241&ledger=http://localhost:8243")
+        self.assertEqual(R.dashboard_url(R.parse([])), "http://localhost:8000/")
 
     def test_sim_ledger_tunnel_lan(self):
         t = self.table(["--arm", "sim", "--base-port", "8240", "--ledger", "--tunnel"],
@@ -337,6 +349,13 @@ class TestReset(unittest.TestCase):
         self.assertEqual([p for p, _ in self.posts()].count("/reset"), 3)
         self.assertEqual(st["setting"], "surgical")
 
+    def test_already_surgical_makes_no_extra_case(self):
+        """M10: /setting starts a new case, so it is posted only when the tray isn't surgical already."""
+        FakeController.state = dict(FakeController.state, setting="surgical")
+        st = self.run_reset()
+        self.assertEqual([p for p, _ in self.posts()], ["/reset", "/lighting"])
+        self.assertEqual((st["out"], st["setting"]), ([], "surgical"))
+
 
 class TestShapes(unittest.TestCase):
     def test_stats(self):
@@ -364,7 +383,7 @@ class TestRealController(unittest.TestCase):
         from controller.smoke import one
         p = subprocess.Popen([sys.executable, "-m", "controller", "--fake-arm", "--port", str(CTL_PORT),
                               "--motion-s", "0.05", "--pull-s", "0.2"], cwd=R.ROOT,
-                             env=dict(R.os.environ, MONGODB_URI=""), stdout=subprocess.DEVNULL,
+                             env=dict(R.os.environ, MONGODB_URI="", SCRUB_STATE_FILE=""), stdout=subprocess.DEVNULL,
                              stderr=subprocess.DEVNULL, start_new_session=True)
         try:
             url = f"http://127.0.0.1:{CTL_PORT}"

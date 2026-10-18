@@ -38,6 +38,8 @@ vision/models/
 
 # simulation model files (fetched by python -m sim.fetch_model)
 sim/models/
+# the sim scene, rebuilt from layout.json every time the sim starts (sim/scene.py build())
+sim/scenes/scrub_scene.xml
 
 # agent worktrees
 .claude/

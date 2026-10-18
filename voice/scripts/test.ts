@@ -1,7 +1,6 @@
 // Offline checks for parsing, the case summary and the custom-LLM endpoint: `npm test`.
 // No keys (VOICE_NO_KEYS=1 ignores .env), no real controller: the server runs against a fake one here.
-process.env.VOICE_NO_KEYS = process.env.VOICE_NO_KEYS || "1";
-process.env.CONTROLLER_URL = process.env.CONTROLLER_URL || "http://127.0.0.1:8269";
+import "./test-env.js";  // first: VOICE_NO_KEYS and a dead CONTROLLER_URL before config.ts loads
 import assert from "node:assert/strict";
 import { mkdtempSync, readFileSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -12,14 +11,14 @@ import http from "node:http";
 import type { AddressInfo } from "node:net";
 import { WebSocketServer } from "ws";
 import { callerFrom, heardFrom } from "../src/chat.js";
-import { isStop, isTrayCheck, localParse, parseAlias } from "../src/parse.js";
+import { isGotIt, isStop, isTrayCheck, localParse, parseAlias } from "../src/parse.js";
 import { caseFacts, caseLink, clock, closeCaseWithLink, endCase, newCase, recordEvent, setCaller, templateSummary, textCaller, withTimeout } from "../src/summary.js";
 import type { Setting } from "../src/settings.js";
 import { CANT_CHECK, textTrayCheck, trayReadyText, voiceTrayCheck } from "../src/tray.js";
 import { BUSY, JUDGE, notSetUp, settingAsked, switchSetting } from "../src/cases.js";
 import { forgetJudge, judgeMode, noteJudge } from "../src/controller.js";
 import { teach } from "../src/settings.js";
-import { handleTurn, io } from "../src/turn.js";
+import { handleTurn, io, speak } from "../src/turn.js";
 import { HELP, countReply, handleText, localText, logRestock, runTexts, type InMessage, type InSpace, type Restock } from "../src/texts.js";
 
 const bench: Setting = { id: "bench", label: "Robotics bench", items: [
@@ -32,6 +31,13 @@ assert.deepEqual(localParse("snips", bench), { action: "handover", item: "wire_c
 // Bug: an empty alias (a taught word that was all punctuation) matched any " s " through the plural test.
 const blank: Setting = { id: "bench", label: "Robotics bench", items: [{ id: "hex_key", name: "hex key", aliases: [""], sharp: false }] };
 assert.deepEqual(localParse("let's go", blank), { action: "unknown", item: null });
+// M4: common phrasings the local match missed when Gemini is off or slow.
+for (const g of ["thanks got it", "thanks, got it", "okay got it", "ok, I've got it", "thank you", "got it.", "release"]) assert.ok(isGotIt(g), g);
+for (const g of ["got it hemostat", "thanks for the scalpel", "give me the thing"]) assert.ok(!isGotIt(g), g);
+const scissors: Setting = { id: "surgical", label: "Operating room", items: [{ id: "mayo_scissors", name: "mayo scissors", aliases: [], sharp: false }] };
+assert.deepEqual(localParse("take back the mayo scissors", scissors), { action: "return", item: null });
+assert.deepEqual(localParse("take it back", scissors), { action: "return", item: null });
+assert.deepEqual(localParse("take the mayo scissors", scissors), { action: "handover", item: "mayo_scissors" });
 
 let t = 0;
 const ev = (type: string, extra: Record<string, unknown> = {}) => recordEvent({ type, t: ++t, ...extra } as any);
@@ -242,6 +248,19 @@ calls.length = 0;
 Object.assign(io, { currentSetting: async () => surgical, parse: async () => ({ action: "stop" as const, item: null, via: "gemini" as const }) });
 await handleTurn("hang on a second", () => {});
 assert.deepEqual(calls, ["stop"]);
+
+// H1: lines said with no turn open wait for the next turn, but only the last 2 and only if under 10 s old.
+const realNow = Date.now;
+Date.now = () => realNow() - 11_000;
+speak("Reset. Ready.");  // 11 s old by the next turn: dropped
+Date.now = realNow;
+for (const l of ["Hemostat coming.", "Hemostat in your hand.", "Scalpel down."]) speak(l);
+const heardBack: string[] = [];
+await handleTurn("stop", (l) => heardBack.push(l));
+assert.deepEqual(heardBack, ["Hemostat in your hand.", "Scalpel down."]);
+heardBack.length = 0;
+await handleTurn("stop", (l) => heardBack.push(l));
+assert.deepEqual(heardBack, []);  // flushed once, not again
 
 // Call-to-text memory (F4): events grouped by case_id, the text names the case, goes to the caller. Fake sender, no Gemini.
 const start = Math.floor(Date.now() / 1000) - 600;

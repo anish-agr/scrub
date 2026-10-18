@@ -129,7 +129,18 @@ def child_env(a, P: dict) -> dict:
                VISION_URL=f"http://localhost:{P['vision']}", VOICE_PORT=str(P["voice"]))
     if a.offline:
         env.update(VOICE_NO_KEYS="1", MONGODB_URI="")
+    if a.cmd == "check":
+        env["SCRUB_STATE_FILE"] = ""  # a throwaway check stack never saves or restores a count
     return env
+
+
+def dashboard_url(a) -> str:
+    """The dashboard reads vision on :8001 and the ledger on :8080 unless told otherwise: a moved stack names its own."""
+    P = ports(a)
+    url = f"http://localhost:{P['controller']}/"
+    if P["vision"] != 8001 or P["ledger"] != 8080:
+        url += f"?vision=http://localhost:{P['vision']}&ledger=http://localhost:{P['ledger']}"
+    return url
 
 
 def controller_has_judge() -> bool:
@@ -198,7 +209,7 @@ def plan(a, judge_ok: bool | None = None) -> tuple[list[Child], list[str]]:
 def url_table(a, public_url: str | None = None, lan: str | None = None, skipped: set | None = None) -> list[tuple[str, str]]:
     P, skipped = ports(a), skipped or set()
     c = f"http://localhost:{P['controller']}"
-    rows = [("dashboard", f"{c}/"), ("judge console", f"{c}/demo"), ("nurse console", f"{c}/nurse"),
+    rows = [("dashboard", dashboard_url(a)), ("judge console", f"{c}/demo"), ("nurse console", f"{c}/nurse"),
             ("tablet", f"{c}/tablet.html"), ("state", f"{c}/state")]
     if lan:
         rows.append(("tablet (LAN)", f"http://{lan}:{P['controller']}/tablet.html"))
@@ -393,7 +404,7 @@ def open_pages(a) -> None:
     if not a.open:
         return
     P = ports(a)
-    webbrowser.open(f"http://localhost:{P['controller']}/")
+    webbrowser.open(dashboard_url(a))
     if a.arm == "sim":
         webbrowser.open(f"http://localhost:{P['sim']}/web/viewer.html")
 
@@ -476,8 +487,11 @@ def reset_stack(c: httpx.Client, sim_url: str | None = None, say=print, timeout:
     r = _post_retry(c, "/reset", {"clear_count": True}, timeout)
     say(f"  reset (clear count): {r.status_code} {r.json()}")
     wait_idle(c, timeout)
-    r = _post_retry(c, "/setting", {"setting": "surgical"}, timeout)
-    say(f"  setting surgical: {r.status_code} {r.json().get('label', r.json()) if r.status_code == 200 else r.text}")
+    if c.get("/state").json().get("setting") != "surgical":  # a switch starts another case: only when needed
+        r = _post_retry(c, "/setting", {"setting": "surgical"}, timeout)
+        say(f"  setting surgical: {r.status_code} {r.json().get('label', r.json()) if r.status_code == 200 else r.text}")
+    else:
+        say("  setting surgical: already")
     r = c.post("/lighting", json={"lighting": "normal", "lux": None})
     say(f"  lighting normal: {r.status_code} {r.json()}")
     st = wait_idle(c, timeout)
@@ -563,7 +577,7 @@ def cmd_backup(a) -> int:
                 return 1
             print_table(a, stack, skipped)
         if a.open:
-            webbrowser.open(f"{url}/")
+            webbrowser.open(f"{url}/" if a.url else dashboard_url(a))
             webbrowser.open(f"http://localhost:{P['sim']}/web/viewer.html")
         run, best = 0, True
         with httpx.Client(base_url=url, timeout=10) as c:

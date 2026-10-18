@@ -1,5 +1,6 @@
 // One caller turn: what was heard -> controller -> the lines Scrub speaks back.
-// Event `say` lines stream into the open reply. Lines that arrive with no reply open wait for the next turn.
+// Event `say` lines stream into the open reply. Lines that arrive with no reply open wait for the next turn,
+// but only the last 2 and only if they are under 10 s old (a dashboard or smoke run left 20 lines for the next caller).
 import { HOLD_S } from "./config.js";
 import { SETTING_IDS, settingAsked, switchSetting } from "./cases.js";
 import { followEvents, JUDGE_LINE, judgeMode, makeCommand, noteJudge, postCommand, postStop, type ScrubEvent } from "./controller.js";
@@ -15,7 +16,9 @@ type Hold = (types: string[], holdS: number, commandId?: string) => void;
 export const io = { parse, postStop, postCommand, currentSetting, judgeMode, switchSetting, teach };
 
 let open: { say: Say; onEvent: (e: ScrubEvent) => void } | null = null;
-let pending: string[] = [];
+let pending: { line: string; t: number }[] = [];
+const PENDING_MS = 10_000;  // a line nobody heard within 10 s is stale: drop it
+const PENDING_MAX = 2;
 let settingId = "surgical";
 let lastLine: { text: string; t: number; cmd?: string | null } = { text: "", t: 0 };
 
@@ -32,12 +35,12 @@ const DONE: Record<string, string[]> = {
 // fromEvent: skip an event line said in the last 3 s for the same command (the controller repeating itself).
 // A new command that gets the same answer ("I'm stopped. Reset me first." twice) is said again: keyed on the
 // text alone, the second ask got silence. Our own replies (judge mode, busy, a tray switch) are always said.
-function speak(line: string | null | undefined, fromEvent = false, cmd?: string | null) {
+export function speak(line: string | null | undefined, fromEvent = false, cmd?: string | null) {
   if (!line) return;
   const now = Date.now();
   if (fromEvent && line === lastLine.text && now - lastLine.t < 3000 && (cmd ?? null) === (lastLine.cmd ?? null)) return;
   lastLine = { text: line, t: now, cmd };
-  if (open) open.say(line); else pending.push(line);
+  if (open) open.say(line); else pending.push({ line, t: now });
 }
 
 export function startEvents() {
@@ -153,7 +156,8 @@ async function run(heard: string, hold: Hold) {
 }
 
 function flushPending() {
-  const lines = pending;
+  const now = Date.now();
+  const lines = pending.filter((p) => now - p.t < PENDING_MS).slice(-PENDING_MAX);
   pending = [];
-  for (const l of lines) open?.say(l);
+  for (const p of lines) open?.say(p.line);
 }
