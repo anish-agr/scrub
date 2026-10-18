@@ -97,6 +97,10 @@ const server = http.createServer(async (req, res) => {
   }
 });
 
+// A busy port exits here, before the Photon texts listener opens (a second copy used to open one, then die).
+server.on("error", (e) => { console.log(`[voice] ${e.message}`); process.exit(1); });
 startEvents();
-startTexts();
-server.listen(VOICE_PORT, () => console.log(`[voice] listening on :${VOICE_PORT} (POST /v1/chat/completions, /heard, /summary, GET /health)`));
+server.listen(VOICE_PORT, () => {
+  console.log(`[voice] listening on :${VOICE_PORT} (POST /v1/chat/completions, /heard, /summary, GET /health)`);
+  startTexts();
+});

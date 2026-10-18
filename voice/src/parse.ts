@@ -7,7 +7,9 @@ import type { Setting } from "./settings.js";
 const ai = GEMINI_API_KEY ? new GoogleGenAI({ apiKey: GEMINI_API_KEY }) : null;
 
 export const isStop = (s: string) => /\b(stop|freeze|halt|hold it|abort)\b/i.test(s);
-export const isGotIt = (s: string) => /^\W*(got it|i('ve)? got it|thanks?( you)?|okay got it|release)\W*$/i.test(s.trim());
+// "thanks got it", "okay, got it": an ok/thanks lead-in is allowed before the release words.
+export const isGotIt = (s: string) =>
+  /^\W*((ok(ay)?|thanks?( you)?)\W+)?(got it|i('ve)? got it|thanks?( you)?|release)\W*$/i.test(s.trim());
 // "check the tray", "is the tray ready", "tray check": GET /tray_check, not a Command (the action enum stays as is).
 export const isTrayCheck = (s: string) =>
   /\b(check (the |my |your )?tray|tray check|(is|are) (the |my )?tray (ready|set( up)?|good|complete|okay|ok)|tray (is )?ready\s*\?)/i.test(s);
@@ -102,7 +104,8 @@ export function parseAlias(heard: string, setting: Setting): { item: string; ali
 
 export function localParse(heard: string, setting: Setting): { action: Action; item: string | null } {
   const s = ` ${norm(heard)} `;
-  if (/\b(put (it|that|this) back|return|put back)\b/.test(s)) return { action: "return", item: null };
+  // "take back the mayo scissors" is a return, not a handover of the scissors.
+  if (/\b(put (it|that|this) back|return|put back|take (it |that |this )?back)\b/.test(s)) return { action: "return", item: null };
   if (/\b(count|what s out|whats out|what is out|how many)\b/.test(s)) return { action: "count", item: null };
   let best: { id: string; len: number } | null = null;
   for (const it of setting.items) {
