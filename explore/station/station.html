@@ -92,7 +92,7 @@ label.f{display:flex;flex-direction:column;gap:4px;font:700 12px var(--f);letter
 select,#r-args{font:500 15px var(--m);background:var(--paper2);color:var(--ink);border:1px solid var(--hair);padding:8px 10px;min-width:0}
 #runform{display:grid;grid-template-columns:1fr 2fr 1fr;gap:10px;margin-bottom:12px}
 #b-run,#b-stop,#b-toggle{font-size:22px;padding:16px}
-#b-pick,#b-cal,#b-look,#b-letgo{font-size:17px;padding:12px}
+#b-pick,#b-cal,#b-look,#b-letgo,.replay-btn{font-size:17px;padding:12px}
 #b-cal.on{background:var(--amber,#ffcc00);color:#111;border-color:var(--amber,#ffcc00)}
 #b-run:not(:disabled){background:var(--green);color:#0b1a10;border-color:var(--green)}
 #b-stop:not(:disabled){background:var(--amber);color:#111;border-color:var(--amber)}
@@ -175,9 +175,10 @@ kbd{border:1px solid var(--hair);padding:0 4px;font:inherit}
         <button id="b-stop" class="big">Stop<small>ends the run, home, motors off</small></button>
       </div>
       <div class="grid2" id="autopick-row" style="margin-top:10px">
-        <button id="b-pick">Pick &amp; hand over<small>picks it like the demos, holds it out, lets go on "let go" or a pull</small></button>
+        <button id="b-pick">Pick &amp; hand over<small>replays your most typical demo smoothly, holds it out, lets go on "let go"</small></button>
         <button id="b-cal">Calibrate camera<small>arm maps the camera to the tray by itself (~1 min, claw stays shut); hands clear</small></button>
       </div>
+      <div class="grid2" id="replay-row" style="margin-top:8px"></div>
       <div class="grid2" style="margin-top:8px">
         <button id="b-look">Check detection<small>says where it sees the handle; no pick (parks at home after)</small></button>
         <button id="b-letgo">Let go<small>opens the jaw while it holds the item out (same as saying "let go")</small></button>
@@ -311,6 +312,15 @@ function renderRun(s){
   const apOk=[...$("r-driver").options].some(o=>o.value==="autopick"&&!o.disabled);
   ["b-pick","b-cal","b-look"].forEach(id=>{$(id).disabled=running||s.state!=="idle"||!apOk;});
   $("b-letgo").disabled=!running;
+  // one replay button per settings instruction (built once from the station's allowed tasks)
+  const row=$("replay-row"), tasks=(s.allowed_tasks||[]);
+  if(row&&row.replaceChildren&&row.dataset&&row.dataset.tasks!==tasks.join("|")){
+    row.dataset.tasks=tasks.join("|");
+    row.replaceChildren(...tasks.map(t=>{const b=el("button","replay-btn",`Replay: ${t.replace(/^pick the /,"")}`);
+      const sm=document.createElement("small"); sm.textContent="smooth replay of its latest demos, hold out, let go on command"; b.appendChild(sm);
+      b.onclick=()=>send("run",{driver:"autopick",args:{mode:"replay_demo",task:t}}); return b;}));
+  }
+  if(row&&row.querySelectorAll)row.querySelectorAll("button").forEach(b=>{b.disabled=running||s.state!=="idle"||!apOk;});
   if($("b-cal").disabled)calArm(false);
   ["r-driver","r-episode","r-speed","r-args"].forEach(id=>$(id).disabled=running&&!retry);
   $("runlive").hidden=!running;
@@ -402,7 +412,7 @@ $("b-run").onclick=()=>{
 $("b-stop").onclick=()=>send("stop");
 $("b-letgo").onclick=()=>send("release");
 $("b-look").onclick=()=>send("run",{driver:"autopick",args:{mode:"look"}});
-$("b-pick").onclick=()=>send("run",{driver:"autopick",args:{mode:"learned"}});
+$("b-pick").onclick=()=>send("run",{driver:"autopick",args:{mode:"replay_demo"}});
 let calArmed=null;
 function calArm(on){
   clearTimeout(calArmed); calArmed=null;
