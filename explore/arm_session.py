@@ -868,8 +868,16 @@ def main() -> None:
                # encode video while recording: ~11 s between episodes instead of ~18, loop stays 30 Hz
                "--dataset.streaming_encoding=true", "--dataset.encoder_threads=2",
                "--play_sounds=false"]  # arm_voice speaks instead of LeRobot's robotic `say`
-        if (Path(a.root) / "meta" / "info.json").exists():
-            cmd.append("--resume=true")
+        root = Path(a.root)
+        if (root / "meta" / "info.json").exists():
+            if dataset_episodes(root) > 0:
+                cmd.append("--resume=true")
+            else:
+                # A session that died before saving its first episode leaves only meta/info.json.
+                # Resuming that makes LeRobot look for the dataset on the Hub (404, forever).
+                aside = root.with_name(f"{root.name}.incomplete-{time.strftime('%H%M%S')}")
+                root.rename(aside)
+                print(f"{root} had no saved episodes: moved it to {aside.name}, starting fresh", flush=True)
     else:
         cmd = ["lerobot-teleoperate", *robot, *teleop, "--fps=30"]
 
