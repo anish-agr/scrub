@@ -66,7 +66,7 @@ export async function parse(heard: string, setting: Setting): Promise<Parsed> {
 export const commandSchema = (ids: string[]) => ({
   type: Type.OBJECT,
   properties: {
-    action: { type: Type.STRING, enum: ACTIONS },
+    action: { type: Type.STRING, enum: [...ACTIONS, "clarify"] },
     item: { type: Type.STRING, enum: [...ids, "none"] },
     candidates: { type: Type.ARRAY, items: { type: Type.STRING, enum: ids } },
     confidence: { type: Type.NUMBER },
@@ -94,7 +94,7 @@ Actions:
 Instruments on this tray:
 ${list}
 item is the instrument id for handover, and for return when they name one, otherwise "none". If they ask for an instrument not on this tray, use unknown.
-Never choose between plausible instruments. For ambiguity return candidates (ids from this tray only), item "none", action handover.
+Never choose between plausible instruments. For ambiguity return candidates (ids from this tray only), item "none", action clarify.
 confidence is 0 to 1. Set confirm true for an uncertain single interpretation; no movement occurs until the clinician says yes.
 Clinician said: "${heard}"`;
   const res = await ai!.models.generateContent({
@@ -113,7 +113,7 @@ Clinician said: "${heard}"`;
 // Validate again at the trust boundary; even a malformed model response cannot introduce a tray item.
 export function validateGemini(out: any, setting: Setting): ParseResult {
   const ids = setting.items.map((i) => i.id);
-  const action: Action = ACTIONS.includes(out.action) ? out.action : "unknown";
+  const action: Action = out.action === "clarify" ? "handover" : ACTIONS.includes(out.action) ? out.action : "unknown";
   const candidates = Array.isArray(out.candidates) ? [...new Set<string>(out.candidates.filter((id: unknown) => typeof id === "string" && ids.includes(id)))] : [];
   if (action === "handover" && candidates.length > 1) return { action, item: null, clarify: whichOne(candidates.map((id) => candidateFor(setting, id))) };
   const item = ["handover", "return"].includes(action) && ids.includes(out.item) ? out.item : null;
@@ -125,11 +125,13 @@ export function validateGemini(out: any, setting: Setting): ParseResult {
 
 export function candidateFor(setting: Setting, id: string): Candidate {
   const it = setting.items.find((i) => i.id === id)!;
-  return { item: id, label: it.name, ...(it.variant ? { variant: it.variant } : {}) };
+  return { item: id, label: it.name, ...(it.group ? { group: it.group } : {}), ...(it.variant ? { variant: it.variant } : {}) };
 }
-export const whichOne = (candidates: Candidate[]): Clarification => ({
-  say: `Which one: ${candidates.map((c) => c.label || c.variant || c.item || c.id).join(" or ")}?`, candidates,
-});
+export function whichOne(candidates: Candidate[]): Clarification {
+  const group = candidates[0]?.group;
+  const shared = group && candidates.every((c) => c.group === group && c.variant);
+  return { say: `Which ${shared ? group : "one"}: ${candidates.map((c) => shared ? c.variant : c.label || c.variant || c.item || c.id).join(" or ")}?`, candidates };
+}
 
 // No key or Gemini down: match names and aliases. Longest phrase wins ("needle nose" over "pliers").
 // Lowercase, punctuation to spaces ("needle-nose" -> "needle nose"), single spaces.
