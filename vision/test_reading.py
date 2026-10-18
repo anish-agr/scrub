@@ -245,7 +245,8 @@ class ValidationTests(unittest.TestCase):
         self.assertEqual(schema["properties"]["tray"]["enum"], SETTINGS + ["other"])
         gem = reading.gemini_schema(reading.pack_label_schema(BENCH))
         label = gem["properties"]["labels"]["items"]
-        self.assertEqual(label["properties"]["item"]["enum"], ["needle_nose_pliers", "wire_cutters", "hex_key", "other"])
+        self.assertEqual(label["properties"]["item"]["enum"], ["needle_nose_pliers", "wire_cutters", "hex_key",
+                                                              "flathead_screwdriver", "phillips_screwdriver", "other"])
         self.assertEqual(label["properties"]["lot"], {"type": "STRING", "nullable": True})
         self.assertNotIn("additionalProperties", label)
 
