@@ -10,7 +10,7 @@ None of this needs a working model. Grab it tonight so Sunday morning is only th
 
 | # | What | How | Who |
 | --- | --- | --- | --- |
-| N1 | **Sim backup run**: the MuJoCo arm doing a full surgical case with the dashboard beside it | `python -m controller.run_all backup --base-port 8100 --offline`, open `http://localhost:8100/` and the sim viewer, screen-record both | Anish |
+| N1 | **Sim backup run**: the MuJoCo arm doing a full surgical case with the dashboard beside it | See "Recording the sim backup" below | Anish |
 | N2 | **How we trained it**: hands on the leader arm, the follower copying, the recorder page with the episode counter | Phone, landscape, 30 s of a clean recording session. Faces optional | whoever isn't driving |
 | N3 | **The training run**: Perceptron job status, the loss going down in `arm.train follow`, the Hugging Face dataset page | Screen record or screenshots | Caiden |
 | N4 | **Dashboard, tablet, case replay, judge page on a phone** | Screen record a fake-arm case: `python -m controller.run_all` (fake arm), drive it with `cd voice && npm run say -- "grab me the kelly"` | Evan |
@@ -18,6 +18,16 @@ None of this needs a working model. Grab it tonight so Sunday morning is only th
 | N6 | **System diagram** (`docs/media/`) and title cards (`docs/SLIDES.md`) | Export as 1920x1080 images | Evan |
 | N7 | **The tray close-up**: instruments on the blue towel, lamp off, then the lamp on showing glare | Phone, tripod or propped, 10 s each | Brandon |
 | N8 | **Room sound**: 20 s of quiet room tone for the edit | Phone voice memo | anyone |
+
+### Recording the sim backup (tested on Anish's Windows laptop, Sat 11:10 PM)
+
+1. `pip install -r sim/requirements.txt -r controller/requirements.txt` (once).
+2. `python -m controller.run_all backup --offline --loop --pause 2`. It resets the tray and runs hemostat, scalpel to the safe spot, Mayo scissors, a return and a count, over and over. Each run prints `CLEAN` when every step worked. (If the real-arm controller holds port 8000, add `--base-port 8100` and use 8100 below.)
+3. Open two windows side by side:
+    - the dashboard: `http://localhost:8000/`
+    - the 3D arm: `http://localhost:8002/web/viewer.html?controller=http://localhost:8000`, then click **Live /state** so it follows the sim
+4. Screen-record one full run (about 40 s) with Win+Alt+R. Save as `N1-sim.mp4`.
+5. Ctrl-C in the terminal to stop.
 
 ## 2. Capture after the arm works (Sunday, after run 2)
 
