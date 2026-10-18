@@ -278,14 +278,14 @@ def _shot(step, holding):
     return "wide"
 
 
-def _overlay(img, cap, step_i, label, fonts):
+def _overlay(img, cap, step_i, label, fonts, title="SIMULATION  ·  MuJoCo replay of a recorded Scrub run"):
     from PIL import ImageDraw
 
     d = ImageDraw.Draw(img, "RGBA")
     W, H = img.size
     bold, mono, big = fonts
     # top-left honesty tag, top-right brand
-    tag = "SIMULATION  ·  MuJoCo replay of a recorded Scrub run"
+    tag = title
     tw = d.textlength(tag, font=mono)
     d.rectangle([40, 36, 40 + tw + 28, 36 + 40], fill=(20, 19, 15, 215))
     d.text((54, 44), tag, font=mono, fill=(236, 232, 221, 255))
