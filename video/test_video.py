@@ -94,6 +94,23 @@ class VideoTests(unittest.TestCase):
         with self.assertRaises(ValueError):
             load_joints(path)
 
+    def test_idle_speed_requires_review_and_preserves_source_clock(self):
+        from video.clean import clean
+        from video.common import encode, save_provenance, epoch_at, frame_at
+        source=self.root/'static.mp4'
+        image=np.full((240,320,3),80,np.uint8)
+        encode(self.ws,source,(image for _ in range(90)))
+        save_provenance(source,kind='simulation',synthetic=True,start_time=100.0)
+        with self.assertRaises(ValueError):
+            clean(self.ws,source,'clean/out.mp4',idle_speed=2)
+        doc=clean(self.ws,source,'clean/out.mp4',idle_speed=2,idle_confirmed=True)
+        self.assertTrue(doc['time_altered'])
+        self.assertLess(info(self.root/'clean/out.mp4')['frames'],90)
+        self.assertGreater(epoch_at(doc,1),101)
+        image=frame_at(self.root/'clean/out.mp4',1)
+        # The mandatory disclosure panel, including speed, survives encoding.
+        self.assertGreater(float(image[:20].mean()),100)
+
 
 if __name__ == "__main__":
     unittest.main()

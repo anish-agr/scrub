@@ -218,7 +218,15 @@ def run_ffmpeg(ws, args):
         raise RuntimeError(f"ffmpeg failed; inspect {log} (no credentials are used)")
 
 
-def encode(ws, output, images, fps=30, audio=None, segments=None, audio_clean=False):
+def audible(path):
+    process = subprocess.run([imageio_ffmpeg.get_ffmpeg_exe(), "-hide_banner", "-i", str(path),
+        "-vn", "-af", "volumedetect", "-f", "null", "-"], capture_output=True, text=True,
+        encoding="utf-8", errors="replace")
+    match = re.search(r"max_volume:\s*([-\d.]+) dB", process.stderr)
+    return bool(match and float(match.group(1)) > -80)
+
+
+def encode(ws, output, images, fps=30, audio=None, segments=None, audio_clean=False, video_filter=None):
     """Stream BGR frames to bundled ffmpeg. Optional source-time audio remap."""
     output = Path(output)
     fps = finite(fps, "FPS", True)
@@ -237,7 +245,7 @@ def encode(ws, output, images, fps=30, audio=None, segments=None, audio_clean=Fa
     with error_log.open("wb") as errors:
         process = subprocess.Popen([imageio_ffmpeg.get_ffmpeg_exe(), "-hide_banner", "-loglevel", "error", "-y",
             "-f", "rawvideo", "-pix_fmt", "bgr24", "-s", f"{w}x{h}", "-r", str(fps), "-i", "pipe:0",
-            "-an", "-c:v", "libx264", "-preset", "veryfast", "-crf", "20", "-pix_fmt", "yuv420p",
+            "-an", *(["-vf", video_filter] if video_filter else []), "-c:v", "libx264", "-preset", "veryfast", "-crf", "20", "-pix_fmt", "yuv420p",
             "-movflags", "+faststart", str(temp)], stdin=subprocess.PIPE, stderr=errors)
         try:
             for image in itertools.chain([first], iterator):
@@ -261,7 +269,7 @@ def encode(ws, output, images, fps=30, audio=None, segments=None, audio_clean=Fa
                 close()
     duration = count / fps
     try:
-        if audio is not None and info(audio)["audio"]:
+        if audio is not None and info(audio)["audio"] and audible(audio):
             args = ["-i", temp, "-i", audio]
             if segments:
                 filters, names = [], []
@@ -303,3 +311,15 @@ def fit(image, width, height):
     y, x = (height - resized.shape[0]) // 2, (width - resized.shape[1]) // 2
     result[y:y+resized.shape[0], x:x+resized.shape[1]] = resized
     return result
+
+
+def epoch_at(meta, seconds):
+    mapping = meta.get("time_map")
+    if mapping:
+        for segment in mapping:
+            if segment["output_start"] <= seconds < segment["output_end"] + 1e-8:
+                return segment["epoch_start"] + (seconds-segment["output_start"])*segment["speed"]
+        raise ValueError("Output time has no source-clock coverage")
+    if meta.get("start_time") is None:
+        raise ValueError("No source clock: align the clip with ingest --sync or a clap first")
+    return finite(meta["start_time"]) + seconds
