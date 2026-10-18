@@ -114,12 +114,15 @@ class Controller:
             "request_to_hand_s": kw.pop("request_to_hand_s", None), "retries": kw.pop("retries", None),
             "setting": self.setting["id"], "lighting": self.lighting,
             "command_id": kw.pop("command_id", cmd["id"] if cmd else None), "out": list(self.out),
-            "case_id": self.case_id, "judge": self.judge, "t": time.time(),
+            "case_id": self.case_id, "judge": self.judge, "fake_arm": self.fake_arm, "t": time.time(),
         }
         ev.update(kw)
         self.history.append(ev)
         for loop, q in list(self.listeners):
-            loop.call_soon_threadsafe(q.put_nowait, ev)
+            try:
+                loop.call_soon_threadsafe(q.put_nowait, ev)
+            except RuntimeError:  # that page's loop already closed; never let it kill the worker or a stop
+                pass
         if ledger is not None:
             self._ledger_pool.submit(ledger.log, dict(ev))
         return ev
@@ -194,7 +197,7 @@ class Controller:
             return False, "queue full", lines.BUSY
         busy = self.step not in ("idle", "stopped", "error") or bool(self.jobs)
         if action == "return":
-            if item_id is None and not self.out and not self._return_spot_item():
+            if item_id is None and not self._out_here() and not self._return_spot_item():
                 return False, "nothing is out", lines.NOTHING_OUT
             return True, None, None
         it = settings.item(self.setting, item_id or "")
@@ -204,8 +207,10 @@ class Controller:
         return True, None, lines.queued(it["name"]) if busy else coming(it["name"])
 
     def stop(self) -> None:
-        self.gen += 1      # first, so an arm call failing from the freeze already looks stopped
-        self.arm.freeze()  # then from this thread, no locks needed
+        with self.lock:    # gen and the queue together: the worker can't pop a queued job under the new gen
+            self.gen += 1  # first, so an arm call failing from the freeze already looks stopped
+            self.jobs.clear()
+        self.arm.freeze()  # the lock is only ever held briefly, never across an arm call
         with self.lock:
             self.jobs.clear()
             self.step = "stopped"
@@ -234,7 +239,12 @@ class Controller:
         an item, carry it home and set it at the safe spot rather than opening wherever it froze."""
         resume = getattr(self.arm, "resume", None)
         if resume:
+            if self.gen != gen:
+                raise Stopped
             resume()
+            if self.gen != gen:  # a stop landed while it rearmed: freeze again, it must win
+                self.arm.freeze()
+                raise Stopped
         held = self.item
         holding = OPEN_MAX < self._call(gen, self.arm.gripper_position) < GRIPPER_CLOSED
         with self.lock:
@@ -264,7 +274,8 @@ class Controller:
         """F3: {"item", "qty", "setting", "from", "heard"} to the ledger. False when the ledger isn't loaded."""
         rec = {"type": "restock", "item": body.get("item"), "qty": int(body.get("qty") or 1),
                "setting": body.get("setting") or self.setting["id"], "from": body.get("from"),
-               "heard": body.get("heard"), "case_id": self.case_id, "t": body.get("t") or time.time()}
+               "heard": body.get("heard"), "case_id": self.case_id, "fake_arm": self.fake_arm,
+               "t": body.get("t") or time.time()}
         if ledger is None:
             return False
         self._ledger_pool.submit(ledger.log, rec)
@@ -280,9 +291,11 @@ class Controller:
             if self.step not in ("idle", "stopped", "error") or self.jobs:
                 raise RuntimeError("busy")
             self.setting = data
-            self.out = []
+            # `out` survives a tray switch: an instrument still out of the last tray stays in the count
+            # until it comes back or a person clears it (POST /reset {"clear_count": true}).
             self.case_id = self._new_case()
-            self.step, self.item = "idle", None
+            if self.step not in ("stopped", "error"):  # a tray switch never clears a stop: only a reset rearms
+                self.step, self.item = "idle", None
             self._prep_said = False
         sync = getattr(self.arm, "set_setting", None)  # the sim arm rebuilds its scene for the new tray
         if sync:
@@ -414,7 +427,8 @@ class Controller:
     def _hand_ready(self) -> dict | None:
         h = self._hand_fresh()
         t = h.get("target") if h else None
-        good = isinstance(t, (list, tuple)) and len(t) == 3 and all(isinstance(v, (int, float)) for v in t)
+        good = (isinstance(t, (list, tuple)) and len(t) == 3
+                and all(isinstance(v, (int, float)) and not isinstance(v, bool) and math.isfinite(v) for v in t))
         if h and h.get("open") and good and h.get("path_clear", True):
             return h
         return None
@@ -463,7 +477,11 @@ class Controller:
         return say, cam
 
     def _names(self, ids) -> list[str]:
-        return [(settings.item(self.setting, i) or {"name": i})["name"] for i in ids]
+        return [(settings.item(self.setting, i) or {"name": i.replace("_", " ")})["name"] for i in ids]
+
+    def _out_here(self) -> list[str]:
+        """What's out from the current tray (out can still hold items from a tray switched away from)."""
+        return [i for i in self.out if settings.item(self.setting, i)]
 
     # ---------- worker ----------
     def _worker(self) -> None:
@@ -522,10 +540,11 @@ class Controller:
 
     def _hold(self, say: str, reason: str) -> None:
         """The hand watcher froze the arm: treat it as a stop. Only a reset rearms it (arm/README.md)."""
-        self.gen += 1
+        with self.lock:
+            self.gen += 1
+            self.jobs.clear()
         self.arm.freeze()
         with self.lock:
-            self.jobs.clear()
             self.step = "stopped"
             self._held_out()
         self.emit("stopped", say=say, reason=reason)
@@ -737,7 +756,8 @@ class Controller:
         return None
 
     def _return(self, cmd: dict, gen: int) -> None:
-        item_id = cmd.get("item") or self._return_spot_item() or (self.out[-1] if self.out else None)
+        here = self._out_here()
+        item_id = cmd.get("item") or self._return_spot_item() or (here[-1] if here else None)
         it = settings.item(self.setting, item_id or "")
         if it is None:
             self.emit("missed", say=lines.NOTHING_OUT, item=None)
@@ -762,12 +782,18 @@ class Controller:
             except Exception:  # noqa: BLE001
                 pass
         by_item: dict = {}
-        times = []
+        times: dict = {}
         for ev in self.history:
             if ev["type"] in ("handed", "set_down", "missed") and ev["item"]:
                 row = by_item.setdefault(ev["item"], {"ok": 0, "missed": 0})
                 row["missed" if ev["type"] == "missed" else "ok"] += 1
                 if ev["request_to_hand_s"]:
-                    times.append(ev["request_to_hand_s"])
-        return {"source": "controller memory (ledger not loaded)", "by_item": by_item,
-                "median_request_to_hand_s": statistics.median(times) if times else None}
+                    times.setdefault(ev["item"], []).append(ev["request_to_hand_s"])
+        med = lambda xs: statistics.median(xs) if xs else None  # noqa: E731
+        rows = [{"item": i, "attempts": r["ok"] + r["missed"], "successes": r["ok"],
+                 "success_rate": r["ok"] / (r["ok"] + r["missed"]), "wilson_low": None, "wilson_high": None,
+                 "median_request_to_hand_s": med(times.get(i))} for i, r in sorted(by_item.items())]
+        # Same shape as ledger.stats(), so the dashboard tables fill without the ledger.
+        return {"source": "controller memory (ledger not loaded)", "by_item": rows, "by_lighting": [],
+                "median_request_to_hand_s": med([t for ts in times.values() for t in ts]),
+                "out": list(self.out), "next_likely": None, "t": time.time()}
