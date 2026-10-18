@@ -1,12 +1,15 @@
 // Voice server, port 3000. The ElevenLabs agent uses this as its Custom LLM (OpenAI chat completions, streamed),
 // so every caller turn lands here and Scrub's reply is the controller's `say` lines.
 import http from "node:http";
-import { callerFrom, chunk, heardFrom, type Msg } from "./chat.js";
+import { BUSY_LINE, claimCall, activeCall } from "./calls.js";
+import { callerFrom, chunk, conversationFrom, heardFrom, type Msg } from "./chat.js";
 import { CONTROLLER_URL, GEMINI_API_KEY, LLM_SECRET, PHOTON_PROJECT_ID, PHOTON_SECRET, VOICE_PORT } from "./config.js";
 import { controllerUp } from "./controller.js";
 import { endCase, setCaller } from "./summary.js";
 import { startTexts } from "./texts.js";
-import { parseStats } from "./parse.js";
+import { isStop, parseStats } from "./parse.js";
+import { TALK_HTML } from "./talk.js";
+import { timingStats } from "./timing.js";
 import { handleTurn, startEvents } from "./turn.js";
 
 function readBody(req: http.IncomingMessage): Promise<any> {
@@ -35,20 +38,29 @@ function json(res: http.ServerResponse, code: number, body: unknown) {
 }
 
 async function chatCompletions(req: http.IncomingMessage, res: http.ServerResponse) {
+  const t0 = Date.now();  // the turn's timings start here, before the body is read
   if (LLM_SECRET && req.headers.authorization !== `Bearer ${LLM_SECRET}`) {
     console.log("[server] 401: Authorization doesn't match VOICE_LLM_SECRET");
     return json(res, 401, { error: "bad key" });
   }
   const body = await readBody(req);
   const messages: Msg[] = Array.isArray(body.messages) ? body.messages : [];
-  // The agent's system prompt carries "Caller: {{system__caller_id}}", so the summary goes to the same thread.
-  setCaller(callerFrom(messages));
   const heard = heardFrom(messages);
   const id = `chatcmpl-${Date.now()}`;
+  // Another call holds Scrub: it hears the busy line and nothing moves, except that a stop from any call still
+  // stops the arm. Only caller words claim or refresh the call (a silence ping doesn't keep it busy).
+  const conv = conversationFrom(messages, body);
+  const busy = !!heard && !claimCall(conv);
+  if (busy) console.log(`[busy] ${conv} said "${heard}" while ${activeCall()} is on${isStop(heard) ? ": stopping anyway" : ""}`);
+  // The agent's system prompt carries "Caller: {{system__caller_id}}", so the summary goes to the same thread.
+  // A busy call never takes over where the active call's end-of-case text goes.
+  if (!busy) setCaller(callerFrom(messages));
+  const act = (say: (l: string) => void, signal?: AbortSignal) =>
+    !heard ? Promise.resolve() : busy && !isStop(heard) ? Promise.resolve(say(BUSY_LINE)) : handleTurn(heard, say, signal, t0);
 
   if (body.stream === false) {
     const lines: string[] = [];
-    if (heard) await handleTurn(heard, (l) => lines.push(l));
+    await act((l) => lines.push(l));
     return json(res, 200, { id, object: "chat.completion", created: Math.floor(Date.now() / 1000), model: "scrub",
       choices: [{ index: 0, message: { role: "assistant", content: lines.join(" ") }, finish_reason: "stop" }] });
   }
@@ -58,13 +70,11 @@ async function chatCompletions(req: http.IncomingMessage, res: http.ServerRespon
   const abort = new AbortController();
   res.on("close", () => abort.abort()); // caller talked over Scrub: ElevenLabs drops the request
   let first = true;
-  if (heard) {
-    await handleTurn(heard, (line) => {
-      if (res.writableEnded) return;
-      res.write(chunk(id, { content: (first ? "" : " ") + line }));
-      first = false;
-    }, abort.signal);
-  }
+  await act((line) => {
+    if (res.writableEnded) return;
+    res.write(chunk(id, { content: (first ? "" : " ") + line }));
+    first = false;
+  }, abort.signal);
   if (!res.writableEnded) {
     res.write(chunk(id, {}, "stop"));
     res.end("data: [DONE]\n\n");
@@ -73,6 +83,7 @@ async function chatCompletions(req: http.IncomingMessage, res: http.ServerRespon
 
 const server = http.createServer(async (req, res) => {
   const url = (req.url || "").split("?")[0];
+  const t0 = Date.now();
   try {
     if (req.method === "POST" && url.endsWith("/chat/completions")) return await chatCompletions(req, res);
     // Testing without a call: {"text": "grab me the kelly"} -> the lines Scrub would say.
@@ -83,14 +94,20 @@ const server = http.createServer(async (req, res) => {
     if (req.method === "POST" && url === "/heard") {
       const { text: heard = "" } = await readBody(req);
       const lines: string[] = [];
-      await handleTurn(String(heard), (l) => lines.push(l));
+      await handleTurn(String(heard), (l) => lines.push(l), undefined, t0);
       return json(res, 200, { heard, say: lines });
     }
     if (req.method === "POST" && url === "/summary") return json(res, 200, await endCase());
+    // No phone: a push-to-talk page that posts to /heard (open it on this laptop: http://localhost:3000/talk).
+    if (req.method === "GET" && url === "/talk") {
+      res.writeHead(200, { "content-type": "text/html; charset=utf-8", "cache-control": "no-store" });
+      return res.end(TALK_HTML);
+    }
     // Which keys are set (booleans only, never values) and whether the controller answers.
     if (req.method === "GET" && url === "/health") return json(res, 200, { ok: true,
       keys: { gemini: !!GEMINI_API_KEY, photon: !!(PHOTON_PROJECT_ID && PHOTON_SECRET), llm_secret: !!LLM_SECRET },
-      controller: await controllerUp(), controller_url: CONTROLLER_URL, ...parseStats() });
+      controller: await controllerUp(), controller_url: CONTROLLER_URL, ...parseStats(),
+      timing: timingStats(), active_call: !!activeCall() });
     console.log(`[server] 404 ${req.method} ${url}`);  // a wrong Custom LLM URL shows up here
     json(res, 404, { error: "not found" });
   } catch (e) {
@@ -104,6 +121,6 @@ const server = http.createServer(async (req, res) => {
 server.on("error", (e) => { console.log(`[voice] ${e.message}`); process.exit(1); });
 startEvents();
 server.listen(VOICE_PORT, () => {
-  console.log(`[voice] listening on :${VOICE_PORT} (POST /v1/chat/completions, /heard, /summary, GET /health)`);
+  console.log(`[voice] listening on :${VOICE_PORT} (POST /v1/chat/completions, /heard, /summary, GET /health, /talk)`);
   startTexts();
 });
