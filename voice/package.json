@@ -4,10 +4,12 @@
   "description": "Owner: Caiden. Tasks C3, C4, C7 in `docs/TASKS.md`.",
   "main": "index.js",
   "scripts": {
-    "test": "tsx scripts/test.ts",
+    "test": "VOICE_NO_KEYS=1 tsx scripts/test.ts",
     "dev": "tsx src/server.ts",
     "say": "tsx scripts/say.ts",
-    "tunnel": ".bin/cloudflared tunnel --url http://localhost:3000",
+    "tunnel": "ssh -T -p 443 -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -o ServerAliveInterval=30 -R0:localhost:${VOICE_PORT:-3000} a.pinggy.io",
+    "tunnel:cf": ".bin/cloudflared tunnel --protocol http2 --no-autoupdate --url http://localhost:${VOICE_PORT:-3000}",
+    "tunnel:ngrok": "ngrok http ${VOICE_PORT:-3000}",
     "typecheck": "tsc"
   },
   "keywords": [],
