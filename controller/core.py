@@ -27,6 +27,7 @@ TRAY_LAG_S = 1.0            # a TrayState this soon after the pick may show the 
 HAND_WAIT_S = 10.0
 PULL_WAIT_S = 30.0
 PULL_DELTA = float(os.environ.get("PULL_LOAD_DELTA", "80"))
+PULL_COLLAPSE = float(os.environ.get("PULL_COLLAPSE_FRAC", "0.3"))  # grip load at or under this share of the held load: let go
 GRIPPER_CLOSED = float(os.environ.get("GRIPPER_CLOSED", "0.95"))  # at or above: closed on nothing
 OPEN_MAX = 0.05             # at or below this the gripper is open
 APPROACH_BACK_M = 0.08      # stop this far short at normal speed, then creep in
@@ -39,6 +40,11 @@ PREPARE_TRIES = 3           # pre-opening the robot model's sessions (L2): tries
 PREPARE_RETRY_S = 5.0
 JUDGE_ACTIONS = ("handover", "count", "stop", "got_it")  # all a judge may ask for (L3)
 STATE_MAX_AGE_S = 6 * 3600  # a saved count older than this is from another day: start a fresh case
+SKILL_MODES = ("model", "taught", "auto")
+TRIES_FILE = Path(os.environ.get("SCRUB_TRIES_FILE") or Path.home() / "scrub-logs" / "skill-tries.json")
+AUTO_TRIES = 3              # --skills auto: the model runs an item once it passed this many real tries in a row
+TRIES_KEPT = 20
+TELEMETRY_S = 1.0           # arm.telemetry() poll period (its own thread; /state reads the cache)
 
 
 def _saved_spot() -> list:
@@ -76,6 +82,28 @@ def _save_state(path, d: dict) -> None:
         print(f"[state] not saved: {e!r}", flush=True)
 
 
+def _load_tries(path) -> dict:
+    """{"<setting>/<item>": [{"direction", "source", "ok", "t"}, ...]} of real-arm tries, or {}."""
+    try:
+        d = json.loads(Path(path).read_text())
+        return d if isinstance(d, dict) else {}
+    except Exception:  # noqa: BLE001 - missing or bad file: no record yet
+        return {}
+
+
+def _taught_available(setting_id: str) -> dict:
+    """arm/taught.py's {item: {"pick", "return"}} for this setting; {} until that file exists."""
+    try:
+        from arm import taught  # Anish's; only the controller imports arm/
+        return {k: set(v) for k, v in (taught.available(setting_id) or {}).items()}
+    except Exception:  # noqa: BLE001
+        return {}
+
+
+def _is(e: Exception, name: str) -> bool:
+    return any(c.__name__ == name for c in type(e).__mro__)
+
+
 class Stopped(Exception):
     pass
 
@@ -83,7 +111,7 @@ class Stopped(Exception):
 def _api_error(e: Exception) -> tuple[int | None, str] | None:
     """(HTTP status or None, short reason) if e is a Perceptron APIError (arm/perceptron.py), else None.
     APIError carries no status field, only "Perceptron HTTP 503", so the code comes from the message."""
-    if not any(c.__name__ == "APIError" for c in type(e).__mro__):
+    if not _is(e, "APIError"):
         return None
     code = getattr(e, "status_code", None) or getattr(e, "status", None)
     m = re.search(r"HTTP (\d{3})", str(e))
@@ -94,9 +122,19 @@ def _api_error(e: Exception) -> tuple[int | None, str] | None:
 
 class Controller:
     def __init__(self, arm, fake_arm: bool, setting_id: str = "surgical", judge: bool = False,
-                 state_file: str | Path | None = None):
+                 state_file: str | Path | None = None, skills: str = "model", deployment: bool = True,
+                 tries_file: str | Path | None = None):
         self.arm = arm
         self.fake_arm = fake_arm
+        if skills not in SKILL_MODES:
+            raise ValueError(f"skills must be one of {SKILL_MODES}")
+        self.skills = skills            # --skills model|taught|auto
+        self.deployment = deployment    # a robot model deployment exists (real arm: PERCEPTRON_DEPLOYMENT_ID set)
+        self.tries_file = Path(tries_file) if tries_file else TRIES_FILE  # only the real arm writes it
+        self.tries = _load_tries(self.tries_file)
+        self.skill_source = None        # "model" or "taught" for the flow running now; on its events
+        self._skill_ms: deque = deque(maxlen=50)  # run_skill durations
+        self.telemetry = None           # last arm.telemetry(), read on its own thread
         self.lock = threading.RLock()
         self.setting = settings.load(setting_id)
         self.step = "idle"
@@ -139,7 +177,18 @@ class Controller:
         self._prep_gen = 0              # bumped per prepare; an older prepare thread gives up
         self._prep_said = False         # spoke a prepare failure since the last setting change
         self.prepared = None            # setting id whose sessions the arm has open
+        self.taught = _taught_available(self.setting["id"])
         self._prepare()
+        if callable(getattr(arm, "telemetry", None)):
+            threading.Thread(target=self._telemetry_loop, daemon=True).start()
+
+    def _telemetry_loop(self) -> None:
+        while True:
+            try:
+                self.telemetry = self.arm.telemetry()
+            except Exception:  # noqa: BLE001 - no reading this time
+                self.telemetry = None
+            time.sleep(TELEMETRY_S)
 
     # ---------- events ----------
     def emit(self, type_: str, say: str | None = None, **kw) -> dict:
@@ -154,6 +203,8 @@ class Controller:
             "command_id": kw.pop("command_id", cmd["id"] if cmd else None), "out": list(self.out),
             "case_id": self.case_id, "judge": self.judge, "fake_arm": self.fake_arm, "t": time.time(),
         }
+        if self.skill_source and type_ not in ("command", "count"):
+            ev["skill_source"] = self.skill_source
         ev.update(kw)
         self.history.append(ev)
         if self._state_pool is not None:
@@ -182,13 +233,51 @@ class Controller:
 
     def state(self) -> dict:
         with self.lock:
-            return {
+            now = time.time()
+            ms = list(self._skill_ms)
+            age = lambda at: round((now - at) * 1000) if at else None  # noqa: E731
+            st = {
                 "step": self.step, "item": self.item, "queue": [j["item"] for j in self.jobs],
                 "out": list(self.out), "setting": self.setting["id"], "lighting": self.lighting,
                 "fake_arm": self.fake_arm, "hand_seen": self._hand_fresh() is not None,
                 "out_camera": self._camera_out()[0], "case_id": self.case_id, "judge": self.judge,
-                "resting": self.resting, "t": time.time(),
+                "resting": self.resting, "t": now,
+                # per item: the source its pick runs with (null: --skills taught and no taught skill)
+                "skills": {"mode": self.skills,
+                           "items": {it["id"]: self._skill_source(it["id"], "pick") for it in self.setting["items"]}},
+                "latency_ms": {"skill": ms[-1] if ms else None, "skill_p50": statistics.median(ms) if ms else None,
+                               "skill_n": len(ms), "hand_age": age(self.hand_at), "tray_age": age(self.tray_at)},
             }
+            if hasattr(self.arm, "telemetry"):
+                st["arm_telemetry"] = self.telemetry
+            return st
+
+    # ---------- skill source ----------
+    def _skill_source(self, item_id: str, direction: str) -> str | None:
+        """"model" or "taught" for one item's pick or return under --skills. None: taught asked for, none recorded."""
+        taught = direction in self.taught.get(item_id, ())
+        if self.skills == "model":
+            return "model"
+        if self.skills == "taught":
+            return "taught" if taught else None
+        if self.deployment and self._model_proven(item_id):
+            return "model"
+        return "taught" if taught else "model"
+
+    def _model_proven(self, item_id: str) -> bool:
+        """The model passed this item's last AUTO_TRIES real tries."""
+        rows = [r for r in self.tries.get(f"{self.setting['id']}/{item_id}", []) if r.get("source") == "model"]
+        rows = rows[-AUTO_TRIES:]
+        return len(rows) == AUTO_TRIES and all(r.get("ok") for r in rows)
+
+    def _record_try(self, item_id: str, direction: str, source: str, ok: bool) -> None:
+        """One real-arm try for --skills auto, saved to tries_file (worker thread; never the event loop)."""
+        if self.fake_arm:
+            return
+        rows = self.tries.setdefault(f"{self.setting['id']}/{item_id}", [])
+        rows.append({"direction": direction, "source": source, "ok": bool(ok), "t": time.time()})
+        del rows[:-TRIES_KEPT]
+        _save_state(self.tries_file, self.tries)
 
     # ---------- inputs ----------
     def submit(self, cmd: dict) -> dict:
@@ -243,10 +332,15 @@ class Controller:
         if action == "return":
             if item_id is None and not self._out_here() and not self._return_spot_item():
                 return False, "nothing is out", lines.NOTHING_OUT
+            it = settings.item(self.setting, item_id or "")
+            if it and self._skill_source(it["id"], "return") is None:
+                return False, "no taught skill", lines.no_taught(it["name"])
             return True, None, None
         it = settings.item(self.setting, item_id or "")
         if it is None:
             return False, f"{item_id!r} is not in {self.setting['id']}", lines.NOT_IN_SETTING
+        if self._skill_source(it["id"], "pick") is None:
+            return False, "no taught skill", lines.no_taught(it["name"])
         coming = lines.coming_sharp if it.get("sharp") else lines.coming
         return True, None, lines.queued(it["name"]) if busy else coming(it["name"])
 
@@ -341,6 +435,7 @@ class Controller:
             if self.step not in ("stopped", "error"):  # a tray switch never clears a stop: only a reset rearms
                 self.step, self.item = "idle", None
             self._prep_said = False
+        self.taught = _taught_available(setting_id)
         sync = getattr(self.arm, "set_setting", None)  # the sim arm rebuilds its scene for the new tray
         if sync:
             try:
@@ -578,11 +673,14 @@ class Controller:
                     try:
                         if api:
                             self._fail(lines.api_failed(api[0]), repr(e), code=api[0], reason=api[1])
+                        if _is(e, "ArmFault"):  # arm/hardware.py: thermal stop; its message says which motor
+                            self._fail(str(e) or lines.ERROR, repr(e))
                         self._fail(lines.ERROR, repr(e))
                     except Stopped:
                         pass
             finally:
                 self.cmd = None
+                self.skill_source = None
                 self._idle_since = time.time()
 
     def _call(self, gen: int, fn, *args, **kw):
@@ -621,12 +719,24 @@ class Controller:
         self.emit("stopped", say=say, reason=reason)
         raise Stopped
 
+    def _skill(self, gen: int, instruction: str) -> bool:
+        t0 = time.monotonic()
+        try:
+            return self._call(gen, self.arm.run_skill, instruction, source=self.skill_source or "model")
+        finally:
+            self._skill_ms.append(round((time.monotonic() - t0) * 1000))
+
     def _pick(self, gen: int, it: dict, instruction: str, want_closed: bool) -> tuple[bool, int]:
-        """Run a skill with one retry. Returns (ok, retries)."""
+        """Run a skill with one retry. Returns (ok, retries). Each real-arm run is a try for --skills auto."""
+        ok, retries = self._pick_once(gen, it, instruction, want_closed)
+        self._record_try(it["id"], "pick" if want_closed else "return", self.skill_source or "model", ok)
+        return ok, retries
+
+    def _pick_once(self, gen: int, it: dict, instruction: str, want_closed: bool) -> tuple[bool, int]:
         for attempt in range(2):
             if want_closed or attempt:
                 self.set_step("picking" if want_closed else "returning")
-            ran = self._call(gen, self.arm.run_skill, instruction)
+            ran = self._skill(gen, instruction)
             done_at = time.time()
             if not want_closed:
                 if ran and self._placed(gen, it, done_at) is not False:
@@ -644,8 +754,20 @@ class Controller:
                 self._call(gen, self.arm.go_home)
         return False, 1
 
+    def _use_source(self, it: dict, direction: str) -> bool:
+        """Pick the skill source for this flow; False (and say so) when taught is asked for and none exists."""
+        self.taught = _taught_available(self.setting["id"])  # a skill taught since start counts
+        src = self._skill_source(it["id"], direction)
+        if src is None:
+            self.emit("missed", say=lines.no_taught(it["name"]), item=it["id"])
+            return False
+        self.skill_source = src
+        return True
+
     def _handover(self, cmd: dict, gen: int) -> None:
         it = settings.item(self.setting, cmd["item"])
+        if not self._use_source(it, "pick"):
+            return
         self.set_step("finding", item=it["id"])
         if self._slot_present(it["id"]) is False:
             self.emit("missed", say=lines.not_on_tray(it["name"]))
@@ -672,7 +794,8 @@ class Controller:
             return
         self.set_step("waiting_for_pull")
         self.emit("handed", say=lines.handed(it["name"]), request_to_hand_s=elapsed(), retries=retries)
-        if not self._wait_for_pull(gen):
+        why = self._wait_for_pull(gen)
+        if not why:
             self._set_down(gen, it, lines.no_pull(it["name"]), None, retries)
             self._home(gen)
             return
@@ -682,7 +805,7 @@ class Controller:
                 self.out.append(it["id"])
             self.held = None
         self._call(gen, self.arm.open_gripper)
-        self.emit("released")
+        self.emit("released", release=why)
         self._home(gen)
 
     def _set_down(self, gen, it, say, elapsed=None, retries=None) -> None:
@@ -782,26 +905,34 @@ class Controller:
         except Exception:  # noqa: BLE001 - real arm: no fresh bus reading; got_it still works
             return None
 
-    def _wait_for_pull(self, gen: int) -> bool:
-        """A load change either way (the bus value is signed) or got_it. Never a made-up load."""
+    def _wait_for_pull(self, gen: int) -> str | None:
+        """Why to let go: "pull" (a load change over the delta either way; the bus value is signed), "collapse"
+        (the grip load falls to PULL_COLLAPSE of the held load or less for two reads running: the clinician
+        took the weight) or "got_it". None after PULL_WAIT_S. Never a made-up load."""
         self.got_it.clear()
         base = self._call(gen, self._load)
         if base is None:
             self.emit("step", say=lines.SAY_GOT_IT)
         delta = getattr(self.arm, "pull_delta", PULL_DELTA)  # load units differ per arm
         end = time.time() + PULL_WAIT_S
+        low = 0
         while time.time() < end:
             if self.gen != gen:
                 raise Stopped
             if self.got_it.is_set():
-                return True
+                return "got_it"
             load = self._load()
             if base is None:
                 base = load
-            elif load is not None and abs(load - base) > delta:
-                return True
+            elif load is not None:
+                if abs(load - base) > delta:
+                    return "pull"
+                # Only from a real grip (held load at least the delta), so noise near zero never drops it.
+                low = low + 1 if abs(base) >= delta and abs(load) <= PULL_COLLAPSE * abs(base) else 0
+                if low >= 2:
+                    return "collapse"
             time.sleep(0.05)
-        return False
+        return None
 
     def _lifted(self, gen: int, it: dict, after: float) -> bool | None:
         """After the pick: False if a TrayState from after `after` still shows the item in its slot."""
@@ -836,6 +967,8 @@ class Controller:
         it = settings.item(self.setting, item_id or "")
         if it is None:
             self.emit("missed", say=lines.NOTHING_OUT, item=None)
+            return
+        if not self._use_source(it, "return"):
             return
         self.set_step("returning", item=it["id"])
         ok, retries = self._pick(gen, it, it["return_instruction"], want_closed=False)

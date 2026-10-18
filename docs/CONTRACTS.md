@@ -41,6 +41,8 @@ Every part codes against these. Build against fake inputs that match them, and t
 | `GET /events/recent?n=50` | | the last n Events, oldest first (optional) |
 | `GET /vision` | | `{"tray": TrayState or null, "tray_age_s": number or null, "hand": Hand or null, "hand_age_s": number or null}`: the last posts as received (optional) |
 | `GET /nurse` | | the nurse console page (optional) |
+| `GET /ops` | | the ops page, `controller/ops.html` (optional) |
+| `GET /design/*` | | the shared `design/` folder, e.g. `/design/scrub.css` (optional) |
 | `GET /arm/pose` | | `{"available": bool, "joints_deg": [5] or null, "gripper": 0..1 or null, "tip_m": [x, y, z] or null, "tip_px": [x, y] or null, "calibrated": bool, "reason": str or null, "t": float}` (optional, read-only). Real arm only, optional: `"counters": {"accepted", "late", "holds", "ticks", "overruns", "api_errors"}` and `"last_reason": str` for first-contact checks |
 | `GET /arm/camera/{side,wrist}`, `GET /arm/stream/{side,wrist}` | | a JPEG, or MJPEG; 404 until the arm has `camera_jpeg(name)` (optional) |
 | `GET /camera/overhead` | | vision's `/snapshot` proxied, 502 if vision is down (optional) |
@@ -48,7 +50,7 @@ Every part codes against these. Build against fake inputs that match them, and t
 | `POST /alias` | `{"item": "hemostat", "alias": "clamp"}` | Always 200: `{"ok": bool, "say": str, "reason": str or null}` (X6 clinic words). `ok: false` for an unknown item, a bad word, a word another item already has, or judge mode (`reason` "judge mode"). Saved in `settings/<id>.local.json` (optional) |
 | `POST /restock` | `{"type": "restock", "item", "qty", "setting", "from", "heard", "case_id", "t"}` (voice texts) | `{"ok": bool}`: `false` when the ledger isn't loaded (voice then appends to `voice/restocks.jsonl`). Goes to `ledger.log` as a record with `type: "restock"`, not an Event (optional) |
 | `GET /tray_check` | | X3: vision's `GET /tray_check` for the current setting, plus `say`, `available` (vision answered), `label` and `items` (the setting's item names). Vision down or a timeout (3 s): falls back to the controller's own TrayState when it is under 3 s old and not stale (reports missing items only). Otherwise `ok: false`, `say` "I can't check the tray right now." (optional) |
-| `POST /fake/force` | `{"miss_grasp", "out_of_region", "skill_fail", "no_pull", "no_load", "api_error"}` (ints, all optional) | the fake arm's pending forced failures. 400 unless `--fake-arm` (testing only, optional) |
+| `POST /fake/force` | `{"miss_grasp", "out_of_region", "skill_fail", "no_pull", "no_load", "collapse", "hot", "api_error"}` (ints, all optional) | the fake arm's pending forced failures. 400 unless `--fake-arm` (testing only, optional) |
 | `POST /fake/pull` | nothing | sim arm: a simulated tug; otherwise the same as a `got_it` command from the dashboard (testing only, optional) |
 | `GET /demo` | | the demo console page (optional) |
 | `POST /judge` | `{"on": true or false}` | `{"ok": true, "judge": bool}` (optional). Judge mode: `/command` accepts only `handover`, `count`, `stop` and `got_it`; anything else gets `accepted: false`, `reason` "judge mode" and a spoken `say`. `POST /alias` answers `ok: false`, `reason` "judge mode". `/setting`, `/reset`, `/lighting`, `/stop` and the operator endpoints still work. Also `python -m controller --judge` |
@@ -93,6 +95,9 @@ Every part codes against these. Build against fake inputs that match them, and t
 - `out_camera` (optional): what the camera says is out, from the latest fresh TrayState: items whose slot is empty, minus anything sitting in the return spot. `null` when there's no fresh TrayState. `count` compares it with `out` and says if they disagree.
 - `case_id` (optional): the current case, `<setting>-<unix start seconds>`. A new case starts when the controller starts, when the setting changes and on `POST /reset` with `clear_count`.
 - `judge` (optional): `true` in judge mode (`POST /judge`).
+- `skills` (optional): `{"mode": "model" | "taught" | "auto", "items": {"<item id>": "model" | "taught" | null}}`. `mode` is the controller's `--skills`; each item has the source its next pick would use (`null`: `--skills taught` and no taught skill for that item, so a handover is refused).
+- `latency_ms` (optional): `{"skill": ms, "skill_p50": ms, "skill_n": int, "hand_age": ms, "tray_age": ms}`. `skill` is the last `run_skill` call, `skill_p50` the median of the last 50; `hand_age` and `tray_age` are how long ago vision last posted a Hand and a TrayState. Each can be `null` (nothing yet).
+- `arm_telemetry` (optional, only when the arm has `telemetry()`): the last `{"temps": {motor: C}, "loads": {motor: raw}, "hottest": C, "cooling": bool, "t": unix}`, read about once a second off the event loop, or `null` when the last read failed.
 
 `step` is one of `idle`, `finding`, `picking`, `checking`, `moving_to_hand`, `setting_down`, `waiting_for_pull`, `releasing`, `homing`, `returning`, `stopped`, `error`.
 
@@ -174,6 +179,9 @@ Every part codes against these. Build against fake inputs that match them, and t
 - `out_camera` (optional) on `count` events: the same value as in State at that moment. The voice server uses it to group the end-of-case text.
 - The voice server speaks Event `say` lines only. The `say` in the `/command` reply repeats the same line, for keyboard and curl use.
 - Optional extra fields on `command` events: `action`, `heard`, `source`, `accepted`, `reason`. Every event carries `out` (the State's list at that moment), so pages don't need to re-read `/state`. On `error` events: `error`, and for the robot model's API errors (Perceptron) `code` (the HTTP status as an int, or `null` when it didn't answer) and `reason` (a short message with no keys, e.g. "Perceptron HTTP 503"). An `error` event from pre-opening sessions after a setting change has `command_id: null` and leaves `step` as it was (the arm is not held); one from a skill run holds the arm (`step: "error"`) like any error. Every event also carries `judge` (bool). On `stopped` events from the hand watcher: `reason` (`hand_lost` or `hand_blocked`); the arm holds the item until a reset.
+- `skill_source` (optional): `"model"` or `"taught"` on every event of a pick or return flow (its `step` events, `picked`, `missed`, `handed`, `released`, `set_down`, `returned`, and a `stopped` or `error` that lands during it). Never on `command` or `count` events. Taught skills are a labeled backup; pages and voice show the source.
+- `release` (optional) on `released` events: why the gripper opened: `"pull"` (load change over `PULL_LOAD_DELTA`), `"collapse"` (grip load fell toward zero) or `"got_it"`.
+- An `error` event from an arm thermal stop (`ArmFault`, below) has the arm's message as `say`, e.g. "Too hot: shoulder_lift 71 C. Cooling down.", and holds the arm like any error.
 
 ## Vision endpoints (port 8001)
 
@@ -228,7 +236,7 @@ Optional overlay `settings/<id>.local.json`: `{"aliases": {"<item id>": ["word",
 ```python
 class Arm:
     def connect(self) -> None: ...
-    def run_skill(self, instruction: str, max_s: float = 20.0) -> bool: ...   # "pick the hemostat"
+    def run_skill(self, instruction: str, max_s: float = 20.0, source: str = "model") -> bool: ...   # "pick the hemostat"; source "taught" plays arm/skills/
     def go_home(self) -> None: ...
     def go_carry(self) -> None: ...
     def move_to(self, x: float, y: float, z: float, speed: float = 0.3) -> bool: ...  # False if outside the handoff region
@@ -241,7 +249,10 @@ class Arm:
     # optional:
     def resume(self) -> None: ...              # rearm after a freeze; the controller calls it only on reset
     def prepare(self, instructions: list[str]) -> list: ...  # pre-open robot model sessions; blocking, raises APIError
+    def telemetry(self) -> dict | None: ...    # {"temps", "loads", "hottest", "cooling", "t"}; the controller polls it on its own thread
 ```
+
+A thermal trip during a skill or move raises `arm.hardware.ArmFault` (a `RuntimeError`) after the arm goes safe; the controller turns it into an `error` event with the message as `say` and holds until a reset.
 
 The controller calls `prepare` with every item's `pick_instruction` and `return_instruction` at start, on each setting change and after a reset if the last one didn't finish, on its own thread (never the event loop, never under its lock). `run_skill` retries on its own first (503/504/429 or a timeout: hold and retry; 409/422: reset the session; 401/404/410: a fresh grant and session once) and raises `APIError` after 5 failures in a row. A `return` skill succeeds only after the jaw closed on the item and opened again. `connect()` refuses while another process holds the serial port. `SO101_SIDE_CAMERA` and `SO101_WRIST_CAMERA` may be an index, a /dev path or part of the camera's name. Perceptron failures raise `APIError` (`arm/perceptron.py`, message "Perceptron HTTP <status>"); the controller turns them into `error` events with `code`.
 
