@@ -4,7 +4,7 @@ import os
 import unittest
 from unittest import mock
 
-from deploy.check_env import detect_verdict, format_table, key_lines, need, present, redact
+from deploy.check_env import check_backboard, check_tiger, detect_verdict, format_table, key_lines, need, present, redact
 
 
 class CheckEnvTests(unittest.TestCase):
@@ -37,6 +37,21 @@ class CheckEnvTests(unittest.TestCase):
         self.assertIn("SPECTRUM_PROJECT_SECRET", text)
         self.assertNotIn("secret-abc123", text)
         self.assertNotIn("proj-abc123", text)
+
+    def test_tiger_and_backboard_missing_stay_redacted(self):
+        env = {
+            "TIGER_DATABASE_URL": "",
+            "BACKBOARD_API_KEY": "",
+            "BACKBOARD_ASSISTANT_ID": "",
+        }
+        with mock.patch.dict(os.environ, env, clear=False):
+            tiger = check_tiger()
+            board = check_backboard()
+        self.assertEqual(tiger[0], "Tiger Data")
+        self.assertEqual(tiger[1], "FAIL")
+        self.assertIn("missing", tiger[2])
+        self.assertEqual(board[1], "FAIL")
+        self.assertNotIn("postgresql", tiger[2])
 
     def test_photon_missing_when_neither_pair_is_set(self):
         env = {"PHOTON_API_KEY": "", "PHOTON_PROJECT_ID": "", "SPECTRUM_PROJECT_ID": "", "SPECTRUM_PROJECT_SECRET": ""}
