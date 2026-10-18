@@ -197,3 +197,14 @@ def test_bad_mode():
     except ValueError:
         return
     raise AssertionError("bad mode accepted")
+
+
+def test_spend_cap(tmp_path, monkeypatch):
+    monkeypatch.setattr(AP, "SPEND_FILE", tmp_path / "spend.jsonl")
+    assert AP.gemini_spent() == 0.0
+    usd = AP._record_spend("gemini-3-flash-preview", {"promptTokenCount": 1176, "candidatesTokenCount": 26, "thoughtsTokenCount": 2759})
+    assert abs(usd - 0.00894) < 1e-4 and abs(AP.gemini_spent() - usd) < 1e-9
+    monkeypatch.setattr(AP, "SPEND_CAP_USD", 0.001)
+    called = []
+    monkeypatch.setattr("requests.post", lambda *a, **k: called.append(1))
+    assert AP.gemini_box(np.zeros((480, 640, 3), np.uint8)) is None and not called  # over the cap: no request
