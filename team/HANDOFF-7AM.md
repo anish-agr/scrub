@@ -47,7 +47,7 @@ Film every shot 20 to 40 s without stopping (start before the ask, stop a few se
 
 Ideas worth adding if time allows: a side-by-side of the real handoff and the sim of the same routine, labeled "the same routine in simulation" (the sim does not mirror the real arm live, so never say "connected"); a 4x grid of recorded demonstrations for "how it's trained"; the phone screen showing the call and the case-summary text if Photon works.
 
-## Fix the sim (`video/simdemo.py`), then show Anish stills before rendering
+## Fix the sim (`video/simdemo.py`)
 
 Go through the sim play by play: make a 1 fps contact sheet of the whole run (`python -m video.simdemo sheet --every 1 --out ...`), then stills at every event (each grab, release, home, stop, return) and look at each one. Write down every problem you see (pose, jaw, item position, flicker, camera, caption timing), fix it, and repeat until a full pass is clean. One agent per segment.
 
@@ -57,7 +57,7 @@ Anish's notes on the draft:
 - Remove the scalpel safe-spot segment. New sequence: hemostat into the hand, arm home; Mayo scissors into the hand, arm home; a stop mid-move then continue; the simulated return of the hemostat labeled "SIMULATED RETURN (electromagnet)".
 - After each handoff the arm goes home directly.
 - Zoomed out (camera distance about 1.45, fixed), only a small SIMULATION tag and a plain caption. Nothing else on screen.
-- The draft is 15 fps on purpose. The final is 30 fps 1080p (about 8 minutes to render). Send Anish a contact sheet and wait for his okay before the final render.
+- The draft is 15 fps on purpose. When the play-by-play pass is clean, render the final at 30 fps 1080p (about 8 minutes) and put it in the video.
 - The overlay and cards must not look AI-made: no step strip, no glowing boxes, no decorative labels, plain type.
 
 ## The video (you own all of it)
