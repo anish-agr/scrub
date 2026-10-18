@@ -233,6 +233,16 @@ class Controller:
             self.step, self.item = "idle", None
         self.emit("step", say=lines.RESET)
 
+    def log_restock(self, body: dict) -> bool:
+        """F3: {"item", "qty", "setting", "from", "heard"} to the ledger. False when the ledger isn't loaded."""
+        rec = {"type": "restock", "item": body.get("item"), "qty": int(body.get("qty") or 1),
+               "setting": body.get("setting") or self.setting["id"], "from": body.get("from"),
+               "heard": body.get("heard"), "case_id": self.case_id, "t": body.get("t") or time.time()}
+        if ledger is None:
+            return False
+        self._ledger_pool.submit(ledger.log, rec)
+        return True
+
     def _new_case(self) -> str:
         """CONTRACTS: case_id = <setting>-<unix start seconds>."""
         return f"{self.setting['id']}-{int(time.time())}"

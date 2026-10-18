@@ -40,6 +40,7 @@ export const postCommand = (c: Command): Promise<CommandReply> => call("POST", "
 export const postStop = (): Promise<{ accepted: boolean }> => call("POST", "/stop");
 export const getSetting = (): Promise<any> => call("GET", "/setting");
 export const getState = (): Promise<State> => call("GET", "/state");
+export const postRestock = (r: object): Promise<{ ok: boolean }> => call("POST", "/restock", r);
 export const getStats = (): Promise<unknown> => call("GET", "/stats");
 
 // Follow WS /events forever, reconnecting every second if the controller is down.

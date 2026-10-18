@@ -62,6 +62,11 @@ def make_app(ctl: Controller, extra=None) -> FastAPI:
         ctl.stop()
         return {"accepted": True}
 
+    @app.post("/restock")
+    async def restock(body: dict):
+        """F3: a restock texted to the Photon thread (voice/). Logged to the ledger, not an Event."""
+        return {"ok": ctl.log_restock(body)}
+
     @app.post("/reset")
     async def reset(body: Optional[Reset] = None):
         """Clear a stop or error: rearm, home, set down a held item. {"clear_count": true} also empties out."""

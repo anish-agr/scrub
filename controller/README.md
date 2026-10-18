@@ -59,6 +59,7 @@ websocat ws://localhost:8000/events      # or open http://localhost:8000/
 
 - `GET /setting`: the current setting file (the voice server can read item ids and aliases here).
 - `GET /events/recent?n=50`: the last events, for a page that loads mid-run.
+- `POST /restock` with `{"item", "qty", "setting", "from", "heard"}`: a restock texted to the Photon thread (voice F3), logged to the ledger with the `case_id`. Returns `{"ok": false}` when the ledger isn't loaded (voice then keeps it in `voice/restocks.jsonl`).
 - `POST /fake/pull`: simulate the clinician tugging the item (sim arm), otherwise the same as `got_it`.
 - `GET /demo`: the judging console (P4). Keys 1/2/3 load the surgical, dental and bench trays, R resets and clears the count, Space or Esc stops (latched), C sends the current cue's request, G is got it. A 3:00 clock with the PITCH.md beats and who does what, and a rehearsal log for P5. `demo.html` is a copy of `explore/prototypes/48-judge-run.html`.
 - `GET /nurse`: the nurse console, a live port of `explore/prototypes/24-scrub-nurse.html`. Tray slots (on tray, out, held, plus the camera's view from TrayState), item chips and typed or browser-mic requests matched against the setting's aliases, the step track for the running request, request-to-hand time per request (`?target=10` sets the line), the queue, hand lamps (seen, open, path), stop that turns into reset, got it, count, return per item, fake-arm pull and forced failures, and the event log. Space or Esc stops (Esc also from the text box), G is got it, / types.
