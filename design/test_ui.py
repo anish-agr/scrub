@@ -35,22 +35,11 @@ def old(path):
 
 
 class PreservationTests(unittest.TestCase):
-    def test_external_scripts_only_change_display_copy(self):
-        # dashboard/app.js, dashboard/tablet.js and ledger/public/cases.js gained skill_source labels after the
-        # restyle (a logic change on purpose), so they are no longer compared with the pre-restyle copy.
-        # The ledger pages' scripts gained live readouts, source words and paging on purpose (Oct 18 restyle).
-        scripts = ("sim/web/common.js",)
-        for name in scripts:
-            expected = old(name).replace("\u2014", "--")
-            if name == "dashboard/app.js":
-                expected = expected.replace('model.handoff == null ? "--" :', 'model.handoff == null ? "-- s" :')
-                expected = expected.replace("${model.handoff.toFixed(1)}s", "${model.handoff.toFixed(1)} s")
-            if name == "ledger/public/cases.js":
-                expected = expected.replace("${Number(event.request_to_hand_s).toFixed(1)}s", "${Number(event.request_to_hand_s).toFixed(1)} s")
-            if name == "ledger/public/series.js":
-                expected = expected.replace("${Number(row.median_s).toFixed(1)}s", "${Number(row.median_s).toFixed(1)} s")
-            with self.subTest(script=name):
-                self.assertEqual(expected, (ROOT / name).read_text(encoding="utf-8"))
+    def test_sim_layout_adapter_preserves_other_trays(self):
+        # The shared browser adapter now supports five bench slots. Check its behavior rather
+        # than freezing application logic to the pre-restyle three-item copy.
+        from sim.test_web_layout import test_layout_round_trip_preserves_other_trays
+        test_layout_round_trip_preserves_other_trays()
 
     def test_all_original_ids_are_preserved_without_duplicates(self):
         for name in PAGES:

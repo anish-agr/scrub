@@ -14,7 +14,8 @@ assert.equal(waiting([q], 115), null);
 assert.equal(waiting([q, {type:'clarify_answer',question_id:'q1',t:102}], 103), null);
 assert.equal(waiting([q, {type:'clarify_answer',question_id:'other',t:102}], 103), q);
 assert.equal(waiting([q, {type:'stopped',t:102}], 103), null);
-assert.equal(waiting([q, {type:'error',t:102}], 103), null);
+assert.equal(waiting([q, {type:'error',step:'error',t:102}], 103), null);
+assert.equal(waiting([q, {type:'error',step:'idle',t:102}], 103), q);
 assert.equal(waiting([{...q, say:'<script>unsafe</script>'}], 101).say, '<script>unsafe</script>');
 """], cwd=root, check=True)
     for page in ("dashboard/index.html", "controller/ops.html"):

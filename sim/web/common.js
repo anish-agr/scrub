@@ -33,7 +33,9 @@
     bench: { label: 'Robotics bench', items: [
       { id: 'needle_nose_pliers', name: 'needle-nose pliers', aliases: ['needle nose', 'pliers'], sharp: false, color: '#46607a' },
       { id: 'wire_cutters', name: 'wire cutters', aliases: ['cutters', 'snips', 'dikes'], sharp: true, color: '#8c3b2e' },
-      { id: 'hex_key', name: 'hex key', aliases: ['allen key', 'allen wrench', 'hex'], sharp: false, color: '#5a6b3a' } ] },
+      { id: 'hex_key', name: 'hex key', aliases: ['allen key', 'allen wrench', 'hex'], sharp: false, color: '#5a6b3a' },
+      { id: 'flathead_screwdriver', name: 'flathead screwdriver', aliases: ['flathead', 'flat head'], group: 'screwdriver', variant: 'flathead', sharp: false, color: '#8c3b2e' },
+      { id: 'phillips_screwdriver', name: 'Phillips screwdriver', aliases: ['phillips', 'crosshead'], group: 'screwdriver', variant: 'Phillips', sharp: false, color: '#46607a' } ] },
     dental: { label: 'Dental office', items: [
       { id: 'mouth_mirror', name: 'mouth mirror', aliases: ['mirror'], sharp: false, color: '#46607a' },
       { id: 'explorer', name: 'explorer', aliases: ['probe', 'pick'], sharp: true, color: '#8c3b2e' },
@@ -76,7 +78,8 @@
   S.defaultSim = function () {
     return { setting: 'surgical', table: { center: [0.25, 0.0], size: [0.9, 0.8] }, tray: { center: [0.24, 0.0], size: [0.1, 0.26] },
       slots: [[0.24, -0.08], [0.24, 0.0], [0.24, 0.08]],
-      setting_items: { surgical: ['hemostat', 'scalpel', 'mayo_scissors'], bench: ['needle_nose_pliers', 'wire_cutters', 'hex_key'], dental: ['mouth_mirror', 'explorer', 'cotton_pliers'] },
+      setting_items: { surgical: ['hemostat', 'scalpel', 'mayo_scissors'], bench: ['needle_nose_pliers', 'wire_cutters', 'hex_key', 'flathead_screwdriver', 'phillips_screwdriver'], dental: ['mouth_mirror', 'explorer', 'cotton_pliers'] },
+      setting_slots: { bench: [[0.24, -0.08], [0.24, 0.0], [0.24, 0.08], [0.30, -0.05], [0.30, 0.05]] },
       return_spot: [0.17, 0.17], safe_spot: [0.17, -0.18], hand_zone: [0.28, -0.14, 0.14],
       handoff_region: { min: [0.15, -0.25, 0.06], max: [0.4, 0.25, 0.3] },
       poses: { home: [0.0, -1.7, 1.55, 0.9, 0.0, 0.0], carry: [0.0, -0.9, 0.35, 1.48, 0.0, 0.0] }, overhead_cam: { pos: [0.24, 0.0, 0.75], fovy: 55 } };
@@ -89,7 +92,7 @@
     return {
       setting: sid, procedure: (r._kit && r._kit.procedure) || S.PROCEDURES[sid][0].id,
       tray: { x: r.tray.center[0], y: r.tray.center[1], yaw_deg: yaw, d: r.tray.size[0], w: r.tray.size[1] },
-      slots: r.slots.map((p, i) => ({ item: items[i] || null, x: p[0], y: p[1], z: PICK_Z })),
+      slots: ((r.setting_slots && r.setting_slots[sid]) || r.slots).map((p, i) => ({ item: items[i] || null, x: p[0], y: p[1], z: PICK_Z })),
       return_spot: { x: r.return_spot[0], y: r.return_spot[1], z: PICK_Z, r: 0.035 },
       safe_spot: { x: r.safe_spot[0], y: r.safe_spot[1], z: PICK_Z, r: 0.035 },
       hand_zone: { x: r.hand_zone[0], y: r.hand_zone[1], z: r.hand_zone[2], r: 0.06 },
@@ -113,7 +116,9 @@
     const keep = filled.filter(s => known.has(s.item));
     o.setting = sid; o.tray = Object.assign({}, o.tray, { center: [r3(L.tray.x), r3(L.tray.y)], size: [r3(L.tray.d), r3(L.tray.w)] });
     if (L.tray.yaw_deg) o.tray.yaw_deg = L.tray.yaw_deg; else delete o.tray.yaw_deg;
-    o.slots = keep.map(s => [r3(s.x), r3(s.y)]);
+    // Keep other trays' slots when editing one tray, including the unchanged surgical scene.
+    o.setting_slots = Object.assign({}, o.setting_slots, { [sid]: keep.map(s => [r3(s.x), r3(s.y)]) });
+    if (sid === 'surgical') o.slots = o.setting_slots[sid];
     o.setting_items = Object.assign({}, o.setting_items, { [sid]: keep.map(s => s.item) });
     o.return_spot = [r3(L.return_spot.x), r3(L.return_spot.y)]; o.safe_spot = [r3(L.safe_spot.x), r3(L.safe_spot.y)];
     o.hand_zone = [r3(L.hand_zone.x), r3(L.hand_zone.y), r3(L.hand_zone.z)];
@@ -187,6 +192,7 @@
       items: L.slots.filter(s => s.item).map(s => {
         const it = S.itemInfo(s.item);
         return { id: it.id, name: it.name, aliases: it.aliases.slice(), sharp: !!it.sharp, slot: null,
+          ...(it.group ? {group: it.group, variant: it.variant} : {}),
           pick_instruction: 'pick the ' + it.name, return_instruction: 'return the ' + it.name };
       }),
       return_spot: null

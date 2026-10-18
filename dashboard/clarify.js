@@ -4,7 +4,7 @@
   function waitingQuestion(events, now = Date.now() / 1000) {
     const questions = new Map();
     for (const e of events) {
-      if (e.type === "stopped" || e.type === "error") questions.clear();
+      if (e.type === "stopped" || (e.type === "error" && e.step === "error")) questions.clear();
       const key = e.question_id || e.command_id || e.context || "question";
       if (e.type === "clarify" && e.say && Array.isArray(e.candidates) && e.candidates.length) {
         questions.set(key, e);
