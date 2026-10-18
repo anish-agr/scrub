@@ -95,12 +95,36 @@ def _parse_clicks(text: str) -> list[tuple[float, float]]:
     return list(zip(numbers[0::2], numbers[1::2]))
 
 
-def _click_on_image(image_path: Path, prompts: list[str]) -> list[tuple[float, float]]:
+def apply_boxes_to_setting(setting: dict, marked: dict) -> dict:
+    """Return a copy of the setting document with slot and return_spot boxes filled in."""
+    updated = json.loads(json.dumps(setting))
+    slots = marked.get("slots", {})
+    for item in updated.get("items") or []:
+        if item["id"] in slots:
+            item["slot"] = slots[item["id"]]
+    if "return_spot" in marked:
+        updated["return_spot"] = marked["return_spot"]
+    return updated
+
+
+def _fake_clicks(num_items: int) -> list[tuple[float, float]]:
+    clicks = []
+    default_boxes = [
+        (100.0, 80.0, 240.0, 140.0),
+        (260.0, 80.0, 400.0, 140.0),
+        (420.0, 80.0, 560.0, 140.0),
+    ]
+    for i in range(num_items):
+        b = default_boxes[i % len(default_boxes)]
+        clicks.extend([(b[0], b[1]), (b[2], b[3])])
+    # return spot
+    clicks.extend([(400.0, 300.0), (520.0, 380.0)])
+    return clicks
+
+
+def _click_on_frame(image, prompts: list[str]) -> list[tuple[float, float]]:
     import cv2
 
-    image = cv2.imread(str(image_path))
-    if image is None:
-        raise SystemExit(f"could not read {image_path}")
     clicks: list[tuple[float, float]] = []
     window = "mark slots"
 
@@ -140,23 +164,101 @@ def _mark_one(repo: Path, setting_id: str, clicks: list[tuple[float, float]], ou
     return document
 
 
+def _click_on_image(image_path: Path, prompts: list[str]) -> list[tuple[float, float]]:
+    import cv2
+
+    image = cv2.imread(str(image_path))
+    if image is None:
+        raise SystemExit(f"could not read {image_path}")
+    return _click_on_frame(image, prompts)
+
+
+def _grab_live_frame(fake: bool = False):
+    import os
+    from vision.camera import FakeCapture, open_capture
+
+    if fake:
+        capture = FakeCapture()
+    else:
+        index = int(os.environ.get("CAMERA_INDEX", "0"))
+        capture = open_capture(index)
+    ok, frame = capture.read()
+    if hasattr(capture, "release"):
+        capture.release()
+    if not ok or frame is None:
+        raise RuntimeError("could not grab live frame")
+    return frame
+
+
+def mark_setting(
+    setting_id: str,
+    repo: Path,
+    clicks: list[tuple[float, float]] | None = None,
+    image_path: Path | None = None,
+    live_frame=None,
+    fake: bool = False,
+    out_path: Path | None = None,
+    write_settings: bool = False,
+) -> dict:
+    setting = load_setting(repo, setting_id)
+    items = setting.get("items") or []
+    prompts = [item["id"] for item in items] + ["return_spot"]
+
+    if clicks is not None:
+        c = clicks
+    elif fake:
+        c = _fake_clicks(len(items))
+    elif image_path is not None:
+        c = _click_on_image(image_path, prompts)
+    elif live_frame is not None:
+        c = _click_on_frame(live_frame, prompts)
+    else:
+        frame = _grab_live_frame(fake=False)
+        c = _click_on_frame(frame, prompts)
+
+    marked = labeled_boxes(setting, boxes_from_clicks(c))
+    setting_format = apply_boxes_to_setting(setting, marked)
+
+    if out_path:
+        out_path.parent.mkdir(parents=True, exist_ok=True)
+        out_path.write_text(json.dumps(marked, indent=2), encoding="utf-8")
+        print(f"wrote {out_path}")
+
+    if write_settings:
+        settings_file = repo / "settings" / f"{setting_id}.json"
+        settings_file.parent.mkdir(parents=True, exist_ok=True)
+        settings_file.write_text(json.dumps(setting_format, indent=2), encoding="utf-8")
+        print(f"wrote {settings_file}")
+
+    return marked
+
+
 def main(argv: list[str] | None = None) -> None:
     import argparse
     import os
 
-    parser = argparse.ArgumentParser(description="Mark slot boxes on a tray photo")
+    parser = argparse.ArgumentParser(description="Mark slot boxes on a tray photo or live frame")
     parser.add_argument("--setting", default="surgical")
+    parser.add_argument("--all", action="store_true", help="process surgical, dental, and bench settings")
     parser.add_argument("--repo", default=".")
     parser.add_argument("--clicks", help="x,y,x,y,... two corners per slot, then the return spot")
     parser.add_argument("--image", help="saved tray photo to click on")
     parser.add_argument("--live", action="store_true", help="grab one frame from the overhead camera, then click")
     parser.add_argument("--fake", action="store_true", help="write boxes for all three trays, no camera and no window")
+    parser.add_argument("--write-settings", action="store_true", help="write boxes directly to settings/<id>.json in settings format")
     parser.add_argument("--out", help="JSON file, or a directory when --fake writes all three")
     args = parser.parse_args(argv)
 
     repo = Path(args.repo)
     if args.fake:
-        folder = Path(args.out) if args.out else repo / "vision" / "marked"
+        out_path = Path(args.out) if args.out else repo / "vision" / "marked"
+        if out_path.suffix == ".json" and not args.all:
+            # Single file output
+            setting = load_setting(repo, args.setting)
+            clicks = scripted_clicks(len(setting.get("items") or []))
+            _mark_one(repo, args.setting, clicks, out_path)
+            return
+        folder = out_path
         folder.mkdir(parents=True, exist_ok=True)
         for setting_id in ("surgical", "dental", "bench"):
             setting = load_setting(repo, setting_id)
@@ -164,30 +266,38 @@ def main(argv: list[str] | None = None) -> None:
             grab_live_frame(frame_path, fake=True)
             clicks = scripted_clicks(len(setting.get("items") or []))
             _mark_one(repo, setting_id, clicks, folder / f"{setting_id}.json")
+            if args.write_settings:
+                apply_boxes_to_setting(setting, labeled_boxes(setting, boxes_from_clicks(clicks)))
         return
 
-    setting = load_setting(repo, args.setting)
-    prompts = [item["id"] for item in setting.get("items") or []] + ["return_spot"]
-    image_path = Path(args.image) if args.image else None
-    if args.live:
-        index = int(os.environ.get("CAMERA_INDEX", "0"))
-        image_path = image_path or repo / "vision" / "marked" / f"{args.setting}.jpg"
-        grab_live_frame(image_path, index=index, fake=False)
-        print(f"saved {image_path}")
-    if args.clicks:
-        if image_path is not None:
-            import cv2
+    settings_to_run = ["surgical", "dental", "bench"] if args.all else [args.setting]
+    for s in settings_to_run:
+        setting = load_setting(repo, s)
+        prompts = [item["id"] for item in setting.get("items") or []] + ["return_spot"]
+        image_path = Path(args.image) if args.image else None
+        if args.live:
+            index = int(os.environ.get("CAMERA_INDEX", "0"))
+            image_path = image_path or repo / "vision" / "marked" / f"{s}.jpg"
+            grab_live_frame(image_path, index=index, fake=False)
+            print(f"saved {image_path}")
+        if args.clicks:
+            if image_path is not None:
+                import cv2
 
-            if cv2.imread(str(image_path)) is None:
-                raise SystemExit(f"could not read {image_path}")
-        clicks = _parse_clicks(args.clicks)
-    elif image_path is not None:
-        clicks = _click_on_image(image_path, prompts)
-    else:
-        raise SystemExit("pass --fake, --clicks, --image, or --live")
+                if cv2.imread(str(image_path)) is None:
+                    raise SystemExit(f"could not read {image_path}")
+            clicks = _parse_clicks(args.clicks)
+        elif image_path is not None:
+            clicks = _click_on_image(image_path, prompts)
+        else:
+            raise SystemExit("pass --fake, --clicks, --image, or --live")
 
-    out = Path(args.out) if args.out else repo / "vision" / "marked" / f"{args.setting}.json"
-    _mark_one(repo, args.setting, clicks, out)
+        out = Path(args.out) if (args.out and not args.all) else repo / "vision" / "marked" / f"{s}.json"
+        _mark_one(repo, s, clicks, out)
+        if args.write_settings:
+            marked = labeled_boxes(setting, boxes_from_clicks(clicks))
+            setting_doc = apply_marks(setting, marked)
+            _write_setting(repo / "settings" / f"{s}.json", setting_doc)
 
 
 if __name__ == "__main__":

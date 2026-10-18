@@ -3,7 +3,9 @@
 from __future__ import annotations
 
 import base64
+import json
 import logging
+import os
 import time
 from pathlib import Path
 
@@ -13,6 +15,7 @@ import httpx
 from vision.geometry import center_inside, iou, normalize_label
 
 logger = logging.getLogger("vision.tray")
+ROOT = Path(__file__).resolve().parent.parent
 _missing_settings: set[str] = set()
 
 DETECT_URL = "https://api.perceptron.inc/v1/detect"
@@ -114,7 +117,7 @@ def _slot_hit(detection_box_px, slot) -> bool:
 class PerceptronDetector:
     """POST /v1/detect. Boxes come back in pixels. The API does not return confidence."""
 
-    def __init__(self, api_key: str, url: str = DETECT_URL, timeout: float = 2.0):
+    def __init__(self, api_key: str, url: str = DETECT_URL, timeout: float = 4.0):
         self.api_key = api_key
         self.url = url
         self.timeout = timeout
@@ -145,6 +148,120 @@ class PerceptronDetector:
         if body.get("error"):
             raise RuntimeError(body["error"].get("message") or "detect error")
         return list(body.get("detections") or [])
+
+
+class FakeDetector:
+    """Fake tray detector that simulates detections for all items in the active setting,
+    tracks slot emptying from the controller or programmatically, and can place items in the return spot.
+    """
+
+    def __init__(self, controller_url: str | None = None, repo: Path | None = None):
+        self.controller_url = (controller_url or os.environ.get("CONTROLLER_URL", "http://localhost:8000")).rstrip("/")
+        self.repo = repo or ROOT
+        self._empty_items: set[str] = set()
+        self._filled_items: set[str] = set()
+        self._return_item: str | None = None
+        self._client = httpx.Client(timeout=0.2)
+        self.calls = 0
+
+    def empty_slot(self, item_id: str) -> None:
+        self._empty_items.add(item_id)
+        self._filled_items.discard(item_id)
+
+    def fill_slot(self, item_id: str) -> None:
+        self._empty_items.discard(item_id)
+        self._filled_items.add(item_id)
+
+    def set_return_spot(self, item_id: str | None) -> None:
+        self._return_item = item_id
+
+    def reset(self) -> None:
+        self._empty_items.clear()
+        self._filled_items.clear()
+        self._return_item = None
+
+    def _sync_with_controller(self) -> tuple[set[str], str | None, dict | None]:
+        empty = set(self._empty_items)
+        ret_item = self._return_item
+        setting_doc = None
+        try:
+            resp = self._client.get(f"{self.controller_url}/state")
+            if resp.status_code == 200:
+                state = resp.json()
+                step = state.get("step")
+                item = state.get("item")
+                out = state.get("out") or []
+                if step in ("checking", "moving_to_hand", "waiting_for_pull", "releasing", "setting_down") and item:
+                    empty.add(item)
+                for out_item in out:
+                    if step != "returning" or item != out_item:
+                        empty.add(out_item)
+                if step == "returning" and item:
+                    empty.discard(item)
+        except Exception:
+            pass
+        try:
+            resp = self._client.get(f"{self.controller_url}/setting")
+            if resp.status_code == 200:
+                data = resp.json()
+                if isinstance(data, dict) and data.get("items"):
+                    setting_doc = data
+        except Exception:
+            pass
+        for f in self._filled_items:
+            empty.discard(f)
+        return empty, ret_item, setting_doc
+
+    def detect(self, frame, categories: list[str]) -> list[dict]:
+        self.calls += 1
+        empty_items, return_item, setting_doc = self._sync_with_controller()
+        detections = []
+
+        slots_by_id = {}
+        ret_box = [400, 300, 520, 380]
+        if setting_doc:
+            for it in setting_doc.get("items") or []:
+                if it.get("slot"):
+                    slots_by_id[it["id"]] = it["slot"]
+            if setting_doc.get("return_spot"):
+                ret_box = setting_doc["return_spot"]
+
+        default_boxes = [
+            [60, 80, 200, 140],
+            [220, 80, 360, 140],
+            [380, 80, 520, 140],
+        ]
+        item_categories = [c for c in categories if c not in EXTRA_CATEGORIES]
+        for index, category in enumerate(item_categories):
+            normalized = normalize_label(category)
+            item_id = normalized.replace(" ", "_")
+            if item_id in empty_items:
+                continue
+            box = slots_by_id.get(item_id) or default_boxes[index % len(default_boxes)]
+            detections.append(
+                {
+                    "mention": category,
+                    "confidence": 0.95,
+                    "point_box": {
+                        "top_left": {"x": box[0], "y": box[1]},
+                        "bottom_right": {"x": box[2], "y": box[3]},
+                    },
+                }
+            )
+
+        if return_item:
+            detections.append(
+                {
+                    "mention": return_item.replace("_", " "),
+                    "confidence": 0.95,
+                    "point_box": {
+                        "top_left": {"x": ret_box[0], "y": ret_box[1]},
+                        "bottom_right": {"x": ret_box[2], "y": ret_box[3]},
+                    },
+                }
+            )
+
+        return detections
 
 
 def tray_from_detections(setting: dict, detections: list[dict], stale: bool = False) -> dict:
