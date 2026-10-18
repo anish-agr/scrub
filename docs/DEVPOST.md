@@ -18,7 +18,7 @@ A robot arm that passes instruments when you ask out loud.
 - **Perceptron Robotics.** The SO-101 arm. A fine-tuned Isaac 0.5 model runs "pick the hemostat" and "return the hemostat" from our own demonstrations.
 - **Perceptron Perception.** The overhead camera. It says which slots are full and whether the return spot has an instrument in it.
 - **Photon.** The phone call on speaker, and the end-of-case summary text on the same thread.
-- **DubHacks NEXT.** The later plan: a monthly fee per dental chair. Those tools are not on the table this weekend.
+- **DubHacks NEXT.** The later plan: a monthly fee per operating room.
 - **MLH Gemini API.** Turns what was said into one command from the current tray. It cannot invent an instrument that is not on the tray.
 - **MLH MongoDB Atlas.** Stores every event and every measured trial. The success tables are read from there.
 - **MLH Vultr.** Hosts the public judge page.
@@ -28,7 +28,7 @@ A robot arm that passes instruments when you ask out loud.
 
 ## Inspiration
 
-Dentists and surgeons work with an assistant who hands them instruments. Clinics cannot hire enough of those assistants. In Q3 2025, 69% of dentists who were recruiting called the search extremely or very hard (ADA Health Policy Institute). A surgical technologist job stays open about 120 days. When nobody is there, the clinician turns away from the patient, puts down what they are holding, and searches the tray.
+Surgeons work with a scrub tech who hands them instruments. Hospitals cannot hire enough of them. A surgical technologist job stays open about 120 days. When nobody is there, the clinician turns away from the patient, puts down what they are holding, and searches the tray.
 
 The same pause happens on a robotics bench. Both hands are on the work, and the next tool is across the table.
 
@@ -105,7 +105,7 @@ The useful version of this job is small. Pass the instrument, put it back, keep 
 
 ## What's next
 
-Later, dental offices are the first clinics to sell this to, as a monthly fee per chair. We do not have those tools on the table this weekend. The sterile setup is simpler than an operating room, and the staffing gap is already measured. A medical-grade arm is the later version of this weekend's arm. After that, Scrub can hand over the next instrument before it is asked for, using the step of the procedure.
+Later, surgery centers and operating rooms are the first customers, as a monthly fee per room. Scrub is a training and research prototype with no clinical claims, so training labs come before live cases. A medical-grade arm is the later version of this weekend's arm. After that, Scrub can hand over the next instrument before it is asked for, using the step of the procedure.
 
 ## Built with
 

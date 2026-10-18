@@ -25,7 +25,7 @@ Stack under test:
 | QA-09 | Empty Results tables render blank table headers alongside empty note | `dashboard/`, `ledger/` | Evan | Low | Fixed |
 | QA-10 | Dashboard sample mode does not reconnect if opened before controller starts | `dashboard/` | Evan | Low | Fixed |
 | QA-11 | Pressing Spacebar while focused on command buttons triggers emergency stop | `dashboard/` | Evan | Low | Fixed |
-| QA-12 | Scalpel command response announces "Scalpel coming" instead of safe spot | `controller/` | Caiden | Medium | Open |
+| QA-12 | Scalpel command response announces "Scalpel coming" instead of safe spot | `controller/` | Caiden | Medium | Fixed |
 
 ---
 
@@ -228,6 +228,7 @@ Stack under test:
 ---
 
 ### QA-12: Scalpel handover announces "Scalpel coming" instead of sharps announcement
+- **Status:** Fixed. `controller/core.py` now uses `lines.coming_sharp` for sharp items, so the scalpel is announced as going to the safe spot. A test is in `controller/test_flows.py`.
 - **Component**: `controller/`
 - **Owner**: Caiden
 - **Severity**: Medium

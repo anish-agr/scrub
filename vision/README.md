@@ -58,7 +58,7 @@ python -m vision.mark_slots --setting surgical --live
 
 `--live` grabs one frame from `CAMERA_INDEX`, saves it, and opens the click window. Or pass corners without a window: `--clicks x,y,x,y,...`. The JSON it writes is a full settings file with `slot` and `return_spot` filled. Evan copies those numbers into `settings/<id>.json`. Repeat for `dental` and `bench`.
 
-`python -m vision.mark_slots --fake --out /tmp/marked` writes all three trays from a synthetic frame, with no camera and no window. It does not change `settings/`.
+`python -m vision.mark_slots --fake --out /tmp/marked` writes every tray file from a synthetic frame, with no camera and no window. It does not change `settings/`.
 
 ## Calibration (B6)
 

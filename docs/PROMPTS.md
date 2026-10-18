@@ -139,7 +139,7 @@ response shapes and the latency into docs/PERCEPTRON.md.
 I'm Evan on team Scrub (DubHacks '26, repo github.com/anish-agr/dubhacks-2026,
 cloned here). Read AGENTS.md, docs/CONTRACTS.md and my section of
 docs/TASKS.md. Do task E1: settings/surgical.json (scalpel, hemostat,
-mayo_scissors), dental.json (mouth_mirror, explorer, cotton_pliers) and
+mayo_scissors), and
 bench.json (needle_nose_pliers, wire_cutters, hex_key) in the setting file
 format in CONTRACTS. Only the scalpel is sharp. Add the aliases clinicians
 and techs actually say (for example kelly for hemostat, mayo for the

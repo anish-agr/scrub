@@ -4,9 +4,9 @@ By Team Scrub at DubHacks 2026.
 
 ## The Problem: The Empty Chair Next to the Doctor
 
-Doctors, dentists, and assembly technicians work best when an assistant hands them instruments. Today, healthcare facilities cannot hire enough of those assistants.
+Surgeons and assembly technicians work best when an assistant hands them instruments. Today, operating rooms cannot hire enough of those assistants.
 
-Data from the American Dental Association Health Policy Institute shows that 69% of dental practices currently recruiting dental assistants report that finding candidates is extremely or very challenging. In hospitals, surgical technologist positions stay vacant for an average of 120 days. First-year staff turnover exceeds 42%.
+In hospitals, surgical technologist positions stay vacant for an average of 120 days. First-year staff turnover exceeds 42%.
 
 When an assistant is missing, the clinician must repeatedly look away from the patient, drop what they are holding, and search through a metal tray. In delicate procedures, those interruptions cost time and break concentration.
 
@@ -23,21 +23,21 @@ Scrub consists of four modular processes that talk to each other over clean HTTP
 
 ## Data Collection: Teaching the Arm with Demonstrations
 
-Robots in surgical and dental settings cannot rely on hardcoded joint trajectories. Instruments shift in their slots. Hands move to different positions. Tools rest at varying angles.
+Robots in surgical settings cannot rely on hardcoded joint trajectories. Instruments shift in their slots. Hands move to different positions. Tools rest at varying angles.
 
 We trained Scrub by recording demonstrations:
-- We recorded 25 teleoperation demonstrations for each instrument using LeRobot.
-- We covered 9 distinct tools across three settings: operating room (scalpel, hemostat, Mayo scissors), dental office (mouth mirror, explorer, cotton pliers), and robotics bench (needle-nose pliers, wire cutters, hex key).
-- In total, we collected 225 clean episodes.
+- We recorded teleoperation demonstrations using LeRobot: 20 picks and 10 returns for each operating room instrument, and 15 picks and 10 returns for each bench tool.
+- We covered 6 distinct tools across two settings: operating room (scalpel, hemostat, Mayo scissors) and robotics bench (needle-nose pliers, wire cutters, hex key).
+- In total, we collected [measured] clean episodes.
 - Each demonstration captured dual camera streams (overhead table view and wrist-mounted camera view) along with joint positions at 30 frames per second.
 
-The Isaac 0.5 model fine-tuned on this data learns generalized grasping policies directly from vision and proprioception. Adding the dental setting required zero new control code, just new demonstrations. Adding the bench setting took [measured] minutes of demonstration time.
+The Isaac 0.5 model fine-tuned on this data learns generalized grasping policies directly from vision and proprioception. Adding the bench setting required zero new control code, just new demonstrations. It took [measured] minutes of demonstration time.
 
 ## Conquering Glare: The Lighting Experiments
 
 The biggest surprise during development was lighting.
 
-Clinical lamps and dental lights are intense. Stainless steel tools reflect direct glare. Under standard camera auto-exposure settings, the camera sensor constantly adjusts its gain. A bright reflection causes the background to turn black, causing detection models to lose track of instruments.
+Operating room lamps are intense. Stainless steel tools reflect direct glare. Under standard camera auto-exposure settings, the camera sensor constantly adjusts its gain. A bright reflection causes the background to turn black, causing detection models to lose track of instruments.
 
 To fix this, we took three steps:
 
@@ -68,6 +68,6 @@ Building a robot that interacts with human hands required strict safety rules:
 
 We built Scrub on an arm that costs under $500 to show that useful physical AI is possible on accessible hardware today. 
 
-Our first commercial target is dental operatories. Dental procedures use standardized instruments, clean barrier sleeves, and predictable tray layouts. We plan to offer Scrub as a monthly subscription of $500 to $1,000 per chair, which is less than the cost of covering two unfilled assistant shifts.
+Our first target is surgery centers and operating rooms, starting with training labs. Surgical trays use standardized instruments and predictable layouts. We plan to offer Scrub as a monthly subscription per operating room, priced below the cost of covering unfilled scrub tech shifts. Scrub is a training and research prototype with no clinical claims.
 
 All code, data collection tooling, and test suites are open source in our repository.

@@ -41,13 +41,13 @@ Core tasks build the demo. Stretch tasks (marked **stretch**) wait until Checkpo
 | A1 | 12:30 to 1:15 | Perceptron workshop. Fill the "Workshop notes" table in `docs/ARM.md`: slot times, cameras, gripper load, training time, vision API | Notes pushed |
 | A2 | 1:15 to 3:00, before arm time | `arm/perceptron.py`: a client for the Robotics API per `docs/PERCEPTRON-ROBOTICS.md` and `docs/perceptron-openapi.json` (datasets, uploads, jobs, deployments, session grant, robot session, predict, reset, delete). `arm/train.py` CLI: register a dataset (Hugging Face or upload), wait for validation, start a job, follow it, print the deployment id. `arm/upload_dataset.py` for direct upload | `python -m arm.train capabilities` prints the capabilities with our team key |
 | A3 | first arm slot | Connect and calibrate the follower and leader, teleoperate, set up the `side` and `wrist` cameras at 640x480, 30 FPS. Tape the tray, slot and return-spot positions. Save the home, carry and safe-spot poses and the handoff region in `arm/rig.json` | `lerobot-teleoperate` works with both cameras; poses saved |
-| A4 | first arm slot | Record the operating room set with Evan: per item 15 "pick the X" + 10 "return the X", a third each in bright, normal and dim (75 total) | Dataset on the Hub or ready to upload; counts in `docs/DATA-LOG.md` |
+| A4 | first arm slot | Record the operating room set with Evan: per item 20 "pick the X" + 10 "return the X", a third each in bright, normal and dim (90 total) | Dataset on the Hub or ready to upload; counts in `docs/DATA-LOG.md` |
 | A5 | right after A4 | Fine-tuning run 1 with `arm/train.py` | Job running; ETA posted in the chat |
 | A6 | while run 1 trains | `arm/real_arm.py` implementing the arm interface in CONTRACTS: `run_skill` opens a robot session for the instruction and runs the predict loop (side + wrist images, six-value state) until done, `max_s` or `freeze`. Plus gripper position and load, poses from `rig.json` | The controller runs a real "pick the hemostat" with `--real-arm` |
 | A7 | while run 1 trains | `move_to(x, y, z)`: inverse kinematics from the SO-101 URDF, a speed limit, the handoff-region check | The arm reaches 5 test points within about 2 cm |
 | A8 | by 10:30 PM | First real handoff with Brandon's calibration and Caiden's controller | Hemostat goes from the tray to a hand by voice |
-| A9 | evening slots | Record dental, then bench (75 each), with Evan or Brandon. 10 extra demos for any item that failed after run 1 | All logged |
-| A10 | by about 1 AM | Fine-tuning run 2 on all three settings | All 9 items pick on the real arm |
+| A9 | evening slots | Record the bench set (3 items, 15 pick + 10 return each), with Evan or Brandon. Dental is dropped. 10 extra demos for any item that failed after run 1 | All logged |
+| A10 | by about 1 AM | Fine-tuning run 2 on the operating room and bench settings | All 6 items pick on the real arm |
 | A11 | Sun 6 to 7 AM | Run the tests in `docs/PLAN.md` and log them with `ledger.log_test` | Success tables full |
 | A12 | Sun 7 to 8:30 AM | Record the Perceptron arm video (required for the robotics track) | Uploaded |
 
@@ -86,7 +86,7 @@ One process owns the overhead camera, so the hand tracker and tray perception sh
 
 | # | When | Task | Done when |
 | --- | --- | --- | --- |
-| E1 | 12:30 to 1:30 | `settings/surgical.json`, `dental.json`, `bench.json` per CONTRACTS: items, aliases ("kelly" for hemostat, "mayo" for the scissors, and so on), `sharp`, instructions. Boxes stay `null` until Brandon sends them | Three valid files pushed |
+| E1 | 12:30 to 1:30 | `settings/surgical.json`, `bench.json` (and `dental.json`, kept in code but not demoed) per CONTRACTS: items, aliases ("kelly" for hemostat, "mayo" for the scissors, and so on), `sharp`, instructions. Boxes stay `null` until Brandon sends them | Valid files pushed |
 | E2 | 1:30 to 3:30 | `dashboard/`: one static page (plain HTML and JS). Live camera (`<img src="http://localhost:8001/stream">`), the current step, what's out, the event log, setting and lighting pickers, a big stop button, the spacebar as stop. A fake event list until C2 lands | A fake-arm handover shows live from the controller |
 | E3 | 3:30 to 5:00 | `ledger/`: MongoDB Atlas (mlh.link/mongodb), `log`, `log_test`, `stats` per CONTRACTS. Buffer to `ledger/buffer.jsonl` when Mongo is down | Events from a fake run show in Atlas |
 | E4 | arm slots | Arm crew with Anish: reset the tray between demos, switch the lighting, keep `docs/DATA-LOG.md` | The log matches the dataset |

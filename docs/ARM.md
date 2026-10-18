@@ -139,18 +139,17 @@ Perceptron's arms come assembled, so skip `lerobot-setup-motors` unless they say
 
 | Order | Setting | Items | Demos | Arm time |
 | --- | --- | --- | --- | --- |
-| 1 | Operating room | scalpel handle, hemostat, Mayo scissors | 75 | about 1 h 15 min |
-| 2 | ~~Dental~~ dropped: more operating room demos instead (another 10 per item, mostly bright light and new slot positions) | | 30 | about 30 min |
-| 3 | Bench | needle-nose pliers, wire cutters, hex key | 75 | about 1 h 15 min |
+| 1 | Operating room | scalpel handle, hemostat, Mayo scissors | 90 (20 pick + 10 return per item) | about 1 h 30 min |
+| 2 | Bench | needle-nose pliers, wire cutters, hex key | 75 (15 pick + 10 return per item) | about 1 h 15 min |
 
-Per item: 15 hand-out and 10 put-back. Two people: one on the leader arm, one resetting and logging in `docs/DATA-LOG.md`.
+Per item: 20 pick and 10 return for the operating room, 15 pick and 10 return for the bench. Two people: one on the leader arm, one resetting and logging in `docs/DATA-LOG.md`.
 
 If arm time turns out short, cut in this order: bench put-back, then dim light for bench (dental is dropped). Was: dental put-back, then dim light for dental and bench. Never cut the operating room set.
 
 ## Fine-tuning runs
 
 1. **Run 1:** right after the operating room set, to see early whether grasps work.
-2. **Run 2:** all three settings.
+2. **Run 2:** the operating room and bench settings.
 3. Add corrective demos to the same dataset before run 2. The workshop budget is only two successful jobs; no third fix-up run unless live capabilities explicitly allow it. Each run starts from the base model, so run 2 includes every earlier episode too.
 
 ## Item placement

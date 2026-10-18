@@ -30,7 +30,7 @@ What each one needs from us:
 | MongoDB Atlas | The ledger |
 | Vultr | The public dashboard runs on a Vultr server |
 | GoDaddy | The dashboard's domain |
-| DubHacks NEXT | A real business case: dental offices first, priced per chair |
+| DubHacks NEXT | A real business case: surgery centers and operating rooms first, priced per room |
 
 ## Saturday
 
@@ -48,7 +48,7 @@ What each one needs from us:
 | 10:00 to 10:30 | First real handoff (A8) | A8 with Anish | A8 with Anish | Dashboard during A8 |
 | **10:30 PM** | **Checkpoint 2:** Devpost draft in. First real handoff by voice | | | |
 | 10:30 to 2:00 | Bench demos and extra operating room demos (A9), run 2 (A10) | Summary text, sharps call-outs (C7) | `path_clear`, saved hand spots (B7) | Tables, Vultr, domain (E6) |
-| **2:00 AM** | **Checkpoint 3:** all three settings, put-back and the count working | | | |
+| **2:00 AM** | **Checkpoint 3:** the operating room and bench settings, put-back and the count working | | | |
 
 ## Overnight and sleep
 

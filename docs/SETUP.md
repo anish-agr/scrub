@@ -46,7 +46,6 @@
 ## Things to have at the table
 
 - Operating room: scalpel handle (no blade), hemostat, Mayo scissors
-- Dental: mouth mirror, explorer, cotton pliers
 - Bench: needle-nose pliers, wire cutters, hex key
 - A tray or box per setting, a blue towel under the tray, painter's tape for positions
 - The brightest lamp we have; a lux-meter phone app
