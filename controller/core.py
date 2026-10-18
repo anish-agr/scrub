@@ -11,7 +11,7 @@ from collections import deque
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 
-from . import lines, settings
+from . import lines, reads, settings
 
 try:
     import ledger  # Evan's; optional
@@ -171,6 +171,7 @@ class Controller:
         self._spot_since = 0.0
         self._auto_done = None          # auto-returned already; not again until it leaves the spot
         self.history: deque = deque(maxlen=500)
+        self._reading: set = set()      # read_* actions with a vision read in flight (one each at a time)
         self.listeners: list = []       # (loop, asyncio.Queue)
         self.cmd = None                 # command being run
         self.resting = False            # arm parked at home with torque off (arm.rest); woken per command
@@ -248,6 +249,7 @@ class Controller:
                 "fake_arm": self.fake_arm, "hand_seen": self._hand_fresh() is not None,
                 "out_camera": self._camera_out()[0], "case_id": self.case_id, "judge": self.judge,
                 "resting": self.resting, "t": now,
+                "sheet": self.sheet, "packs": list(self.packs),
                 # per item: the source its pick runs with (null: --skills taught and no taught skill)
                 "skills": {"mode": self.skills,
                            "items": {it["id"]: self._skill_source(it["id"], "pick") for it in self.setting["items"]}},
@@ -302,10 +304,13 @@ class Controller:
             self._emit_command(cmd, True, None, None)
             return {"accepted": True, "reason": None, "say": lines.STOPPED}
         if action == "count":
-            say, cam = self._count_line()
+            say, cam, mism = self._count_line()
             self._emit_command(cmd, True, None, None)
-            self.emit("count", say=say, item=None, command_id=cmd["id"], out=list(self.out), out_camera=cam)
+            extra = {} if mism is None else {"sheet_mismatch": mism}
+            self.emit("count", say=say, item=None, command_id=cmd["id"], out=list(self.out), out_camera=cam, **extra)
             return {"accepted": True, "reason": None, "say": say}
+        if action in reads.KINDS:
+            return self._start_read(cmd)
         with self.lock:
             ok, reason, say = self._check(cmd)
             self._emit_command(cmd, ok, reason, say)
@@ -425,8 +430,111 @@ class Controller:
         self._ledger_pool.submit(ledger.log, rec)
         return True
 
+    def log_caption(self, body: dict) -> bool:
+        """A clip caption from vision (POST /vision/caption) to the ledger as {"type": "caption", ...}. Not an Event."""
+        keys = ("event_type", "item", "label", "label_source", "agrees", "caption_item", "caption_action",
+                "caption_latency_ms", "filename")
+        rec = {"type": "caption", **{k: body.get(k) for k in keys}, "case_id": body.get("case_id") or self.case_id,
+               "setting": self.setting["id"], "fake_arm": self.fake_arm, "t": body.get("t") or time.time()}
+        if ledger is None:
+            return False
+        self._ledger_pool.submit(ledger.log, rec)
+        return True
+
+    # ---------- reading (OCR) ----------
+    def _start_read(self, cmd: dict) -> dict:
+        """read_sheet, read_tray, read_pack: vision reads the overhead frame on its own thread (up to
+        reads.TIMEOUT_S), then a `read` event speaks the answer. Never the arm worker: stop never waits on it."""
+        action = cmd["action"]
+        with self.lock:
+            busy = action in self._reading
+            if not busy:
+                self._reading.add(action)
+        if busy:
+            self._emit_command(cmd, False, "already reading", lines.STILL_READING)
+            return {"accepted": False, "reason": "already reading", "say": lines.STILL_READING}
+        say = lines.READING[action]
+        self._emit_command(cmd, True, None, say)
+        threading.Thread(target=self._read, args=(cmd,), daemon=True).start()
+        return {"accepted": True, "reason": None, "say": say}
+
+    def _read(self, cmd: dict) -> None:
+        action = cmd["action"]
+        kind = reads.KINDS[action]
+        try:
+            res = reads.fetch(kind, self.setting["id"])
+            fields = {k: v for k, v in (res or {}).items() if k not in ("kind", "t", "say")}
+            read = {"kind": kind, "method": None, "latency_ms": None, **fields, "ok": bool(res and res.get("ok"))}
+            if res is None:
+                read["error"] = "vision unreachable"
+            say = {"count_sheet": self._read_sheet, "tray_tag": self._read_tray, "pack_label": self._read_pack}[kind](read)
+            self.emit("read", say=say, item=None, command_id=cmd["id"], read=read)
+        except Exception as e:  # noqa: BLE001 - a broken read never touches the arm
+            print(f"[read] {kind}: {e!r}", flush=True)
+        finally:
+            with self.lock:
+                self._reading.discard(action)
+
+    def _read_sheet(self, read: dict) -> str:
+        """Closing counts written: compare each with Scrub's on-tray count. Else the initial counts with the expected."""
+        if not read["ok"]:
+            return lines.CANT_READ_SHEET
+        sheet = reads.sheet_state(read, time.time())
+        with self.lock:
+            self.sheet = sheet
+            out, sid = list(self.out), self.setting["id"]
+        parts = []
+        if sheet["tray"] and sheet["tray"] != sid:
+            parts.append(lines.sheet_other_tray(reads.tray_label(sheet["tray"]) or sheet["tray"], reads.tray_label(sid) or sid))
+        mism, read["compare"] = reads.closing_mismatch(sheet, out), "closing"
+        if mism is None:
+            mism, read["compare"] = reads.initial_mismatch(sheet), "initial"
+        if mism is None:
+            read["compare"] = None
+            parts.append(lines.SHEET_NO_COUNTS)
+        elif not mism:
+            parts.append(lines.SHEET_MATCHES)
+        read["mismatch"] = mism or []
+        for m in mism or []:
+            name = self._names([m["item"]])[0]
+            parts.append(lines.sheet_closing(name, m["sheet"], m["scrub"]) if "scrub" in m
+                         else lines.sheet_initial(name, m["sheet"], m["expected"]))
+        return " ".join(parts)
+
+    def _read_tray(self, read: dict) -> str:
+        """A known tray other than this one switches the setting (as POST /setting does) when the arm is idle or stopped."""
+        tray = read.get("tray") if read["ok"] else None
+        label = reads.tray_label(tray) if tray else None
+        read["switched"] = False
+        if not label:
+            return lines.CANT_READ_TAG
+        if tray == self.setting["id"]:
+            return lines.tray_is(label)
+        try:
+            self.set_setting(tray)  # raises RuntimeError while busy
+        except RuntimeError:
+            return lines.tray_busy(label)
+        read["switched"] = True
+        return lines.tray_switched(label)
+
+    def _read_pack(self, read: dict) -> str:
+        labels = [lab for lab in read.get("labels") or [] if isinstance(lab, dict)] if read["ok"] else []
+        if not labels:
+            return lines.CANT_READ_PACK
+        rows = [{"item": lab.get("item"), "lot": lab.get("lot"), "expires": lab.get("expires"),
+                 "expired": bool(lab.get("expired"))} for lab in labels]
+        with self.lock:
+            self.packs.extend(rows)
+        parts = []
+        for lab, row in zip(labels, rows):
+            name = self._names([row["item"]])[0] if row["item"] else str(lab.get("item_text") or "instrument")
+            parts.append(lines.pack_expired(name.lower(), row["expires"]) if row["expired"]
+                         else lines.pack(name, row["expires"]))
+        return " ".join(parts)
+
     def _new_case(self) -> str:
-        """CONTRACTS: case_id = <setting>-<unix start seconds>."""
+        """CONTRACTS: case_id = <setting>-<unix start seconds>. A new case starts with no sheet or pack read."""
+        self.sheet, self.packs = None, []
         return f"{self.setting['id']}-{int(time.time())}"
 
     def set_setting(self, setting_id: str) -> dict:
@@ -610,11 +718,13 @@ class Controller:
         out = [s.get("item") for s in slots if not s.get("present") and s.get("item") != spot]
         return out, {s.get("item") for s in slots} | ({spot} if spot else set())
 
-    def _count_line(self) -> tuple[str, list | None]:
-        """The count line, plus a short note where the camera disagrees with `out`."""
+    def _count_line(self) -> tuple[str, list | None, list | None]:
+        """(the count line, the camera's out, sheet_mismatch). The line adds a short note where the camera or a
+        count sheet read this case (its closing counts) disagrees. sheet_mismatch is None with no closing counts."""
         with self.lock:
             out = list(self.out)
             cam, known = self._camera_out()
+            sheet = self.sheet
         say = lines.count(self._names(out))
         if cam is not None:
             gone = [i for i in cam if i not in out]
@@ -623,7 +733,10 @@ class Controller:
                 say += " " + lines.camera_gone(self._names(gone))
             if back:
                 say += " " + lines.camera_back(self._names(back))
-        return say, cam
+        mism = reads.closing_mismatch(sheet, out) if sheet else None
+        if mism:
+            say += " " + lines.sheet_disagrees(self._names([m["item"] for m in mism]))
+        return say, cam, mism
 
     def _names(self, ids) -> list[str]:
         return [(settings.item(self.setting, i) or {"name": i.replace("_", " ")})["name"] for i in ids]

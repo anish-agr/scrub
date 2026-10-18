@@ -100,3 +100,37 @@ def api_failed(code): return api_error(code) + " Holding."  # a skill failed on 
 
 # Judge mode (L3): a judge may only ask for an instrument, the count, got it or stop.
 JUDGE_ONLY = "In judge mode I can hand you an instrument, read the count, or stop."
+
+
+# Reading (OCR): read_sheet, read_tray, read_pack. Numbers and names come from vision's read and the setting.
+READING = {"read_sheet": "Reading the count sheet.", "read_tray": "Reading the tray tag.",
+           "read_pack": "Reading the pack label."}
+STILL_READING = "Still reading."
+CANT_READ_SHEET = "I can't read the count sheet."
+CANT_READ_TAG = "I can't read the tray tag."
+CANT_READ_PACK = "I can't read the pack label."
+SHEET_MATCHES = "Sheet matches my count."
+SHEET_NO_COUNTS = "No counts are written on the sheet yet."
+
+
+def _count_of(n, name):
+    """"1 hemostat", "0 hemostats", "2 mayo scissors"."""
+    return f"{n} {name if n == 1 or name.endswith('s') else name + 's'}"
+
+
+def sheet_closing(name, sheet, scrub): return f"Sheet says {_count_of(sheet, name)} back, I count {scrub}."
+def sheet_initial(name, initial, expected): return f"Sheet says {_count_of(initial, name)} at the start, {expected} expected."
+def sheet_other_tray(seen, current): return f"This sheet is for the {seen} tray, not the {current} tray."
+def sheet_disagrees(names): return f"Sheet disagrees on {_the(names)}."  # added to the count line
+
+
+def tray_is(label): return f"This is the {label} tray."
+def tray_switched(label): return f"This is the {label} tray. Switched."
+def tray_busy(label): return f"This is the {label} tray. I can't switch while I'm busy."
+
+
+def pack(name, expires):
+    return f"{cap(name)} pack, expires {expires}." if expires else f"{cap(name)} pack, no expiry date."
+
+
+def pack_expired(name, expires): return f"Expired: {name} pack, {expires}. Don't open it."

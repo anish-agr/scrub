@@ -16,6 +16,20 @@ import numpy as np
 from .kinematics import FEATURES
 
 CAMERAS = ("observation.images.side", "observation.images.wrist")
+SETTINGS = Path(__file__).resolve().parents[1] / "settings"
+
+
+def instructions(settings=SETTINGS):
+    """Exact pick/return strings from settings/*.json (the words the model is told later)."""
+    allowed = set()
+    for path in sorted(Path(settings).glob("*.json")):
+        try:
+            data = json.loads(path.read_text())
+        except ValueError:
+            continue
+        for item in data.get("items") or []:
+            allowed.update(item[k] for k in ("pick_instruction", "return_instruction") if item.get(k))
+    return allowed
 
 
 def local_check(root, cadence_report):
@@ -54,8 +68,15 @@ def local_check(root, cadence_report):
     else:
         metadata_files = sorted((root / "meta/episodes").rglob("*.parquet"))
         episodes = [row for path in metadata_files for row in pq.ParquetFile(path).read().to_pylist()]
+    allowed = instructions()
     lengths = {}
     for episode in episodes:
+        tasks = episode.get("tasks")
+        tasks = [tasks] if isinstance(tasks, str) else list(tasks or [])
+        wrong = [t for t in tasks if t not in allowed]
+        if not tasks or wrong:
+            raise ValueError(f"Episode {episode.get('episode_index')} task {wrong or tasks!r} is not an exact "
+                             "pick/return instruction from settings/*.json")
         index, length = episode.get("episode_index"), episode.get("length")
         if type(index) is not int or type(length) is not int or length < 2 or index in lengths:
             raise ValueError("Invalid, empty or duplicate episode metadata")
@@ -92,6 +113,12 @@ def local_check(root, cadence_report):
         index, hz = entry.get("episode_index"), entry.get("measured_fps")
         if type(index) is not int or index in measured or not isinstance(hz, (int, float)) or not math.isfinite(hz) or not 29 <= hz <= 31:
             raise ValueError("Recording cadence must be measured at about 30 Hz (29..31) for every episode")
+        cams = entry.get("camera_fps") or {}
+        for cam in ("side", "wrist"):
+            fps = cams.get(cam)
+            if not isinstance(fps, (int, float)) or not math.isfinite(fps) or not 29 <= fps <= 31:
+                raise ValueError(f"Episode {index} {cam} camera ran at {fps} fps; every episode needs "
+                                 "camera_fps side and wrist measured at 29..31 (re-record it)")
         measured[index] = hz
     if set(measured) != set(lengths):
         raise ValueError("Cadence evidence must cover every recorded episode")

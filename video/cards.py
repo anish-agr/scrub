@@ -8,7 +8,7 @@ import math
 import os
 import statistics
 
-from .common import BASE, digest, ledger_rows, save_provenance, write_json
+from .common import BASE, digest, ledger_rows, save_provenance, select_arm, write_json
 from .style import CSS, ensure_fonts
 
 
@@ -49,13 +49,17 @@ def table_html(table):
     return '<table><thead><tr><th>Tray / item</th><th>Lighting</th><th>Success / tries / Wilson range</th><th>Median</th></tr></thead><tbody>'+''.join(body)+'</tbody></table>'
 
 
-def cards(ws,ledger,allow_synthetic=False):
-    from playwright.sync_api import sync_playwright
+def cards(ws,ledger,allow_synthetic=False,arm=None):
+    from playwright.sync_api import sync_playwright, Error as PlaywrightError
     ledger=ws.source(ledger)
-    rows=ledger_rows(ledger)
-    synthetic=any(row.get('synthetic') or row.get('fake_arm') for row in rows)
+    rows=select_arm(ledger_rows(ledger),arm)
+    if not rows:
+        raise ValueError(f"No {arm} rows in {ledger}")
+    kinds={row['_arm'] for row in rows}
+    synthetic=bool(kinds&{'fake','synthetic'})
+    simulation='simulation' in kinds
     if synthetic and not allow_synthetic:
-        raise ValueError("Synthetic/fake ledger requires --allow-synthetic; numbers are not real-arm evidence")
+        raise ValueError("Synthetic/fake ledger requires --allow-synthetic (or --arm real / --arm simulation); numbers are not real-arm evidence")
     table=trial_table(rows)
     folder=ensure_fonts()
     embedded=''
@@ -86,7 +90,8 @@ def cards(ws,ledger,allow_synthetic=False):
                 for index,chunk in enumerate(chunks):
                     suffix='' if index==0 else '-'+str(index+1)
                     key=name+suffix
-                    disclosure='<div class="disclosure">SIMULATION - SYNTHETIC FIXTURE, NOT REAL-ARM RESULTS</div>' if synthetic else ''
+                    disclosure=('<div class="disclosure">SIMULATION - SYNTHETIC FIXTURE, NOT REAL-ARM RESULTS</div>' if synthetic else
+                        '<div class="disclosure">SIMULATION - SIM ARM RUN, NOT REAL-ARM RESULTS</div>' if simulation else '')
                     content=f'<h1>{html.escape(title)}</h1><p>{html.escape(subtitle)}</p>'
                     if name=='end':
                         content+=table_html(chunk)+'<p class="label">Perceptron Robotics · Photon · Gemini · MongoDB Atlas</p>'
@@ -101,13 +106,19 @@ def cards(ws,ledger,allow_synthetic=False):
                     if page.locator('table').count() and page.locator('table').bounding_box()['y']+page.locator('table').bounding_box()['height']>900:
                         raise ValueError("Success table exceeds card; reduce rows per card")
                     png=ws.out('cards/'+key+'.png')
-                    page.screenshot(path=str(png))
-                    save_provenance(png,kind='card',synthetic=synthetic,ledger_source=str(ledger),ledger_sha256=digest(ledger),
+                    try:
+                        page.screenshot(path=str(png),timeout=120000,animations='disabled')
+                    except PlaywrightError as error:
+                        # Playwright's TimeoutError is not the builtin one; surface it as `video: TimeoutError`.
+                        if type(error).__name__=='TimeoutError':
+                            raise TimeoutError(f"Chromium took over 120 s to screenshot card {key}") from None
+                        raise RuntimeError(f"Chromium failed on card {key}: {type(error).__name__}") from None
+                    save_provenance(png,kind='simulation' if simulation and not synthetic else 'card',synthetic=synthetic,arm=arm or 'all',ledger_source=str(ledger),ledger_sha256=digest(ledger),
                         operations=[{'command':'cards','renderer':'Playwright Chromium','fonts':['Archivo','IBM Plex Mono']}])
                     generated.append(str(png))
         finally:
             browser.close()
     report={'cards':generated,'table':table,'ledger':str(ledger),'ledger_sha256':digest(ledger),
-            'synthetic':synthetic,'note':'Only supplied test rows form rate denominators. Events are not success trials.'}
+            'synthetic':synthetic,'simulation':simulation,'arm':arm or 'all','note':'Only supplied test rows form rate denominators. Events are not success trials.'}
     write_json(ws.out('cards/index.json'),report)
     return report

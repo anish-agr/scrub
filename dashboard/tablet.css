@@ -7,12 +7,15 @@ main { width:100%; flex:1; display:grid; grid-template-columns:minmax(0,1.5fr) m
 #item { margin:20px 0 0; font-size:clamp(26px,4vw,48px); min-height:1.4em; }
 #out { margin:12px 0 0; font-size:clamp(32px,5vw,64px); font-weight:700; line-height:1.15; }
 .safety-dock { position:sticky; bottom:0; z-index:10; background:var(--paper); border-top:4px solid var(--ink); padding:16px 24px; display:grid; grid-template-columns:1fr 2fr; gap:8px 16px; }
-.safety-dock button { font-size:clamp(24px,4vw,44px); min-height:88px; }
+.scrub-ui .safety-dock button { font-size:clamp(24px,4vw,44px); min-height:88px; }
 .safety-dock p { grid-column:1/-1; font:12px var(--m); color:var(--mute); text-align:right; margin:0; }
 @media(max-width:760px) {
   main { grid-template-columns:minmax(0,1fr); gap:16px; }
   #step { font-size:clamp(46px,15vw,80px); }
   #out { font-size:36px; }
   .safety-dock { padding:12px 16px; grid-template-columns:1fr 1.4fr; gap:8px; }
-  .safety-dock button { min-height:72px; font-size:26px; }
+  .scrub-ui .safety-dock button { min-height:72px; font-size:26px; }
 }
+.safety-dock:has(button[hidden]) { grid-template-columns:minmax(0,1fr); }
+.link.live { color:var(--green); }
+.link.bad { color:var(--red); }

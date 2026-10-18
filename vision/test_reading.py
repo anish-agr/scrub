@@ -278,6 +278,14 @@ class QrTests(unittest.TestCase):
         self.assertIsNone(out["tray"])
         self.assertEqual(len(gem.calls), 1)
 
+    def test_tray_never_inferred_without_tag_text(self):
+        # Live, Oct 18: a frame with instruments and no tag came back {"tray": "surgical", "text": "Surgical"}.
+        ocr = FakeBackend("perceptron", answer={"tray": "surgical", "text": "Surgical"})
+        gem = FakeBackend("gemini", answer={"tray": "surgical", "text": ""})
+        out = read_tray_tag(render_tray_tag("bench", "x", qr=False)[:, :300], backends=[ocr, gem])
+        self.assertFalse(out["ok"])
+        self.assertIsNone(out["tray"])
+
 
 class FallbackTests(unittest.TestCase):
     def test_perceptron_failure_then_gemini(self):
@@ -348,7 +356,7 @@ class FallbackTests(unittest.TestCase):
 
 class BackendRequestTests(unittest.TestCase):
     def test_perceptron_request_shape_and_downscale(self):
-        client = FakeClient(perceptron_reply({"tray": "bench", "text": "BENCH"}))
+        client = FakeClient(perceptron_reply({"tray": "bench", "text": "TRAY BENCH"}))
         big = cv2.resize(render_tray_tag("bench", "Robotics bench", qr=False), (3200, 1800))
         out = read_tray_tag(big, backends=[PerceptronOCR("test-key", client=client, timeout=7.0)])
         self.assertEqual((out["tray"], out["method"]), ("bench", "perceptron"))
@@ -365,7 +373,7 @@ class BackendRequestTests(unittest.TestCase):
         self.assertEqual(max(sent.shape[:2]), 1600)
 
     def test_perceptron_errors_hand_over(self):
-        gem_client = FakeClient(gemini_reply({"tray": "surgical", "text": "SURGICAL"}))
+        gem_client = FakeClient(gemini_reply({"tray": "surgical", "text": "TRAY SURGICAL"}))
         for bad in (FakeClient(error=httpx.ConnectTimeout("t")), FakeClient(FakeResponse(503, {})),
                     FakeClient(FakeResponse(200, {"choices": [{"finish_reason": "length", "message": {"content": "{"}}]})),
                     FakeClient(FakeResponse(200, {"choices": [{"finish_reason": "stop", "message": {"content": "no json"}}]}))):

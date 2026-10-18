@@ -126,8 +126,14 @@ function render() {
     .map((event) => seconds(event.request_to_hand_s));
   $("handoffs").textContent = recent.length ? `Recent handoffs ${recent.join(", ")}` : "";
   renderPaper();
+  const halted = model.step === "stopped" || model.step === "error";
   const reset = $("reset");
-  if (reset) reset.hidden = !(model.live && (model.step === "stopped" || model.step === "error"));
+  if (reset) reset.hidden = !(model.live && halted);
+  const stopBanner = $("stopped-banner");
+  if (stopBanner) {
+    stopBanner.hidden = !halted;
+    stopBanner.textContent = model.step === "error" ? "ARM FROZEN. A person must reset." : "STOPPED. A person must reset the arm.";
+  }
 
   const out = $("out");
   out.replaceChildren();
@@ -753,25 +759,33 @@ function onCamera() {
   const image = $("camera");
   const frame = image.parentElement;
   let streamOn = false;
+  let failures = 0;
   const check = () => {
     const probe = new Image();
     probe.onload = () => {
+      failures = 0;
       if (!streamOn) {
         image.src = `${visionOrigin()}/stream`;
         streamOn = true;
       }
       frame.classList.add("has-stream");
+      setTimeout(check, 3000);
     };
     probe.onerror = () => {
       streamOn = false;
+      failures += 1;
       image.removeAttribute("src");
       frame.classList.remove("has-stream");
+      // Vision is down: back off (6 s, 12 s ... 2 min) instead of retrying every 3 s.
+      setTimeout(check, Math.min(120000, 3000 * 2 ** failures));
     };
     probe.src = `${visionOrigin()}/snapshot?t=${Date.now()}`;
   };
   check();
-  setInterval(check, 3000);
 }
+
+let visionFails = 0;
+let visionSkipUntil = 0;
 
 async function pollVision() {
   const banner = $("vision-stale");
@@ -788,11 +802,19 @@ async function pollVision() {
     tray = null;
   }
   if (!tray) {
+    if (Date.now() < visionSkipUntil) {
+      banner.hidden = true;
+      return;
+    }
     try {
       const response = await fetch(`${visionOrigin()}/vision/tray`, { cache: "no-store", signal: AbortSignal.timeout(3000) });
       if (!response.ok) throw new Error("down");
       tray = await response.json();
+      visionFails = 0;
     } catch (error) {
+      // Vision is down: ask again after 4 s, 8 s ... 2 min, not every poll.
+      visionFails += 1;
+      visionSkipUntil = Date.now() + Math.min(120000, 4000 * 2 ** visionFails);
       banner.hidden = true;
       return;
     }

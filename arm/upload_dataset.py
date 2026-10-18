@@ -81,14 +81,23 @@ def put_file(client, reservation, path, *, poll_timeout=300):
         raise APIError("Upload transport failed; do not finalize") from None
 
 
-def upload(api, root, name, idempotency_key):
+def upload(api, root, name, idempotency_key, *, on_registered=None, before_finalize=None,
+           transport=None):
+    """Register (source_kind upload), reserve, PUT, finalize. Never submits a job.
+
+    on_registered(dataset_id) runs before any bytes move, so a caller can save the id
+    to resume. before_finalize() can raise to stop a finalize (for example when the
+    local snapshot changed). The manifest is re-hashed just before finalize too.
+    """
     root = Path(root)
     files = manifest(root)
     dataset = api.register_dataset({"name": name, "source_kind": "upload"}, idempotency_key)
     dataset_id = dataset.get("id") or dataset.get("dataset_id")
     if not dataset_id:
         raise APIError("Dataset response has no id")
-    with httpx.Client(timeout=300, follow_redirects=False,
+    if on_registered:
+        on_registered(dataset_id)
+    with httpx.Client(timeout=300, follow_redirects=False, transport=transport,
                       headers={"User-Agent": USER_AGENT}) as unsigned:
         for batch in batches(files):
             reservation = api.reserve_uploads(dataset_id, batch)
@@ -107,6 +116,10 @@ def upload(api, root, name, idempotency_key):
                 if path.stat().st_size != descriptor["size_bytes"] or digest.hexdigest() != descriptor["sha256"]:
                     raise APIError("Dataset changed during upload; do not finalize")
                 put_file(unsigned, entry, path)
+    if manifest(root) != files:
+        raise APIError("Dataset files changed during upload (a recorder still writing?); do not finalize")
+    if before_finalize:
+        before_finalize()
     return {"dataset_id": dataset_id, "finalize": api.finalize(dataset_id)}
 
 

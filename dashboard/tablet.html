@@ -5,17 +5,18 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>Scrub tablet</title>
-  <link rel="stylesheet" href="style.css">
+  <link rel="stylesheet" href="/design/scrub.css" onerror="this.onerror=null;this.href='style.css'">
   <link rel="stylesheet" href="tablet.css">
 </head>
 <body class="scrub-ui" data-page="tablet">
   <header class="masthead"><div><b class="wordmark">Scrub</b><span class="subtitle">Instrument station · Tablet</span></div><p id="link" class="link">connecting</p></header>
+  <p id="stopped-banner" class="banner stop-banner" role="alert" hidden></p>
   <main>
     <section class="current-step" aria-live="polite"><p class="kicker">Current step</p><h1 id="step">Idle</h1><p id="item"></p></section>
     <section class="current-count"><p class="kicker">Out with the clinician</p><p id="out">Nothing out</p></section>
   </main>
   <footer>Team Scrub · DubHacks '26 <a href="#">Terms</a><a href="#">Privacy</a></footer>
-  <div class="safety-dock"><button id="reset" type="button">Reset</button><button id="stop" class="stop" type="button">Stop</button><p>Spacebar stops the arm. A person must reset.</p></div>
+  <div class="safety-dock"><button id="reset" type="button" hidden>Reset</button><button id="stop" class="stop" type="button">Stop</button><p>Spacebar stops the arm. A person must reset.</p></div>
   <script src="tablet.js"></script>
 </body>
 </html>

@@ -527,14 +527,19 @@ def read_tray_tag(img, backends=None, repo: Path = ROOT) -> dict:
                     "error": None, "attempts": [{"method": "qr", "ok": True, "latency_ms": qr_ms, "error": None}]}
 
     def validate(raw: dict) -> dict:
+        # The tray comes only from the verbatim text, matched here, and the text must say "tray". Live, Oct 18: with
+        # the tray names in the prompt, a frame with instruments and no tag came back "Surgical", then "Surgical Tray".
         text = str(raw.get("text") or "")
-        tray = match_tray(text, settings, labels) or (raw.get("tray") if raw.get("tray") in settings else None)
+        if not re.search(r"\btray\b", text, re.I):
+            raise ValueError("no tray tag text")
+        tray = match_tray(text, settings, labels)
         if tray is None:
             raise ValueError("no known tray on the tag")
         return {"tray": tray, "text": text}
 
-    prompt = ("This is a printed tray tag or tray label. Transcribe its text as text. tray is the tray it names, one "
-              f"of: {', '.join(f'{s} ({labels.get(s, s)})' for s in settings)}; use \"other\" if it names none of them.")
+    # A plain transcription: the prompt names no trays, so the model has nothing to echo.
+    prompt = ("Transcribe all printed text visible in the image exactly as it appears, as text. If there is no "
+              "printed text, return an empty string. Do not describe the image. Set tray to \"other\".")
     result = run_backends(default_backends() if backends is None else backends, jpeg_for_upload(bgr), prompt,
                           tray_tag_schema(settings), "tray_tag", validate)
     result["attempts"].insert(0, {"method": "qr", "ok": False, "latency_ms": qr_ms,
