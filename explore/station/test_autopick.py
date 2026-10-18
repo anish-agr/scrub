@@ -380,3 +380,30 @@ def test_replay_demo_smooth_then_let_go(tmp_path, monkeypatch):
     A = np.array(acts)
     assert np.abs(np.diff(A, axis=0)).max() * 30 <= AP.MAX_DEG_S + 1
     assert released and d.handed
+
+
+def test_average_demos_smooth_then_let_go(tmp_path, monkeypatch):
+    import json
+    for k, tg in enumerate((60, 64, 58)):
+        (tmp_path / f"ep-{20 + k:04d}.json").write_text(json.dumps(
+            {"episode_index": 20 + k, "task": "pick the hemostat", "fps": 30, "state": _demo(tg)}))
+    monkeypatch.setattr(AP, "EPISODES_DIR", tmp_path)
+    avg = AP.average_demos("pick the hemostat", 18)
+    assert avg["episodes"] == [20, 21, 22] and abs(avg["poses"][avg["i_grasp"]]["shoulder_lift"] - 10.0) < 4
+    d = AP.AutoPick({"mode": "average", "task": "pick the hemostat"})
+    st = St()
+    d.start(st)
+    t = [0.0]
+    monkeypatch.setattr(AP.time, "perf_counter", lambda: t[0])
+    released = False
+    for _ in range(6000):
+        a = d.tick(st, {})
+        t[0] += 1 / 30
+        if a is None or "done" in a:
+            break
+        if a and "gripper.pos" in a:
+            st.gripper = max(10.5 if not released else 3.0, a["gripper.pos"])
+        if d.hand == "offer" and not released and t[0] > 1:
+            d.release()
+            released = True
+    assert released and d.handed
