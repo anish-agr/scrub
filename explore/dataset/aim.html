@@ -1,0 +1,115 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Camera Aim</title>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;600&family=IBM+Plex+Sans:wght@400;600&display=swap">
+<style>
+:root{--bg:#f2f2ef;--panel:#fff;--ink:#111;--dim:#5a5a55;--line:#111;--ok:#1a6b2a;--warn:#b00020;--ov:#e8a400}
+@media (prefers-color-scheme:dark){:root:not([data-theme=light]){--bg:#151514;--panel:#1f1f1d;--ink:#eee;--dim:#9a9a92;--line:#eee;--ok:#5fd07a;--warn:#ff6b6b;--ov:#ffc233}}
+*{box-sizing:border-box;border-radius:0}
+body{margin:0;background:var(--bg);color:var(--ink);font:14px/1.4 "IBM Plex Sans",sans-serif}
+header{padding:10px 16px;border-bottom:2px solid var(--line);display:flex;gap:16px;flex-wrap:wrap;align-items:baseline}
+h1{font:600 16px "IBM Plex Mono",monospace;margin:0;text-transform:uppercase;letter-spacing:.06em}
+.mono{font-family:"IBM Plex Mono",monospace}
+.dim{color:var(--dim)}
+#banner{padding:8px 16px;font:600 13px "IBM Plex Mono",monospace;border-bottom:1px solid var(--line)}
+main{display:grid;grid-template-columns:repeat(auto-fit,minmax(420px,1fr));gap:16px;padding:16px}
+section{background:var(--panel);border:1px solid var(--line)}
+section>h2{margin:0;padding:6px 10px;border-bottom:1px solid var(--line);font:600 13px "IBM Plex Mono",monospace;text-transform:uppercase;display:flex;justify-content:space-between}
+.view{position:relative;background:#000;line-height:0}
+.view img,.view canvas{width:100%;display:block}
+.view canvas{position:absolute;left:0;top:0;height:100%}
+.ghost{position:absolute;left:0;top:0;opacity:.5;pointer-events:none}
+.ctl{padding:8px 10px;display:flex;flex-wrap:wrap;gap:6px 12px;align-items:center;border-top:1px solid var(--line);font-size:13px}
+.ctl label{display:flex;gap:4px;align-items:center}
+input,select,button{font:13px "IBM Plex Mono",monospace;background:var(--panel);color:var(--ink);border:1px solid var(--line);padding:3px 6px}
+input[type=number]{width:70px}input[type=text]{width:190px}
+button{cursor:pointer;font-weight:600}button:hover{background:var(--ink);color:var(--bg)}
+table{border-collapse:collapse;width:100%;font:13px "IBM Plex Mono",monospace}
+td{padding:4px 10px;border-top:1px solid var(--dim)}td:last-child{text-align:right}
+.ok{color:var(--ok);font-weight:600}.warn{color:var(--warn);font-weight:600}
+.err{color:var(--warn);padding:4px 10px;font:12px "IBM Plex Mono",monospace}
+</style></head><body>
+<header><h1>Camera Aim</h1><span class="dim">Match each camera to the training framing. Yellow = detected edge angle, white = thirds, dashed = level.</span></header>
+<div id="banner"></div>
+<main id="main"></main>
+<script>
+const SLOTS=["side","wrist"];let ST={};const $=(s,r=document)=>r.querySelector(s);
+const j=async(u,b)=>(await fetch(u,b?{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify(b)}:{})).json();
+
+function build(){
+  $("#main").innerHTML=SLOTS.map(n=>`
+  <section id="s-${n}"><h2><span>${n}</span><span class="dim" data-k="desc"></span></h2>
+   <div class="view"><img data-k="img" alt=""><img class="ghost" data-k="ghost" alt="" hidden><canvas data-k="cv"></canvas></div>
+   <div class="err" data-k="err"></div>
+   <table data-k="tbl"></table>
+   <div class="ctl"><b>Source</b>
+     <select data-k="kind"><option value="image">image</option><option value="dataset">dataset</option><option value="live">live</option></select>
+     <input type="text" data-k="val" placeholder="jpg path or camera name"><span data-k="dsf" hidden>file <input type="number" data-k="file" value="0" min="0"> frame <input type="number" data-k="frame" value="0" min="0"></span>
+     <button data-k="setsrc">Load</button></div>
+   <div class="ctl"><b>Reference</b>
+     <select data-k="refsel"></select><input type="text" data-k="refspec" placeholder="dataset:${n}:0:0 or path">
+     <button data-k="setref">Set</button>
+     <label><input type="checkbox" data-k="gh" checked> ghost 50%</label>
+     <label><input type="checkbox" data-k="grid" checked> thirds</label></div>
+   <div class="ctl"><b>Save frame as reference</b> refs/<input type="text" data-k="sname" placeholder="name">.jpg <button data-k="save">Save</button><span data-k="saved" class="dim"></span></div>
+  </section>`).join("");
+  for(const n of SLOTS){const r=$("#s-"+n),k=x=>$(`[data-k=${x}]`,r);
+    k("kind").onchange=()=>{k("dsf").hidden=k("kind").value!="dataset";k("val").hidden=k("kind").value=="dataset"};
+    k("setsrc").onclick=async()=>{ST=await j("/api/source",{slot:n,kind:k("kind").value,value:k("val").value,file:+k("file").value,frame:+k("frame").value});paint(n,true)};
+    k("refsel").onchange=()=>{if(k("refsel").value)k("refspec").value=k("refsel").value};
+    k("setref").onclick=async()=>{ST=await j("/api/ref",{slot:n,spec:k("refspec").value||k("refsel").value});paint(n,true)};
+    k("save").onclick=async()=>{const x=await j("/api/save_ref",{slot:n,name:k("sname").value});k("saved").textContent=x.error||` saved ${x.saved.split("/").slice(-3).join("/")} (${x.bytes} B)`;ST=await j("/api/state");fillRefs()};
+    k("gh").onchange=()=>paint(n);k("grid").onchange=()=>{if(last[n])draw(n,last[n])};
+  }
+}
+const last={};
+function fillRefs(){for(const n of SLOTS){const s=$(`#s-${n} [data-k=refsel]`);const v=s.value;s.innerHTML='<option value="">saved refs</option>'+ST.refs.map(r=>`<option>${r}</option>`).join("");s.value=v}}
+function row(label,val,ok,note){return `<tr><td>${label}</td><td class="dim">${note||""}</td><td class="${ok===true?"ok":ok===false?"warn":""}">${val}${ok===true?" OK":ok===false?" WARN":""}</td></tr>`}
+function paint(n,force){
+  const r=$("#s-"+n),k=x=>$(`[data-k=${x}]`,r),s=ST.slots[n];
+  k("desc").textContent=(s.kind+" "+s.desc).slice(-60);k("err").textContent=s.error;
+  const g=k("ghost");g.hidden=!(s.has_ref&&k("gh").checked);
+  if(force||s.kind=="live")g.src=s.has_ref?`/api/ref/${n}.jpg?`+Date.now():"";
+}
+async function tick(n){
+  const s=ST.slots[n];const r=$("#s-"+n),k=x=>$(`[data-k=${x}]`,r);
+  if(s.kind!="none"){
+    const img=k("img");
+    if(s.kind=="live"||img.dataset.stamp!=s.kind+s.desc){img.dataset.stamp=s.kind+s.desc;img.src=`/api/frame/${n}.jpg?`+Date.now();
+      await new Promise(x=>{img.onload=img.onerror=x});}
+    const a=await j("/api/analyze/"+n);last[n]=a;draw(n,a);table(n,a);
+  }
+}
+function table(n,a){
+  const k=x=>$(`[data-k=${x}]`,$("#s-"+n));if(a.error){k("tbl").innerHTML=`<tr><td>${a.error}</td></tr>`;return}
+  let h=row("Resolution",a.size.join("x"));
+  h+=row("Tilt",a.tilt.deg==null?"no lines":a.tilt.deg.toFixed(1)+" deg",a.tilt.deg==null?undefined:a.tilt_ok,"level within 1.5, "+a.tilt.n+" lines");
+  h+=row("Sharpness",a.sharp,a.sharp_ok,"Laplacian var, min "+ST.sharp_min);
+  h+=row("Brightness",a.bright,a.bright_ok,"range "+ST.bright_range.join("-")+", clipped "+a.clipped_pct+"%");
+  if(a.align){const l=a.align;
+    if(!l.ok)h+=row("Alignment","n/a",false,l.reason);
+    else h+=row("Align score",l.score+" / 100",l.trusted?l.aligned:false,l.trusted?l.inliers+" inliers":l.reason)
+      +row("Shift",`${l.shift_x}, ${l.shift_y} px`,undefined,"live vs ref, "+l.shift_px+" px total")+row("Rotation",l.rotation_deg+" deg")+row("Scale",l.scale);}
+  k("tbl").innerHTML=h;
+}
+function draw(n,a){
+  const r=$("#s-"+n),img=$("[data-k=img]",r),cv=$("[data-k=cv]",r);if(!img.naturalWidth)return;
+  cv.width=img.naturalWidth;cv.height=img.naturalHeight;const c=cv.getContext("2d"),W=cv.width,H=cv.height,lw=Math.max(1,W/500);
+  c.clearRect(0,0,W,H);
+  if($("[data-k=grid]",r).checked){c.strokeStyle="rgba(255,255,255,.7)";c.lineWidth=lw;
+    for(let i=1;i<3;i++){c.beginPath();c.moveTo(W*i/3,0);c.lineTo(W*i/3,H);c.moveTo(0,H*i/3);c.lineTo(W,H*i/3);c.stroke()}}
+  c.setLineDash([lw*8,lw*6]);c.strokeStyle="rgba(255,255,255,.9)";c.beginPath();c.moveTo(0,H/2);c.lineTo(W,H/2);c.stroke();c.setLineDash([]);
+  if(a&&a.tilt){c.strokeStyle="#e8a400";c.lineWidth=lw*2;for(const l of a.tilt.lines){c.beginPath();c.moveTo(l[0]*W,l[1]*H);c.lineTo(l[2]*W,l[3]*H);c.stroke()}
+    if(a.tilt.deg!=null){const t=a.tilt.deg*Math.PI/180,L=W*.3;c.beginPath();c.moveTo(W/2-L*Math.cos(t),H/2-L*Math.sin(t));c.lineTo(W/2+L*Math.cos(t),H/2+L*Math.sin(t));c.stroke();
+      c.fillStyle="#e8a400";c.font=`${W/40}px IBM Plex Mono, monospace`;c.fillText(a.tilt.deg.toFixed(1)+" deg",W/2+8,H/2-12)}}
+}
+async function loop(){
+  ST=await j("/api/state");
+  const b=$("#banner");
+  b.textContent=ST.recorders.length?"RECORDER RUNNING, live camera blocked: "+ST.recorders.join(" | "):(ST.live?"Live mode enabled, no recorder detected.":"File mode. No cameras are opened.");
+  b.className=ST.recorders.length?"warn":"dim";b.style.background=ST.recorders.length?"var(--panel)":"";
+  for(const n of SLOTS){paint(n);await tick(n)}
+  setTimeout(loop,ST.slots.side.kind=="live"||ST.slots.wrist.kind=="live"?700:2000);
+}
+build();(async()=>{ST=await j("/api/state");fillRefs();loop()})();
+</script></body></html>
