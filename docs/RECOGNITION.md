@@ -91,6 +91,8 @@ Earlier renders by the vision agent:
 
 One live failure was found and fixed. Perceptron invented a pack label on a frame that had no label. The guards now: an empty label list is allowed, the strings "null" and "none" count as empty, and a label needs a printed item name.
 
+A second live failure, also fixed (Oct 18, through voice, controller and vision): on a camera frame with instruments and no tray tag, "what tray is this" came back "This is the operating room tray". With the tray names in the prompt, Perceptron returned the text "Surgical", then "Surgical Tray", neither of which is in the frame. The OCR fallback is now a plain transcription with no tray names in the prompt, and the tray is matched locally from text that has to contain the word "tray". After the fix the same frame gives "I can't read the tray tag." (2 of 2), and a text-only crop of the printed tag still reads as surgical (Perceptron, 1.0 s).
+
 What still needs real photos: handwriting by a person with a pen (the filled sheets are rendered text), print and paper texture, glare, camera blur, a tray tag and labels under the overhead camera in dim light, and the angled shots in the list below. Rendered images are cleaner than any of these, so treat the times and the 100% correct rate as an upper bound.
 
 ## Photos to take
