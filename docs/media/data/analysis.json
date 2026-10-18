@@ -1,115 +1,115 @@
 {
- "read_at": 1792315006.7023401,
- "read_at_text": "2026-10-18 02:16",
+ "read_at": 1792316945.791411,
+ "read_at_text": "2026-10-18 02:49",
  "source": "mongo",
  "overview": {
-  "events": 63625,
-  "episodes": 8,
-  "thermal": 4341,
+  "events": 69640,
+  "episodes": 18,
+  "thermal": 5708,
   "events_by_arm": {
    "pretag": 17429,
-   "fake": 45852,
-   "real": 344
+   "fake": 51789,
+   "real": 422
   },
   "tag_start": 1792299752.571677,
-  "hours_recorded": 0.057
+  "hours_recorded": 0.103
  },
  "numbers": [
   {
    "name": "Episodes recorded (MongoDB)",
-   "value": "8",
+   "value": "18",
    "query": "db.episodes.countDocuments({})",
-   "read_at": "2026-10-18 02:16"
+   "read_at": "2026-10-18 02:49"
   },
   {
    "name": "Hours of demonstrations recorded",
-   "value": "0.06",
+   "value": "0.10",
    "query": "db.episodes.aggregate([{$group:{_id:null,s:{$sum:\"$duration_s\"}}}])",
-   "read_at": "2026-10-18 02:16"
+   "read_at": "2026-10-18 02:49"
   },
   {
    "name": "Episodes usable for training",
-   "value": "3 of 8",
+   "value": "10 of 18",
    "query": "db.episodes.find({}, {episode_index:1, task:1, duration_s:1, handoff:1})",
-   "read_at": "2026-10-18 02:16"
+   "read_at": "2026-10-18 02:49"
   },
   {
    "name": "Episodes with a handoff outcome",
-   "value": "1",
+   "value": "7",
    "query": "db.episodes.countDocuments({handoff: {$ne: null}})",
-   "read_at": "2026-10-18 02:16"
+   "read_at": "2026-10-18 02:49"
   },
   {
    "name": "Real handoff success rate",
    "value": "no real data yet",
    "query": "db.events.countDocuments({type:\"handed\", fake_arm:false})",
-   "read_at": "2026-10-18 02:16"
+   "read_at": "2026-10-18 02:49"
   },
   {
    "name": "Real median request-to-hand (s)",
    "value": "no real data yet",
    "query": "db.events.find({type:\"handed\", fake_arm:false}, {request_to_hand_s:1})",
-   "read_at": "2026-10-18 02:16"
+   "read_at": "2026-10-18 02:49"
   },
   {
    "name": "Simulated handoff tries",
-   "value": "3947",
+   "value": "4423",
    "query": "db.events.countDocuments({type:\"command\", action:\"handover\", accepted:true, fake_arm:true})",
-   "read_at": "2026-10-18 02:16"
+   "read_at": "2026-10-18 02:49"
   },
   {
    "name": "Hottest motor and peak",
    "value": "gripper 55 C",
    "query": "db.thermal.aggregate([{$match:{kind:'sample'}},{$project:{m:{$objectToArray:'$motors'}}},{$unwind:'$m'},{$group:{_id:'$m.k',peak:{$max:'$m.v.temp'}}},{$sort:{peak:-1}},{$limit:1}])",
-   "read_at": "2026-10-18 02:16"
+   "read_at": "2026-10-18 02:49"
   },
   {
    "name": "Thermal samples",
-   "value": 3782,
+   "value": 4971,
    "query": "db.thermal.countDocuments({kind:'sample'})",
-   "read_at": "2026-10-18 02:16"
+   "read_at": "2026-10-18 02:49"
   },
   {
    "name": "Max safe hold time",
    "value": "291 s",
    "query": "db.thermal.find({kind:'experiment',phase:'torque_on_hold'},{t:1,session:1,elapsed_s:1,temps:1}).sort({session:1,elapsed_s:1})",
-   "read_at": "2026-10-18 02:16"
+   "read_at": "2026-10-18 02:49"
   },
   {
    "name": "Reads logged",
-   "value": 46,
+   "value": 177,
    "query": "db.events.countDocuments({type:\"read\"})",
-   "read_at": "2026-10-18 02:16"
+   "read_at": "2026-10-18 02:49"
   },
   {
    "name": "count_sheet OCR accuracy",
-   "value": "0/8 correct (0%), 8 unscored, item fields 33% of 24",
+   "value": "0/32 correct (0%), 32 unscored, item fields 33% of 96",
    "query": "db.events.find({type:\"read\",\"read.kind\":\"count_sheet\"})",
-   "read_at": "2026-10-18 02:16"
+   "read_at": "2026-10-18 02:49"
   },
   {
    "name": "tray_tag OCR accuracy",
-   "value": "10/18 correct (56%), 0 unscored",
+   "value": "36/63 correct (57%), 0 unscored",
    "query": "db.events.find({type:\"read\",\"read.kind\":\"tray_tag\"})",
-   "read_at": "2026-10-18 02:16"
+   "read_at": "2026-10-18 02:49"
   },
   {
    "name": "pack_label OCR accuracy",
    "value": "no real data yet",
    "query": "db.events.find({type:\"read\",\"read.kind\":\"pack_label\"})",
-   "read_at": "2026-10-18 02:16"
+   "read_at": "2026-10-18 02:49"
   },
   {
    "name": "Median read latency",
    "value": "1800 ms",
    "query": "db.events.find({type:\"read\"},{\"read.latency_ms\":1})",
-   "read_at": "2026-10-18 02:16"
+   "read_at": "2026-10-18 02:49"
   },
   {
    "name": "Perceptron vs Gemini",
-   "value": "Perceptron 22/26 answered, median 1800 ms; Gemini 2/6 answered, median 890 ms; 0 rescues",
+   "value": "Perceptron 82/89 answered, median 1800 ms; Gemini 10/17 answered, median 770 ms; 0 rescues",
    "query": "db.events.find({type:\"read\",\"read.attempts\":{$exists:true}},{\"read.attempts\":1})",
-   "read_at": "2026-10-18 02:16"
+   "read_at": "2026-10-18 02:49"
   }
  ],
  "episodes": {
@@ -209,6 +209,126 @@
     "gripper_close_s": 11.57,
     "verdict": "keep",
     "reason": "trim 3.4 s idle at the start"
+   },
+   {
+    "episode_index": 8,
+    "task": "pick the scalpel handle",
+    "length": 550,
+    "duration_s": 18.33,
+    "fps": 30,
+    "idle_start_s": 3.53,
+    "idle_end_s": 0.0,
+    "gripper_close_s": null,
+    "verdict": "re-record",
+    "reason": "the gripper opens but never closes on the spatula"
+   },
+   {
+    "episode_index": 9,
+    "task": "pick the scalpel handle",
+    "length": 493,
+    "duration_s": 16.43,
+    "fps": 30,
+    "idle_start_s": 0.77,
+    "idle_end_s": 0.0,
+    "gripper_close_s": 10.47,
+    "verdict": "keep",
+    "reason": "1 stall(s) over 1.5 s mid-episode"
+   },
+   {
+    "episode_index": 10,
+    "task": "pick the scalpel handle",
+    "length": 471,
+    "duration_s": 15.7,
+    "fps": 30,
+    "idle_start_s": 0.63,
+    "idle_end_s": 0.33,
+    "gripper_close_s": 5.73,
+    "verdict": "keep",
+    "reason": "clean: gripper opens and closes, little idle time"
+   },
+   {
+    "episode_index": 11,
+    "task": "pick the scalpel handle",
+    "length": 377,
+    "duration_s": 12.57,
+    "fps": 30,
+    "idle_start_s": 0.47,
+    "idle_end_s": 0.0,
+    "gripper_close_s": null,
+    "verdict": "re-record",
+    "reason": "the gripper opens but never closes on the spatula"
+   },
+   {
+    "episode_index": 12,
+    "task": "pick the scalpel handle",
+    "length": 349,
+    "duration_s": 11.63,
+    "fps": 30,
+    "idle_start_s": 1.13,
+    "idle_end_s": 0.0,
+    "gripper_close_s": 5.03,
+    "verdict": "keep",
+    "reason": "clean: gripper opens and closes, little idle time"
+   },
+   {
+    "episode_index": 13,
+    "task": "pick the scalpel handle",
+    "length": 495,
+    "duration_s": 16.5,
+    "fps": 30,
+    "idle_start_s": 0.73,
+    "idle_end_s": 0.47,
+    "gripper_close_s": null,
+    "verdict": "drop",
+    "reason": "the gripper never opens, so there is no grasp to learn"
+   },
+   {
+    "episode_index": 14,
+    "task": "pick the tweezers",
+    "length": 506,
+    "duration_s": 16.87,
+    "fps": 30,
+    "idle_start_s": 1.87,
+    "idle_end_s": 0.0,
+    "gripper_close_s": 9.33,
+    "verdict": "keep",
+    "reason": "clean: gripper opens and closes, little idle time"
+   },
+   {
+    "episode_index": 15,
+    "task": "pick the tweezers",
+    "length": 459,
+    "duration_s": 15.3,
+    "fps": 30,
+    "idle_start_s": 1.83,
+    "idle_end_s": 0.0,
+    "gripper_close_s": 8.37,
+    "verdict": "keep",
+    "reason": "clean: gripper opens and closes, little idle time"
+   },
+   {
+    "episode_index": 16,
+    "task": "pick the tweezers",
+    "length": 551,
+    "duration_s": 18.37,
+    "fps": 30,
+    "idle_start_s": 0.03,
+    "idle_end_s": 0.0,
+    "gripper_close_s": 16.37,
+    "verdict": "keep",
+    "reason": "clean: gripper opens and closes, little idle time"
+   },
+   {
+    "episode_index": 17,
+    "task": "pick the tweezers",
+    "length": 767,
+    "duration_s": 25.57,
+    "fps": 30,
+    "idle_start_s": 0.03,
+    "idle_end_s": 4.33,
+    "gripper_close_s": 12.8,
+    "verdict": "keep",
+    "reason": "trim 4.3 s idle at the end"
    }
   ],
   "tasks": [
@@ -219,42 +339,46 @@
    },
    {
     "task": "pick the scalpel handle",
-    "count": 5,
-    "start_spread_deg": 19.9
+    "count": 11,
+    "start_spread_deg": 16.8
+   },
+   {
+    "task": "pick the tweezers",
+    "count": 4,
+    "start_spread_deg": 15.2
    }
   ],
   "local_dataset": {
-   "episodes": 14,
-   "frames": 8873
+   "episodes": 18,
+   "frames": 11156
   },
   "flags": [
-   "Only 8 episodes (3 usable); ACT usually needs 50+ per task. A training job now will overfit.",
-   "Gripper never opens in episodes [0, 2, 6].",
-   "Gripper opens but never closes in episodes [1].",
-   "Idle head or tail over 2 s in episodes [0, 3, 4, 5, 6, 7]; trim before training.",
+   "Only 18 episodes (10 usable); ACT usually needs 50+ per task. A training job now will overfit.",
+   "Gripper never opens in episodes [0, 2, 6, 13].",
+   "Gripper opens but never closes in episodes [1, 8, 11].",
+   "Idle head or tail over 2 s in episodes [0, 3, 4, 5, 6, 7, 8, 17]; trim before training.",
    "Episodes [4] run over 60 s; a pick should take well under a minute.",
-   "MongoDB has 8 episodes but the local dataset says 14 (8873 frames); the extra episodes were never uploaded or were recorded after the upload.",
    "No lighting field on any episode, so lighting variety cannot be checked.",
    "Wrist camera frame rate is not stored per episode. git history: side and wrist 29-31 fps; wrist 18.7-22.6 fps on the spatula episodes; below 25 fps is a training concern.",
-   "7 of 8 episodes have no handoff outcome attached."
+   "11 of 18 episodes have no handoff outcome attached."
   ]
  },
  "handoffs": {
   "definition": "A try is one accepted handover command (a `command` event with action `handover` and accepted true), keyed by command_id; all later events with that command_id belong to it. A success is a try whose flow emitted `handed` (the arm reached the hand and offered the item) or `set_down` (sharp items such as the scalpel are set on a safe spot by design); the same two events ledger.stats counts. A miss is a `missed` event in the try (retries are the `retries` field on handed/missed). A stop is a `stopped` event in the try. Time is request_to_hand_s on the `handed` event. Lighting and skill_source come from the try's own events (skill_source 'none' when the flow ended before one was chosen). Rate range is the Wilson 95% interval.",
-  "real_rows": 344,
+  "real_rows": 422,
   "trusted": false,
-  "why": "The 24 real-tagged handed rows have median 0.42 s and span 0.41-0.43 s, matching the fake arm's median 0.42 s, with no misses or retries across 24 cases. They are the test real_tries_are_recorded_fake_ones_are_not in controller/test_flows.py (RecordingArm motion_s=0.1, auto_pull_s=0.2, fake_arm=False), which wrote to Atlas whenever the tests ran with MONGODB_URI set; no real SO-101 hands over in 0.4 s.",
+  "why": "The 30 real-tagged handed rows have median 0.41 s and span 0.41-0.43 s, matching the fake arm's median 0.42 s, with no misses or retries across 30 cases. They are the test real_tries_are_recorded_fake_ones_are_not in controller/test_flows.py (RecordingArm motion_s=0.1, auto_pull_s=0.2, fake_arm=False), which wrote to Atlas whenever the tests ran with MONGODB_URI set; no real SO-101 hands over in 0.4 s.",
   "table": [
    {
     "item": "hemostat",
     "lighting": "normal",
     "skill_source": "model",
-    "tries": 24,
-    "successes": 24,
+    "tries": 30,
+    "successes": 30,
     "rate": 1.0,
-    "low": 0.8620194241710247,
+    "low": 0.8864829086095221,
     "high": 1.0,
-    "median_s": 0.42,
+    "median_s": 0.415,
     "p90_s": 0.42,
     "retries": 0,
     "misses": 0,
@@ -281,13 +405,13 @@
     "item": "hemostat",
     "lighting": "dim",
     "skill_source": "model",
-    "tries": 4,
-    "successes": 4,
+    "tries": 6,
+    "successes": 6,
     "rate": 1.0,
-    "low": 0.5100999795960008,
-    "high": 1.0,
-    "median_s": 1.32,
-    "p90_s": 3.7270000000000003,
+    "low": 0.6096569663469354,
+    "high": 0.9999999999999999,
+    "median_s": 3.11,
+    "p90_s": 4.545,
     "retries": 0,
     "misses": 0,
     "stops": 0
@@ -311,40 +435,40 @@
     "item": "hemostat",
     "lighting": "normal",
     "skill_source": "model",
-    "tries": 1709,
-    "successes": 1255,
-    "rate": 0.7343475716793446,
-    "low": 0.7128980897780562,
-    "high": 0.7547458534797441,
-    "median_s": 0.42,
-    "p90_s": 0.66,
-    "retries": 104,
-    "misses": 237,
-    "stops": 249
+    "tries": 2110,
+    "successes": 1548,
+    "rate": 0.7336492890995261,
+    "low": 0.7143751038451646,
+    "high": 0.7520742270791584,
+    "median_s": 0.41,
+    "p90_s": 0.65,
+    "retries": 128,
+    "misses": 291,
+    "stops": 309
    },
    {
     "item": "hemostat",
     "lighting": "normal",
     "skill_source": "none",
-    "tries": 1732,
+    "tries": 1757,
     "successes": 1025,
-    "rate": 0.5918013856812933,
-    "low": 0.5684753599879684,
-    "high": 0.6147210791341264,
+    "rate": 0.5833807626636311,
+    "low": 0.5601709068845931,
+    "high": 0.6062267974858623,
     "median_s": 0.43,
     "p90_s": 0.44,
     "retries": 128,
     "misses": 288,
-    "stops": 291
+    "stops": 292
    },
    {
     "item": "hemostat",
     "lighting": "normal",
     "skill_source": "taught",
-    "tries": 24,
-    "successes": 24,
+    "tries": 30,
+    "successes": 30,
     "rate": 1.0,
-    "low": 0.8620194241710247,
+    "low": 0.8864829086095221,
     "high": 1.0,
     "median_s": 0.415,
     "p90_s": 0.42,
@@ -356,10 +480,10 @@
     "item": "hex_key",
     "lighting": "normal",
     "skill_source": "model",
-    "tries": 24,
-    "successes": 24,
+    "tries": 30,
+    "successes": 30,
     "rate": 1.0,
-    "low": 0.8620194241710247,
+    "low": 0.8864829086095221,
     "high": 1.0,
     "median_s": 0.41,
     "p90_s": 0.42,
@@ -386,13 +510,13 @@
     "item": "mayo_scissors",
     "lighting": "normal",
     "skill_source": "model",
-    "tries": 60,
-    "successes": 59,
-    "rate": 0.9833333333333333,
-    "low": 0.9114466177322051,
-    "high": 0.9970519161391262,
-    "median_s": 6.1,
-    "p90_s": 6.294,
+    "tries": 66,
+    "successes": 65,
+    "rate": 0.9848484848484849,
+    "low": 0.9190388760177447,
+    "high": 0.9973204284655434,
+    "median_s": 5.93,
+    "p90_s": 6.29,
     "retries": 0,
     "misses": 0,
     "stops": 1
@@ -401,11 +525,11 @@
     "item": "mayo_scissors",
     "lighting": "normal",
     "skill_source": "none",
-    "tries": 146,
+    "tries": 158,
     "successes": 32,
-    "rate": 0.2191780821917808,
-    "low": 0.15974849891761622,
-    "high": 0.29300694416361095,
+    "rate": 0.20253164556962025,
+    "low": 0.1472736756110395,
+    "high": 0.2719115029833392,
     "median_s": 0.425,
     "p90_s": 0.44,
     "retries": 0,
@@ -416,13 +540,13 @@
     "item": "scalpel",
     "lighting": "normal",
     "skill_source": "model",
-    "tries": 114,
-    "successes": 88,
-    "rate": 0.7719298245614035,
-    "low": 0.6867898547765523,
-    "high": 0.8393401366695923,
+    "tries": 132,
+    "successes": 100,
+    "rate": 0.7575757575757576,
+    "low": 0.6778566120606642,
+    "high": 0.8227264199413145,
     "median_s": 0.31,
-    "p90_s": 7.894,
+    "p90_s": 7.851999999999999,
     "retries": 0,
     "misses": 0,
     "stops": 0
@@ -449,8 +573,8 @@
     "item": "hemostat",
     "skill_source": "model",
     "rate": 1.0,
-    "low": 0.8620194241710247,
-    "tries": 24
+    "low": 0.8864829086095221,
+    "tries": 30
    }
   ],
   "sim_method_ranking": [
@@ -458,22 +582,22 @@
     "item": "hemostat",
     "skill_source": "taught",
     "rate": 1.0,
-    "low": 0.8620194241710247,
-    "tries": 24
+    "low": 0.8864829086095221,
+    "tries": 30
    },
    {
     "item": "hemostat",
     "skill_source": "model",
-    "rate": 0.7352769679300292,
-    "low": 0.7138871305854244,
-    "tries": 1715
+    "rate": 0.7346553352219075,
+    "low": 0.715439157095569,
+    "tries": 2118
    },
    {
     "item": "hemostat",
     "skill_source": "none",
-    "rate": 0.592507204610951,
-    "low": 0.5692061341597628,
-    "tries": 1735
+    "rate": 0.5840909090909091,
+    "low": 0.5609050262929812,
+    "tries": 1760
    },
    {
     "item": "hex_key",
@@ -486,29 +610,29 @@
     "item": "hex_key",
     "skill_source": "model",
     "rate": 1.0,
-    "low": 0.8620194241710247,
-    "tries": 24
+    "low": 0.8864829086095221,
+    "tries": 30
    },
    {
     "item": "mayo_scissors",
     "skill_source": "model",
-    "rate": 0.9833333333333333,
-    "low": 0.9114466177322051,
-    "tries": 60
+    "rate": 0.9848484848484849,
+    "low": 0.9190388760177447,
+    "tries": 66
    },
    {
     "item": "mayo_scissors",
     "skill_source": "none",
-    "rate": 0.2191780821917808,
-    "low": 0.15974849891761622,
-    "tries": 146
+    "rate": 0.20253164556962025,
+    "low": 0.1472736756110395,
+    "tries": 158
    },
    {
     "item": "scalpel",
     "skill_source": "model",
-    "rate": 0.7719298245614035,
-    "low": 0.6867898547765523,
-    "tries": 114
+    "rate": 0.7575757575757576,
+    "low": 0.6778566120606642,
+    "tries": 132
    },
    {
     "item": "scalpel",
@@ -518,8 +642,8 @@
     "tries": 97
    }
   ],
-  "real_tries": 24,
-  "sim_tries": 3947
+  "real_tries": 30,
+  "sim_tries": 4423
  },
  "heat": {
   "limit_c": 70,
@@ -544,7 +668,7 @@
     "max_c": 51,
     "rise_c_per_min_holding": 1.027,
     "time_to_limit_s": 818,
-    "cool_c_per_min": null
+    "cool_c_per_min": 0.461
    },
    {
     "motor": "shoulder_lift",
@@ -554,7 +678,7 @@
     "max_c": 53,
     "rise_c_per_min_holding": 1.069,
     "time_to_limit_s": 730,
-    "cool_c_per_min": 0.358
+    "cool_c_per_min": 0.512
    },
    {
     "motor": "elbow_flex",
@@ -564,7 +688,7 @@
     "max_c": 53,
     "rise_c_per_min_holding": 0.845,
     "time_to_limit_s": 995,
-    "cool_c_per_min": 0.425
+    "cool_c_per_min": 0.42
    },
    {
     "motor": "wrist_flex",
@@ -574,7 +698,7 @@
     "max_c": 53,
     "rise_c_per_min_holding": 0.951,
     "time_to_limit_s": 757,
-    "cool_c_per_min": 0.212
+    "cool_c_per_min": 0.343
    },
    {
     "motor": "wrist_roll",
@@ -584,7 +708,7 @@
     "max_c": 53,
     "rise_c_per_min_holding": 0.985,
     "time_to_limit_s": 731,
-    "cool_c_per_min": 0.23
+    "cool_c_per_min": 0.37
    },
    {
     "motor": "gripper",
@@ -594,7 +718,7 @@
     "max_c": 55,
     "rise_c_per_min_holding": 1.134,
     "time_to_limit_s": 582,
-    "cool_c_per_min": 0.431
+    "cool_c_per_min": 0.538
    }
   ],
   "series": {
@@ -3823,7 +3947,7 @@
    "gripper is the hottest motor: peak 55 C against a 60 C guard and a 70 C firmware limit. Nothing in the data reached the guard (hot events: 0).",
    "With torque on and no motion, gripper warms fastest: 1.13 C/min. Holding is not free; every motor warms with torque on.",
    "Plan for at most 291 s of continuous hold per pass (half of the 582 s the gripper needs from idle to the 60 C guard); then torque off or park.",
-   "Park or torque off between passes: motors fall about 0.36 C/min (median), so 60 C to 50 C takes about 28 min.",
+   "Park or torque off between passes: motors fall about 0.44 C/min (median), so 60 C to 50 C takes about 23 min.",
    "gripper and wrist_flex idle warmest (49 and 48 C against 46 C for elbow_flex): their idle temperature is not a fault, only their rise is.",
    "No guard trips were recorded, so the guard values are untested on this data; keep COOL_TRIP at 60."
   ],
@@ -3838,6 +3962,17 @@
     "peak_motor": "gripper",
     "start_c": 49,
     "moving_median_hottest_c": 51.0
+   },
+   {
+    "session": "20261018-021820-bb73",
+    "source": "station",
+    "mode": "station",
+    "minutes": 30.6,
+    "moving_minutes": 3.7,
+    "peak_c": 53,
+    "peak_motor": "gripper",
+    "start_c": 49,
+    "moving_median_hottest_c": 50.0
    },
    {
     "session": "20261018-000148-a7f0",
@@ -3904,26 +4039,15 @@
     "peak_motor": "gripper",
     "start_c": 47,
     "moving_median_hottest_c": 49.0
-   },
-   {
-    "session": "20261018-003730-770f",
-    "source": "arm_session",
-    "mode": "preview",
-    "minutes": 0.9,
-    "moving_minutes": 0.0,
-    "peak_c": 50,
-    "peak_motor": "gripper",
-    "start_c": 44,
-    "moving_median_hottest_c": null
    }
   ],
   "torque_limit": [
    {
     "torque_limit": 350,
-    "grasps": 53,
+    "grasps": 68,
     "median_temp_c": 50.0,
     "max_temp_c": 52,
-    "median_load": 350.0
+    "median_load": 295.5
    }
   ],
   "settings": {
@@ -3991,7 +4115,7 @@
    }
   },
   "max_hold_s": 291,
-  "cool_minutes_guard_to_resume": 27.9,
+  "cool_minutes_guard_to_resume": 22.7,
   "charts": [
    "heat_timeline.png",
    "heat_cooling.png",
@@ -4000,29 +4124,29 @@
  },
  "reads": {
   "rule": "Reads are split into scored and unscored. Scored = tied to a printed prop in truth.json: tray_tag always (a failed read counts as scored-incorrect); count_sheet when it is ok and its tray id and item ids equal a truth sheet's; pack_label when it is ok and at least one label's lot (or item+lot) is in truth. Other ok reads (test-scenario sheets, lots like L-4471) are unscored (not a printed prop); failed count_sheet and pack_label reads are counted as failed, not scored. A scored read is correct when tray_tag: tray id equals a truth tray_id; count_sheet: items (id, expected, initial, closing) equal a truth sheet's; pack_label: every label's (item, lot) matches a truth label. accuracy = correct / scored. Live events carry no filename, so this is content matching, not per-file scoring.",
-  "total": 46,
+  "total": 177,
   "by_kind": [
    {
     "kind": "count_sheet",
-    "n": 23,
-    "ok": 16,
-    "scored": 8,
-    "unscored": 8,
-    "failed": 7,
+    "n": 92,
+    "ok": 64,
+    "scored": 32,
+    "unscored": 32,
+    "failed": 28,
     "correct": 0,
     "accuracy": 0.0,
     "field_accuracy": 0.333,
-    "field_items": 24,
+    "field_items": 96,
     "median_ms": 1800,
-    "p90_ms": 3240
+    "p90_ms": 6840
    },
    {
     "kind": "pack_label",
-    "n": 5,
-    "ok": 2,
+    "n": 22,
+    "ok": 12,
     "scored": 0,
-    "unscored": 2,
-    "failed": 3,
+    "unscored": 12,
+    "failed": 10,
     "correct": 0,
     "accuracy": null,
     "field_accuracy": null,
@@ -4032,39 +4156,39 @@
    },
    {
     "kind": "tray_tag",
-    "n": 18,
-    "ok": 12,
-    "scored": 18,
+    "n": 63,
+    "ok": 44,
+    "scored": 63,
     "unscored": 0,
-    "failed": 6,
-    "correct": 10,
-    "accuracy": 0.556,
+    "failed": 19,
+    "correct": 36,
+    "accuracy": 0.571,
     "field_accuracy": null,
     "field_items": 0,
-    "median_ms": 304,
-    "p90_ms": 2578
+    "median_ms": 12,
+    "p90_ms": 3000
    }
   ],
   "by_method": [
    {
     "method": "gemini",
-    "answered": 2,
-    "attempted": 6,
-    "failed": 4,
-    "median_ms": 890
+    "answered": 10,
+    "attempted": 17,
+    "failed": 7,
+    "median_ms": 770
    },
    {
     "method": "perceptron",
-    "answered": 22,
-    "attempted": 26,
-    "failed": 4,
+    "answered": 82,
+    "attempted": 89,
+    "failed": 7,
     "median_ms": 1800
    },
    {
     "method": "qr",
-    "answered": 6,
-    "attempted": 10,
-    "failed": 4,
+    "answered": 26,
+    "attempted": 31,
+    "failed": 5,
     "median_ms": 12
    }
   ],
@@ -4072,35 +4196,39 @@
   "errors": [
    {
     "error": "vision unreachable",
-    "n": 6
+    "n": 24
    },
    {
     "error": "no known tray",
-    "n": 2
+    "n": 8
    },
    {
     "error": "perceptron: timeout",
-    "n": 2
+    "n": 8
    },
    {
     "error": "no overhead frame yet",
-    "n": 2
+    "n": 8
    },
    {
     "error": "perceptron: ValueError: no tray tag text",
-    "n": 2
+    "n": 3
    },
    {
     "error": "perceptron: ValueError: no row matched an item of this setting",
-    "n": 1
+    "n": 2
    },
    {
     "error": "perceptron: ValueError: no label read",
-    "n": 1
+    "n": 2
+   },
+   {
+    "error": "blurry",
+    "n": 2
    }
   ],
   "captions": {
-   "n": 3,
+   "n": 11,
    "agrees": 0,
    "median_ms": 833
   },

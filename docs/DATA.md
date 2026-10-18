@@ -1,34 +1,34 @@
 # Data: what MongoDB says
 
-Read 2026-10-18 02:16 from `MongoDB Atlas, database scrub`. Regenerate with `.venv/bin/python -m explore.analysis`. Machine-readable copy: `data/analysis.json` (committed snapshot `docs/media/data/analysis.json`). Read-only: nothing here edits MongoDB.
+Read 2026-10-18 02:49 from `MongoDB Atlas, database scrub`. Regenerate with `.venv/bin/python -m explore.analysis`. Machine-readable copy: `data/analysis.json` (committed snapshot `docs/media/data/analysis.json`). Read-only: nothing here edits MongoDB.
 
-- 63625 events, 8 episodes (0.06 h recorded), 4341 thermal rows
-- Events by arm: fake 45852, pretag 17429, real 344. Tags (`fake_arm`) started 2026-10-17 22:02; earlier rows are test data (`pretag`).
+- 69640 events, 18 episodes (0.10 h recorded), 5708 thermal rows
+- Events by arm: fake 51789, pretag 17429, real 422. Tags (`fake_arm`) started 2026-10-17 22:02; earlier rows are test data (`pretag`).
 
 ## Pitch and Devpost numbers
 
 | Number | Value | Query | Read |
 | --- | --- | --- | --- |
-| Episodes recorded (MongoDB) | 8 | `db.episodes.countDocuments({})` | 2026-10-18 02:16 |
-| Hours of demonstrations recorded | 0.06 | `db.episodes.aggregate([{$group:{_id:null,s:{$sum:"$duration_s"}}}])` | 2026-10-18 02:16 |
-| Episodes usable for training | 3 of 8 | `db.episodes.find({}, {episode_index:1, task:1, duration_s:1, handoff:1})` | 2026-10-18 02:16 |
-| Episodes with a handoff outcome | 1 | `db.episodes.countDocuments({handoff: {$ne: null}})` | 2026-10-18 02:16 |
-| Real handoff success rate | no real data yet | `db.events.countDocuments({type:"handed", fake_arm:false})` | 2026-10-18 02:16 |
-| Real median request-to-hand (s) | no real data yet | `db.events.find({type:"handed", fake_arm:false}, {request_to_hand_s:1})` | 2026-10-18 02:16 |
-| Simulated handoff tries | 3947 | `db.events.countDocuments({type:"command", action:"handover", accepted:true, fake_arm:true})` | 2026-10-18 02:16 |
-| Hottest motor and peak | gripper 55 C | `db.thermal.aggregate([{$match:{kind:'sample'}},{$project:{m:{$objectToArray:'$motors'}}},{$unwind:'$m'},{$group:{_id:'$m.k',peak:{$max:'$m.v.temp'}}},{$sort:{peak:-1}},{$limit:1}])` | 2026-10-18 02:16 |
-| Thermal samples | 3782 | `db.thermal.countDocuments({kind:'sample'})` | 2026-10-18 02:16 |
-| Max safe hold time | 291 s | `db.thermal.find({kind:'experiment',phase:'torque_on_hold'},{t:1,session:1,elapsed_s:1,temps:1}).sort({session:1,elapsed_s:1})` | 2026-10-18 02:16 |
-| Reads logged | 46 | `db.events.countDocuments({type:"read"})` | 2026-10-18 02:16 |
-| count_sheet OCR accuracy | 0/8 correct (0%), 8 unscored, item fields 33% of 24 | `db.events.find({type:"read","read.kind":"count_sheet"})` | 2026-10-18 02:16 |
-| tray_tag OCR accuracy | 10/18 correct (56%), 0 unscored | `db.events.find({type:"read","read.kind":"tray_tag"})` | 2026-10-18 02:16 |
-| pack_label OCR accuracy | no real data yet | `db.events.find({type:"read","read.kind":"pack_label"})` | 2026-10-18 02:16 |
-| Median read latency | 1800 ms | `db.events.find({type:"read"},{"read.latency_ms":1})` | 2026-10-18 02:16 |
-| Perceptron vs Gemini | Perceptron 22/26 answered, median 1800 ms; Gemini 2/6 answered, median 890 ms; 0 rescues | `db.events.find({type:"read","read.attempts":{$exists:true}},{"read.attempts":1})` | 2026-10-18 02:16 |
+| Episodes recorded (MongoDB) | 18 | `db.episodes.countDocuments({})` | 2026-10-18 02:49 |
+| Hours of demonstrations recorded | 0.10 | `db.episodes.aggregate([{$group:{_id:null,s:{$sum:"$duration_s"}}}])` | 2026-10-18 02:49 |
+| Episodes usable for training | 10 of 18 | `db.episodes.find({}, {episode_index:1, task:1, duration_s:1, handoff:1})` | 2026-10-18 02:49 |
+| Episodes with a handoff outcome | 7 | `db.episodes.countDocuments({handoff: {$ne: null}})` | 2026-10-18 02:49 |
+| Real handoff success rate | no real data yet | `db.events.countDocuments({type:"handed", fake_arm:false})` | 2026-10-18 02:49 |
+| Real median request-to-hand (s) | no real data yet | `db.events.find({type:"handed", fake_arm:false}, {request_to_hand_s:1})` | 2026-10-18 02:49 |
+| Simulated handoff tries | 4423 | `db.events.countDocuments({type:"command", action:"handover", accepted:true, fake_arm:true})` | 2026-10-18 02:49 |
+| Hottest motor and peak | gripper 55 C | `db.thermal.aggregate([{$match:{kind:'sample'}},{$project:{m:{$objectToArray:'$motors'}}},{$unwind:'$m'},{$group:{_id:'$m.k',peak:{$max:'$m.v.temp'}}},{$sort:{peak:-1}},{$limit:1}])` | 2026-10-18 02:49 |
+| Thermal samples | 4971 | `db.thermal.countDocuments({kind:'sample'})` | 2026-10-18 02:49 |
+| Max safe hold time | 291 s | `db.thermal.find({kind:'experiment',phase:'torque_on_hold'},{t:1,session:1,elapsed_s:1,temps:1}).sort({session:1,elapsed_s:1})` | 2026-10-18 02:49 |
+| Reads logged | 177 | `db.events.countDocuments({type:"read"})` | 2026-10-18 02:49 |
+| count_sheet OCR accuracy | 0/32 correct (0%), 32 unscored, item fields 33% of 96 | `db.events.find({type:"read","read.kind":"count_sheet"})` | 2026-10-18 02:49 |
+| tray_tag OCR accuracy | 36/63 correct (57%), 0 unscored | `db.events.find({type:"read","read.kind":"tray_tag"})` | 2026-10-18 02:49 |
+| pack_label OCR accuracy | no real data yet | `db.events.find({type:"read","read.kind":"pack_label"})` | 2026-10-18 02:49 |
+| Median read latency | 1800 ms | `db.events.find({type:"read"},{"read.latency_ms":1})` | 2026-10-18 02:49 |
+| Perceptron vs Gemini | Perceptron 82/89 answered, median 1800 ms; Gemini 10/17 answered, median 770 ms; 0 rescues | `db.events.find({type:"read","read.attempts":{$exists:true}},{"read.attempts":1})` | 2026-10-18 02:49 |
 
 ## Training data: episodes
 
-8 episodes in MongoDB (3.4 min recorded), 3 usable as they are.
+18 episodes in MongoDB (6.2 min recorded), 10 usable as they are.
 
 | Ep | Task | Length (frames) | Duration s | FPS | Idle start s | Idle end s | Gripper opens s | Gripper closes s | Verdict | Why |
 | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
@@ -40,6 +40,16 @@ Read 2026-10-18 02:16 from `MongoDB Atlas, database scrub`. Regenerate with `.ve
 | 5 | pick the scalpel handle | 585 | 19.5 | 30 | 6.2 | 0.0 | 8.4 | 11.2 | **keep** | trim 6.2 s idle at the start |
 | 6 | pick the scalpel handle | 233 | 7.8 | 30 | 0.1 | 7.6 | - | - | **drop** | the gripper never opens, so there is no grasp to learn |
 | 7 | pick the scalpel handle | 528 | 17.6 | 30 | 3.4 | 0.1 | 7.3 | 11.6 | **keep** | trim 3.4 s idle at the start |
+| 8 | pick the scalpel handle | 550 | 18.3 | 30 | 3.5 | 0.0 | 15.0 | - | **re-record** | the gripper opens but never closes on the spatula |
+| 9 | pick the scalpel handle | 493 | 16.4 | 30 | 0.8 | 0.0 | 6.4 | 10.5 | **keep** | 1 stall(s) over 1.5 s mid-episode |
+| 10 | pick the scalpel handle | 471 | 15.7 | 30 | 0.6 | 0.3 | 2.8 | 5.7 | **keep** | clean: gripper opens and closes, little idle time |
+| 11 | pick the scalpel handle | 377 | 12.6 | 30 | 0.5 | 0.0 | 10.3 | - | **re-record** | the gripper opens but never closes on the spatula |
+| 12 | pick the scalpel handle | 349 | 11.6 | 30 | 1.1 | 0.0 | 2.8 | 5.0 | **keep** | clean: gripper opens and closes, little idle time |
+| 13 | pick the scalpel handle | 495 | 16.5 | 30 | 0.7 | 0.5 | - | - | **drop** | the gripper never opens, so there is no grasp to learn |
+| 14 | pick the tweezers | 506 | 16.9 | 30 | 1.9 | 0.0 | 3.1 | 9.3 | **keep** | clean: gripper opens and closes, little idle time |
+| 15 | pick the tweezers | 459 | 15.3 | 30 | 1.8 | 0.0 | 2.5 | 8.4 | **keep** | clean: gripper opens and closes, little idle time |
+| 16 | pick the tweezers | 551 | 18.4 | 30 | 0.0 | 0.0 | 15.0 | 16.4 | **keep** | clean: gripper opens and closes, little idle time |
+| 17 | pick the tweezers | 767 | 25.6 | 30 | 0.0 | 4.3 | 0.2 | 12.8 | **keep** | trim 4.3 s idle at the end |
 
 ![Episode timeline](media/data/episodes.png)
 
@@ -95,39 +105,99 @@ Read 2026-10-18 02:16 from `MongoDB Atlas, database scrub`. Regenerate with `.ve
 | 7 | wrist_flex.pos | 44.8 | 48 | 6.2 |
 | 7 | wrist_roll.pos | 102.4 | 71 | 8.6 |
 | 7 | gripper.pos | 24.7 | 59 | 2.1 |
+| 8 | shoulder_pan.pos | 77.5 | 63 | 8.5 |
+| 8 | shoulder_lift.pos | 126.2 | 82 | 10.3 |
+| 8 | elbow_flex.pos | 86.6 | 61 | 6.3 |
+| 8 | wrist_flex.pos | 42.7 | 69 | 8.2 |
+| 8 | wrist_roll.pos | 81.6 | 71 | 10.4 |
+| 8 | gripper.pos | 31.4 | 65 | 2.8 |
+| 9 | shoulder_pan.pos | 80.7 | 68 | 8.9 |
+| 9 | shoulder_lift.pos | 106.8 | 74 | 11.7 |
+| 9 | elbow_flex.pos | 130.2 | 61 | 11.3 |
+| 9 | wrist_flex.pos | 59.5 | 71 | 9.3 |
+| 9 | wrist_roll.pos | 104.8 | 71 | 9.9 |
+| 9 | gripper.pos | 26.3 | 59 | 2.3 |
+| 10 | shoulder_pan.pos | 76.3 | 71 | 11.9 |
+| 10 | shoulder_lift.pos | 119.7 | 87 | 18.4 |
+| 10 | elbow_flex.pos | 79.1 | 58 | 9.8 |
+| 10 | wrist_flex.pos | 69.4 | 63 | 11.7 |
+| 10 | wrist_roll.pos | 113.9 | 71 | 14.4 |
+| 10 | gripper.pos | 15.1 | 55 | 1.9 |
+| 11 | shoulder_pan.pos | 105.6 | 69 | 16.2 |
+| 11 | shoulder_lift.pos | 122.3 | 66 | 16.2 |
+| 11 | elbow_flex.pos | 78.4 | 58 | 7.0 |
+| 11 | wrist_flex.pos | 70.4 | 71 | 11.3 |
+| 11 | wrist_roll.pos | 107.2 | 74 | 18.7 |
+| 11 | gripper.pos | 20.9 | 57 | 2.5 |
+| 12 | shoulder_pan.pos | 90.5 | 71 | 14.5 |
+| 12 | shoulder_lift.pos | 127.8 | 61 | 15.0 |
+| 12 | elbow_flex.pos | 83.1 | 58 | 8.2 |
+| 12 | wrist_flex.pos | 86.1 | 71 | 16.7 |
+| 12 | wrist_roll.pos | 100.7 | 69 | 19.0 |
+| 12 | gripper.pos | 41.2 | 65 | 6.1 |
+| 13 | shoulder_pan.pos | 28.5 | 40 | 3.6 |
+| 13 | shoulder_lift.pos | 119.8 | 79 | 11.5 |
+| 13 | elbow_flex.pos | 78.2 | 58 | 5.3 |
+| 13 | wrist_flex.pos | 89.0 | 69 | 11.2 |
+| 13 | wrist_roll.pos | 133.3 | 68 | 12.0 |
+| 13 | gripper.pos | 39.8 | 63 | 4.2 |
+| 14 | shoulder_pan.pos | 51.7 | 45 | 5.5 |
+| 14 | shoulder_lift.pos | 121.7 | 66 | 10.2 |
+| 14 | elbow_flex.pos | 81.9 | 55 | 5.3 |
+| 14 | wrist_flex.pos | 87.2 | 71 | 11.5 |
+| 14 | wrist_roll.pos | 153.3 | 74 | 17.3 |
+| 14 | gripper.pos | 12.8 | 55 | 1.6 |
+| 15 | shoulder_pan.pos | 36.4 | 63 | 4.7 |
+| 15 | shoulder_lift.pos | 124.1 | 61 | 13.0 |
+| 15 | elbow_flex.pos | 77.5 | 58 | 5.7 |
+| 15 | wrist_flex.pos | 70.0 | 71 | 14.6 |
+| 15 | wrist_roll.pos | 99.3 | 69 | 18.0 |
+| 15 | gripper.pos | 36.4 | 65 | 5.2 |
+| 16 | shoulder_pan.pos | 62.3 | 71 | 15.1 |
+| 16 | shoulder_lift.pos | 120.6 | 79 | 11.5 |
+| 16 | elbow_flex.pos | 91.3 | 69 | 7.4 |
+| 16 | wrist_flex.pos | 39.6 | 66 | 8.1 |
+| 16 | wrist_roll.pos | 129.1 | 74 | 20.1 |
+| 16 | gripper.pos | 45.1 | 65 | 5.6 |
+| 17 | shoulder_pan.pos | 54.5 | 71 | 10.3 |
+| 17 | shoulder_lift.pos | 126.8 | 84 | 12.8 |
+| 17 | elbow_flex.pos | 80.9 | 77 | 9.5 |
+| 17 | wrist_flex.pos | 73.0 | 71 | 7.3 |
+| 17 | wrist_roll.pos | 113.4 | 74 | 11.5 |
+| 17 | gripper.pos | 34.9 | 65 | 4.8 |
 
 ### Per task
 
 | Task | Episodes | Start-pose spread (deg) | Lighting |
 | --- | --- | --- | --- |
 | pick the spatula | 3 | 3.8 | not recorded (no lighting field) |
-| pick the scalpel handle | 5 | 19.9 | not recorded (no lighting field) |
+| pick the scalpel handle | 11 | 16.8 | not recorded (no lighting field) |
+| pick the tweezers | 4 | 15.2 | not recorded (no lighting field) |
 
-Local dataset `~/scrub-dataset`: 14 episodes, 8873 frames. Camera fps: dataset says 30; git history: side and wrist 29-31 fps; wrist 18.7-22.6 fps on the spatula episodes.
+Local dataset `~/scrub-dataset`: 18 episodes, 11156 frames. Camera fps: dataset says 30; git history: side and wrist 29-31 fps; wrist 18.7-22.6 fps on the spatula episodes.
 
 ### Flags
 
-- Only 8 episodes (3 usable); ACT usually needs 50+ per task. A training job now will overfit.
-- Gripper never opens in episodes [0, 2, 6].
-- Gripper opens but never closes in episodes [1].
-- Idle head or tail over 2 s in episodes [0, 3, 4, 5, 6, 7]; trim before training.
+- Only 18 episodes (10 usable); ACT usually needs 50+ per task. A training job now will overfit.
+- Gripper never opens in episodes [0, 2, 6, 13].
+- Gripper opens but never closes in episodes [1, 8, 11].
+- Idle head or tail over 2 s in episodes [0, 3, 4, 5, 6, 7, 8, 17]; trim before training.
 - Episodes [4] run over 60 s; a pick should take well under a minute.
-- MongoDB has 8 episodes but the local dataset says 14 (8873 frames); the extra episodes were never uploaded or were recorded after the upload.
 - No lighting field on any episode, so lighting variety cannot be checked.
 - Wrist camera frame rate is not stored per episode. git history: side and wrist 29-31 fps; wrist 18.7-22.6 fps on the spatula episodes; below 25 fps is a training concern.
-- 7 of 8 episodes have no handoff outcome attached.
+- 11 of 18 episodes have no handoff outcome attached.
 
 ## Handoffs: what the arm did, per item, lighting and skill source
 
 **Definition.** A try is one accepted handover command (a `command` event with action `handover` and accepted true), keyed by command_id; all later events with that command_id belong to it. A success is a try whose flow emitted `handed` (the arm reached the hand and offered the item) or `set_down` (sharp items such as the scalpel are set on a safe spot by design); the same two events ledger.stats counts. A miss is a `missed` event in the try (retries are the `retries` field on handed/missed). A stop is a `stopped` event in the try. Time is request_to_hand_s on the `handed` event. Lighting and skill_source come from the try's own events (skill_source 'none' when the flow ended before one was chosen). Rate range is the Wilson 95% interval.
 
-**Trusted: NO.** The 24 real-tagged handed rows have median 0.42 s and span 0.41-0.43 s, matching the fake arm's median 0.42 s, with no misses or retries across 24 cases. They are the test real_tries_are_recorded_fake_ones_are_not in controller/test_flows.py (RecordingArm motion_s=0.1, auto_pull_s=0.2, fake_arm=False), which wrote to Atlas whenever the tests ran with MONGODB_URI set; no real SO-101 hands over in 0.4 s.
+**Trusted: NO.** The 30 real-tagged handed rows have median 0.41 s and span 0.41-0.43 s, matching the fake arm's median 0.42 s, with no misses or retries across 30 cases. They are the test real_tries_are_recorded_fake_ones_are_not in controller/test_flows.py (RecordingArm motion_s=0.1, auto_pull_s=0.2, fake_arm=False), which wrote to Atlas whenever the tests ran with MONGODB_URI set; no real SO-101 hands over in 0.4 s.
 
-### Real arm (tagged real, suspect): 344 rows, 24 tries
+### Real arm (tagged real, suspect): 422 rows, 30 tries
 
 | item | lighting | skill | tries | ok | rate | 95% range | median s | p90 s | retries | misses | stops |
 | --- | --- | --- | ---: | ---: | ---: | --- | ---: | ---: | ---: | ---: | ---: |
-| hemostat | normal | model | 24 | 24 | 100% | 86-100% | 0.42 | 0.42 | 0 | 0 | 0 |
+| hemostat | normal | model | 30 | 30 | 100% | 89-100% | 0.41 | 0.42 | 0 | 0 | 0 |
 
 Do not quote these as real results. The pitch says "no real data yet".
 
@@ -135,29 +205,29 @@ Do not quote these as real results. The pitch says "no real data yet".
 
 - none
 
-### Simulation (fake and sim arms, never real): 45852 rows, 3947 tries
+### Simulation (fake and sim arms, never real): 51789 rows, 4423 tries
 
 | item | lighting | skill | tries | ok | rate | 95% range | median s | p90 s | retries | misses | stops |
 | --- | --- | --- | ---: | ---: | ---: | --- | ---: | ---: | ---: | ---: | ---: |
 | hemostat | bright | model | 2 | 2 | 100% | 34-100% | 0.81 | 0.82 | 0 | 0 | 0 |
-| hemostat | dim | model | 4 | 4 | 100% | 51-100% | 1.32 | 3.73 | 0 | 0 | 0 |
+| hemostat | dim | model | 6 | 6 | 100% | 61-100% | 3.11 | 4.54 | 0 | 0 | 0 |
 | hemostat | dim | none | 3 | 3 | 100% | 44-100% | 2.14 | 4.08 | 0 | 0 | 0 |
-| hemostat | normal | model | 1709 | 1255 | 73% | 71-75% | 0.42 | 0.66 | 104 | 237 | 249 |
-| hemostat | normal | none | 1732 | 1025 | 59% | 57-61% | 0.43 | 0.44 | 128 | 288 | 291 |
-| hemostat | normal | taught | 24 | 24 | 100% | 86-100% | 0.41 | 0.42 | 0 | 0 | 0 |
-| hex_key | normal | model | 24 | 24 | 100% | 86-100% | 0.41 | 0.42 | 0 | 0 | 0 |
+| hemostat | normal | model | 2110 | 1548 | 73% | 71-75% | 0.41 | 0.65 | 128 | 291 | 309 |
+| hemostat | normal | none | 1757 | 1025 | 58% | 56-61% | 0.43 | 0.44 | 128 | 288 | 292 |
+| hemostat | normal | taught | 30 | 30 | 100% | 89-100% | 0.41 | 0.42 | 0 | 0 | 0 |
+| hex_key | normal | model | 30 | 30 | 100% | 89-100% | 0.41 | 0.42 | 0 | 0 | 0 |
 | hex_key | normal | none | 32 | 32 | 100% | 89-100% | 0.42 | 0.44 | 0 | 0 | 0 |
-| mayo_scissors | normal | model | 60 | 59 | 98% | 91-100% | 6.10 | 6.29 | 0 | 0 | 1 |
-| mayo_scissors | normal | none | 146 | 32 | 22% | 16-29% | 0.42 | 0.44 | 0 | 0 | 0 |
-| scalpel | normal | model | 114 | 88 | 77% | 69-84% | 0.31 | 7.89 | 0 | 0 | 0 |
+| mayo_scissors | normal | model | 66 | 65 | 98% | 92-100% | 5.93 | 6.29 | 0 | 0 | 1 |
+| mayo_scissors | normal | none | 158 | 32 | 20% | 15-27% | 0.42 | 0.44 | 0 | 0 | 0 |
+| scalpel | normal | model | 132 | 100 | 76% | 68-82% | 0.31 | 7.85 | 0 | 0 | 0 |
 | scalpel | normal | none | 97 | 64 | 66% | 56-75% | 0.32 | 0.33 | 0 | 0 | 0 |
 
 ### Simulation miss reasons
 
-- checking: Missed the hemostat, trying again.: 232
-- checking: I couldn't pick the hemostat.: 174
-- finding: I don't see the hemostat on the tray.: 61
-- moving_to_hand: That's out of my reach.: 58
+- checking: Missed the hemostat, trying again.: 256
+- checking: I couldn't pick the hemostat.: 192
+- finding: I don't see the hemostat on the tray.: 67
+- moving_to_hand: That's out of my reach.: 64
 
 ![Simulation handoff success](media/data/handoffs_sim.png)
 
@@ -171,31 +241,31 @@ Phase grouping: idle = parked, off, preview, killed and the idle monitor (arm no
 
 | Motor | Idle C | Moving C | Holding C | Peak C | Hold rise C/min | Min from idle to guard (hold) | Cool C/min |
 | --- | --- | --- | --- | --- | --- | --- | --- |
-| shoulder_pan | 46.0 | 47.0 | 50.0 | 51 | 1.03 | 13.6 | n/a |
-| shoulder_lift | 47.0 | 48.0 | 52.5 | 53 | 1.07 | 12.2 | 0.36 |
+| shoulder_pan | 46.0 | 47.0 | 50.0 | 51 | 1.03 | 13.6 | 0.46 |
+| shoulder_lift | 47.0 | 48.0 | 52.5 | 53 | 1.07 | 12.2 | 0.51 |
 | elbow_flex | 46.0 | 47.0 | 50.0 | 53 | 0.84 | 16.6 | 0.42 |
-| wrist_flex | 48.0 | 48.0 | 52.0 | 53 | 0.95 | 12.6 | 0.21 |
-| wrist_roll | 48.0 | 49.0 | 52.0 | 53 | 0.98 | 12.2 | 0.23 |
-| gripper | 49.0 | 51.0 | 54.0 | 55 | 1.13 | 9.7 | 0.43 |
+| wrist_flex | 48.0 | 48.0 | 52.0 | 53 | 0.95 | 12.6 | 0.34 |
+| wrist_roll | 48.0 | 49.0 | 52.0 | 53 | 0.98 | 12.2 | 0.37 |
+| gripper | 49.0 | 51.0 | 54.0 | 55 | 1.13 | 9.7 | 0.54 |
 
 Medians per phase group; the hold rate is a least-squares fit over the hold experiment (stretches of 60 s or more), the cool rate over the first 5 min of idle stretches that began at 49 C or more and fell at least 1 C. `n/a` means no usable stretch.
 
 ### Cooling
 
-Median fall 0.36 C/min over 11 motor-stretches; 60 C to 50 C would take about 28 min at that rate (linear extrapolation: the data never went above 55 C, and real cooling slows near the ambient floor).
+Median fall 0.44 C/min over 21 motor-stretches; 60 C to 50 C would take about 23 min at that rate (linear extrapolation: the data never went above 55 C, and real cooling slows near the ambient floor).
 
 ### Sessions
 
 | Session | Source | Mode | Minutes | Moving min | Start C | Peak C (motor) | Median hottest while moving C |
 | --- | --- | --- | --- | --- | --- | --- | --- |
 | 20261018-013938-6072 | station | station | 36.4 | 2.5 | 49 | 53 (gripper) | 51.0 |
+| 20261018-021820-bb73 | station | station | 30.6 | 3.7 | 49 | 53 (gripper) | 50.0 |
 | 20261018-000148-a7f0 | arm_session |  | 9.3 | 9.2 | 42 | 55 (gripper) | 53.0 |
 | 20261018-002624-1606 | arm_session | preview | 4.4 | 0.0 | 48 | 54 (gripper) | n/a |
 | 20261018-013235-3fe3 | station | station | 4.2 | 0.1 | 49 | 50 (gripper) | 49.0 |
 | 20261018-011748-79aa | station | station | 4.1 | 1.3 | 47 | 50 (gripper) | 48.0 |
 | 20261017-231317-0f3d | experiment |  | 3.8 | 0.0 | 50 | 55 (gripper) | n/a |
 | 20261018-011343-365d | station | station | 3.6 | 0.1 | 47 | 50 (gripper) | 49.0 |
-| 20261018-003730-770f | arm_session | preview | 0.9 | 0.0 | 44 | 50 (gripper) | n/a |
 
 ### Settings: what kept it cool or hot
 
@@ -203,7 +273,7 @@ Gripper temperature at grasp start, by gripper `torque_limit`:
 
 | torque_limit | Grasps | Median C | Max C | Median |load| |
 | --- | --- | --- | --- | --- |
-| 350 | 53 | 50.0 | 52 | 350 |
+| 350 | 68 | 50.0 | 52 | 296 |
 
 Session settings that were the same in every session (so they cannot explain any difference): COOL_RESUME=50, COOL_TRIP=60, DEADBAND_DEG=0.4, EASE_DEG_S=45.0, GAP_DEG=25.0, GENTLE_ACCEL=40, GENTLE_SPEED=1200, GRIP_SQUEEZE=1.5, JOINT_LOAD_MAX=250. None of them varied.
 Register snapshot: acceleration [40, 254], torque_limit [500, 1000], goal_velocity [0, 1200], max_temperature_limit [70], overload_torque [25, 80].
@@ -213,7 +283,7 @@ Register snapshot: acceleration [40, 254], torque_limit [500, 1000], goal_veloci
 - gripper is the hottest motor: peak 55 C against a 60 C guard and a 70 C firmware limit. Nothing in the data reached the guard (hot events: 0).
 - With torque on and no motion, gripper warms fastest: 1.13 C/min. Holding is not free; every motor warms with torque on.
 - Plan for at most 291 s of continuous hold per pass (half of the 582 s the gripper needs from idle to the 60 C guard); then torque off or park.
-- Park or torque off between passes: motors fall about 0.36 C/min (median), so 60 C to 50 C takes about 28 min.
+- Park or torque off between passes: motors fall about 0.44 C/min (median), so 60 C to 50 C takes about 23 min.
 - gripper and wrist_flex idle warmest (49 and 48 C against 46 C for elbow_flex): their idle temperature is not a fault, only their rise is.
 - No guard trips were recorded, so the guard values are untested on this data; keep COOL_TRIP at 60.
 
@@ -225,37 +295,38 @@ Register snapshot: acceleration [40, 254], torque_limit [500, 1000], goal_veloci
 
 ## Reading (OCR)
 
-46 `read` events (fake 46). Reads do not depend on the arm: the camera and the vision calls are real even on a fake-arm run, so every read here is real camera data.
+177 `read` events (fake 177). Reads do not depend on the arm: the camera and the vision calls are real even on a fake-arm run, so every read here is real camera data.
 
 Scoring: Reads are split into scored and unscored. Scored = tied to a printed prop in truth.json: tray_tag always (a failed read counts as scored-incorrect); count_sheet when it is ok and its tray id and item ids equal a truth sheet's; pack_label when it is ok and at least one label's lot (or item+lot) is in truth. Other ok reads (test-scenario sheets, lots like L-4471) are unscored (not a printed prop); failed count_sheet and pack_label reads are counted as failed, not scored. A scored read is correct when tray_tag: tray id equals a truth tray_id; count_sheet: items (id, expected, initial, closing) equal a truth sheet's; pack_label: every label's (item, lot) matches a truth label. accuracy = correct / scored. Live events carry no filename, so this is content matching, not per-file scoring.
 
 | Kind | Reads | ok | Scored | Unscored (not a printed prop) | Failed | Correct | Accuracy | Item fields right | Median ms | p90 ms |
 | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
-| count_sheet | 23 | 16 | 8 | 8 | 7 | 0 | 0% | 33% of 24 | 1800 | 3240 |
-| pack_label | 5 | 2 | 0 | 2 | 3 | 0 | no real data yet | n/a | 2100 | 2100 |
-| tray_tag | 18 | 12 | 18 | 0 | 6 | 10 | 56% | n/a | 304 | 2578 |
+| count_sheet | 92 | 64 | 32 | 32 | 28 | 0 | 0% | 33% of 96 | 1800 | 6840 |
+| pack_label | 22 | 12 | 0 | 12 | 10 | 0 | no real data yet | n/a | 2100 | 2100 |
+| tray_tag | 63 | 44 | 63 | 0 | 19 | 36 | 57% | n/a | 12 | 3000 |
 
-Overall latency: median 1800 ms, p90 2410 ms.
+Overall latency: median 1800 ms, p90 3000 ms.
 
 | Method (per attempt) | Attempted | Answered | Failed | Median ms |
 | --- | --- | --- | --- | --- |
-| gemini | 6 | 2 | 4 | 890 |
-| perceptron | 26 | 22 | 4 | 1800 |
-| qr | 10 | 6 | 4 | 12 |
+| gemini | 17 | 10 | 7 | 770 |
+| perceptron | 89 | 82 | 7 | 1800 |
+| qr | 31 | 26 | 5 | 12 |
 
 Gemini rescued a failed Perceptron read 0 time(s).
 
 Error reasons:
 
-- 6 x vision unreachable
-- 2 x no known tray
-- 2 x perceptron: timeout
-- 2 x no overhead frame yet
-- 2 x perceptron: ValueError: no tray tag text
-- 1 x perceptron: ValueError: no row matched an item of this setting
-- 1 x perceptron: ValueError: no label read
+- 24 x vision unreachable
+- 8 x no known tray
+- 8 x perceptron: timeout
+- 8 x no overhead frame yet
+- 3 x perceptron: ValueError: no tray tag text
+- 2 x perceptron: ValueError: no row matched an item of this setting
+- 2 x perceptron: ValueError: no label read
+- 2 x blurry
 
-Captions: 3, agree with the label 0, median latency 833 ms.
+Captions: 11, agree with the label 0, median latency 833 ms.
 
 Offline bench (separate from live reads): docs/RECOGNITION.md (Oct 18, rendered props, not photos): count sheets correct (Perceptron, 1.8-2.3 s); tray tags correct (QR, 0.05 s); pack labels 4 of 4 (Perceptron, 2.4-2.5 s). Upper bound, not live accuracy.
 
