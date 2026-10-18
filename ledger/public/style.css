@@ -111,6 +111,7 @@ th {
 
 .empty-note { color: var(--muted); margin: 10px 0 0; }
 .has-rows .empty-note { display: none; }
+main:not(.has-rows) .table-wrap { display: none; }
 
 @media (max-width: 800px) {
   .table-wrap { grid-template-columns: 1fr; }
