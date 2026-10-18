@@ -35,6 +35,22 @@ def instructions(settings=SETTINGS):
     return allowed
 
 
+def camera_floors(value=None):
+    """SCRUB_ACCEPT_CAMERA_FPS="wrist=22" lowers one camera's 29 fps floor, on purpose and on the record.
+
+    Only for a camera that cannot reach 29 on any port (the timestamps then claim 30 fps while frames
+    repeat). Preflight prints it as a warning and docs/TRAINING.md must say which run used it.
+    """
+    import os
+    floors = {}
+    for part in filter(None, (value if value is not None else os.environ.get("SCRUB_ACCEPT_CAMERA_FPS", "")).split(",")):
+        cam, _, fps = part.partition("=")
+        if cam.strip() not in ("side", "wrist"):
+            raise ValueError(f"SCRUB_ACCEPT_CAMERA_FPS: unknown camera {cam!r} (side or wrist)")
+        floors[cam.strip()] = float(fps)
+    return floors
+
+
 def local_check(root, cadence_report):
     import pyarrow.parquet as pq
 
@@ -123,6 +139,7 @@ def local_check(root, cadence_report):
                          "this looks like radians or a non-degree recording (the arm rests near -100 deg). "
                          "Re-record with --robot.use_degrees=true --teleop.use_degrees=true")
 
+    floors = camera_floors()
     cadence_path = Path(cadence_report)
     cadence = json.loads(cadence_path.read_text())
     measured = {}
@@ -133,7 +150,7 @@ def local_check(root, cadence_report):
         cams = entry.get("camera_fps") or {}
         for cam in ("side", "wrist"):
             fps = cams.get(cam)
-            if not isinstance(fps, (int, float)) or not math.isfinite(fps) or not 29 <= fps <= 31:
+            if not isinstance(fps, (int, float)) or not math.isfinite(fps) or not floors.get(cam, 29) <= fps <= 31:
                 raise ValueError(f"Episode {index} {cam} camera ran at {fps} fps; every episode needs "
                                  "camera_fps side and wrist measured at 29..31 (re-record it)")
         if entry.get("use_degrees") is not True:
@@ -157,7 +174,7 @@ def local_check(root, cadence_report):
                 for block in iter(lambda: stream.read(1024**2), b""):
                     digest.update(block)
     digest.update(cadence_path.read_bytes())
-    return {"episodes": count, "frames": sum(lengths.values()), "fps": 30, "tasks": dict(sorted(task_counts.items())),
+    return {"episodes": count, "frames": sum(lengths.values()), "fps": 30, "camera_fps_floors": floors, "tasks": dict(sorted(task_counts.items())),
             "measured_fps_min": min(measured.values()), "measured_fps_max": max(measured.values()),
             "fingerprint": digest.hexdigest(),
             "note": "Media dimensions are checked from metadata, not decoded. Replay and service validation are still required."}

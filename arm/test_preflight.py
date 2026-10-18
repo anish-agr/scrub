@@ -2,10 +2,12 @@
 import contextlib
 import io
 import json
+import os
 from pathlib import Path
 import tempfile
 from types import SimpleNamespace
 import unittest
+from unittest import mock
 from unittest.mock import Mock, patch
 
 import pyarrow.parquet as pq
@@ -51,6 +53,16 @@ class LocalCheckGates(unittest.TestCase):
                                 else e.update(use_degrees=value))
                 with self.assertRaisesRegex(ValueError, "use_degrees"):
                     local_check(self.root, self.cadence)
+
+    def test_slow_wrist_needs_the_explicit_override(self):
+        rewrite_cadence(self.cadence, lambda e: e["camera_fps"].update(wrist=22.6))
+        with self.assertRaisesRegex(ValueError, "wrist camera ran at 22.6"):
+            local_check(self.root, self.cadence)
+        with mock.patch.dict(os.environ, {"SCRUB_ACCEPT_CAMERA_FPS": "wrist=22"}):
+            self.assertEqual(local_check(self.root, self.cadence)["camera_fps_floors"], {"wrist": 22.0})
+        with mock.patch.dict(os.environ, {"SCRUB_ACCEPT_CAMERA_FPS": "top=22"}), \
+                self.assertRaisesRegex(ValueError, "unknown camera"):
+            local_check(self.root, self.cadence)
 
     def test_radians_scale_shoulder_lift_fails(self):
         rewrite_state(self.root, [0.2, -0.4, 0.1, 0., 0., 50.])
