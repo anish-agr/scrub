@@ -8,7 +8,7 @@ Done when: "grab me the kelly" on the call becomes `handover hemostat` at the co
 
 ## How a call reaches us
 
-caller -> Photon number -> Photon Voice profile (SIP, TLS) -> ElevenLabs agent (speech to text, text to speech) -> its LLM is "Custom LLM" = our `POST /v1/chat/completions` through a public tunnel. Each caller turn prints `[heard] ...`. The reply streams back as OpenAI `chat.completion.chunk` SSE lines (`data: {...}\n\n`, then `data: [DONE]\n\n`) and the agent speaks them. The first chunk goes out before the controller answers; the reply stays open up to `VOICE_HOLD_S` (8 s) to speak follow-up event lines ("Scalpel down.").
+caller -> Photon number -> Photon Voice profile (SIP, TLS) -> ElevenLabs agent (speech to text, text to speech) -> its LLM is "Custom LLM" = our `POST /v1/chat/completions` through a public tunnel. Each caller turn prints `[heard] ...`. The reply streams back as OpenAI `chat.completion.chunk` SSE lines (`data: {...}\n\n`, then `data: [DONE]\n\n`) and the agent speaks them. The first chunk goes out before the controller answers; the reply stays open up to `VOICE_HOLD_S` (14 s: longer than the 10 s hand wait plus a set-down) to speak follow-up event lines ("Scalpel down."). A line that lands with no turn open (a dashboard or smoke handover) is spoken at the start of the next turn only if it is under 10 s old, and only the last 2.
 
 - We only act when the last message is the caller's. ElevenLabs also asks for a reply after silence; that gets an empty reply instead of a repeated command.
 - The system prompt line `Caller: {{system__caller_id}}` gives us the caller's number for the summary text (`[case] caller +1...`). If that line never prints, Photon isn't passing caller id over SIP: set `PHOTON_SUMMARY_TO` in `.env`.
@@ -17,7 +17,7 @@ caller -> Photon number -> Photon Voice profile (SIP, TLS) -> ElevenLabs agent (
 
 ## Run and test
 
-- `npm run dev` (port 3000). `CONTROLLER_URL` and `VOICE_PORT` from the shell override `.env`, so a test copy can run beside the real one: `CONTROLLER_URL=http://localhost:8071 VOICE_PORT=3071 npm run dev`. Keys only come from `.env`, but a key set to empty in the shell is blanked, so a test copy never texts: `PHOTON_API_KEY= PHOTON_PROJECT_ID= SPECTRUM_PROJECT_ID= SPECTRUM_PROJECT_SECRET= CONTROLLER_URL=http://localhost:8071 VOICE_PORT=3071 npm run dev` (it logs `[texts] off`).
+- `npm run dev` (port 3000). `CONTROLLER_URL` and `VOICE_PORT` from the shell override `.env`, so a test copy can run beside the real one: `CONTROLLER_URL=http://localhost:8071 VOICE_PORT=3071 npm run dev`. Keys only come from `.env`. For a test copy, use `VOICE_NO_KEYS=1`: it ignores `.env`, so the copy never calls Gemini or Photon and never texts: `VOICE_NO_KEYS=1 CONTROLLER_URL=http://localhost:8071 VOICE_PORT=3071 npm run dev` (it logs `[texts] off`). A key set to empty in the shell (`PHOTON_API_KEY= ...`) also blanks just that key.
 - `curl localhost:3000/health`: `{"ok":true,"keys":{"gemini":..,"photon":..,"llm_secret":..},"controller":true}`. Booleans only, never key values.
 - No call needed: `npm run say -- "grab me the kelly"` sends what ElevenLabs sends and prints the streamed reply with timings. It sends no caller id, so it never changes where the live server's end-of-case text goes; `SAY_CALLER=+1...` acts as that caller. `VOICE_URL=https://<tunnel> npm run say -- "stop"` does it through the tunnel. `curl -XPOST localhost:3000/heard -d '{"text":"grab me the kelly"}'` returns the lines as JSON.
 - Robot-model errors: the controller's `error` events (optional `code` 401, 409 or 503, and a `say` line) are spoken like any event line, during a turn and in the hold window, and end the hold. The end-of-case summary does not count them as failed requests.
@@ -91,7 +91,7 @@ Only a human can do these. Order: Photon, ElevenLabs agent, import the number, t
 | "what's out" | `[command] count` | "Out: hemostat, scalpel." |
 | "stop" | `[command] stop (POST /stop)` | "Stopped." |
 | "check the tray", "is the tray ready", "tray check" | `[tray] ready` (or `not ready`, `can't check`) | the controller's `GET /tray_check` `say`: "Tray's ready: scalpel, hemostat, Mayo scissors." / "Missing the scalpel." / "I can't check the tray right now." A pass also texts `Tray ready: Operating room, all 3 instruments in place.` to the caller's thread |
-| "hand me the bovie" | `[command] unknown` | "Which instrument? You can say: call the hemostat a kelly." |
+| "hand me the bovie" | `[command] unknown` | "Which instrument? You can say: call the hemostat a crile." |
 | "call the hemostat a crile" | `[alias] crile -> hemostat` | "Got it: crile means the hemostat." Then "crile please" hands the hemostat |
 
 `(local)` or `(gemini)` after each command says which parser ran. After "stop", reset the controller (`curl -XPOST localhost:8000/reset`) before the next request. If the call connects but Scrub is silent, check terminal 2: no `[heard]` means the Custom LLM URL is stale (new tunnel URL) or wrong (`[server] 404`); a phone that doesn't ring means Photon inbound or the agent assignment (Photon's troubleshooting table in the cookbook, and **SIP Messages** on the ElevenLabs number page).
