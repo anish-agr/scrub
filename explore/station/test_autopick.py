@@ -27,6 +27,7 @@ class St:
 
     def __init__(self, hot=False):
         self.hot, self.notes = hot, []
+        self.gripper = 35.0
 
     def temps(self):
         return {"gripper": 56 if self.hot else 45}
@@ -56,6 +57,8 @@ def run(driver, st):
                 end = a
                 break
             acts.append(a)
+            if a and "gripper.pos" in a:
+                st.gripper = max(10.5, a["gripper.pos"])  # the handle stops the jaw
     finally:
         AP.time.perf_counter = real
     return acts, end
@@ -67,7 +70,7 @@ def test_full_pick_is_smooth_and_ends_off():
     A = np.array([[a[f"{m}.pos"] for m in AP.JOINTS] for a in acts if a])
     assert np.abs(np.diff(A, axis=0)).max() * 30 <= AP.MAX_DEG_S + 0.5
     last = acts[-1]
-    assert last["gripper.pos"] == AP.JAW_CLOSE and abs(last["shoulder_lift.pos"] - AP.load_calib()["home_deg"]["shoulder_lift"]) < 0.5
+    assert last["gripper.pos"] == 9.0 and abs(last["shoulder_lift.pos"] - AP.load_calib()["home_deg"]["shoulder_lift"]) < 0.5
 
 
 def test_warm_motors_move_slower():
@@ -102,3 +105,36 @@ def test_bad_args():
     except ValueError:
         return
     raise AssertionError("empty label accepted")
+
+
+def _run_with_jaw(stall):
+    class S2(St):
+        def __init__(self):
+            super().__init__()
+            self.gripper = 35.0
+    d, st = AP.AutoPick({}, detector=Det()), S2()
+    d.start(st)
+    d._detect_thread.join(10)
+    t = [0.0]
+    real = AP.time.perf_counter
+    AP.time.perf_counter = lambda: t[0]
+    try:
+        for _ in range(5000):
+            a = d.tick(st, {})
+            t[0] += 1 / 30
+            if a is None or "done" in a:
+                return d, a
+            if "gripper.pos" in a:
+                st.gripper = max(stall, a["gripper.pos"])
+    finally:
+        AP.time.perf_counter = real
+
+
+def test_handle_in_jaw_holds_gentle_squeeze():
+    d, end = _run_with_jaw(10.5)
+    assert end == {"done": "off"} and d.grip_hold == 9.0
+
+
+def test_empty_close_is_a_miss():
+    d, end = _run_with_jaw(3.0)
+    assert end == {"done": "home"} and d.missed and d.status()["phase"] == "missed"

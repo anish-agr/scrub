@@ -35,6 +35,8 @@ MJ_PEAK = 1.875
 WARM_C, WARM_SLOW = 52, 1.6   # above this, every move takes 1.6x longer
 JAW_OPEN, JAW_CLOSE = 35.0, 2.0   # the gripper guard stops the close at the handle and holds gently
 HANDOFF_HOLD_S = 3.0      # pause at the handoff spot so someone can see / take it
+SQUEEZE = 1.5             # once the jaw stalls on the handle, hold this far past the contact point
+EMPTY_JAW = 5.0           # a jaw that stops at or below this closed on nothing
 MIN_MOVE_S = 0.8
 
 
@@ -131,6 +133,9 @@ class AutoPick:
         self.start_pose = None
         self.found = None
         self._detect_thread = None
+        self.grip_hold = None     # jaw target once the handle stopped the jaw (gentle squeeze)
+        self.missed = False
+        self._jaw_hist = []
 
     # ---- interface
     def start(self, st) -> None:
@@ -157,13 +162,21 @@ class AutoPick:
         seg = self.plan[self.seg]
         f = min_jerk((now - self.seg_t0) / seg["dur"])
         pose = {k: seg["from"][k] + (seg["to"][k] - seg["from"][k]) * f for k in seg["to"]}
+        self._track_jaw(st, now, seg, pose["gripper"])
+        if self.grip_hold is not None and seg["to"]["gripper"] <= JAW_CLOSE + 0.01:
+            pose["gripper"] = self.grip_hold  # gentle squeeze at the contact point, no guard tug-of-war
         self._phase, self._detail = seg["name"], seg.get("detail", "")
         self._progress = (self.seg + min(1.0, (now - self.seg_t0) / seg["dur"])) / len(self.plan)
         if now - self.seg_t0 >= seg["dur"] + seg.get("hold", 0.0):
+            if seg["name"] == "grip" and self.grip_hold is None and not self.missed:
+                self._missed(st, pose)  # closed on nothing: don't carry an empty jaw to the handoff
             self.seg += 1
             self.seg_t0 = None
             if self.seg >= len(self.plan):
-                self._phase, self._progress = "done", 1.0
+                self._phase, self._progress = ("missed" if self.missed else "done"), 1.0
+                if self.missed:
+                    st.note("autopick: missed the handle; home, motors off")
+                    return {"done": "home"}
                 st.note("autopick: done, holding the item at home; motors off")
                 return {"done": "off"}
             nxt = self.plan[self.seg]
@@ -179,6 +192,41 @@ class AutoPick:
         if self.found:
             out["target"] = self.found
         return out
+
+    def _missed(self, st, pose) -> None:
+        """Replace the rest of the plan with: open, lift clear, home."""
+        self.missed = True
+        self.found = {**(self.found or {}), "result": "missed"}
+        cal = self.cal
+        cur = dict(pose)
+        lift = dict(self.plan[self.seg + 1]["to"]) if self.seg + 1 < len(self.plan) else dict(cur)
+        home = {m: float(cal["home_deg"][m]) for m in JOINTS}
+        rest = []
+        for name, arm, jaw in (("open", cur, JAW_OPEN), ("clear", lift, JAW_OPEN), ("home", home, EMPTY_JAW)):
+            to = {**{m: arm[m] for m in JOINTS}, "gripper": jaw}
+            span = max(abs(to[m] - cur[m]) for m in JOINTS)
+            dur = max(MIN_MOVE_S, span * MJ_PEAK / MAX_DEG_S, abs(jaw - cur["gripper"]) * MJ_PEAK / 60.0)
+            rest.append({"name": name, "from": dict(cur), "to": to, "dur": round(dur, 2), "hold": 0.2,
+                         "detail": "missed: " + name})
+            cur = to
+        self.plan = self.plan[: self.seg + 1] + rest
+        st.note("autopick: the jaw closed on nothing; opening and going home")
+
+    def _track_jaw(self, st, now, seg, commanded) -> None:
+        """During the grip: the jaw is told to close past where it is, yet stops moving above EMPTY_JAW,
+        so the handle is in it. From then on hold a gentle squeeze instead of pushing to fully shut."""
+        if self.grip_hold is not None or seg["name"] != "grip" or st.gripper is None:
+            return
+        jaw = float(st.gripper)
+        if commanded > jaw - 3.0:  # not yet asking for more than it has: still closing freely
+            self._jaw_hist.clear()
+            return
+        self._jaw_hist.append((now, jaw))
+        recent = [g for t, g in self._jaw_hist if now - t <= 0.3]
+        if len(recent) >= 5 and max(recent) - min(recent) < 0.6 and min(recent) > EMPTY_JAW:
+            self.grip_hold = max(0.0, min(recent) - SQUEEZE)
+            self.found = {**(self.found or {}), "jaw_contact": round(min(recent), 1)}
+            st.note(f"autopick: handle in the jaw at {min(recent):.1f}; holding a gentle squeeze at {self.grip_hold:.1f}")
 
     # ---- internals
     @staticmethod
