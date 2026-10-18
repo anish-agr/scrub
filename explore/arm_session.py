@@ -875,10 +875,12 @@ def main() -> None:
 
     # keep holding on exit: LeRobot's default drops torque and a raised arm falls
     robot = [f"--robot.type=so101_follower", f"--robot.port={a.follower}", "--robot.id=scrub_follower",
+             "--robot.use_degrees=true",  # explicit: the dataset must match real_arm's degrees
              "--robot.disable_torque_on_disconnect=false",
              # LeRobot's own cap on how far a goal may lead the arm per step (degrees): no wrap spikes
              "--robot.max_relative_target=15"]
-    teleop = [f"--teleop.type=so101_leader", f"--teleop.port={a.leader}", "--teleop.id=scrub_leader"]
+    teleop = [f"--teleop.type=so101_leader", f"--teleop.port={a.leader}", "--teleop.id=scrub_leader",
+              "--teleop.use_degrees=true"]
     cams = {k: camera_index(v) for k, v in (("side", a.side), ("wrist", a.wrist)) if v is not None}
     CAM_SPECS.update({idx: (role, getattr(a, role)) for role, idx in cams.items()})
     for k, v in cams.items():
