@@ -1,6 +1,7 @@
 """Local preflight, not a replacement for replay or Perceptron's validator.
 
-Only reads a dataset when the operator explicitly supplies its root to the CLI.
+Only reads a dataset when the operator explicitly supplies its root:
+  python -m arm.dataset_check ~/scrub-dataset [--cadence-report ~/scrub-dataset-cadence.json]
 Cadence must come from the recording clock, never frame-index timestamps.
 """
 from __future__ import annotations
@@ -113,3 +114,29 @@ def local_check(root, cadence_report):
             "measured_fps_min": min(measured.values()), "measured_fps_max": max(measured.values()),
             "fingerprint": digest.hexdigest(),
             "note": "Media dimensions are checked from metadata, not decoded. Replay and service validation are still required."}
+
+
+def main(argv=None) -> int:
+    """python -m arm.dataset_check ~/scrub-dataset [--cadence-report ~/scrub-dataset-cadence.json]"""
+    import argparse
+    p = argparse.ArgumentParser(prog="python -m arm.dataset_check",
+                                description="Local preflight of a LeRobot dataset before upload: 30 fps metadata, "
+                                            "side and wrist streams, six joints, whole episodes, and a recording "
+                                            "cadence of 29-31 Hz for every episode. Reads only the root you pass.")
+    p.add_argument("root", help="dataset root, e.g. ~/scrub-dataset")
+    p.add_argument("--cadence-report", help="per-episode loop rate JSON (default <root>-cadence.json, "
+                                            "written by explore/arm_session.py)")
+    a = p.parse_args(argv)
+    root = Path(a.root).expanduser()
+    cadence = Path(a.cadence_report).expanduser() if a.cadence_report else Path(f"{root}-cadence.json")
+    try:
+        report = local_check(root, cadence)
+    except (ValueError, OSError, KeyError) as e:
+        print(f"NOT READY: {e}")
+        return 1
+    print(json.dumps(report, indent=1))
+    return 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

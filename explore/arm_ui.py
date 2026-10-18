@@ -478,6 +478,8 @@ API = {
     "GET /reference.jpg": "the saved setup photo",
     "GET /frame/side.jpg, /frame/wrist.jpg": "the latest camera frame as one JPEG",
     "POST /control {action: next|rerecord|stop}": "like the arrow keys; recording Mac only (or X-Scrub-Token)",
+    "POST /control {action: start}": "preview only: end the preview and start recording",
+    "POST /control {action: home|wake}": "home = glide to the saved home pose, then torque off; wake = torque on in place",
     "POST /reference": "save the side camera as the setup photo; recording Mac only",
     "files": "<root>-cadence.json per-episode timing; ~/scrub-logs/arm-*.log every run",
 }

@@ -93,6 +93,20 @@ class HoldTests(Base):
         self.assertFalse(arm.run_skill("pick the hemostat", .2))  # latched until resume
 
 
+class FromHomeTests(Base):
+    def test_model_skill_starts_from_the_folded_home(self):
+        """After wake() the last command is the measured home (lift -102.2, past the URDF's -100). The first
+        chunk used to fail forward kinematics on it and latch a playback error."""
+        class Target(FixedPolicy):
+            target = [2.8, -95.0, 90.0, 70.0, -9.3, 40.0]
+        arm, backend = self.arm(lambda i: Target(i), joints=(2.8, -102.2, 97.7, 72.3, -9.3, 4.8),
+                                backend_class=SavedImageBackend)
+        arm.run_skill("pick the hemostat", 1.0)
+        self.assertIsNone(arm._error)
+        self.assertGreater(arm.counters["accepted"], 0)
+        self.assertAlmostEqual(backend.joints[1], -95.0, delta=3.0)
+
+
 class GripTests(Base):
     def picked(self):
         arm, backend = self.arm(lambda i: FixedPolicy(i), contact=CONTACT)

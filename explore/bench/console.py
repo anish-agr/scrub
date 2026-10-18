@@ -106,7 +106,7 @@ def make_app(defaults=None):
             elif item is None:
                 action = "unknown"
         cmd = {"id": uuid.uuid4().hex, "action": action, "item": item,
-               "heard": text or f"{action} {item}", "source": "console", "t": t0}
+               "heard": text or f"{action} {item}", "source": "dashboard", "t": t0}  # a contract source
         ok, data, err = call("POST", c["controller"] + "/command", json=cmd)
         return {"path": "local", "ok": ok, "error": err, "command": cmd, "reply": data, "t": t0}
 

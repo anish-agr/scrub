@@ -71,7 +71,7 @@ def known_ports() -> dict:
     out = {}
     try:
         sys.path.insert(0, str(ROOT / "explore"))
-        import arm_session  # stdlib-only at import time; nothing here touches hardware
+        import arm_session  # no LeRobot or hardware at import time (only arm.hardware/thermal/handoff)
         out = {arm_session.FOLLOWER: "follower", arm_session.LEADER: "leader"}
     except Exception:  # noqa: BLE001 - explore/ missing or mid-edit
         pass
