@@ -578,3 +578,103 @@ try {
   ctl.close();
 }
 console.log("voice tests passed");
+
+// Reading (OCR pass): "read the count sheet", "what tray is this", "read the pack". Local match, no Gemini.
+{
+  const { commandSchema, readAction } = await import("../src/parse.js");
+  const { ACTIONS } = await import("../src/controller.js");
+  const reads: [string, string][] = [
+    ["read the count sheet", "read_sheet"], ["Read the sheet.", "read_sheet"], ["check the count sheet", "read_sheet"],
+    ["can you scan the count sheet", "read_sheet"],
+    ["what tray is this", "read_tray"], ["Which tray is this?", "read_tray"], ["read the tray tag", "read_tray"],
+    ["what tray are we on", "read_tray"],
+    ["read the pack", "read_pack"], ["read the pack label", "read_pack"], ["check the pack", "read_pack"],
+    ["is this pack expired?", "read_pack"],
+  ];
+  for (const [s, a] of reads) {
+    assert.deepEqual(localParse(s, surgical), { action: a, item: null }, s);
+    assert.equal(readAction(s), a, s);
+    assert.ok(!isStop(s) && !isTrayCheck(s) && !isGotIt(s) && !parseAlias(s, surgical) && !settingAsked(s), s);
+  }
+  // Near misses: the tray check, the count, handovers and stops stay what they were.
+  for (const s of ["check the tray", "is the tray ready", "tray check"]) assert.ok(isTrayCheck(s) && readAction(s) === null, s);
+  assert.deepEqual(localParse("what's the count", surgical), { action: "count", item: null });
+  assert.deepEqual(localParse("what's out", surgical), { action: "count", item: null });
+  assert.deepEqual(localParse("hand me the kelly", surgical), { action: "handover", item: "hemostat" });
+  assert.deepEqual(localParse("put it back", surgical), { action: "return", item: null });
+  for (const s of ["stop reading the pack", "stop, what tray is this"]) assert.ok(isStop(s), s);
+  for (const s of ["what's on the tray", "pack it up", "back to the tray", "call the hemostat a pack"]) assert.equal(readAction(s), null, s);
+  assert.deepEqual(parseAlias("call the hemostat a pack", surgical), { item: "hemostat", alias: "pack" });
+  // Gemini's schema: a fixed list with the three reads; item stays an id or "none".
+  const schema = commandSchema(surgical.items.map((i) => i.id));
+  for (const a of ["read_sheet", "read_tray", "read_pack"]) {
+    assert.ok(ACTIONS.includes(a as any), a);
+    assert.ok(schema.properties.action.enum.includes(a as any), a);
+  }
+  assert.deepEqual(schema.properties.item.enum, ["scalpel", "hemostat", "mayo_scissors", "none"]);
+}
+
+// End to end: the real server against a fake controller (ports 8091 and 3091). The read answers after 1.5 s,
+// past VOICE_HOLD_S (1 s here): the read hold (25 s) keeps the reply open, so the `read` say is in it.
+{
+  const posted: any[] = [];
+  const fake = http.createServer((req, res) => {
+    let raw = "";
+    req.on("data", (d) => (raw += d));
+    req.on("end", () => {
+      res.setHeader("content-type", "application/json");
+      if (req.url === "/state") return res.end(JSON.stringify({ step: "idle", out: [], setting: "surgical", judge: false, t: 1 }));
+      if (req.url === "/setting") return res.end(JSON.stringify(surgical));
+      if (req.url?.startsWith("/events/recent")) return res.end("[]");
+      if (req.url === "/stop") { send({ type: "stopped", say: "Stopped." }); return res.end('{"accepted":true}'); }
+      if (req.url === "/command") {
+        const c = JSON.parse(raw);
+        posted.push(c);
+        const lines: Record<string, string> = {
+          read_sheet: "Count sheet read: surgical tray, 3 items.",
+          read_tray: "That's the bench tray. Switching to bench.",
+          read_pack: "Hemostat pack, lot 42. It expired on October 1st.",
+        };
+        if (lines[c.action]) setTimeout(() => send({ type: "read", command_id: c.id, say: lines[c.action],
+          read: { kind: "count_sheet", ok: true, method: "perceptron", latency_ms: 1500 } }), 1500);
+        return res.end(JSON.stringify({ accepted: true, reason: null, say: null }));
+      }
+      res.end("{}");
+    });
+  });
+  const ws2 = new WebSocketServer({ server: fake });
+  const send = (e: object) => ws2.clients.forEach((c) => { if (c.readyState === c.OPEN) c.send(JSON.stringify({ t: Date.now() / 1000, ...e })); });
+  await new Promise<void>((r) => fake.listen(8091, r));
+  const log: string[] = [];
+  const kid = spawn(process.execPath, ["--import", "tsx", "src/server.ts"], { cwd: path.resolve(import.meta.dirname, ".."),
+    env: { ...process.env, VOICE_NO_KEYS: "1", CONTROLLER_URL: "http://localhost:8091", VOICE_PORT: "3091", VOICE_HOLD_S: "1", VOICE_JUDGE_TTL_MS: "0" } });
+  kid.stdout.on("data", (d) => log.push(String(d)));
+  kid.stderr.on("data", (d) => log.push(String(d)));
+  try {
+    for (let i = 0; i < 100 && !log.join("").includes("[events] connected"); i++) await new Promise((r) => setTimeout(r, 100));
+    assert.ok(log.join("").includes("[events] connected"), log.join(""));
+    const ask = async (heard: string) => {
+      const res = await fetch("http://localhost:3091/v1/chat/completions", { method: "POST", headers: { "content-type": "application/json" },
+        body: JSON.stringify({ model: "scrub", stream: true, messages: [{ role: "system", content: "You are Scrub." }, { role: "user", content: heard }] }) });
+      const raw = await res.text();
+      return raw.split("\n\n").filter((l) => l.startsWith("data: {")).map((l) => JSON.parse(l.slice(6)).choices[0].delta.content || "").join("");
+    };
+    const t2 = Date.now();
+    assert.equal(await ask("read the count sheet"), "Count sheet read: surgical tray, 3 items.");
+    assert.ok(Date.now() - t2 < 4000, `read turn took ${Date.now() - t2} ms`);  // ends on the read event, not the 25 s hold
+    assert.equal(posted.at(-1).action, "read_sheet");
+    assert.equal(posted.at(-1).item, null);
+    assert.equal(await ask("what tray is this"), "That's the bench tray. Switching to bench.");
+    assert.equal(posted.at(-1).action, "read_tray");
+    assert.equal(await ask("is this pack expired"), "Hemostat pack, lot 42. It expired on October 1st.");
+    assert.equal(posted.at(-1).action, "read_pack");
+    const n = posted.length;
+    assert.equal(await ask("stop reading the pack"), "Stopped.");  // stop first: POST /stop, never /command
+    assert.equal(posted.length, n);
+  } finally {
+    kid.kill();
+    ws2.close();
+    fake.close();
+  }
+  console.log("voice read tests passed");
+}
