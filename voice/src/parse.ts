@@ -1,4 +1,4 @@
-// Words heard on the call -> one Command. "stop" and "got it" skip Gemini; everything else goes through it.
+// Words heard on the call -> one Command or a question. Known names and ambiguity are deterministic.
 import { GoogleGenAI, Type } from "@google/genai";
 import { GEMINI_API_KEY, GEMINI_MODEL, GEMINI_TIMEOUT_MS } from "./config.js";
 import { ACTIONS, type Action, type Candidate, type Clarification, type Instance } from "./controller.js";
@@ -78,7 +78,7 @@ export const commandSchema = (ids: string[]) => ({
 
 async function geminiParse(heard: string, setting: Setting): Promise<ParseResult> {
   const ids = setting.items.map((i) => i.id);
-  const list = setting.items.map((i) => `- ${i.id}: ${i.name}${i.aliases.length ? ` (also: ${i.aliases.join(", ")})` : ""}`).join("\n");
+  const list = setting.items.map((i) => `- ${i.id}: ${i.name}${i.aliases.length ? ` (also: ${i.aliases.join(", ")})` : ""}${i.group ? `; group: ${i.group}` : ""}${i.variant ? `; variant: ${i.variant}` : ""}`).join("\n");
   const prompt = `You are the ears of Scrub, a robot arm that passes instruments in a ${setting.label.toLowerCase()}.
 Turn what the clinician said into one command.
 Actions:

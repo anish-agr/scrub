@@ -17,6 +17,7 @@ export class Dialogue {
   private contexts = new Map<string, Context>();
   private commands = new Map<string, Origin>();
   private epoch = 0;
+  private caseId?: string;
   constructor(private now = Date.now, private log: (row: ClarifyLog) => Promise<unknown> = postClarify) {}
   private note(row: ClarifyLog) { void this.log(row).catch(() => {}); }
   private context(id: string, setting?: string): Context {
@@ -72,7 +73,9 @@ export class Dialogue {
   }
   answer(context: string, heard: string, setting: Setting): Answer {
     const c = this.context(context, setting.id), q = c.question, s = norm(heard);
-    if (CANCEL.test(s)) { c.question = undefined; return { say: "Cancelled. Nothing will move." }; }
+    if (CANCEL.test(s)) { c.question = undefined; if (q) this.answered(context, q, heard); return { say: "Cancelled. Nothing will move." }; }
+    const followup = q?.confirm ? null : this.followup(context, heard, setting);
+    if (followup) { c.question = undefined; return followup; }
     if (!q) return null;
     if (isGotIt(heard)) return null; // release must not be trapped behind a question
     if (this.now() - q.at >= QUESTION_MS) {
@@ -87,8 +90,8 @@ export class Dialogue {
     if (q.confirm) {
       if (/^(yes|yes please|yeah|yep|correct|that s right)$/.test(s)) chosen = q.q.candidates[0];
     } else {
-      if (/\b(first|1st|one)\b/.test(s) && !/\b(second|2nd)\b/.test(s)) chosen = q.q.candidates[0];
-      if (/\b(second|2nd|two)\b/.test(s)) chosen = q.q.candidates[1];
+      if (/\b(first|1st)\b/.test(s) || /^(the )?one( please)?$/.test(s)) chosen = q.q.candidates[0];
+      if (/\b(second|2nd)\b/.test(s) || /^(the )?two( please)?$/.test(s)) chosen = q.q.candidates[1];
       if (/\b(either|any|you pick)\b/.test(s)) chosen = q.q.candidates[0];
       const side = s.match(/\b(left|right|closest)\b/)?.[1];
       if (side) {
@@ -104,11 +107,14 @@ export class Dialogue {
       const max = Math.max(0, ...named.map((x) => x.score));
       const best = named.filter((x) => x.score === max && max > 0);
       if (!chosen && best.length === 1) chosen = best[0].x;
+      // Repeating the two options is not an answer, even if one name is longer.
+      if (/\bor\b/.test(s) && !/\b(either|any|you pick)\b/.test(s)) chosen = undefined;
     }
     if (chosen?.item) {
       c.question = undefined; q.chosen = chosen; this.answered(context, q, heard);
       return { parsed: { action: q.action, item: chosen.item, ...(Object.keys(chosen.instance || {}).length ? { instance: chosen.instance } : {}) } };
     }
+    if (q.confirm) return { say: q.q.say }; // no alternative wording can accidentally bypass the required yes
     // A new explicit non-choice command replaces the question. An unrecognized answer just repeats it.
     const local = localParse(heard, setting);
     if (!CHOICE.test(s) && local.action !== "unknown" && !local.clarify) { c.question = undefined; return null; }
@@ -118,8 +124,40 @@ export class Dialogue {
     this.note({ type: "clarify_answer", item: q.q.item, candidates: q.q.candidates, question_id: q.q.question_id,
       answer, answer_ms: this.now() - q.at, context });
   }
+  private followup(context: string, heard: string, setting: Setting): Answer {
+    const c = this.context(context, setting.id), s = norm(heard);
+    const phrase = s.replace(/^(?:(?:please|can you|could you|hand me|give me|pass me|bring me|get me|grab me) )+/, "").replace(/ please$/, "");
+    if (/^(the )?other( one)?$/.test(phrase)) {
+      const last = c.lastQuestion;
+      if (!last?.chosen) return { say: "Which instrument? Please ask for it by name." };
+      const candidates = last.q.candidates.filter((x) => JSON.stringify(x) !== JSON.stringify(last.chosen));
+      if (candidates.length === 1 && candidates[0].item) {
+        last.chosen = candidates[0];
+        return { parsed: { action: last.action, item: candidates[0].item!, instance: candidates[0].instance } };
+      }
+      return candidates.length ? { parsed: { action: last.action, item: null, clarify: whichOne(candidates) } } : { say: "There isn't another candidate. Please ask by name." };
+    }
+    const local = localParse(heard, setting);
+    const returning = local.action === "return" && !local.item && !local.clarify;
+    const again = /^(another( one)?|same( one)?( again)?|that again|again|one more)$/.test(phrase);
+    if (!returning && !again) return null;
+    const last = c.lastHanded;
+    if (!last?.item || !setting.items.some((i) => i.id === last.item)) return { say: "Which instrument? I haven't handed you one in this conversation. Please ask by name." };
+    const instance = returning ? last.instance : last.instance?.variant ? { variant: last.instance.variant } : undefined;
+    return { parsed: { action: returning ? "return" : "handover", item: last.item, ...(instance ? { instance } : {}) } };
+  }
   // Returns the originating context; callers route this line only there, not into an unrelated open call.
   event(e: ScrubEvent): { context: string; line?: string; notify?: (line: string) => void } | null {
+    if (e.case_id && this.caseId && e.case_id !== this.caseId) {
+      const previous = Number(this.caseId.match(/-(\d+(?:\.\d+)?)$/)?.[1]);
+      const next = Number(e.case_id.match(/-(\d+(?:\.\d+)?)$/)?.[1]);
+      if (Number.isFinite(previous) && Number.isFinite(next) && next < previous) return null;
+      const active = e.command_id ? this.commands.get(e.command_id) : undefined;
+      this.clear();
+      // The first event of a new case may be the command we just posted. Keep its routing, not old history.
+      if (active) active.epoch = this.epoch;
+    }
+    if (e.case_id) this.caseId = e.case_id;
     if (e.type === "stopped") { this.clear(); return null; }
     const o = e.command_id ? this.commands.get(e.command_id) : undefined;
     if (!o || o.epoch !== this.epoch || this.now() - o.at > 300_000) return null;
@@ -130,7 +168,10 @@ export class Dialogue {
     if ((e.type === "released" || e.type === "handed") && e.item) {
       this.context(o.context, o.setting.id).lastHanded = { item: e.item, instance: e.instance || o.command.instance };
     }
-    if (e.type === "returned") this.context(o.context).lastHanded = undefined;
+    if (e.type === "returned") {
+      // A return by another person still makes that instrument no longer out.
+      for (const c of this.contexts.values()) if (c.lastHanded?.item === e.item) c.lastHanded = undefined;
+    }
     return { context: o.context, notify: o.notify };
   }
 }
