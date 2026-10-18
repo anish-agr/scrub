@@ -1,11 +1,11 @@
 {
- "read_at": 1792320547.4258811,
- "read_at_text": "2026-10-18 03:49",
+ "read_at": 1792322346.7607958,
+ "read_at_text": "2026-10-18 04:19",
  "source": "mongo",
  "overview": {
   "events": 69640,
   "episodes": 18,
-  "thermal": 8246,
+  "thermal": 10131,
   "events_by_arm": {
    "pretag": 17429,
    "fake": 51789,
@@ -19,97 +19,97 @@
    "name": "Episodes recorded (MongoDB)",
    "value": "18",
    "query": "db.episodes.countDocuments({})",
-   "read_at": "2026-10-18 03:49"
+   "read_at": "2026-10-18 04:19"
   },
   {
    "name": "Hours of demonstrations recorded",
    "value": "0.10",
    "query": "db.episodes.aggregate([{$group:{_id:null,s:{$sum:\"$duration_s\"}}}])",
-   "read_at": "2026-10-18 03:49"
+   "read_at": "2026-10-18 04:19"
   },
   {
    "name": "Episodes usable for training",
    "value": "10 of 18",
    "query": "db.episodes.find({}, {episode_index:1, task:1, duration_s:1, handoff:1})",
-   "read_at": "2026-10-18 03:49"
+   "read_at": "2026-10-18 04:19"
   },
   {
    "name": "Episodes with a handoff outcome",
    "value": "7",
    "query": "db.episodes.countDocuments({handoff: {$ne: null}})",
-   "read_at": "2026-10-18 03:49"
+   "read_at": "2026-10-18 04:19"
   },
   {
    "name": "Real handoff success rate",
    "value": "no real data yet",
    "query": "db.events.countDocuments({type:\"handed\", fake_arm:false})",
-   "read_at": "2026-10-18 03:49"
+   "read_at": "2026-10-18 04:19"
   },
   {
    "name": "Real median request-to-hand (s)",
    "value": "no real data yet",
    "query": "db.events.find({type:\"handed\", fake_arm:false}, {request_to_hand_s:1})",
-   "read_at": "2026-10-18 03:49"
+   "read_at": "2026-10-18 04:19"
   },
   {
    "name": "Simulated handoff tries",
    "value": "4423",
    "query": "db.events.countDocuments({type:\"command\", action:\"handover\", accepted:true, fake_arm:true})",
-   "read_at": "2026-10-18 03:49"
+   "read_at": "2026-10-18 04:19"
   },
   {
    "name": "Hottest motor and peak",
-   "value": "gripper 55 C",
+   "value": "gripper 56 C",
    "query": "db.thermal.aggregate([{$match:{kind:'sample'}},{$project:{m:{$objectToArray:'$motors'}}},{$unwind:'$m'},{$group:{_id:'$m.k',peak:{$max:'$m.v.temp'}}},{$sort:{peak:-1}},{$limit:1}])",
-   "read_at": "2026-10-18 03:49"
+   "read_at": "2026-10-18 04:19"
   },
   {
    "name": "Thermal samples",
-   "value": 7169,
+   "value": 8605,
    "query": "db.thermal.countDocuments({kind:'sample'})",
-   "read_at": "2026-10-18 03:49"
+   "read_at": "2026-10-18 04:19"
   },
   {
    "name": "Max safe hold time",
    "value": "291 s",
    "query": "db.thermal.find({kind:'experiment',phase:'torque_on_hold'},{t:1,session:1,elapsed_s:1,temps:1}).sort({session:1,elapsed_s:1})",
-   "read_at": "2026-10-18 03:49"
+   "read_at": "2026-10-18 04:19"
   },
   {
    "name": "Reads logged",
    "value": 177,
    "query": "db.events.countDocuments({type:\"read\"})",
-   "read_at": "2026-10-18 03:49"
+   "read_at": "2026-10-18 04:19"
   },
   {
    "name": "count_sheet OCR accuracy",
    "value": "0/32 correct (0%), 32 unscored, item fields 33% of 96",
    "query": "db.events.find({type:\"read\",\"read.kind\":\"count_sheet\"})",
-   "read_at": "2026-10-18 03:49"
+   "read_at": "2026-10-18 04:19"
   },
   {
    "name": "tray_tag OCR accuracy",
    "value": "36/63 correct (57%), 0 unscored",
    "query": "db.events.find({type:\"read\",\"read.kind\":\"tray_tag\"})",
-   "read_at": "2026-10-18 03:49"
+   "read_at": "2026-10-18 04:19"
   },
   {
    "name": "pack_label OCR accuracy",
    "value": "no real data yet",
    "query": "db.events.find({type:\"read\",\"read.kind\":\"pack_label\"})",
-   "read_at": "2026-10-18 03:49"
+   "read_at": "2026-10-18 04:19"
   },
   {
    "name": "Median read latency",
    "value": "1800 ms",
    "query": "db.events.find({type:\"read\"},{\"read.latency_ms\":1})",
-   "read_at": "2026-10-18 03:49"
+   "read_at": "2026-10-18 04:19"
   },
   {
    "name": "Perceptron vs Gemini",
    "value": "Perceptron 82/89 answered, median 1800 ms; Gemini 10/17 answered, median 770 ms; 0 rescues",
    "query": "db.events.find({type:\"read\",\"read.attempts\":{$exists:true}},{\"read.attempts\":1})",
-   "read_at": "2026-10-18 03:49"
+   "read_at": "2026-10-18 04:19"
   }
  ],
  "episodes": {
@@ -663,12 +663,12 @@
    {
     "motor": "shoulder_pan",
     "idle_c": 46.0,
-    "moving_c": 47.0,
+    "moving_c": 48.0,
     "holding_c": 50.0,
     "max_c": 51,
     "rise_c_per_min_holding": 1.027,
     "time_to_limit_s": 818,
-    "cool_c_per_min": 1.096
+    "cool_c_per_min": 1.285
    },
    {
     "motor": "shoulder_lift",
@@ -678,17 +678,17 @@
     "max_c": 53,
     "rise_c_per_min_holding": 1.069,
     "time_to_limit_s": 730,
-    "cool_c_per_min": 0.684
+    "cool_c_per_min": 0.729
    },
    {
     "motor": "elbow_flex",
     "idle_c": 46.0,
-    "moving_c": 47.0,
+    "moving_c": 48.0,
     "holding_c": 50.0,
     "max_c": 53,
     "rise_c_per_min_holding": 0.845,
     "time_to_limit_s": 995,
-    "cool_c_per_min": 0.827
+    "cool_c_per_min": 1.002
    },
    {
     "motor": "wrist_flex",
@@ -698,27 +698,27 @@
     "max_c": 53,
     "rise_c_per_min_holding": 0.951,
     "time_to_limit_s": 757,
-    "cool_c_per_min": 0.498
+    "cool_c_per_min": 0.526
    },
    {
     "motor": "wrist_roll",
     "idle_c": 48.0,
-    "moving_c": 49.0,
+    "moving_c": 50.0,
     "holding_c": 52.0,
     "max_c": 53,
     "rise_c_per_min_holding": 0.985,
     "time_to_limit_s": 731,
-    "cool_c_per_min": 0.529
+    "cool_c_per_min": 0.565
    },
    {
     "motor": "gripper",
     "idle_c": 49.0,
-    "moving_c": 51.0,
+    "moving_c": 52.0,
     "holding_c": 54.0,
-    "max_c": 55,
+    "max_c": 56,
     "rise_c_per_min_holding": 1.134,
     "time_to_limit_s": 582,
-    "cool_c_per_min": 0.625
+    "cool_c_per_min": 0.678
    }
   ],
   "series": {
@@ -3944,10 +3944,10 @@
   },
   "hot_events": 0,
   "recommendations": [
-   "gripper is the hottest motor: peak 55 C against a 60 C guard and a 70 C firmware limit. Nothing in the data reached the guard (hot events: 0).",
+   "gripper is the hottest motor: peak 56 C against a 60 C guard and a 70 C firmware limit. Nothing in the data reached the guard (hot events: 0).",
    "With torque on and no motion, gripper warms fastest: 1.13 C/min. Holding is not free; every motor warms with torque on.",
    "Plan for at most 291 s of continuous hold per pass (half of the 582 s the gripper needs from idle to the 60 C guard); then torque off or park.",
-   "Park or torque off between passes: motors fall about 0.65 C/min (median), so 60 C to 50 C takes about 15 min.",
+   "Park or torque off between passes: motors fall about 0.70 C/min (median), so 60 C to 50 C takes about 14 min.",
    "gripper and wrist_flex idle warmest (49 and 48 C against 46 C for elbow_flex): their idle temperature is not a fault, only their rise is.",
    "No guard trips were recorded, so the guard values are untested on this data; keep COOL_TRIP at 60."
   ],
@@ -3986,6 +3986,17 @@
     "moving_median_hottest_c": 49.0
    },
    {
+    "session": "20261018-034137-5acd",
+    "source": "station",
+    "mode": "station",
+    "minutes": 12.8,
+    "moving_minutes": 0.3,
+    "peak_c": 52,
+    "peak_motor": "gripper",
+    "start_c": 51,
+    "moving_median_hottest_c": 51.0
+   },
+   {
     "session": "20261018-000148-a7f0",
     "source": "arm_session",
     "mode": null,
@@ -3997,15 +4008,26 @@
     "moving_median_hottest_c": 53.0
    },
    {
-    "session": "20261018-034137-5acd",
+    "session": "20261018-040946-e7b6",
     "source": "station",
     "mode": "station",
-    "minutes": 7.3,
-    "moving_minutes": 0.3,
-    "peak_c": 52,
+    "minutes": 9.1,
+    "moving_minutes": 2.7,
+    "peak_c": 56,
+    "peak_motor": "gripper",
+    "start_c": 52,
+    "moving_median_hottest_c": 54.0
+   },
+   {
+    "session": "20261018-040006-a0e0",
+    "source": "station",
+    "mode": "station",
+    "minutes": 6.0,
+    "moving_minutes": 2.1,
+    "peak_c": 55,
     "peak_motor": "gripper",
     "start_c": 51,
-    "moving_median_hottest_c": 51.0
+    "moving_median_hottest_c": 54.0
    },
    {
     "session": "20261018-031155-b52b",
@@ -4017,37 +4039,15 @@
     "peak_motor": "gripper",
     "start_c": 49,
     "moving_median_hottest_c": 49.0
-   },
-   {
-    "session": "20261018-002624-1606",
-    "source": "arm_session",
-    "mode": "preview",
-    "minutes": 4.4,
-    "moving_minutes": 0.0,
-    "peak_c": 54,
-    "peak_motor": "gripper",
-    "start_c": 48,
-    "moving_median_hottest_c": null
-   },
-   {
-    "session": "20261018-013235-3fe3",
-    "source": "station",
-    "mode": "station",
-    "minutes": 4.2,
-    "moving_minutes": 0.1,
-    "peak_c": 50,
-    "peak_motor": "gripper",
-    "start_c": 49,
-    "moving_median_hottest_c": 49.0
    }
   ],
   "torque_limit": [
    {
     "torque_limit": 350,
-    "grasps": 115,
-    "median_temp_c": 50.0,
-    "max_temp_c": 52,
-    "median_load": 350.0
+    "grasps": 206,
+    "median_temp_c": 51.0,
+    "max_temp_c": 56,
+    "median_load": 322.0
    }
   ],
   "settings": {
@@ -4115,7 +4115,7 @@
    }
   },
   "max_hold_s": 291,
-  "cool_minutes_guard_to_resume": 15.3,
+  "cool_minutes_guard_to_resume": 14.2,
   "charts": [
    "heat_timeline.png",
    "heat_cooling.png",
