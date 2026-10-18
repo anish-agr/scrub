@@ -44,12 +44,14 @@
     <div><span class="label">Out</span><span class="v" id="out">--</span></div>
   </div>
   <p class="note mono" id="ctlmeta">no data</p>
+  <p class="kicker">Safe zone</p>
+  <p class="note mono" id="safezone">Safe zone: no data</p>
 </section>
 
 <section>
   <p class="kicker">Skill source per item</p>
   <p class="note mono" id="skillmode">no data</p>
-  <table><thead><tr><th>Item</th><th>State source</th><th>Last event source</th></tr></thead><tbody id="skills"></tbody></table>
+  <table><thead><tr><th>Item</th><th>State source</th><th>Last event source</th><th>Method</th><th>Confidence</th><th>Why</th></tr></thead><tbody id="skills"></tbody></table>
 </section>
 
 <section>
@@ -153,7 +155,27 @@ function renderSvc() {
   b.textContent = st !== 'live' ? `CONTROLLER ${st.toUpperCase()}. Values below may be old.` : stopped === 'stopped' ? 'STOPPED' : 'ARM FROZEN (error)';
 }
 
+function renderSafeZone(s) {
+  const z = s && s.safe_zone, zc = s && s.last_zone_check;
+  const num = v => typeof v === 'number' ? (v * 100).toFixed(0) : '?';
+  let t = 'Safe zone: ';
+  if (!s) t += 'no data';
+  else if (!z || !Array.isArray(z.center)) t += 'not taught (press s in python -m arm.teach)';
+  else {
+    t += `taught, center ${num(z.center[0])}, ${num(z.center[1])} cm`;
+    const sz = Array.isArray(z.size) ? ` · size ${num(z.size[0])} x ${num(z.size[1])} cm` : '';
+    const pr = Array.isArray(z.problems) && z.problems.length ? ` · PROBLEMS: ${z.problems.join('; ')}` : '';
+    t += sz + pr;
+  }
+  if (s) {
+    const c = zc && typeof zc === 'object' ? (zc.zone_check ?? zc.result ?? JSON.stringify(zc)) : zc;
+    t += ` · last zone_check ${c ?? 'none yet'}`;
+  }
+  $('safezone').textContent = t;
+}
+
 function renderState(s) {
+  renderSafeZone(s);
   if (!s) { ['step', 'item', 'queue', 'out'].forEach(i => $(i).textContent = '--'); $('ctlmeta').textContent = 'controller down: no data'; return; }
   $('step').textContent = s.step ?? '--';
   $('item').textContent = s.item ?? 'none';
@@ -174,14 +196,18 @@ function renderSkills(s, events) {
     else for (const [k, v] of Object.entries(sk)) if (k !== 'mode' && typeof v === 'string') per[k] = v;
   }
   $('skillmode').textContent = sk ? `mode ${mode ?? 'unknown'}` : 'no data from /state skills (field missing)';
-  const names = [...new Set([...Object.keys(per), ...Object.keys(src)])];
+  const pol0 = (sk && sk.policy && typeof sk.policy === 'object') ? Object.keys(sk.policy) : [];
+  const names = [...new Set([...Object.keys(per), ...Object.keys(src), ...pol0])];
   $('skills').innerHTML = names.length
     ? names.map(n => {
         const v = per[n];   // null: --skills taught and nothing recorded for this item
         const sv = v === null ? 'no taught skill' : typeof v === 'object' ? (v.source ?? JSON.stringify(v)) : v;
-        return `<tr><td>${esc(n)}</td><td>${esc(sv ?? 'no data')}</td><td>${esc(src[n] ?? 'none yet')}</td></tr>`;
+        const pol = (sk && sk.policy && typeof sk.policy === 'object' && sk.policy[n]) || {};
+        const conf = typeof pol.confidence === 'number' ? pol.confidence.toFixed(2) : (pol.confidence ?? '--');
+        return `<tr><td>${esc(n)}</td><td>${esc(sv ?? 'no data')}</td><td>${esc(src[n] ?? 'none yet')}</td>` +
+          `<td>${esc(pol.method ?? '--')}</td><td>${esc(conf)}</td><td>${esc(pol.why ?? '--')}</td></tr>`;
       }).join('')
-    : '<tr><td colspan="3" class="empty">No skill source data yet.</td></tr>';
+    : '<tr><td colspan="6" class="empty">No skill source data yet.</td></tr>';
 }
 
 function tempCls(t) { return t == null ? '' : t >= 60 ? 'bad' : t >= 55 ? 'warn' : 'good'; }

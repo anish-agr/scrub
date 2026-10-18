@@ -10,6 +10,9 @@ LOAD_IDLE = 100.0
 LOAD_PULLED = 400.0
 LOAD_COLLAPSED = 25.0  # "collapse": grip load falls near zero (under the pull delta, so only the collapse check sees it)
 AMBIENT_C = 28.0
+SOURCES = ("model", "taught", "taught_adjusted", "ik")
+# Like arm/rig.json "safe_zone" (meters, arm base frame), placed like the sim's layout safe_spot.
+DEFAULT_SAFE_ZONE = {"center": [0.17, -0.18, 0.0], "size": [0.08, 0.08], "yaw_deg": 0.0}
 
 
 class APIError(RuntimeError):
@@ -41,6 +44,12 @@ class FakeArm:
         # plus {"api_error": 503}: the next prepare() or run_skill() raises APIError with that status
         self.force: dict[str, int] = {}
         self.prepared: list[str] = []  # instructions the last prepare() opened sessions for
+        self.fail_sources: set[str] = set()  # picks by these sources close on nothing (a miss), for tests
+        self.wrist: bytes | None = None      # what wrist_jpeg() returns; a test sets a JPEG
+        self.zone: dict | None = dict(DEFAULT_SAFE_ZONE)  # what safe_zone() returns; None = not taught
+        self.sharp = False                   # sharp_mode on (speed scale grasp.SHARP_SPEED on a real arm)
+        self.sharp_log: list[bool] = []
+        self.last_located: dict | None = None
 
     def _take(self, name: str) -> bool:
         with self._lock:
@@ -96,10 +105,14 @@ class FakeArm:
         self.prepared = list(dict.fromkeys(instructions))
         return self.prepared
 
-    def run_skill(self, instruction: str, max_s: float = 20.0, source: str = "model") -> bool:
-        """source "model" or "taught": the fake plays the same motion either way."""
+    def run_skill(self, instruction: str, max_s: float = 20.0, source: str = "model", located: dict | None = None) -> bool:
+        """source "model", "taught", "taught_adjusted" or "ik": the fake plays the same motion for all,
+        except a pick by a source in fail_sources closes on nothing."""
+        if source not in SOURCES:
+            raise ValueError(f"source must be one of {', '.join(SOURCES)}, got {source!r}")
         self._api_fail()  # opening the session comes before any motion
         self.last_source = source
+        self.last_located = located
         if not self._sleep(1.0):
             return False
         if self._take("hot"):  # like arm/real_arm.py: stops, goes safe, raises
@@ -108,7 +121,7 @@ class FakeArm:
             return False
         if instruction.startswith("pick"):
             # closed on nothing reads fully closed (1.0); a real grasp stops short
-            self._gripper = 1.0 if self._take("miss_grasp") else 0.6
+            self._gripper = 1.0 if self._take("miss_grasp") or source in self.fail_sources else 0.6
             self._holding_since = time.time() if self._gripper < 0.95 else None
             self._no_pull = self._take("no_pull")
             self._no_load = self._take("no_load")
@@ -146,6 +159,25 @@ class FakeArm:
         self._holding_since = None
         self.pose = "safe_spot"
         return True
+
+    def hover_safe_spot(self) -> bool:
+        if not self._sleep(1.0):
+            return False
+        self.pose = "above_safe_spot"
+        return True
+
+    def sharp_mode(self, on: bool) -> None:
+        self.sharp = bool(on)
+        self.sharp_log.append(self.sharp)
+
+    def wrist_jpeg(self) -> bytes | None:
+        return self.wrist
+
+    def safe_zone(self) -> dict | None:
+        return self.zone
+
+    def tip(self) -> None:
+        return None
 
     def open_gripper(self) -> None:
         if not self._sleep(0.3):

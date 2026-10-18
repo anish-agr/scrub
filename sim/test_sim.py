@@ -162,3 +162,64 @@ def test_rig_json_degree_poses_do_not_move_the_sim_home(arm):
     arm.rig = {"home": [2.8, -102.2, 97.7, 72.3, -9.3, 4.8]}  # real-arm degrees, as arm/rig.json
     assert list(arm._pose("home")) == arm.layout["poses"]["home"]
     arm.rig = arm._read_rig()
+
+
+def test_smart_pick_sources_off_slot(arm):
+    """Item 3 cm off its slot: taught misses (closes on nothing), taught_adjusted with the located
+    arm_offset picks it, ik picks it from its actual pose."""
+    from arm import grasp
+    arm.reload()
+    sx, sy = arm.layout["slots"][0]  # hemostat
+    off = {"item": "hemostat", "found": True, "confidence": 0.9, "arm_offset": [0.03, 0.0]}
+    assert arm.set_item_pose("hemostat", sx + 0.03, sy)[0]
+    arm.go_home()
+    assert arm.run_skill("pick the hemostat", source="taught")
+    assert arm.state()["holding"] is None
+    assert grasp.gripper_says(arm.gripper_position(), arm.gripper_load()) == "empty"
+    arm.open_gripper()
+    arm.go_home()
+    assert arm.run_skill("pick the hemostat", source="taught_adjusted", located=off)
+    assert arm.state()["holding"] == "hemostat"
+    assert grasp.gripper_says(arm.gripper_position(), arm.gripper_load()) == "held"
+    assert arm.set_down_safe_spot()
+    arm.reload()
+    assert arm.set_item_pose("hemostat", sx + 0.03, sy)[0]
+    arm.go_home()
+    assert arm.run_skill("pick the hemostat", source="taught_adjusted", located=None) is True
+    assert arm.state()["holding"] is None  # no offset: plays as plain taught
+    arm.open_gripper()
+    arm.go_home()
+    assert arm.run_skill("pick the hemostat", source="ik")
+    assert arm.state()["holding"] == "hemostat"
+    with pytest.raises(ValueError):
+        arm.run_skill("pick the hemostat", source="magic")
+    assert arm.wrist_jpeg() is None
+
+
+def test_safe_zone_default_hover_and_crossing_refusal(arm):
+    arm.reload()
+    zone = arm.safe_zone()
+    assert zone["center"][:2] == arm.layout["safe_spot"] and zone["size"] == [0.08, 0.08]
+    arm.go_home()
+    assert arm.run_skill("pick the scalpel")
+    rig = arm.rig
+    try:
+        tip = arm.tip()
+        # a handoff box between the tip and the zone: the straight path would cross it
+        arm.rig = {**rig, "handoff_region": {"min": [0.0, tip[1] - 0.01, 0.0], "max": [0.4, tip[1] + 0.01, 0.4]}}
+        arm.zone = {"center": [tip[0], tip[1] - 0.2, 0.0], "size": [0.08, 0.08], "yaw_deg": 0.0}
+        arm.rig["handoff_region"]["min"][1] = tip[1] - 0.12
+        arm.rig["handoff_region"]["max"][1] = tip[1] - 0.05
+        assert arm.set_down_safe_spot() is False
+        assert arm.hover_safe_spot() is False
+        assert arm.state()["holding"] == "scalpel"
+    finally:
+        arm.rig, arm.zone = rig, None
+    arm.sharp_mode(True)
+    try:
+        assert arm.hover_safe_spot()
+        assert abs(arm.tip()[0] - zone["center"][0]) < 0.02 and abs(arm.tip()[1] - zone["center"][1]) < 0.02
+        assert arm.set_down_safe_spot()
+    finally:
+        arm.sharp_mode(False)
+    assert arm.state()["holding"] is None

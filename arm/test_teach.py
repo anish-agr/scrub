@@ -33,6 +33,35 @@ class TeachTests(unittest.TestCase):
         self.assertEqual(rig["verified_contract_id"], self.rig["verified_contract_id"])
         self.assertFalse(rig["hardware_verified"])
 
+    def test_safe_spot_saves_zone_from_fk_and_reports_problems(self):
+        self.backend.joints = np.array([0, 0, 0, 0, 0, 100.])
+        self.teacher.zone_size = 0.12
+        self.teacher.pose("safe_spot")
+        rig = json.loads(self.path.read_text())
+        np.testing.assert_allclose(rig["safe_zone"]["center"], self.teacher.kin.forward(np.zeros(5)), atol=1e-4)
+        self.assertEqual(rig["safe_zone"]["size"], [0.12, 0.12])
+        self.assertEqual(rig["safe_zone"]["yaw_deg"], 0.0)
+        # move the handoff box away: no problems; put it 9 cm from the zone: problem text, zone still saved
+        cx, cy = rig["safe_zone"]["center"][:2]
+        for gap, expect in ((0.30, False), (0.09, True)):
+            self.teacher.kin.rig["safe_zone"] = rig["safe_zone"]
+            self.teacher.kin.rig["handoff_region"] = {"min": [cx + gap, cy - 0.1, 0], "max": [cx + gap + 0.2, cy + 0.1, 0.3]}
+            from .teach import _zone_problems
+            self.assertEqual(bool(_zone_problems(self.teacher.kin.rig)), expect)
+        self.assertIn("9 cm from the handoff box", _zone_problems(self.teacher.kin.rig)[0])
+
+    def test_keyboard_s_prints_problem_but_saves(self):
+        self.backend.joints = np.array([0, 0, 0, 0, 0, 100.])
+        cx, cy, _ = self.teacher.kin.forward(np.zeros(5))
+        self.rig["handoff_region"] = {"min": [cx + 0.09, cy - 0.1, 0.0], "max": [cx + 0.3, cy + 0.1, 0.3]}
+        self.path.write_text(json.dumps(self.rig))
+        teacher = Teacher(self.path, self.backend)
+        messages = []
+        keys = iter(["s", "q"])
+        interact(teacher, read=lambda prompt: next(keys), write=messages.append)
+        self.assertIsNotNone(json.loads(self.path.read_text())["safe_zone"])
+        self.assertTrue(any("9 cm from the handoff box" in str(m) for m in messages))
+
     def test_region_corners_saved_as_sorted_fk_box(self):
         self.backend.joints = np.array([0, 0, 0, 0, 0, 100.])
         a = self.teacher.corner("a")

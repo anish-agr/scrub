@@ -101,6 +101,11 @@ GEMINI_MODEL=gemini-3.5-flash-lite
 
 A backend whose key is not set is skipped. With neither key the result is `ok: false`, `error` "no OCR backend (no API key set)"; QR tags still read.
 
+## Smart pick: /locate and /safe_zone
+
+`GET /locate?item=<id>` (`locate.py`) returns where the item really is: `center_px`, `offset_px`/`offset_mm` from its slot, `yaw_deg` vs the slot's long axis, and `arm_xy`/`arm_offset` when `vision/calibration.json` exists. Local OpenCV check on the slot crop first, the tray loop's Perceptron boxes second (live detect only if they are stale), Gemini only when they disagree by more than 15 mm, one says absent, or confidence is under 0.5. Total budget 2.5 s; a miss is `found` false, `method` "none", never a 500. `offset_mm` uses `TRAY_MM` (400 x 300 mm) in `locate.py` unless the setting has `tray_mm`. The tray tag is read in the background and cached for 60 s (`tray`, `setting_ok`).
+`GET /safe_zone` says whether the set-down square is free of a hand and of instruments. Zone pixels come from `arm/rig.json` `safe_zone` through the calibration, or the setting's `safe_zone_px` `[x0, y0, x1, y1]`; with neither, `clear` is null and `method` "none". Tests: `python -m pytest -q vision/test_locate.py`.
+
 ## Detect timing
 
 `docs/RECOGNITION.md` measured `/v1/detect` at 3.8 to 4.7 s on 640x480 trays. A live `--check-api` call on a flat 640x480 frame took 1.6 s on Oct 18. So the detector shrinks any frame wider than 640 px before upload (the 1280x720 camera frame goes up as 640x360) and scales the boxes back to the full frame. Its timeout is 6 s. `GET /tray_check` calls a read stale once it is older than that timeout plus 2 s (8 s). Watch `detect_p50_ms` on `/health`. Override in `.env`:

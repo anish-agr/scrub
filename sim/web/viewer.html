@@ -140,8 +140,14 @@ function buildWorld() {
   const rs = layout.return_spot, sf = layout.safe_spot, hz = layout.hand_zone;
   let d = disc(rs.r, '#46607a', 0.002); d.position.x = rs.x; d.position.y = rs.y; world.add(d);
   let l = label('RETURN', '#46607a'); l.position.set(rs.x, rs.y, 0.04); world.add(l);
-  d = disc(sf.r, '#8c3b2e', 0.002); d.position.x = sf.x; d.position.y = sf.y; world.add(d);
-  l = label('SAFE', '#8c3b2e'); l.position.set(sf.x, sf.y, 0.04); world.add(l);
+  // safe zone: taped square (layout.safe_zone {center,size,yaw_deg} if present, else a 10 cm square at safe_spot), tape-red outline
+  const sz = layout.safe_zone || {}, zc = sz.center || [sf.x, sf.y], zs = sz.size || [0.10, 0.10], zy = (sz.yaw_deg || 0) * Math.PI / 180;
+  const zg = new THREE.Group(); zg.position.set(zc[0], zc[1], 0.002); zg.rotation.z = zy;
+  zg.add(new THREE.Mesh(new THREE.PlaneGeometry(zs[0], zs[1]), new THREE.MeshBasicMaterial({ color: '#8c3b2e', transparent: true, opacity: 0.18, side: THREE.DoubleSide })));
+  const hx = zs[0] / 2, hy = zs[1] / 2;
+  zg.add(new THREE.Line(new THREE.BufferGeometry().setFromPoints([[-hx, -hy], [hx, -hy], [hx, hy], [-hx, hy], [-hx, -hy]].map(q => new THREE.Vector3(q[0], q[1], 0.001))), new THREE.LineBasicMaterial({ color: '#8c3b2e' })));
+  world.add(zg);
+  l = label('SAFE', '#8c3b2e'); l.position.set(zc[0], zc[1], 0.04); world.add(l);
   // hand zone: wireframe sphere at the hand height + floor ring
   const hs = new THREE.Mesh(new THREE.SphereGeometry(hz.r, 16, 10), new THREE.MeshBasicMaterial({ color: '#c4501b', wireframe: true, transparent: true, opacity: 0.55 }));
   hs.position.set(hz.x, hz.y, hz.z); world.add(hs);

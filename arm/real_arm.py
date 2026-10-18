@@ -101,6 +101,7 @@ class Arm:
         self._fault = None       # its ArmFault message
         self._trip = None        # set by playback when the trip stopped a skill or move; raised by the caller
         self.setting = None      # tray setting for taught skills (None: first match)
+        self._speed_scale = 1.0  # grasp.SHARP_SPEED while a sharp is held (sharp_mode)
         # Joint limits in LeRobot degrees: the URDF's, tightened at connect by the calibrated range and
         # wrist_roll +-150. Every skill and move row is clamped to them.
         a, b = self.kin.from_urdf(self.kin.lower), self.kin.from_urdf(self.kin.upper)
@@ -463,9 +464,19 @@ class Arm:
         self.last_reason = "too_hot"
         raise ArmFault(message)
 
-    def _execute(self, rows, hot_ok=False):
+    def _slowed(self, rows, scale):
+        """The same path in 1/scale times as many 30 Hz rows (scale < 1 slows every joint alike)."""
+        if scale >= 1 or len(rows) == 0:
+            return rows
+        with self._lock:
+            path = np.vstack([self._last_sent, rows])
+        t = np.linspace(0, len(path) - 1, math.ceil(len(rows) / scale) + 1)[1:]
+        return np.column_stack([np.interp(t, np.arange(len(path)), path[:, j]) for j in range(path.shape[1])])
+
+    def _execute(self, rows, hot_ok=False, scale=None):
         if not self._ready(hot_ok):
             return False
+        rows = self._slowed(np.asarray(rows, dtype=float), self._speed_scale if scale is None else scale)
         rows = np.array([self._clamp(r) for r in rows])
         with self._lock:
             self._done.clear()
@@ -498,11 +509,11 @@ class Arm:
             raise ValueError("Saved poses need six joint values (LeRobot degrees, gripper 0-100)")
         return self._clamp(goal)  # the folded home sits a little past the URDF limits; it settles there unpowered
 
-    def _pose(self, name, hot_ok=False):
+    def _pose(self, name, hot_ok=False, scale=None):
         goal = self._pose_goal(name)
         start = self._commanded_start()
         goal[5] = start[5]  # moving to a saved pose must never release a held tool
-        return self._execute(self.kin.trajectory(start, goal), hot_ok)
+        return self._execute(self.kin.trajectory(start, goal), hot_ok, scale)
 
     def go_home(self):
         with self._operation:  # allowed while cooling down: home is where it cools
@@ -539,13 +550,80 @@ class Arm:
                 raise RuntimeError("Carry motion stopped")
 
     def set_down_safe_spot(self):
+        from . import grasp
         with self._operation:
             # Match the fake-arm contract: the controller emits set_down after
             # this call, without an extra open_gripper. Release only on arrival.
             # Allowed while cooling down: setting a sharp down is the safe thing to do with it.
-            if not self._ready(hot_ok=True) or not self._pose("safe_spot", hot_ok=True):
+            if not self._ready(hot_ok=True) or self._zone_path_blocked():
+                return False
+            if not self._pose("safe_spot", hot_ok=True, scale=min(self._speed_scale, grasp.SHARP_SPEED)):
                 return False
             return self._open_gripper()
+
+    def _zone_path_blocked(self):
+        """True when the straight path from the tip to the safe zone center enters the handoff box."""
+        from . import grasp
+        zone, tip = self.rig.get("safe_zone"), self.tip()
+        if not zone or tip is None:
+            return False
+        lo, hi = (np.asarray(self.rig["handoff_region"][k], dtype=float) for k in ("min", "max"))
+        if grasp.path_enters_box(tip, zone["center"], lo, hi):
+            self.last_reason = "safe_zone_path_crosses_handoff"
+            return True
+        return False
+
+    def sharp_mode(self, on):
+        """Slow every planned move (taught, ik, poses, move_to) to grasp.SHARP_SPEED while a sharp is held."""
+        from . import grasp
+        self._speed_scale = grasp.SHARP_SPEED if on else 1.0
+
+    def hover_safe_spot(self):
+        """Go 8 cm above the safe zone center (or the safe_spot pose's tip) and hold, at sharp speed."""
+        from . import grasp
+        with self._operation:
+            if not self._ready(hot_ok=True) or self._zone_path_blocked():
+                return False
+            zone = self.rig.get("safe_zone")
+            if zone:
+                above = np.asarray(zone["center"], dtype=float) + (0, 0, .08)
+            elif self.rig.get("safe_spot") is not None:
+                above = self.kin.forward(self._pose_goal("safe_spot")[:5]) + (0, 0, .08)
+            else:
+                return False
+            start = self._commanded_start()
+            goal = self.kin.inverse(above, start[:5], require_region=False)
+            if goal is None:
+                self.last_reason = "safe_zone_unreachable"
+                return False
+            rows = self.kin.trajectory(start, self._clamp(np.r_[goal, start[5]]), .3)
+            return self._execute(rows, hot_ok=True, scale=min(self._speed_scale, grasp.SHARP_SPEED))
+
+    def safe_zone(self):
+        return self.rig.get("safe_zone")
+
+    def tip(self):
+        """Gripper tip [x, y, z] in the arm base frame (FK of the clamped joints), or None."""
+        try:
+            return [float(v) for v in self.kin.forward(self._clamp(self.joints())[:5])]
+        except (RuntimeError, ValueError):
+            return None
+
+    def wrist_jpeg(self):
+        """The latest wrist camera frame as JPEG bytes, or None (no camera, no frame, no OpenCV)."""
+        try:
+            import cv2
+            raw = (self._backend.capture() or {}).get("wrist")
+            if raw is None:
+                return None
+            if isinstance(raw, (bytes, bytearray)):  # backends hand PNG bytes
+                img = cv2.imdecode(np.frombuffer(raw, np.uint8), cv2.IMREAD_COLOR)
+            else:
+                img = cv2.cvtColor(np.asarray(raw, dtype=np.uint8), cv2.COLOR_RGB2BGR)
+            ok, buf = cv2.imencode(".jpg", img)
+            return buf.tobytes() if ok else None
+        except Exception:  # noqa: BLE001 - a missing frame is an answer: the controller skips the wrist check
+            return None
 
     def _open_gripper(self):
         if not self._ready(hot_ok=True):
@@ -620,32 +698,37 @@ class Arm:
 
         return goto, set_gripper, stopped
 
-    def _run_taught(self, instruction, max_s):
-        from . import taught
+    def _run_taught(self, instruction, max_s, source="taught", located=None):
+        from . import grasp, taught
         parsed = taught.parse_instruction(instruction)
         if parsed is None:
             raise ValueError(f"Not a pick or return instruction: {instruction!r}")
-        skill = taught.load(*parsed, setting=self.setting)
-        if skill is None:
+        skill = None if source == "ik" else taught.load(*parsed, setting=self.setting)
+        if skill is None and source != "ik":
             raise RuntimeError(f"No taught skill for {parsed[0]} {parsed[1]}: teach it with python -m arm.teach")
         with self._operation:
             if not self._ready():
                 return False
             deadline = time.perf_counter() + max_s
             goto, set_gripper, stopped = self.taught_controls(deadline)
-            ok = bool(taught.play(skill, goto=goto, set_gripper=set_gripper, stopped=stopped))
+            if source == "taught":
+                ok = bool(taught.play(skill, goto=goto, set_gripper=set_gripper, stopped=stopped))
+            else:  # taught_adjusted / ik: same controls, so the same playback, clamp, claw guard, trip, stop
+                ok = grasp.run(source, instruction, located, controls=(goto, set_gripper, stopped), kin=self.kin,
+                               rig=self.rig, setting=self.setting, seed=self._commanded_start()[:5])
             ok = ok and not self._frozen.is_set()
             self.last_reason = ("taught_done" if ok else "frozen" if self._frozen.is_set()
                                 else "max_s" if time.perf_counter() >= deadline else "taught_stopped")
             return ok
 
-    def run_skill(self, instruction, max_s=20.0, source="model"):
+    def run_skill(self, instruction, max_s=20.0, source="model", located=None):
+        """source: "model" (the deployment), "taught", "taught_adjusted" or "ik" (arm.grasp, using located)."""
         if not instruction or not math.isfinite(max_s) or max_s <= 0:
             raise ValueError("Need an instruction and positive finite max_s")
-        if source == "taught":
-            return self._run_taught(instruction, max_s)
+        if source in ("taught", "taught_adjusted", "ik"):
+            return self._run_taught(instruction, max_s, source, located)
         if source != "model":
-            raise ValueError(f"source must be model or taught, got {source!r}")
+            raise ValueError(f"source must be model, taught, taught_adjusted or ik, got {source!r}")
         with self._operation:
             if not self._ready():
                 return False

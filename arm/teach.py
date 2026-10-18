@@ -64,8 +64,34 @@ class FakeTeachBackend:
         self.connected = False
 
 
+def _zone_problems(rig):
+    """Same rule as arm.grasp.safe_zone_problems: center >= 0.15 m (xy) from the handoff box, no xy overlap."""
+    zone, box = rig.get("safe_zone"), rig.get("handoff_region")
+    if not zone or not box:
+        return []
+    (cx, cy), (sx, sy) = zone["center"][:2], zone["size"]
+    lo, hi = box["min"], box["max"]
+    dx, dy = max(lo[0] - cx, 0, cx - hi[0]), max(lo[1] - cy, 0, cy - hi[1])
+    dist = (dx * dx + dy * dy) ** 0.5
+    problems = []
+    if dist < 0.15:
+        problems.append(f"Safe spot is {dist * 100:.0f} cm from the handoff box; "
+                        "move it at least 15 cm away and press s again")
+    if abs(cx - (lo[0] + hi[0]) / 2) < (sx + hi[0] - lo[0]) / 2 and abs(cy - (lo[1] + hi[1]) / 2) < (sy + hi[1] - lo[1]) / 2:
+        problems.append("Safe zone overlaps the handoff box; move it clear and press s again")
+    return problems
+
+
+try:
+    from .grasp import safe_zone_problems as _zone_problems  # noqa: F811  (shared rule, once arm/grasp.py exists)
+except ImportError:
+    pass
+
+
 class Teacher:
-    def __init__(self, rig_path, backend):
+    def __init__(self, rig_path, backend, zone_size=0.10):
+        self.zone_size = float(zone_size)
+        self.zone_problems = []
         self.path = Path(rig_path)
         self.kin = Kinematics(self.path)
         self.backend = backend
@@ -100,7 +126,14 @@ class Teacher:
         if name not in {"home", "carry", "safe_spot"}:
             raise ValueError("Unknown pose")
         row = self.sample()
-        self.save({name: row.tolist()})
+        update = {name: row.tolist()}
+        if name == "safe_spot":
+            tip = self.kin.forward(row[:5])
+            update["safe_zone"] = {"center": [round(float(v), 4) for v in tip],
+                                   "size": [self.zone_size, self.zone_size], "yaw_deg": 0.0}
+        self.save(update)
+        if name == "safe_spot":
+            self.zone_problems = list(_zone_problems(self.kin.rig))
         return row.tolist()
 
     def corner(self, name):
@@ -119,7 +152,7 @@ class Teacher:
 
 def interact(teacher, *, read=input, write=print):
     write("Support the EMPTY arm throughout. Torque stays OFF, including on exit.")
-    write("Move by hand, then type: h home, c carry, s safe-spot, a/b opposite handoff corners, p read, q quit.")
+    write("Move by hand, then type: h home, c carry, s safe-spot (also saves the safe zone square, checked against the handoff box), a/b opposite handoff corners, p read, q quit.")
     write("Corner XYZ comes from FK: verify joint signs/offsets and base transform against physical measurements first.")
     while True:
         try:
@@ -132,6 +165,10 @@ def interact(teacher, *, read=input, write=print):
             if key in {"h", "c", "s"}:
                 name = {"h": "home", "c": "carry", "s": "safe_spot"}[key]
                 write({"saved": name, "joints": teacher.pose(name)})
+                if name == "safe_spot":
+                    write({"safe_zone": teacher.kin.rig["safe_zone"]})
+                    for problem in teacher.zone_problems:
+                        write(f"Safe zone problem: {problem}")
             elif key in {"a", "b"}:
                 write({"corner": key, "xyz": teacher.corner(key), "region_saved": len(teacher.corners) == 2})
             elif key == "p":
@@ -268,7 +305,10 @@ def main(argv=None):
     parser.add_argument("--supported-and-empty", action="store_true")
     parser.add_argument("--dry-run", action="store_true")
     parser.add_argument("--joints", nargs=6, type=float)
+    parser.add_argument("--zone-size", type=float, default=0.10, help="safe zone square side in meters (default 0.10)")
     args = parser.parse_args(argv)
+    if not 0.02 <= args.zone_size <= 0.5:
+        parser.error("--zone-size must be between 0.02 and 0.5 m")
     if args.dry_run and args.rig.resolve() == DEFAULT_RIG.resolve():
         parser.error("Dry-run must use --rig pointing to a separate test copy")
     if not args.dry_run and (not args.port or not args.supported_and_empty):
@@ -277,7 +317,7 @@ def main(argv=None):
         parser.error("--joints is only for dry-run")
     teacher_backend = FakeTeachBackend(args.joints) if args.dry_run else TeachBackend(args.port, args.robot_id)
     # All metadata errors are caught before changing motor state.
-    teacher = Teacher(args.rig, teacher_backend)
+    teacher = Teacher(args.rig, teacher_backend, args.zone_size)
     try:
         teacher_backend.connect()
         interact(teacher)
