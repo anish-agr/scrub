@@ -34,18 +34,19 @@ import numpy as np
 HERE = Path(__file__).resolve().parent
 ROOT = HERE.parents[1]
 JOINTS = ["shoulder_pan", "shoulder_lift", "elbow_flex", "wrist_flex", "wrist_roll"]
-MAX_DEG_S = 30.0          # PEAK joint speed of each move (minimum-jerk peaks at 1.875x its average)
+MAX_DEG_S = 45.0          # PEAK joint speed of each move (minimum-jerk peaks at 1.875x its average)
 MJ_PEAK = 1.875
 WARM_C, WARM_SLOW = 52, 1.6   # above this, every move takes 1.6x longer
 JAW_OPEN, JAW_CLOSE = 35.0, 2.0   # the gripper guard stops the close at the handle and holds gently
 HANDOFF_HOLD_S = 3.0      # pause at the handoff spot so someone can see / take it
-OFFER_XYZ = (0.20, 0.10, 0.22)  # where it holds the handle up for a hand (m, arm frame: +y = camera left)
+OFFER_XYZ = (0.20, -0.10, 0.22)  # where it holds the handle up for a hand (m, arm frame: -y = camera right)
 OFFER_TIMEOUT_S = 45.0    # nobody took it: go home holding it, motors off (holding still heats the servos)
 GRAB_LOAD = 35            # gripper |load| change (or 4x the baseline noise) that means a hand took hold
 GRAB_JAW = 1.2            # ... or the jaw moving this much while we hold it still
 GRAB_SUSTAIN_S = 0.15
-AFTER_GRAB_S = 3.0        # keep holding this long after the grab, then let go
-RELEASE_S = 1.5           # jaw open this long for the hand to take it
+AFTER_GRAB_S = 0.3        # the hand has it: let go almost at once
+RELEASE_S = 0.8           # jaw open this long for the hand to take it
+OPEN_S = 0.4              # how long the jaw takes to open on release
 SQUEEZE = 1.5             # once the jaw stalls on the handle, hold this far past the contact point
 EMPTY_JAW = 8.0           # a jaw that stops at or below this closed on nothing (empty reads 4.5-6.5, the handle 9-11)
 MIN_MOVE_S = 0.8
@@ -193,8 +194,13 @@ def _centre(b):
 def gemini_vote(bgr, label="scalpel handle", agree_px=20.0, tries=3):
     """Ask Gemini until two answers agree (centres within agree_px); a one-off wrong box (it once boxed
     the scissors) is outvoted. None if no two agree."""
-    boxes = []
-    for _ in range(tries):
+    from concurrent.futures import ThreadPoolExecutor
+    with ThreadPoolExecutor(2) as ex:  # the first two at once: ~2 s instead of ~4
+        first = [b for b in ex.map(lambda _: gemini_box(bgr, label), range(2)) if b is not None]
+    if len(first) == 2 and math.dist(_centre(first[0]), _centre(first[1])) <= agree_px:
+        return [(first[0][i] + first[1][i]) / 2 for i in range(4)]
+    boxes = list(first)
+    for _ in range(tries - 2):
         b = gemini_box(bgr, label)
         if b is None:
             continue
@@ -404,7 +410,7 @@ class AutoPick:
                 if now - self.h_since >= GRAB_SUSTAIN_S:
                     self.found = {**(self.found or {}), "grab": {"jaw": jaw, "jaw_base": jb, "load": load, "load_base": l0}}
                     self._set(st, "grabbed", now, f"hand detected (jaw {jb:.1f}->{jaw:.1f}, load {l0}->{load}); "
-                                                  f"letting go in {AFTER_GRAB_S:.0f} s")
+                                                  "letting go")
             else:
                 self.h_since = None
             if el > OFFER_TIMEOUT_S:  # nobody came: home holding it, motors off
@@ -425,13 +431,13 @@ class AutoPick:
             return self._hold_action(pose)
         if self.hand == "release":
             g0 = self.grip_hold if self.grip_hold is not None else JAW_CLOSE
-            pose["gripper"] = g0 + (JAW_OPEN - g0) * min_jerk(el / 0.8)
-            if el >= 0.8 + RELEASE_S:
+            pose["gripper"] = g0 + (JAW_OPEN - g0) * min_jerk(el / OPEN_S)
+            if el >= OPEN_S + RELEASE_S:
                 self._jaw_hist.clear()
                 self._set(st, "check", now, "checking the jaw is empty")
             return self._hold_action(pose)
         if self.hand == "check":
-            cmd = JAW_OPEN + (JAW_CLOSE - JAW_OPEN) * min_jerk(el / 1.2)
+            cmd = JAW_OPEN + (JAW_CLOSE - JAW_OPEN) * min_jerk(el / 0.8)
             pose["gripper"] = cmd
             if jaw is not None and jaw <= EMPTY_JAW + 1.0:  # closed on nothing: it's gone
                 home = {m: float(self.cal["home_deg"][m]) for m in JOINTS}
@@ -448,7 +454,7 @@ class AutoPick:
                 self._jaw_hist.append((now, jaw))
             recent = [g for t, g in self._jaw_hist if now - t <= 0.4]
             stalled = len(recent) >= 6 and max(recent) - min(recent) < 0.6
-            if el > 1.4 and stalled and jaw > EMPTY_JAW + 1.0:  # something stopped the jaw: still there
+            if el > 1.0 and stalled and jaw > EMPTY_JAW + 1.0:  # something stopped the jaw: still there
                 self.grip_hold = max(0.0, jaw - SQUEEZE)
                 self._offer_start(st, now, {**self.offer_pose, "gripper": self.grip_hold})
             return self._hold_action(pose)
