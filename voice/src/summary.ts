@@ -151,9 +151,9 @@ export async function closeCase(write: () => Promise<string> = writeSummary): Pr
   return text;
 }
 
-// "Case replay: <SCRUB_PUBLIC_URL>/?case=<case_id>", or null with no public URL or no case_id.
+// "Case replay: <SCRUB_PUBLIC_URL>/case.html?id=<case_id> (the ledger public page)", or null with no public URL or no case_id.
 export const caseLink = (id: string | null | undefined, base = PUBLIC_URL): string | null =>
-  base && id ? `Case replay: ${base.replace(/\/+$/, "")}/?case=${encodeURIComponent(id)}` : null;
+  base && id ? `Case replay: ${base.replace(/\/+$/, "")}/case.html?id=${encodeURIComponent(id)}` : null;
 
 // closeCase for a "summary" text: the case link (if any) on its own line after the summary.
 export async function closeCaseWithLink(write: () => Promise<string> = writeSummary, base = PUBLIC_URL): Promise<string> {
