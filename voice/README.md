@@ -1,6 +1,6 @@
 # voice
 
-Owner: Caiden. Tasks C3, C4, C7 in `docs/TASKS.md`.
+Owner: Caiden. Tasks C3, C4, C7 in `team/LEFT.md`.
 
 TypeScript on Node 20, port 3000. Code in `src/` (`server.ts` is the entry), `scripts/say.ts` (one fake caller turn), `scripts/test.ts` (`npm test`). Photon number, then the ElevenLabs agent over SIP (photon.codes/docs/beta/cookbooks/voice/elevenlabs), then what it hears comes here. "stop" goes straight to `POST /stop`. Everything else goes to Gemini (structured output: one action, one item id from the current setting), then `POST /command`. Speaks the `say` line of each event from `WS /events`. Texts the end-of-case summary on Photon.
 
@@ -52,38 +52,44 @@ Case link: with `SCRUB_PUBLIC_URL` set (non-secret, `.env` or shell, the ledger 
 
 ## Tunnel
 
-ElevenLabs has to reach port 3000 from the internet. Every tunnel below gives a new URL each start (except ngrok's free static domain), and **the ElevenLabs Custom LLM Server URL must be updated to match every time**.
+ElevenLabs has to reach port 3000 from the internet. Every tunnel below gives a new URL each start (except ngrok's free static domain), so the agent's Custom LLM URL must follow it: `npm run agent -- <url>` does that, and `run_all --real` runs it on every new URL.
 
 - `npm run tunnel`: Pinggy over SSH on port 443, no account. Works on the venue Wi-Fi (Oct 17). Prints `https://<x>.run.pinggy-free.link`. Free tunnels end after 60 min: run it again and paste the new URL.
-- `npm run tunnel:cf`: cloudflared quick tunnel (`voice/.bin/cloudflared`, gitignored; `--protocol http2`). Needs outbound port 7844, which the venue Wi-Fi blocks (UDP and TCP: "dial tcp ...:7844: i/o timeout"). Use it on a phone hotspot.
-- `npm run tunnel:ngrok`: needs a free ngrok account once: `ngrok config add-authtoken <token>` (a human, from dashboard.ngrok.com). Claim the free static domain there and run `ngrok http --url=<name>.ngrok-free.app 3000` so the URL never changes.
+- `npm run tunnel:cf`: cloudflared quick tunnel (`voice/.bin/cloudflared`, gitignored; `--protocol http2`). Needs outbound port 7844: blocked on the venue Wi-Fi Oct 17, open Oct 18 at 1:30 AM (`nc -vz region1.v2.argotunnel.com 7844`). No 60 min limit. Get the binary: `curl -sL https://github.com/cloudflare/cloudflared/releases/latest/download/cloudflared-darwin-arm64.tgz | tar xz -C voice/.bin` (brew needs the Xcode license). The default for `run_all --real` when the binary is there.
+- `npm run tunnel:ngrok`: no authtoken on this Mac (Oct 18). Needs a free ngrok account once: `ngrok config add-authtoken <token>` (a human, from dashboard.ngrok.com). Claim the free static domain there and run `ngrok http --url=<name>.ngrok-free.app 3000` so the URL never changes.
 
 Measured Oct 17, fake-arm controller, alias match (no Gemini): request to first streamed byte about 20 ms locally, 0.5 to 0.75 s through Pinggy on a fresh connection (about 0.27 s of that is the TLS handshake). The spoken line follows 0 to 60 ms later; "stop" is the fastest path (no setting fetch, no Gemini). Gemini adds up to the 1.5 s timeout.
 
-## Call setup (Caiden)
+## Call setup
 
-Only a human can do these. Order: Photon, ElevenLabs agent, import the number, then run.
+Status Oct 18, 2 AM. Done in code: the ElevenLabs agent `Scrub` exists (`ELEVENLABS_AGENT_ID` in `.env`), Custom LLM, Chat Completions, model `scrub`, its API key the workspace secret `scrub_voice_llm` (= `VOICE_LLM_SECRET`, made by the script). Photon: voice platform on, inbound SIP route `sips:sip.rtc.elevenlabs.io:5061` (TLS, no credentials). Missing: a Photon line. The project is on the shared iMessage plan: no project-wide number (a dedicated line is Business plan only); each user gets a line from Photon's pool. So the line comes from adding the caller's phone as a user.
 
-1. **Run** (three terminals, repo root):
-   1. `.venv/bin/python -m controller --fake-arm` (port 8000; add `--pull-s 0` so "got it" is what releases).
-   2. `cd voice && npm run dev`. Expect `[events] connected ws://localhost:8000/events`.
-   3. `cd voice && npm run tunnel`. Copy the `https://...` URL. Check: `curl https://<tunnel>/health` shows `"controller":true`.
-2. **ElevenLabs agent** (elevenlabs.io, Agents): Create agent, Blank.
-   - First message: `Scrub here. What do you need?`
-   - System prompt: `You are Scrub, a robot arm that passes surgical instruments. Caller: {{system__caller_id}}`
-   - LLM: **Custom LLM**. API type **Chat Completions** (not Responses). Server URL: `https://<tunnel>/v1` (we accept `/v1` or the full `/v1/chat/completions`). Model ID: `scrub`. API key: only if you set `VOICE_LLM_SECRET`: Create new secret, name `OPENAI_API_KEY`, value the same string.
-   - Advanced: Interruptions on (so "stop" cuts Scrub off). Turn eagerness: Eager. Soft timeout: off. Take turn after silence: 30 s.
-   - Voice/ASR: add keywords `kelly, hemostat, scalpel, mayo, scissors, knife`.
-   - Test in **Preview** (say "grab me the kelly", watch `[heard]` in terminal 2), then **Publish**.
-3. **Photon** (app.photon.codes): your project, **Voice**. Under **Lines** find the number. **Set up default**, **SIP**, **Create profile** (or open the profile the number already uses). Media encryption: **Auto**. Under **Inbound calls**, **Enable inbound**: SIP address `sips:sip.rtc.elevenlabs.io:5061`, Transport **TLS**, no inbound SIP credentials. Outbound is not needed for answering calls; to also let Scrub call out: **Outbound calls**, Digest algorithm **SHA-256**, **Enable outbound**, save the password (shown once), note the **SIP connection** server and port (e.g. `sip.photon.codes:5061`) and **Username**.
-4. **Import the number** (ElevenLabs, Deploy, Phone Numbers, Import number, **From SIP Trunk**):
-   - Label `Scrub Photon`. Phone number: the Photon number with `+` and country code.
-   - Inbound: Media Encryption **Allowed**, Allowed Numbers empty, Allowed Source IP Addresses `0.0.0.0/0`, Remote Domains empty, SIP Trunk Username and Password empty.
-   - Outbound (only if enabled in Photon): Address `sip.photon.codes:5061` (no `sip:` prefix; use the server shown in Photon), Transport **TLS**, Media Encryption **Allowed**, codecs G.722, PCMU, PCMA, no custom headers, SIP Trunk Username and Password from Photon.
-   - Import. On the number's page, **Agent**: the Scrub agent. **Branch**: Follow traffic split.
-5. **Call** the Photon number from a phone. Scrub says "Scrub here. What do you need?"
+Scripts (all from `voice/`, keys only from `.env`, never printed):
 
-| Say | Terminal 2 shows | Scrub says |
+| Command | Does |
+| --- | --- |
+| `npm run agent -- https://<tunnel>` | creates the agent (no `ELEVENLABS_AGENT_ID`) or points it at this tunnel (`<tunnel>/v1`); makes `VOICE_LLM_SECRET` if empty and stores it as the workspace secret |
+| `npm run agent -- status` | agent, its LLM URL, the phone numbers |
+| `npm run agent -- import +1...` | imports a number as a SIP trunk number (inbound from anywhere; outbound `sip.spectrum.photon.codes:5061` TLS with the Spectrum project id and secret) and assigns the agent |
+| `npm run agent -- test "hemostat"` | ElevenLabs simulated call. Oct 18 it reached our server (`[heard] hemostat`, the sim arm moved) but the API answered HTTP 500 (the endpoint is deprecated); judge by the voice log |
+| `npm run photon -- status` | plan, lines, users, voice platform, inbound route |
+| `npm run photon -- route` | voice platform on, inbound route to ElevenLabs (done) |
+| `npm run photon -- setup +1...` | the route, then that phone as a Photon user: prints `LINE +1...` (the number to call and text), writes `PHOTON_LINE` (and `PHOTON_SUMMARY_TO` if empty) to `.env`, imports the line into ElevenLabs with the agent |
+
+`python -m controller.run_all --real` starts the tunnel, runs `npm run agent -- <url>` on every new tunnel URL, and prints `phone (call it)` from `PHOTON_LINE`. Without `run_all`: `npm run dev`, `npm run tunnel:cf`, then `npm run agent -- <the trycloudflare URL>`.
+
+### Anish: the steps left
+
+1. On the arm Mac, repo root: `cd voice && npm run photon -- setup +1<your mobile number>`. You should see `[photon] user +1XXX***XXXX -> line +1...`, `LINE +1...`, `[env] wrote PHOTON_LINE in .env`, `[agent] imported +1... and assigned the agent`, `PHONE +1...`. That `+1...` line is Scrub's number.
+   - If the import line says HTTP 4xx instead: elevenlabs.io, Agents, Deploy, **Phone Numbers**, **Import number**, **From SIP Trunk**. Label `Scrub Photon`, Phone number the `LINE` number. Inbound: Media Encryption **Allowed**, Allowed Numbers empty, Allowed Source IP Addresses `0.0.0.0/0`, Remote Domains empty, username and password empty. Outbound: Address `sip.spectrum.photon.codes:5061`, Transport **TLS**, Media Encryption **Allowed**, codecs G.722, PCMU, PCMA, username = Spectrum project id, password = Spectrum project secret (both in `.env`, or skip outbound). **Import**. On the number's page, **Agent**: `Scrub`. You should see Provider: SIP Trunk, Agent: Scrub.
+2. Start the stack: `.venv/bin/python -m controller.run_all --real` (sim arm if the arm is busy; the table says so). In the table: `public tunnel https://....trycloudflare.com`, `[agent] updated: Custom LLM https://.../v1`, `phone (call it) +1...`.
+3. From the phone you registered, call that number. Scrub says "Scrub here. What do you need?" Say "hemostat": the log shows `[heard] hemostat`, `[command] handover hemostat`, the arm (or sim viewer) moves, Scrub says "Hemostat coming."
+4. Say "end of case". Scrub says "Closing the case." and the summary arrives as an iMessage from the same number (log: `[photon] texted +1...`).
+5. If the phone doesn't ring through to Scrub (busy tone, or it rings out): app.photon.codes, project **Dubhacks**, **Voice**. Under **Lines** pick the line from step 1; **Set up default**, **SIP** (or open its profile). **Inbound calls**: **Enable inbound**, SIP address `sips:sip.rtc.elevenlabs.io:5061`, Transport **TLS**, no inbound credentials, save. You should see that address and TLS still shown after saving. Then ElevenLabs, the number's page, **SIP Messages**, shows whether the INVITE arrived. Connected but silent: the log has no `[heard]` (stale tunnel URL: rerun `npm run agent -- <url>`) or `[server] 401` (secret mismatch: rerun `npm run agent -- <url>`, it re-stores the secret).
+
+Shared-line caveat: Photon's shared lines route by the calling user, so call from the phone number given to `setup`. Texts are iMessage: the summary reaches an iPhone; another phone gets nothing.
+
+| Say | voice log shows | Scrub says |
 | --- | --- | --- |
 | "grab me the kelly" | `[heard] grab me the kelly`, `[command] handover hemostat` | "Hemostat coming." |
 | "got it" | `[command] got_it` | nothing (released) |

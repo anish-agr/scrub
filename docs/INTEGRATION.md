@@ -14,9 +14,9 @@ Run Oct 18, 1:00 AM on the arm Mac. The arm and cameras were not touched (the re
 | Gemini: tray check from an image | Names items in a tray photo | `explore/recognition/bench.py` `run_gemini` only | `python -m explore.recognition.bench` | PASS in the bench (check_tray found 1.0, accuracy 0.5 on 2 cases). Not in the live path: `controller/traycheck.py` uses vision detect, not Gemini |
 | Gemini: doctor | Plain-language fix list | `controller/doctor.py` `ask_gemini` | `python -m controller.doctor` | PASS. Printed the "what to do" lines |
 | ElevenLabs: key and speech | Arm speaks in the room | `explore/arm_voice.py` `_audio` | `python -c "from explore import arm_voice as v; print(v._audio('check'))"` | PASS. 22 KB mp3 returned |
-| ElevenLabs: voice agent on the call | Phone voice, Custom LLM to `voice/` | `voice/src/server.ts` `/v1/chat/completions` | `python -m deploy`; `curl <tunnel>/health` | FAIL. missing key `ELEVENLABS_AGENT_ID`, Caiden adds it (steps in `docs/ACCOUNTS-TODO.md`). No tunnel URL recorded either |
-| Photon: texts | End-of-case summary, inbound texts | `voice/src/summary.ts` `getPhoton`, `voice/src/texts.ts` | `cd voice && npm test`; `curl :3000/health` (`keys.photon`) | PARTIAL, counted FAIL. Keys load (`SPECTRUM_PROJECT_ID`, `SPECTRUM_PROJECT_SECRET`) and the mocked send passes. No real text sent: the iMessage line number was never found. Caiden asks Photon for it |
-| Photon: phone number and call | SIP inbound into ElevenLabs | `voice/README.md` Call setup | none possible yet | FAIL. No line, no SIP registration, no agent id. `deploy` Photon probe returns HTTP 403 (it sends the Spectrum secret to a REST path; treat the probe as unreliable, not the keys) |
+| ElevenLabs: voice agent on the call | Phone voice, Custom LLM to `voice/` | `voice/scripts/agent.ts`, `voice/src/server.ts` `/v1/chat/completions` | `cd voice && npm run agent -- status`; `npm run agent -- test "hemostat"` | PASS (Oct 18, 1:50 AM). Agent `Scrub` created by API, `ELEVENLABS_AGENT_ID` set, Custom LLM = cloudflared tunnel `/v1` with secret `scrub_voice_llm`. ElevenLabs' simulated call reached our server through the tunnel (`[heard] hemostat`, `[command] handover hemostat`, sim arm moved); the simulate API itself returned HTTP 500 (deprecated endpoint). No real phone call yet |
+| Photon: texts | End-of-case summary, inbound texts | `voice/src/summary.ts` `getPhoton`, `voice/src/texts.ts` | `cd voice && npm test`; `curl :3000/health` (`keys.photon`) | PARTIAL, counted FAIL. Keys work (Spectrum API HTTP 200; voice logs `[texts] listening on the Photon line`). No real text: the project is on the shared iMessage plan with 0 users, so there is no line and no recipient until `npm run photon -- setup +1...` (Anish) |
+| Photon: phone number and call | SIP inbound into ElevenLabs | `voice/scripts/photon.ts`, `voice/README.md` Call setup | `cd voice && npm run photon -- status` | PARTIAL, counted FAIL. Done by API: voice platform on, inbound route `sips:sip.rtc.elevenlabs.io:5061`. No line yet: shared plan, a line is assigned per user (dedicated lines are Business plan). Left: `npm run photon -- setup +1<Anish's phone>`, then call |
 | MongoDB Atlas: ledger | Every event, success tables | `ledger/logbook.py`, `controller/core.py` | `python -m deploy`; `python -m controller.run_all check` | PASS. ping ok, 33,814 event docs in `scrub.events`; check wrote 12 lines for a fake handover |
 | MongoDB Atlas: thermal | Arm temperatures | `explore/thermal_log.py` `_insert` | pymongo count on `scrub.thermal` | PASS. 2,148 docs |
 | Vultr | Public judge page | `deploy/setup_public.sh`, `ledger/serve.py` | `curl http://144.202.95.111/api/stats`; `python -m deploy` (Vultr row) | PASS. HTTP 200, live Atlas numbers. HTTP only |
@@ -31,6 +31,11 @@ Run Oct 18, 1:00 AM on the arm Mac. The arm and cameras were not touched (the re
 
 Also seen: voice on :3000 stopped answering during this run (not stopped by these commands). Restart with `cd voice && npm run dev` or `run_all`.
 
+## Phone call
+
+Path: phone -> Photon line (shared iMessage line, SIP) -> `sips:sip.rtc.elevenlabs.io:5061` -> ElevenLabs agent `Scrub` -> Custom LLM `https://<tunnel>/v1/chat/completions` (Bearer `VOICE_LLM_SECRET`) -> Gemini or the alias match -> controller -> arm -> `say` lines streamed back and spoken. "end of case" texts the summary on the same Photon thread. `python -m controller.run_all --real` starts the tunnel, re-points the agent at each new URL, prints `phone (call it)`, and runs the sim arm when the real one is busy. Proven Oct 18 through a cloudflared tunnel: `/health` 200, a Custom LLM turn with no key 401, "hemostat" moved the sim arm (`run_all --real --offline --base-port 8440`, `SO101_PORT` empty so the sim), ElevenLabs' own simulated call reached the server. Not yet proven: a real phone call and a real text (needs the line: `voice/README.md` Call setup, Anish steps).
+
+
 ## Track claims
 
 Supported by evidence now:
@@ -38,14 +43,14 @@ Supported by evidence now:
 - MLH Gemini API: voice parse, doctor, bench.
 - MLH Vultr: the page is live on the server.
 - Perceptron vision: detect runs in `vision/`, with the bench numbers above.
-- ElevenLabs: key works and the arm speaks with it in the room. The phone agent is not up.
+- ElevenLabs: key works and the arm speaks with it in the room. The phone agent (Custom LLM to `voice/` through the tunnel) is created and answered a "hemostat" turn that moved the sim arm. No phone call yet.
 
 Supported only once someone fixes a missing item:
 - Perceptron robotics: the pipeline works offline and the key now returns 200, but there is no deployment. Claim "fine-tuned" and live inference only after run 1 and a model-driven pick are recorded.
-- Photon: claim only if a real text or call goes through. Needs the line number.
+- Photon: claim only if a real text or call goes through. Needs a line from the shared pool, which appears once Anish is added as a user (`npm run photon -- setup`, in `voice/README.md`).
 - MLH GoDaddy: needs a bought domain and DNS.
 
 Drop unless the keys land before 10:00 AM:
-- MLH Tiger Data and MLH Backboard: no key exists, nothing real runs against either service. The pages work from the local ledger, which is not those products. Remove both from Devpost and `docs/DEVPOST.md` (lines 25 and 26, and the built-with list at line 116).
+- MLH Tiger Data and MLH Backboard: no key exists, nothing real runs against either service. The pages work from the local ledger, which is not those products. Remove both from Devpost and `team/DEVPOST.md` (lines 25 and 26, and the built-with list at line 116).
 - Hugging Face as a sponsor claim: the token works now, but it is only storage for the dataset. Not a track.
 - MediaPipe as a headline claim: it works, but is a supporting detail.
