@@ -12,6 +12,7 @@ from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 
 from . import lines, picker, reads, settings
+from vision import instances  # pure candidate validation; no camera or arm imports
 
 try:
     import ledger  # Evan's; optional
@@ -61,6 +62,7 @@ ZONE_WAIT_S = 10.0          # safe zone blocked: hold above it this long, then p
 ZONE_POLL_S = 0.5
 PICK_EVENTS = ("picked", "missed", "handed", "set_down", "returned")
 LOCATE_URL = None           # None: VISION_URL; tests set "" (no vision, no network)
+CLARIFY_S = 15.0            # no queued motion: an unanswered choice is discarded, never resumed
 
 
 def _saved_spot() -> list:
@@ -175,6 +177,7 @@ class Controller:
         self.step = "idle"
         self.item = None
         self.out: list[str] = []
+        self.out_instances: list[dict] = []
         self.case_id = self._new_case()
         # The count survives a controller restart mid-case: {out, case_id, setting, t} saved on change (None = off).
         self.state_file = state_file
@@ -183,6 +186,7 @@ class Controller:
         saved = _load_state(state_file, self.setting["id"]) if state_file else None
         if saved:
             self.out, self.case_id = [str(i) for i in saved["out"]], str(saved["case_id"])
+            self.out_instances = [r for r in saved.get("out_instances", []) if isinstance(r, dict) and r.get("item") in self.out]
             self._saved = (tuple(self.out), self.case_id, self.setting["id"])
             print(f"[state] restored case {self.case_id}, out: {self.out or 'nothing'}", flush=True)
         self.lighting = "normal"
@@ -196,6 +200,7 @@ class Controller:
         self.hand_at = 0.0
         self.tray: dict | None = None
         self.tray_at = 0.0
+        self._known_instances = {}     # multiplicity survives stale/local occupancy reads until a fresh detection disproves it
         self._spot_item = None          # item the return spot has shown since _spot_since
         self._spot_since = 0.0
         self._auto_done = None          # auto-returned already; not again until it leaves the spot
@@ -206,6 +211,7 @@ class Controller:
         self.resting = False            # arm parked at home with torque off (arm.rest); woken per command
         self._idle_since = time.time()
         self.held = None                # item id picked and not yet released, set down or returned
+        self.held_instance = None
         self._ledger_pool = ThreadPoolExecutor(1)
         self._flow_gen = 0              # gen of the job the worker is running
         self._worker_thread = threading.Thread(target=self._worker, daemon=True)
@@ -220,6 +226,8 @@ class Controller:
         self._order: list = []
         self.pick_fields: dict = {}
         self.last_zone_check = None     # {zone_check, zone_confirm, t} of the last sharp set-down
+        self.clarification = None       # pending candidate snapshot, never an arm job
+        self._expired_choice = None
         if skills == "smart":
             picker.load_cache()
             self._refresh_policy()
@@ -246,22 +254,25 @@ class Controller:
             "request_to_hand_s": kw.pop("request_to_hand_s", None), "retries": kw.pop("retries", None),
             "setting": self.setting["id"], "lighting": self.lighting,
             "command_id": kw.pop("command_id", cmd["id"] if cmd else None), "out": list(self.out),
+            "out_instances": self._out_records(),
             "case_id": self.case_id, "judge": self.judge, "fake_arm": self.fake_arm, **self._arm_tags(), "t": time.time(),
         }
         if self.skill_source and type_ not in ("command", "count"):
             ev["skill_source"] = self.skill_source
         if type_ in PICK_EVENTS:
             ev.update(self.pick_fields)
+        if cmd and cmd.get("instance") and type_ not in ("command", "count"):
+            ev["instance"] = dict(cmd["instance"])
         if self.test:
             ev["test"] = True
         ev.update(kw)
         self.history.append(ev)
         if self._state_pool is not None:
-            key = (tuple(ev["out"]), ev["case_id"], ev["setting"])
+            key = (tuple(ev["out"]), ev["case_id"], ev["setting"], json.dumps(ev["out_instances"], sort_keys=True))
             if key != self._saved:  # only on a change, and off this thread (never block a stop or the loop)
                 self._saved = key
                 self._state_pool.submit(_save_state, self.state_file,
-                                        {"out": ev["out"], "case_id": ev["case_id"], "setting": ev["setting"], "t": ev["t"]})
+                                        {"out": ev["out"], "out_instances": ev["out_instances"], "case_id": ev["case_id"], "setting": ev["setting"], "t": ev["t"]})
         for loop, q in list(self.listeners):
             try:
                 loop.call_soon_threadsafe(q.put_nowait, ev)
@@ -288,9 +299,11 @@ class Controller:
             st = {
                 "step": self.step, "item": self.item, "queue": [j["item"] for j in self.jobs],
                 "out": list(self.out), "setting": self.setting["id"], "lighting": self.lighting,
+                "out_instances": self._out_records(),
                 "fake_arm": self.fake_arm, **self._arm_tags(), "hand_seen": self._hand_fresh() is not None,
                 "out_camera": self._camera_out()[0], "case_id": self.case_id, "judge": self.judge,
                 "resting": self.resting, "t": now,
+                "clarify": self._public_choice(self.clarification) if self.clarification else None,
                 "sheet": self.sheet, "packs": list(self.packs),
                 # per item: the source its pick runs with (null: --skills taught and no taught skill)
                 "skills": {"mode": self.skills,
@@ -408,6 +421,21 @@ class Controller:
             return self._start_read(cmd)
         with self.lock:
             ok, reason, say = self._check(cmd)
+            gen, sid = self.gen, self.setting["id"]
+        if ok and action == "handover":
+            reply = self._preflight(cmd, gen, sid)
+            if reply is not None:
+                return reply
+        elif ok and action == "return":
+            reply = self._preflight_return(cmd, gen, sid)
+            if reply is not None:
+                return reply
+        with self.lock:
+            if ok:
+                if gen != self.gen or sid != self.setting["id"]:
+                    ok, reason, say = False, "request cancelled", lines.NEEDS_RESET if gen != self.gen else lines.CHOICE_EXPIRED
+                else:
+                    ok, reason, say = self._check(cmd)
             self._emit_command(cmd, ok, reason, say)
             if ok and action in ("handover", "return"):
                 self.jobs.append(cmd)
@@ -418,9 +446,227 @@ class Controller:
 
     def _emit_command(self, cmd, accepted, reason, say) -> None:
         extra = {"method": cmd["method"]} if cmd.get("method") else {}
+        if cmd.get("instance"):
+            extra["instance"] = cmd["instance"]
+        if cmd.get("question_id"):
+            extra["question_id"] = cmd["question_id"]
         self.emit("command", say=say, item=cmd.get("item"), command_id=cmd["id"],
                   action=cmd.get("action"), heard=cmd.get("heard"), source=cmd.get("source"),
                   accepted=accepted, reason=reason, **extra)
+
+    @staticmethod
+    def _public_choice(question):
+        return {k: question[k] for k in ("say", "item", "candidates", "question_id", "confirm")}
+
+    def _refuse_choice(self, cmd, reason, say):
+        self._emit_command(cmd, False, reason, say)
+        return {"accepted": False, "reason": reason, "say": say}
+
+    def _ask_choice(self, cmd, options, gen, sid, say=None, confirm=False):
+        with self.lock:
+            if self.gen != gen or self.setting["id"] != sid:
+                return self._refuse_choice(cmd, "request cancelled", lines.CHOICE_EXPIRED)
+            name = settings.item(self.setting, cmd["item"])["name"]
+            say = say or lines.which_one(name, [c["label"] for c in options])
+            question = {"say": say, "item": cmd["item"], "candidates": options,
+                        "question_id": uuid.uuid4().hex, "expires": time.monotonic() + CLARIFY_S,
+                        "gen": gen, "setting": sid, "confirm": confirm, "action": cmd["action"]}
+            self.clarification = question
+            self._expired_choice = None
+            self._emit_command(cmd, False, "clarification needed", None)
+            public = self._public_choice(question)
+            self.emit("clarify", **public, command_id=cmd["id"])
+
+        def expire():
+            with self.lock:
+                if self.clarification is question:
+                    self.clarification = None
+                    self._expired_choice = question
+                    self.emit("clarify_timeout", say=lines.CHOICE_TIMEOUT, item=question["item"],
+                              question_id=question["question_id"], command_id=cmd["id"])
+        timer = threading.Timer(CLARIFY_S, expire)
+        timer.daemon = True
+        timer.start()
+        return {"accepted": False, "reason": "clarification needed", "say": say, "clarify": public}
+
+    def _tray_candidates(self, item_id):
+        tray = self.tray
+        if (not tray or tray.get("stale") or time.time() - self.tray_at > TRAY_STALE_S
+                or tray.get("setting", self.setting["id"]) != self.setting["id"]):
+            if item_id in self._known_instances:
+                return self._known_instances[item_id], True  # old boxes may clarify, never authorize a pick
+            return [], False
+        if item_id in self._known_instances and (tray.get("detector") == "local" or tray.get("candidates_stale")):
+            return self._known_instances[item_id], True
+        if "candidates" in tray:
+            rows = [s for s in tray["candidates"] if s.get("item") == item_id]
+        else:
+            rows = [s for s in tray.get("slots", []) if s.get("item") == item_id and s.get("present") and s.get("kind") != "configured"]
+            # One configured slot is occupancy only, not proof of the physical candidate's slot number.
+            if len(rows) == 1 and not any(k in rows[0] for k in ("instance", "slot", "id")):
+                rows = []
+            if not rows and item_id in self._known_instances:
+                return self._known_instances[item_id], True
+        variant = (settings.item(self.setting, item_id) or {}).get("variant")
+        if variant:
+            rows = [{"variant": variant, **s} for s in rows]
+        options, unsafe = instances.candidates(rows, item_id)
+        return options, unsafe or bool(tray.get("candidates_stale") and item_id in (tray.get("ambiguous_items") or []))
+
+    def _candidate_is_out(self, candidate):
+        for record in self._out_records():
+            if record["item"] != candidate.get("item"):
+                continue
+            if candidate.get("id") and candidate["id"] == record["id"]:
+                return True
+            hint = record.get("instance") or {}
+            if hint and instances.select([candidate], hint):
+                return True
+        return False
+
+    def _preflight(self, cmd, gen, sid):
+        """Validate identity before enqueue/wake. Network calls run outside the controller lock."""
+        item_id, hint = cmd["item"], cmd.get("instance")
+        hint = {k: v for k, v in (hint or {}).items() if v is not None}
+        it = settings.item(self.setting, item_id) or {}
+        named_variant = (set(hint) == {"variant"} and isinstance(it.get("variant"), str)
+                         and it["variant"].casefold() == str(hint["variant"]).casefold())
+        with self.lock:
+            pending = self.clarification
+            expired = self._expired_choice
+            if pending and time.monotonic() >= pending["expires"]:
+                self.clarification = None
+                self._expired_choice = expired = pending
+                pending = None
+            qid = cmd.get("question_id")
+            if qid and (not pending or pending["question_id"] != qid):
+                return self._refuse_choice(cmd, "choice expired", lines.CHOICE_EXPIRED)
+            if hint and expired and expired["item"] == item_id:
+                return self._refuse_choice(cmd, "choice expired", lines.CHOICE_EXPIRED)
+            if not hint and not qid:
+                self._expired_choice = None  # a fresh full request, never a late answer
+            options, unsafe = self._tray_candidates(item_id)
+            all_options = options
+            options = [c for c in options if not self._candidate_is_out(c)]
+            answering = pending and pending["item"] == item_id and bool(hint)
+            if answering:
+                if qid != pending["question_id"] or pending["action"] != cmd["action"]:
+                    return self._refuse_choice(cmd, "question id required", lines.CHOICE_EXPIRED)
+                chosen = instances.select(pending["candidates"], hint)
+                if not chosen:
+                    return self._ask_choice(cmd, pending["candidates"], gen, sid)
+                # Resolve to a stable candidate slot, not just a relative word which can change next frame.
+                hint = dict(chosen["instance"])
+                cmd["instance"] = hint
+                cmd["question_id"] = pending["question_id"]
+            elif unsafe or len(options) > 1 and not hint:
+                return self._ask_choice(cmd, options, gen, sid)
+            elif item_id in self.out and (not hint or named_variant) and options:
+                name = settings.item(self.setting, item_id)["name"]
+                # One generic slot isn't evidence of a second physical instance.
+                other = [c for c in options if c.get("box") or c.get("slot") or c.get("id")]
+                if other:
+                    return self._ask_choice(cmd, other, gen, sid, lines.other_instance(name), confirm=len(other) == 1)
+            if hint and options and not (named_variant and len(options) == 1 and not answering):
+                chosen = instances.select(options, hint)
+                if unsafe or not chosen:
+                    return self._ask_choice(cmd, options, gen, sid)
+                cmd["instance"] = dict(chosen["instance"])
+                hint = cmd["instance"]
+            elif hint and any(instances.select([c], hint) and self._candidate_is_out(c) for c in all_options):
+                return self._refuse_choice(cmd, "already out", lines.with_you(it["name"]))
+
+        try:
+            fetch = (lambda: self.locator.locate(item_id, LOCATE_S, instance=hint)) if hint else (lambda: self.locator.locate(item_id, LOCATE_S))
+            loc = self._bounded(gen, fetch, LOCATE_S + 0.5)
+        except Stopped:
+            return self._refuse_choice(cmd, "request cancelled", lines.NEEDS_RESET)
+        with self.lock:
+            if self.gen != gen or self.setting["id"] != sid:
+                return self._refuse_choice(cmd, "request cancelled", lines.CHOICE_EXPIRED)
+            if loc and (loc.get("ambiguous") or len(loc.get("candidates") or []) > 1 and not hint):
+                choices, bad = instances.candidates(loc.get("candidates") or [], item_id)
+                choices = [c for c in choices if not self._candidate_is_out(c)]
+                if not choices and item_id in self.out:
+                    return self._refuse_choice(cmd, "already out", lines.with_you(it["name"]))
+                say = lines.other_instance(settings.item(self.setting, item_id)["name"]) if item_id in self.out and len(choices) == 1 else None
+                return self._ask_choice(cmd, choices, gen, sid, say, confirm=bool(say) and len(choices) == 1)
+            if item_id in self.out and (not hint or named_variant and not answering):
+                name = settings.item(self.setting, item_id)["name"]
+                choices, bad = instances.candidates((loc or {}).get("candidates") or [], item_id)
+                choices = [c for c in choices if not self._candidate_is_out(c)]
+                if choices and not bad:
+                    return self._ask_choice(cmd, choices, gen, sid, lines.other_instance(name), confirm=len(choices) == 1)
+                return self._refuse_choice(cmd, "already out", lines.with_you(name))
+            physical = bool(hint) and not named_variant
+            if hint:
+                choices, bad = instances.candidates((loc or {}).get("candidates") or [], item_id)
+                chosen = instances.select(choices, hint)
+                if chosen and self._candidate_is_out(chosen):
+                    return self._refuse_choice(cmd, "already out", lines.with_you(it["name"]))
+                if named_variant and not answering and len(choices) <= 1 and not bad:
+                    # A named settings variant already identifies a different item/skill (e.g. Phillips).
+                    # No side/slot inference is involved; preserve the hint for locate and the command event.
+                    cmd["_located"] = loc
+                    return None
+                physical = True
+                if (not loc or not loc.get("found") or not loc.get("instance_validated") or not chosen or bad):
+                    # Fake tests may use a posted tray candidate without a separate vision service.
+                    chosen = instances.select(options, hint) if self.fake_arm and loc is None and not unsafe else None
+                    if chosen:
+                        loc = {"item": item_id, "found": True, "method": "slot", "confidence": 1.0,
+                               "candidate": chosen, "instance": chosen["instance"], "instance_validated": True,
+                               "center_px": [(chosen["box"][0] + chosen["box"][2]) / 2,
+                                             (chosen["box"][1] + chosen["box"][3]) / 2] if chosen.get("box") else None}
+                    else:
+                        return self._refuse_choice(cmd, "instance unverified", lines.CHOICE_UNVERIFIED)
+                xy = loc.get("arm_xy")
+                if self.arm_kind == "real" and physical and (not isinstance(xy, (list, tuple)) or len(xy) != 2
+                        or not _target_ok([*xy, 0]) or float(loc.get("confidence") or 0) < 0.6 or loc.get("setting_ok") is False):
+                    return self._refuse_choice(cmd, "instance unverified", lines.CHOICE_UNVERIFIED)
+                cmd["_physical"] = physical
+            cmd["_located"] = loc
+            if answering:
+                if self.clarification is not pending or time.monotonic() >= pending["expires"]:
+                    return self._refuse_choice(cmd, "choice expired", lines.CHOICE_EXPIRED)
+                self.clarification = None
+                self.emit("clarify_answer", item=item_id, question_id=pending["question_id"], answer=cmd.get("heard"),
+                          answer_ms=round((time.monotonic() - (pending["expires"] - CLARIFY_S)) * 1000),
+                          instance=cmd.get("instance"), command_id=cmd["id"])
+        return None
+
+    def _preflight_return(self, cmd, gen, sid):
+        """A return removes only the identified physical item; unknown identity cannot reduce a multi-count."""
+        with self.lock:
+            here = self._out_here()
+            item_id = cmd.get("item") or self._return_spot_item() or (here[-1] if here else None)
+            if not item_id:
+                return None
+            cmd["item"] = item_id
+            rows = [r for r in self._out_records() if r["item"] == item_id]
+            hint = {k: v for k, v in (cmd.get("instance") or {}).items() if v is not None}
+            pending, qid = self.clarification, cmd.get("question_id")
+            if qid and (not pending or pending["question_id"] != qid or pending["item"] != item_id
+                        or pending["action"] != "return" or time.monotonic() >= pending["expires"]):
+                return self._refuse_choice(cmd, "choice expired", lines.CHOICE_EXPIRED)
+            answering = bool(hint and pending and pending["item"] == item_id)
+            if answering and (qid != pending["question_id"] or pending["action"] != "return"):
+                return self._refuse_choice(cmd, "question id required", lines.CHOICE_EXPIRED)
+            options = [{**r, **r["instance"], "label": r["instance"].get("side") or
+                        (f"slot {r['instance']['slot']}" if "slot" in r["instance"] else r["id"])} for r in rows]
+            if len(rows) > 1 and not hint:
+                return self._ask_choice(cmd, options, gen, sid)
+            chosen = instances.select(rows, hint) if hint else rows[0] if len(rows) == 1 else None
+            if hint and not chosen:
+                return self._refuse_choice(cmd, "instance unverified", lines.CHOICE_UNVERIFIED)
+            if chosen:
+                cmd["instance"] = dict(chosen["instance"])
+                cmd["_return_instance"] = chosen
+            if answering:
+                self.clarification = None
+                self.emit("clarify_answer", item=item_id, question_id=qid, answer=cmd.get("heard"),
+                          instance=cmd.get("instance"), command_id=cmd["id"])
+        return None
 
     def _check(self, cmd: dict) -> tuple[bool, str | None, str | None]:
         """(accepted, reason, say) for handover, return, got_it, unknown. Called with the lock held."""
@@ -451,7 +697,7 @@ class Controller:
         it = settings.item(self.setting, item_id or "")
         if it is None:
             return False, f"{item_id!r} is not in {self.setting['id']}", lines.NOT_IN_SETTING
-        if self._skill_source(it["id"], "pick") is None:
+        if self._skill_source(it["id"], "pick") is None and not cmd.get("instance"):
             return False, "no taught skill", lines.no_taught(it["name"])
         if method and method not in self._methods(it["id"], "pick"):
             return False, "method unavailable", lines.method_unavailable(method)
@@ -462,6 +708,8 @@ class Controller:
         with self.lock:    # gen and the queue together: the worker can't pop a queued job under the new gen
             self.gen += 1  # first, so an arm call failing from the freeze already looks stopped
             self.jobs.clear()
+            self._expired_choice = self.clarification or self._expired_choice
+            self.clarification = None
         self.arm.freeze()  # the lock is only ever held briefly, never across an arm call
         with self.lock:
             self.jobs.clear()
@@ -469,11 +717,50 @@ class Controller:
             self._held_out()
         self.emit("stopped", say=lines.STOPPED)
 
+    def _out_records(self):
+        """Optional physical count; `out` remains the backwards-compatible unique item-id list."""
+        rows = [dict(r, instance=dict(r.get("instance") or {})) for r in self.out_instances if r.get("item") in self.out]
+        for item_id in self.out:
+            if not any(r["item"] == item_id for r in rows):
+                rows.append({"item": item_id, "id": item_id + ":unspecified", "instance": {}})
+        return rows
+
+    def _instance_record(self, item_id, cmd=None):
+        cmd = self.cmd if cmd is None else cmd
+        hint = dict((cmd or {}).get("instance") or {})
+        candidate = (((cmd or {}).get("_located") or {}).get("candidate") or {})
+        key = candidate.get("id")
+        if not key:
+            key = (f"slot:{hint['slot']}" if "slot" in hint else f"variant:{hint['variant']}" if "variant" in hint
+                   else f"side:{hint['side']}" if "side" in hint else "unspecified")
+            key = f"{item_id}:{key}"
+        return {"item": item_id, "id": str(key), "instance": hint}
+
+    def _mark_out(self, item_id, record=None):
+        rows = self._out_records()
+        record = record or self._instance_record(item_id)
+        if not any(r["id"] == record["id"] and r["item"] == item_id for r in rows):
+            rows.append(record)
+        self.out_instances = rows
+        if item_id not in self.out:
+            self.out.append(item_id)
+
+    def _remove_out(self, item_id, hint=None):
+        rows = self._out_records()
+        same = [r for r in rows if r["item"] == item_id]
+        chosen = instances.select(same, hint) if hint else same[0] if len(same) == 1 else None
+        if not chosen:
+            return None  # no arbitrary removal when several physical instances are out
+        self.out_instances = [r for r in rows if r != chosen]
+        if not any(r["item"] == item_id for r in self.out_instances) and item_id in self.out:
+            self.out.remove(item_id)
+        return chosen
+
     def _held_out(self) -> None:
         """An item off the tray when the arm stops is out (in the gripper or a hand) until it comes back.
         Called with the lock held."""
-        if self.held and self.held not in self.out:
-            self.out.append(self.held)
+        if self.held:
+            self._mark_out(self.held, self.held_instance)
         self.held = None
 
     def reset(self, clear_count: bool = False) -> None:
@@ -498,10 +785,12 @@ class Controller:
                 self.arm.freeze()
                 raise Stopped
         held = self.item
+        held_record = self.held_instance
         holding = OPEN_MAX < self._call(gen, self.arm.gripper_position) < GRIPPER_CLOSED
         with self.lock:
             if clear_count:
                 self.out = []
+                self.out_instances = []
                 self.case_id = self._new_case()
             self.held = None
         self.set_step("homing", item=held if holding else None)
@@ -511,13 +800,14 @@ class Controller:
             if not self._call(gen, self.arm.set_down_safe_spot):
                 self._fail(lines.SET_DOWN_FAILED, "set_down_safe_spot returned False")
             with self.lock:
-                if held and held not in self.out:
-                    self.out.append(held)  # at the safe spot, still off the tray
+                if held:
+                    self._mark_out(held, held_record)  # at the safe spot, still off the tray
             self._call(gen, self.arm.go_home)
         else:
             self._call(gen, self.arm.open_gripper)
         with self.lock:
             self.step, self.item = "idle", None
+            self.held_instance = None
         self.emit("step", say=lines.RESET)
         if self.prepared != self.setting["id"]:
             self._prepare()  # a prepare cancelled by the freeze, or one that failed: try again
@@ -660,6 +950,9 @@ class Controller:
             if self.step not in ("idle", "stopped", "error") or self.jobs:
                 raise RuntimeError("busy")
             self.setting = data
+            self._known_instances = {}
+            self.clarification = None
+            self._expired_choice = None
             # `out` survives a tray switch: an instrument still out of the last tray stays in the count
             # until it comes back or a person clears it (POST /reset {"clear_count": true}).
             self.case_id = self._new_case()
@@ -767,6 +1060,13 @@ class Controller:
             now = time.time()
             gap = now - self.tray_at
             self.tray, self.tray_at = tray, now
+            if tray.get("setting", self.setting["id"]) == self.setting["id"] and not tray.get("stale"):
+                for it in self.setting["items"]:
+                    options, unsafe = self._tray_candidates(it["id"])
+                    if unsafe or len(options) > 1 or it["id"] in (tray.get("ambiguous_items") or []):
+                        self._known_instances[it["id"]] = options
+                    elif "candidates" in tray and tray.get("detector") == "perceptron" and not tray.get("candidates_stale"):
+                        self._known_instances.pop(it["id"], None)
             if tray.get("stale"):
                 self._spot_item = None  # breaks "continuously", but isn't proof the item left
                 return
@@ -776,7 +1076,7 @@ class Controller:
             if spot != self._spot_item or gap > TRAY_STALE_S:
                 self._spot_item, self._spot_since = spot, now
             if (spot and spot != self._auto_done and now - self._spot_since >= AUTO_RETURN_S
-                    and self.step == "idle" and not self.jobs and self.cmd is None
+                    and self.step == "idle" and not self.jobs and self.cmd is None and not self.clarification
                     and settings.item(self.setting, spot)):
                 self._auto_done = spot
                 self._auto_return(spot, now)
@@ -785,6 +1085,8 @@ class Controller:
         """F1: an item sat in the return spot with the arm idle. Queue a return. Called with the lock held."""
         cmd = {"id": uuid.uuid4().hex, "action": "return", "item": item_id, "heard": None,
                "source": "auto", "t": now, "received": now}
+        if self._preflight_return(cmd, self.gen, self.setting["id"]) is not None:
+            return
         self._emit_command(cmd, True, None, lines.auto_return(settings.item(self.setting, item_id)["name"]))
         self.jobs.append(cmd)
         self.jobs_cv.notify()
@@ -812,10 +1114,24 @@ class Controller:
             return None
         if float(tray.get("t") or self.tray_at) < after:
             return None  # from a frame before the arm moved
-        for s in tray.get("slots", []):
-            if s.get("item") == item_id:
-                return bool(s.get("present"))
-        return None
+        rows = [s for s in tray.get("slots", []) if s.get("item") == item_id]
+        chosen = ((self.cmd or {}).get("_located") or {}).get("candidate")
+        if chosen and "candidates" in tray:
+            if tray.get("candidates_stale"):
+                return None
+            same = [c for c in tray["candidates"] if c.get("item") == item_id and
+                    (c.get("id") == chosen.get("id") and c.get("id") is not None
+                     or c.get("slot") == chosen.get("slot") and c.get("slot") is not None
+                     or c.get("box") == chosen.get("box") and c.get("box") is not None)]
+            return bool(same)
+        if chosen and len(rows) == 1 and not any(k in rows[0] for k in ("slot", "id", "instance")):
+            return None  # one generic configured slot cannot judge a selected physical instance
+        if chosen and len(rows) > 1:
+            rows = [s for s in rows if (s.get("box") == chosen.get("box") and chosen.get("box")
+                                       or s.get("slot") == chosen.get("slot") and s.get("slot") is not None)]
+            if len(rows) != 1:
+                return None  # do not use the other instance to check this grasp
+        return any(s.get("present") for s in rows) if rows else None
 
     def _return_spot_item(self) -> str | None:
         if not self.tray or time.time() - self.tray_at > TRAY_STALE_S:
@@ -840,7 +1156,13 @@ class Controller:
             out = list(self.out)
             cam, known = self._camera_out()
             sheet = self.sheet
-        say = lines.count(self._names(out))
+        records = self._out_records()
+        names = self._names(out)
+        for index, item_id in enumerate(out):
+            n = sum(r["item"] == item_id for r in records)
+            if n > 1:
+                names[index] = lines.quantity(names[index], n)
+        say = lines.count(names)
         if cam is not None:
             gone = [i for i in cam if i not in out]
             back = [i for i in out if i not in cam and i in known]
@@ -956,6 +1278,8 @@ class Controller:
 
     def _skill(self, gen: int, instruction: str, located: dict | None = None) -> bool:
         t0 = time.monotonic()
+        if located is None and self.cmd and self.cmd.get("instance"):
+            located = self.cmd.get("_located")
         kw = {"located": located} if located is not None else {}
         try:
             return self._call(gen, self.arm.run_skill, instruction, source=self.skill_source or "model", **kw)
@@ -994,6 +1318,10 @@ class Controller:
         """Pick the skill source for this flow; False (and say so) when taught is asked for and none exists.
         --skills smart: the method order from the picker (a command's method first); a handover sets its
         skill_source per attempt in _pick_smart."""
+        if direction == "pick" and self.cmd and self.cmd.get("_physical"):
+            # Plain taught/model paths ignore a located candidate; IK targets its calibrated arm_xy.
+            self.skill_source, self._order = "ik", ["ik"]
+            return True
         self.taught = _taught_available(self.setting["id"])  # a skill taught since start counts
         if self.skills == "smart":
             order = self._choice(it["id"], direction)["order"]
@@ -1059,6 +1387,7 @@ class Controller:
             return
         with self.lock:
             self.held = it["id"]
+            self.held_instance = self._instance_record(it["id"])
         self.emit("picked", retries=retries)
         elapsed = lambda: round(time.time() - cmd["received"], 2)  # noqa: E731
 
@@ -1079,9 +1408,9 @@ class Controller:
             return
         self.set_step("releasing")
         with self.lock:  # out before the jaw opens: a stop mid-open still counts it
-            if it["id"] not in self.out:
-                self.out.append(it["id"])
+            self._mark_out(it["id"])
             self.held = None
+            self.held_instance = None
         self._call(gen, self.arm.open_gripper)
         self.emit("released", release=why)
         self._home(gen)
@@ -1092,9 +1421,9 @@ class Controller:
         if not self._call(gen, self.arm.set_down_safe_spot):
             self._fail(lines.SET_DOWN_FAILED, "set_down_safe_spot returned False")
         with self.lock:
-            if it["id"] not in self.out:
-                self.out.append(it["id"])
+            self._mark_out(it["id"])
             self.held = None
+            self.held_instance = None
         self.emit("set_down", say=say, request_to_hand_s=elapsed() if elapsed else None, retries=retries)
 
     def _reach_hand(self, gen: int, it: dict) -> bool:
@@ -1172,7 +1501,14 @@ class Controller:
         is sure the item isn't on the tray."""
         order = self._order or ["model"]
         for attempt, method in enumerate([order[0], order[1] if len(order) > 1 else order[0]]):
-            loc = self._bounded(gen, lambda: self.locator.locate(it["id"], LOCATE_S), LOCATE_S + 0.5)
+            loc = self.cmd.get("_located") if self.cmd and "_located" in self.cmd and (attempt == 0 or self.cmd.get("instance")) else None
+            if loc is None and not (self.cmd and self.cmd.get("instance")):
+                loc = self._bounded(gen, lambda: self.locator.locate(it["id"], LOCATE_S), LOCATE_S + 0.5)
+            if loc and (loc.get("ambiguous") or len(loc.get("candidates") or []) > 1 and not (self.cmd or {}).get("instance")):
+                choices, _ = instances.candidates(loc.get("candidates") or [], it["id"])
+                self._ask_choice(self.cmd, choices, gen, self.setting["id"])
+                self.set_step("idle", item=None)
+                return None, 0
             where = {"locate_method": loc.get("method") if loc else None,
                      "locate_confidence": loc.get("confidence") if loc else None}
             if (attempt == 0 and loc and loc.get("found") is False and loc.get("method") in VISION_METHODS
@@ -1304,9 +1640,9 @@ class Controller:
         if not self._sharp_move(gen, self.arm.set_down_safe_spot):
             self._fail(lines.SET_DOWN_FAILED, "set_down_safe_spot returned False")
         with self.lock:
-            if it["id"] not in self.out:
-                self.out.append(it["id"])
+            self._mark_out(it["id"])
             self.held = None
+            self.held_instance = None
         z = self._bounded(gen, lambda: self.locator.safe_zone(2.0), 2.5)
         confirm = z.get("item_in_zone") == it["id"] if z and z.get("method", "none") != "none" else None
         self.last_zone_check = {"zone_check": check, "zone_confirm": confirm, "t": time.time()}
@@ -1326,8 +1662,7 @@ class Controller:
             self._fail(lines.couldnt_return(it["name"]) + " Holding.", "safe zone blocked and the return failed")
         with self.lock:
             self.held = None
-            if it["id"] in self.out:
-                self.out.remove(it["id"])
+            self._remove_out(it["id"], (self.cmd or {}).get("instance"))
         self.skill_source = src  # the event is about the pick's method
         self.last_zone_check = {"zone_check": "timeout_to_slot", "zone_confirm": None, "t": time.time()}
         self.emit("missed", say=lines.zone_blocked_back(it["name"]), zone_check="timeout_to_slot")
@@ -1462,15 +1797,16 @@ class Controller:
                 # Still holding it: carry it home and set it at the safe spot, as a reset would.
                 with self.lock:
                     self.held = it["id"]
+                    self.held_instance = cmd.get("_return_instance") or self._instance_record(it["id"], cmd)
                 self.set_step("homing")
                 self._call(gen, self.arm.go_home)
                 self._set_down(gen, it, lines.set_down(it["name"]))
             self._home(gen)
             return
         with self.lock:
-            if it["id"] in self.out:
-                self.out.remove(it["id"])
-        self.emit("returned", say=lines.returned(it["name"]), retries=retries)
+            returned = self._remove_out(it["id"], cmd.get("instance"))
+        self.emit("returned", say=lines.returned(it["name"]), retries=retries,
+                  instance=(returned or {}).get("instance", cmd.get("instance")))
         self._home(gen)
 
     # ---------- stats ----------
