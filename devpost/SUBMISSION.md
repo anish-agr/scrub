@@ -243,15 +243,9 @@ Gemini (`gemini-3.8-flash`, thinking level low) turns what a person said into on
 
 ## Gemini Project Number
 
-`GEMINI_PROJECT_NUMBER (fill in)`
+Project ID: `gen-lang-client-0121141463` (the Google Cloud project behind the voice server's Gemini key).
 
-Steps for a person:
-1. Open https://aistudio.google.com and sign in with the Google account that made the voice server's key.
-2. Click **Get API key** (or **API keys**) in the left menu.
-3. On the arm Mac, find the key the voice server uses: it is `GEMINI_API_KEY` in the repo's `.env`. Don't print or paste it. To compare, run `grep '^GEMINI_API_KEY=' .env | tail -c 5` in the repo root, which shows only the last 4 characters.
-4. In AI Studio, find the key whose shown last 4 characters match.
-5. Read the **Project number** in that key's row. If AI Studio shows only a project name, click it to open the linked Google Cloud project; the Project number is on the console dashboard's **Project info** card.
-6. Paste the number into the Devpost field in place of the placeholder.
+<!-- Safe to publish: a project ID names the project and grants no access; calling Gemini needs the API key, which stays in .env and is not in the repo. The form asks for the Project NUMBER, which Google shows separately as digits only. Paste the ID above if the field accepts it; if it wants digits, open https://console.cloud.google.com/home/dashboard?project=gen-lang-client-0121141463 (signed in as the key's owner) and copy "Project number" from the Project info card. -->
 
 ## Final checklist
 
