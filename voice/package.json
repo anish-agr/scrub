@@ -4,7 +4,7 @@
   "description": "Scrub voice server: ElevenLabs Custom LLM endpoint, controller client, Photon texts",
   "main": "src/server.ts",
   "scripts": {
-    "test": "tsx scripts/test.ts",
+    "test": "tsx scripts/test.ts && tsx scripts/test-station.ts",
     "dev": "tsx src/server.ts",
     "say": "tsx scripts/say.ts",
     "talk": "tsx scripts/talk.ts",

@@ -1,6 +1,8 @@
-// GET /talk: talk to Scrub without a phone. One self-contained page: hold the button (or the space bar) and speak;
-// the browser's speech recognition (Chrome, Edge, Safari) gives the words, which go to POST /heard like a caller
-// turn, and the `say` lines are spoken with speechSynthesis. A text box works without a microphone.
+// GET /talk: talk to Scrub without a phone. One self-contained page that is always listening while it is open
+// (after the browser's one-time microphone permission): the browser's speech recognition (Chrome, Edge, Safari)
+// gives each finished phrase, which goes to POST /heard like a caller turn, and the `say` lines are spoken with
+// speechSynthesis (listening pauses while Scrub talks, so it doesn't hear itself). One button pauses/resumes.
+// A text box works without a microphone.
 // Open it on the voice laptop (http://localhost:3000/talk): speech recognition needs localhost or https, and with
 // VOICE_LLM_SECRET set, /heard from another machine needs the secret (the page asks for it on a 401).
 export const TALK_HTML = `<!doctype html>
@@ -39,8 +41,8 @@ export const TALK_HTML = `<!doctype html>
 <body>
 <main>
   <h1>Scrub — talk without a phone</h1>
-  <p class="sub">Hold the button (or the space bar) and ask, like on the call: "grab me the kelly", "what's out", "stop".</p>
-  <button id="ptt" type="button">Hold to talk</button>
+  <p class="sub">Always listening while this page is open. Just talk, like on the call: "get the hemostat", "let go", "stop".</p>
+  <button id="ptt" type="button">Starting the microphone...</button>
   <div id="status"></div>
   <form id="typed"><input id="text" placeholder="Or type what you'd say" autocomplete="off"><button class="send">Send</button></form>
   <form id="secret"><input id="key" type="password" placeholder="VOICE_LLM_SECRET (needed from another machine)" autocomplete="off"><button class="send">Save</button></form>
@@ -58,10 +60,25 @@ function add(who, text, cls) {
   const t = document.createElement("span"); t.textContent = text; if (cls) t.className = cls;
   li.append(w, t); log.prepend(li);
 }
+let talking = false;  // Scrub is speaking: don't listen to ourselves
+// Browsers only let a page speak after one click or key press on it: the first one turns Scrub's voice on.
+let voiceOn = false;
+function unlockVoice() {
+  if (voiceOn || !("speechSynthesis" in window)) return;
+  voiceOn = true;
+  const u = new SpeechSynthesisUtterance("Scrub voice on."); u.volume = 0.6; speechSynthesis.speak(u);
+  note("Voice on. Just talk.");
+}
+document.addEventListener("pointerdown", unlockVoice, true);
+document.addEventListener("keydown", unlockVoice, true);
 function speak(lines) {
   if (!("speechSynthesis" in window) || !lines.length) return;
+  if (!voiceOn) note("Click anywhere on this page once to hear Scrub's voice.", true);
   speechSynthesis.cancel();
-  speechSynthesis.speak(new SpeechSynthesisUtterance(lines.join(" ")));
+  const u = new SpeechSynthesisUtterance(lines.join(" "));
+  talking = true; pauseRec();
+  u.onend = u.onerror = () => { talking = false; resumeRec(); };
+  speechSynthesis.speak(u);
 }
 
 async function send(text) {
@@ -96,7 +113,17 @@ $("typed").addEventListener("submit", (e) => { e.preventDefault(); send($("text"
 $("secret").addEventListener("submit", (e) => { e.preventDefault(); key = $("key").value.trim(); $("secret").style.display = "none"; note("Secret set for this tab. Try again."); });
 
 const Rec = window.SpeechRecognition || window.webkitSpeechRecognition;
-let rec = null, heard = "", held = false;
+let rec = null, listening = false, paused = false, running = false;
+function show() {
+  ptt.classList.toggle("on", listening && running && !talking);
+  ptt.textContent = paused ? "Paused - click to listen" : (talking ? "Scrub is talking..." : (running ? "Listening - click to pause" : "Click to start listening"));
+}
+function pauseRec() { if (rec && running) { try { rec.stop(); } catch (e) {} } show(); }
+function resumeRec() {
+  if (!rec || paused || talking || running) return show();
+  try { rec.start(); running = true; listening = true; } catch (e) { /* already starting */ }
+  show();
+}
 if (!Rec) {
   ptt.disabled = true;
   ptt.textContent = "No speech recognition here";
@@ -109,26 +136,27 @@ if (!Rec) {
   rec = new Rec();
   rec.lang = "en-US"; rec.interimResults = true; rec.continuous = true;
   rec.onresult = (e) => {
-    heard = Array.from(e.results).map((r) => r[0].transcript).join(" ");
-    note("Heard: " + heard);
+    for (let i = e.resultIndex; i < e.results.length; i++) {
+      const r = e.results[i];
+      if (r.isFinal) send(r[0].transcript);   // each finished phrase goes to Scrub right away
+      else note("Hearing: " + r[0].transcript);
+    }
   };
-  rec.onerror = (e) => { if (e.error !== "aborted" && e.error !== "no-speech") note("Microphone: " + e.error, true); };
-  rec.onend = () => { held = false; ptt.classList.remove("on"); ptt.textContent = "Hold to talk"; const h = heard; heard = ""; send(h); };
+  rec.onerror = (e) => {
+    if (e.error === "not-allowed" || e.error === "service-not-allowed") {
+      paused = true; note("Microphone blocked: allow it in the address bar, then click the button.", true);
+    } else if (e.error !== "aborted" && e.error !== "no-speech") note("Microphone: " + e.error, true);
+  };
+  rec.onend = () => { running = false; setTimeout(resumeRec, 250); };  // the browser stops after a while: start again
+  resumeRec();
+  if (!running) note("Click the button once to let the browser use the microphone.");
 }
-function down(e) {
-  if (!rec || held) return;
-  e.preventDefault(); held = true; heard = "";
-  speechSynthesis?.cancel();  // talking over Scrub, like on the call
-  try { rec.start(); ptt.classList.add("on"); ptt.textContent = "Listening... let go to send"; note("Listening..."); }
-  catch (err) { held = false; note("Microphone: " + err.message, true); }
-}
-function up() { if (!rec || !held) return; held = false; rec.stop(); }
-ptt.addEventListener("pointerdown", down);
-ptt.addEventListener("pointerup", up);
-ptt.addEventListener("pointercancel", up);
-ptt.addEventListener("pointerleave", up);
-document.addEventListener("keydown", (e) => { if (e.code === "Space" && !e.repeat && document.activeElement?.tagName !== "INPUT") down(e); });
-document.addEventListener("keyup", (e) => { if (e.code === "Space" && document.activeElement?.tagName !== "INPUT") up(); });
+ptt.addEventListener("click", () => {
+  paused = !paused;
+  if (paused) { pauseRec(); note("Paused. Click to listen again."); }
+  else { speechSynthesis?.cancel(); talking = false; resumeRec(); note("Listening..."); }
+  show();
+});
 </script>
 </body>
 </html>

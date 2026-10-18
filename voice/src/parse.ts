@@ -46,7 +46,22 @@ export function parseStats() {
   };
 }
 
+// Browser speech recognition mishears instrument names ("hemostat" -> "email set"); map the common ones back
+// before parsing. Only for items the current setting has.
+const MISHEARS: [RegExp, string][] = [
+  [/\b(e-?mail ?set|he ?mo ?stat|hemo ?stats?|he most at|he must at|heema ?stat|hemus ?tat)\b/gi, "hemostat"],
+  [/\b(scal ?pull|scalp all|scalpal|scalpels?)\b/gi, "scalpel"],
+  [/\b(my oh scissors|mayo scissor)\b/gi, "mayo scissors"],
+];
+export function fixMishears(heard: string, setting?: Setting): string {
+  const ids = new Set((setting?.items || []).map((i) => i.id));
+  let out = heard;
+  for (const [re, word] of MISHEARS) if (!setting || ids.has(word.replace(/ /g, "_"))) out = out.replace(re, word);
+  return out;
+}
+
 export async function parse(heard: string, setting: Setting): Promise<Parsed> {
+  heard = fixMishears(heard, setting);
   if (isStop(heard)) return { action: "stop", item: null, via: "local" };
   if (isLetGo(heard)) return { action: "let_go", item: null, via: "local" };
   if (isGotIt(heard)) return { action: "got_it", item: null, via: "local" };
@@ -178,6 +193,7 @@ export function parseAlias(heard: string, setting: Setting): { item: string; ali
 }
 
 export function localParse(heard: string, setting: Setting): ParseResult {
+  heard = fixMishears(heard, setting);
   if (isStop(heard)) return { action: "stop", item: null };
   if (isGotIt(heard)) return { action: "got_it", item: null };
   const s = ` ${norm(heard)} `;

@@ -80,6 +80,8 @@ def analyze(ep: dict) -> dict:
     g0 = g[0]
     open_s = close_s = None
     open_idx = np.nonzero(g > g0 + GRIP_OPEN_DEG)[0]
+    if g0 > g.min() + GRIP_OPEN_DEG:  # recorded starting open (the previous episode ended open): open at frame 0
+        open_idx = np.array([0])
     if len(open_idx):
         i0 = int(open_idx[0])
         open_s = float(t[i0] - t[0])
@@ -95,7 +97,7 @@ def analyze(ep: dict) -> dict:
     elif open_s is None:
         verdict, reasons = "drop", ["the gripper never opens, so there is no grasp to learn"]
     elif close_s is None:
-        verdict, reasons = "re-record", ["the gripper opens but never closes on the spatula"]
+        verdict, reasons = "re-record", ["the gripper opens but never closes on the item"]
     if verdict == "keep" and dur > LONG_S:
         verdict, reasons = "re-record", [f"{dur:.0f} s long with the arm moving only {moving.mean() * 100:.0f}% of the time"]
     if verdict == "keep" and stalls and sum(b - a for a, b in stalls) > 0.4 * dur:

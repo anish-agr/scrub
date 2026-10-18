@@ -59,3 +59,16 @@ def test_build_flags_and_summary(tmp_path):
     assert s["tasks"][0]["count"] == 3
     assert "drop" in out["notes"].lower() and out["numbers"][0]["value"] == "3"
     assert (Path(tmp_path) / "episodes.png").exists()
+
+
+def test_episode_that_starts_open_and_closes_is_a_grasp():
+    from explore.analysis import episodes as E
+    import numpy as np
+    n = 300
+    t = np.arange(n) / 30
+    state = np.zeros((n, 6))
+    state[:, 0] = np.linspace(0, 100, n)  # the arm moves throughout (10 deg/s)
+    state[:, 5] = np.where(t < 4, 40.0, 10.0)  # starts open, closes at 4 s
+    r = E.analyze({"episode_index": 1, "task": "pick the hemostat", "length": n, "fps": 30, "duration_s": n / 30,
+                   "joints": [f"j{i}" for i in range(6)], "state": state.tolist(), "timestamp": t.tolist()})
+    assert r["verdict"] == "keep" and r["gripper_open_s"] == 0 and r["gripper_close_s"] is not None
