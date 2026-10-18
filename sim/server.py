@@ -89,6 +89,11 @@ def create_app(arm, grabber=None):
     def state():
         return arm.state()
 
+    @app.get("/pose")
+    def pose():
+        """Joint angles and item/hand poses, for recording a run to re-render (video/simcine.py)."""
+        return arm.pose()
+
     def _reach(p):
         ok, err, q = ik.reachable(p)
         return {"reachable": ok, "error_m": err, "q": [float(v) for v in q]}
