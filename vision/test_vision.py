@@ -439,7 +439,8 @@ class ToolingTests(unittest.TestCase):
         for setting_id in ("surgical", "bench"):  # dental is hidden: marked only with --setting dental
             document = json.loads((out / f"{setting_id}.json").read_text(encoding="utf-8"))
             self.assertEqual(document["id"], setting_id)
-            self.assertEqual(len(document["items"]), 3)
+            original = json.loads((ROOT / "settings" / f"{setting_id}.json").read_text(encoding="utf-8"))
+            self.assertEqual(len(document["items"]), len(original["items"]))
             for item in document["items"]:
                 self.assertEqual(len(item["slot"]), 4)
                 self.assertTrue(all(isinstance(value, int) for value in item["slot"]))
@@ -655,7 +656,7 @@ class VisionFixesTests(unittest.TestCase):
         for setting_id in ["surgical", "dental", "bench"]:
             out_file = tmp / f"marked_{setting_id}.json"
             marked = mark_setting(setting_id, repo=Path("."), fake=True, out_path=out_file)
-            self.assertEqual(len(marked["slots"]), 3)
+            self.assertEqual(len(marked["slots"]), len(load_setting(Path("."), setting_id)["items"]))
             self.assertEqual(len(marked["return_spot"]), 4)
             self.assertTrue(out_file.exists())
 
