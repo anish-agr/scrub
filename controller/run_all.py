@@ -47,11 +47,16 @@ TUNNEL_QUICK_DEATHS = 5               # a tunnel that dies within 20 s this many
 TUNNEL_RE = re.compile(r"https://[A-Za-z0-9.-]+\.(?:pinggy-free\.link|pinggy\.link|pinggy\.online|trycloudflare\.com"
                        r"|ngrok-free\.app|ngrok-free\.dev|ngrok\.app|ngrok\.io)\b")
 SETTING_ITEMS = {"surgical": {"scalpel", "hemostat", "mayo_scissors"},
-                 "bench": {"needle_nose_pliers", "wire_cutters", "hex_key"},
+                 "bench": {"needle_nose_pliers", "wire_cutters", "hex_key", "flathead_screwdriver", "phillips_screwdriver"},
                  "dental": {"mouth_mirror", "explorer", "cotton_pliers"}}
 BACKUP_SCRIPT = [("handover", "hemostat"), ("handover", "scalpel"), ("handover", "mayo_scissors"),
                  ("return", "hemostat"), ("count", None)]
 IDLE = ("idle", "stopped", "error")
+
+
+def split_command(command: str) -> list[str]:
+    parts = shlex.split(command, posix=os.name != "nt")
+    return [p[1:-1] if len(p) > 1 and p[0] == p[-1] and p[0] in "\"'" else p for p in parts]
 
 
 # ---------------------------------------------------------------- options
@@ -227,7 +232,7 @@ def plan(a, judge_ok: bool | None = None) -> tuple[list[Child], list[str]]:
         if skip and not a.tunnel_cmd:
             notes.append("tunnel not started: no voice to tunnel to")
         else:
-            cmd = shlex.split(a.tunnel_cmd) if a.tunnel_cmd else ["npm", "run", TUNNEL_SCRIPTS[a.tunnel]]
+            cmd = split_command(a.tunnel_cmd) if a.tunnel_cmd else ["npm", "run", TUNNEL_SCRIPTS[a.tunnel]]
             kids.append(Child("tunnel", cmd, ROOT / "voice", env, None))
     return kids, notes
 
@@ -338,7 +343,9 @@ def prepare_start(a, wiring: dict | None = None, holders=arm_holders, exists=os.
 
 def run_agent(a, url: str, say=print) -> tuple[bool, list[str]]:
     """Point the ElevenLabs agent at this tunnel (voice/scripts/agent.ts). Returns (ok, phone numbers it lists)."""
-    cmd = (shlex.split(a.agent_cmd) if a.agent_cmd else ["npm", "run", "-s", "agent", "--"]) + [url]
+    cmd = (split_command(a.agent_cmd) if a.agent_cmd else ["npm", "run", "-s", "agent", "--"]) + [url]
+    if os.name == "nt":
+        cmd[0] = shutil.which(cmd[0]) or cmd[0]
     try:
         out = subprocess.run(cmd, cwd=ROOT / "voice", capture_output=True, text=True, timeout=120)
     except (OSError, subprocess.TimeoutExpired) as e:
@@ -396,9 +403,17 @@ class Stack:
             self._out(text)
 
     def start(self, ch: Child) -> Child:
-        ch.proc = subprocess.Popen(ch.cmd, cwd=ch.cwd, env=ch.env, stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
-                                   stdin=subprocess.DEVNULL, text=True, bufsize=1, errors="replace",
-                                   start_new_session=True)  # own process group: we stop npm and its node together
+        cmd = list(ch.cmd)
+        env = ch.env
+        if os.name == "nt":
+            cmd[0] = shutil.which(cmd[0]) or cmd[0]  # CreateProcess does not resolve npm.cmd from bare "npm"
+            # An intentionally empty test env still needs this Windows loader variable.
+            env = {"SystemRoot": os.environ.get("SystemRoot", r"C:\Windows"), **env}
+        group = ({"creationflags": subprocess.CREATE_NEW_PROCESS_GROUP} if os.name == "nt"
+                 else {"start_new_session": True})
+        ch.proc = subprocess.Popen(cmd, cwd=ch.cwd, env=env, stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
+                                    stdin=subprocess.DEVNULL, text=True, bufsize=1, errors="replace",
+                                    **group)  # own process group: we stop npm and its node together
         ch.started = time.time()
         self.children.append(ch)
         ch.pump = threading.Thread(target=self._pump, args=(ch,), daemon=True)
@@ -459,7 +474,7 @@ class Stack:
         for ch in reversed(self.children):
             if ch.proc.poll() is None:
                 _signal(ch.proc, ch.stop_sig)
-        for sig, wait in ((signal.SIGTERM, 5.0), (signal.SIGKILL, 3.0)):
+        for sig, wait in ((signal.SIGTERM, 5.0), (getattr(signal, "SIGKILL", signal.SIGTERM), 3.0)):
             end = time.time() + wait
             while time.time() < end and any(ch.proc.poll() is None for ch in self.children):
                 time.sleep(0.1)
@@ -477,11 +492,18 @@ class Stack:
 
 def _signal(proc: subprocess.Popen, sig) -> None:
     try:
-        if hasattr(os, "killpg"):
+        if os.name == "nt":
+            if sig == signal.SIGINT:
+                proc.send_signal(signal.CTRL_BREAK_EVENT)
+            else:
+                # Only the child tree this Stack started, never another running stack.
+                subprocess.run(["taskkill", "/PID", str(proc.pid), "/T", "/F"],
+                               stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, timeout=5)
+        elif hasattr(os, "killpg"):
             os.killpg(proc.pid, sig)
-        else:  # Windows has no process groups here: stop the child itself
+        else:
             proc.terminate()
-    except (ProcessLookupError, PermissionError, OSError):
+    except (OSError, subprocess.TimeoutExpired):
         pass
 
 
