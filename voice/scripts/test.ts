@@ -1,6 +1,7 @@
 // Offline checks for parsing, the case summary and the custom-LLM endpoint: `npm test`.
 // No keys (VOICE_NO_KEYS=1 ignores .env), no real controller: the server runs against a fake one here.
-// Run it with `npm test` (sets CONTROLLER_URL to a dead port for the in-process checks).
+process.env.VOICE_NO_KEYS = process.env.VOICE_NO_KEYS || "1";
+process.env.CONTROLLER_URL = process.env.CONTROLLER_URL || "http://127.0.0.1:8269";
 import assert from "node:assert/strict";
 import { mkdtempSync, readFileSync } from "node:fs";
 import { tmpdir } from "node:os";
