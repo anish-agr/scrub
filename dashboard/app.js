@@ -210,10 +210,11 @@ function pushEvent(event) {
   if (event.step) model.step = event.step;
   if (event.item) model.item = event.item;
   if (event.request_to_hand_s != null) model.handoff = Number(event.request_to_hand_s);
-  if (event.type === "handed" || event.type === "set_down") {
+  if (Array.isArray(event.out)) {
+    model.out = event.out.filter((item) => item);
+  } else if (event.type === "handed" || event.type === "set_down") {
     if (event.item && !model.out.includes(event.item)) model.out.push(event.item);
-  }
-  if (event.type === "returned" && event.item) {
+  } else if (event.type === "returned" && event.item) {
     const index = model.out.indexOf(event.item);
     if (index >= 0) model.out.splice(index, 1);
   }
