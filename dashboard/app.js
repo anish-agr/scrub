@@ -519,6 +519,10 @@ async function sendCommand(action, item) {
   };
   try {
     const result = await postJson("/command", command);
+    if (result && result.clarify) {
+      pushEvent({ ...result.clarify, type: "clarify", command_id: command.id, t: result.clarify.t || Date.now() / 1000 });
+      return;
+    }
     if (result && result.accepted === false && result.reason) {
       pushEvent({
         type: "error",
