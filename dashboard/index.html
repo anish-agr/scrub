@@ -29,6 +29,7 @@
   </header>
 
   <p id="banner" class="banner" hidden></p>
+  <p id="vision-stale" class="banner stale" hidden>Vision stale. The tray camera is reusing its last reading.</p>
 
   <main>
     <section class="step-card">
@@ -39,6 +40,7 @@
         <div><dt>Hand</dt><dd id="hand-seen">—</dd></div>
         <div><dt>Queue</dt><dd id="queue">0</dd></div>
         <div><dt>Arm</dt><dd id="arm-mode">—</dd></div>
+        <div><dt>Lighting</dt><dd id="lighting-now">normal</dd></div>
         <div><dt>Last handoff</dt><dd id="handoff">—</dd></div>
       </dl>
     </section>
@@ -51,7 +53,7 @@
     <section class="camera-card">
       <p class="kicker">Camera</p>
       <div class="camera-frame">
-        <img id="camera" alt="Tray camera" src="http://localhost:8001/stream">
+        <img id="camera" alt="Tray camera">
         <p id="camera-fallback" class="camera-fallback">Camera stream is not up yet.</p>
       </div>
     </section>
@@ -64,6 +66,7 @@
     <section class="tables">
       <p class="kicker">Results</p>
       <p id="median" class="median">Median handoff —</p>
+      <p id="handoffs" class="handoffs"></p>
       <div class="table-wrap">
         <table id="by-item">
           <caption>By item</caption>
@@ -94,6 +97,7 @@
     </section>
   </main>
 
+  <button id="reset" type="button" class="reset" hidden>Reset</button>
   <button id="stop" type="button" class="stop">Stop</button>
   <p class="stop-hint">Spacebar stops the arm.</p>
 

@@ -85,6 +85,12 @@ select {
   color: #5c4308;
 }
 
+.banner.stale {
+  background: #f6d2c8;
+  color: #8a2412;
+  font-weight: 700;
+}
+
 main {
   display: grid;
   grid-template-columns: 1.2fr 0.8fr;
@@ -139,7 +145,7 @@ h1.stopped, h1.error { color: var(--red); }
 
 .meta {
   display: grid;
-  grid-template-columns: repeat(4, minmax(0, 1fr));
+  grid-template-columns: repeat(auto-fit, minmax(96px, 1fr));
   gap: 8px;
   margin: 18px 0 0;
 }
@@ -315,6 +321,31 @@ th {
 
 .empty-note { color: var(--muted); margin: 10px 0 0; }
 .tables.has-rows .empty-note { display: none; }
+.tables:not(.has-rows) .table-wrap { display: none; }
+
+.handoffs {
+  margin: -4px 0 12px;
+  color: var(--muted);
+  font-variant-numeric: tabular-nums;
+}
+
+.reset {
+  display: block;
+  width: 100%;
+  margin-top: 14px;
+  border: 1px solid var(--ink);
+  border-radius: 16px;
+  background: white;
+  color: var(--ink);
+  font-size: 22px;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  padding: 14px 16px;
+  cursor: pointer;
+}
+
+.reset[hidden] { display: none; }
 
 @media (max-width: 860px) {
   .top, .pickers { flex-direction: column; align-items: stretch; }
