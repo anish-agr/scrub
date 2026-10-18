@@ -1,4 +1,4 @@
-"""Manual training commands. Never submits a job without an explicit train command."""
+"""Manual training commands. Jobs are submitted only by train or pipeline."""
 from __future__ import annotations
 
 import argparse
@@ -8,6 +8,7 @@ import time
 
 from .perceptron import APIError, Perceptron
 from .upload_dataset import upload
+from .pipeline import run_pipeline
 
 
 def emit(value):
@@ -69,9 +70,29 @@ def main(argv=None):
     sub.add_parser("deployments")
     contract = sub.add_parser("contract")
     contract.add_argument("id")
+    pipeline = sub.add_parser("pipeline", help="preflight local export, register HF, validate, train and deploy")
+    pipeline.add_argument("root")
+    pipeline.add_argument("--cadence-report", required=True)
+    pipeline.add_argument("--repo-id")
+    pipeline.add_argument("--name", default="scrub")
+    pipeline.add_argument("--revision", default="main")
+    pipeline.add_argument("--idempotency-key")
+    pipeline.add_argument("--state-file")
+    pipeline.add_argument("--env-file")
+    pipeline.add_argument("--backend", choices=["standard", "shared"], default="standard")
+    pipeline.add_argument("--mode", choices=["expert_only", "backbone_lora", "full"], default="expert_only")
+    pipeline.add_argument("--steps", type=int, default=1000)
+    pipeline.add_argument("--interval", type=float, default=5)
+    pipeline.add_argument("--timeout", type=float, default=21600)
+    pipeline.add_argument("--check-only", action="store_true")
+    pipeline.add_argument("--confirmed-replay", action="store_true")
+    pipeline.add_argument("--confirmed-hf-matches-local", action="store_true")
     args = parser.parse_args(argv)
     api = None
     try:
+        if args.command == "pipeline":
+            run_pipeline(args, emit=emit)
+            return
         api = Perceptron()
         if args.command == "capabilities":
             emit(api.capabilities())
@@ -101,7 +122,7 @@ def main(argv=None):
             emit(api.deployments())
         elif args.command == "contract":
             emit(api.contract(args.id))
-    except (APIError, ValueError) as error:
+    except (APIError, ValueError, OSError, KeyError) as error:
         print(str(error), file=sys.stderr)
         raise SystemExit(1) from None
     finally:

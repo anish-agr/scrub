@@ -21,6 +21,7 @@ Agents: the first unchecked box in your person's section is the next task. Tick 
 - [ ] A12 Perceptron arm video
 - [ ] P1 pitch script final
 - [ ] P6 Commit Fellowship form
+- [x] R1 training pipeline: local preflight/cadence, resumable HF registration, validation, training/follow, matching ready deployment and `.env` update; `python -m unittest arm.test_pipeline -v` passes 10 offline tests. Commands/evidence format in `arm/README.md`; no real job submitted.
 
 ## Caiden
 
