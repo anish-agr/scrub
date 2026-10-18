@@ -96,11 +96,11 @@ function render() {
   const itemLine = $("step-item");
   itemLine.textContent = model.item ? nameOf(model.item) : "";
 
-  $("hand-seen").textContent = model.handSeen == null ? "—" : model.handSeen ? "seen" : "lost";
+  $("hand-seen").textContent = model.handSeen == null ? "--" : model.handSeen ? "seen" : "lost";
   $("queue").textContent = String(model.queue.length);
-  $("arm-mode").textContent = model.fakeArm == null ? "—" : model.fakeArm ? "fake" : "real";
-  $("lighting-now").textContent = model.lighting || "—";
-  $("handoff").textContent = model.handoff == null ? "—" : `${model.handoff.toFixed(1)}s`;
+  $("arm-mode").textContent = model.fakeArm == null ? "--" : model.fakeArm ? "fake" : "real";
+  $("lighting-now").textContent = model.lighting || "--";
+  $("handoff").textContent = model.handoff == null ? "-- s" : `${model.handoff.toFixed(1)} s`;
   const recent = model.events
     .filter((event) => event.request_to_hand_s != null)
     .slice(-6)
@@ -509,12 +509,12 @@ function ledgerOrigin() {
 }
 
 function percent(rate) {
-  if (rate == null || Number.isNaN(Number(rate))) return "—";
+  if (rate == null || Number.isNaN(Number(rate))) return "--";
   return `${Math.round(Number(rate) * 100)}%`;
 }
 
 function seconds(value) {
-  if (value == null || Number.isNaN(Number(value))) return "—";
+  if (value == null || Number.isNaN(Number(value))) return "--";
   return `${Number(value).toFixed(1)}s`;
 }
 

@@ -1,15 +1,31 @@
 <!DOCTYPE html>
-<html lang="en">
+<!-- STYLE: Medical device HMI, shared Scrub monitor theme. -->
+<html lang="en" data-theme="monitor">
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>Scrub</title>
   <link rel="stylesheet" href="style.css">
+  <style>
+    .brand{display:flex;align-items:center;flex-wrap:wrap;gap:12px 18px}.brand a{font-size:13px;min-height:44px;display:inline-flex;align-items:center}
+    .pickers{display:flex;gap:16px}.pickers label{display:grid;gap:6px;font:700 12px var(--f);letter-spacing:.14em;text-transform:uppercase;color:var(--mute)}
+    main{display:grid;grid-template-columns:minmax(0,1.2fr) minmax(0,1fr);gap:0 32px;grid-template-areas:"step out" "camera log" "tables tables" "commands commands"}
+    .step-card{grid-area:step}.out-card{grid-area:out}.camera-card{grid-area:camera}.log-card{grid-area:log}.tables{grid-area:tables}.commands{grid-area:commands}
+    #step{font-size:clamp(44px,6vw,88px);text-transform:uppercase;margin:0;min-height:1em}.moving{color:var(--cyan)}.step-item{font-size:24px;min-height:1.4em;margin:12px 0}.next-likely{color:var(--mute);font-size:16px}
+    .meta{display:grid;grid-template-columns:repeat(5,minmax(0,1fr));gap:12px;margin:24px 0 0}.meta div{border-top:1px solid var(--hair);padding-top:8px}.meta dd{margin:6px 0 0;font-size:18px}
+    .out li{font-size:28px}.camera-frame{margin-top:12px}.camera-frame img{display:none}.camera-frame.has-stream img{display:block}.camera-frame.has-stream .camera-fallback{display:none}
+    .camera-fallback{position:absolute;inset:0;display:grid;place-items:center;text-align:center;padding:20px;color:var(--mute)}
+    .log{max-height:360px;overflow:auto}.log li{display:grid;grid-template-columns:72px 90px minmax(0,1fr);gap:8px}.log .kind{color:var(--ink);text-transform:uppercase}.log time{color:var(--mute)}
+    .item-row{display:flex;flex-wrap:wrap;gap:8px;margin:12px 0 0}.tables:not(.has-rows) .table-wrap{display:none}.scrub-ui .tables.has-rows .table-wrap{display:grid}.handoffs{color:var(--mute);font:13px var(--m)}
+    .safety-dock{position:sticky;bottom:0;z-index:10;padding:12px 24px;background:var(--paper);border-top:4px solid var(--ink);display:grid;grid-template-columns:auto 1fr;gap:8px 16px;align-items:center}
+    .safety-dock .stop{grid-column:2;grid-row:1;min-height:64px;font-size:30px}.safety-dock .reset{min-height:64px}.stop-hint{grid-column:1/-1;text-align:right;font:12px var(--m);color:var(--mute);margin:0}.safety-dock:has(.reset[hidden]) .stop{grid-column:1/-1}
+    @media(max-width:860px){main{grid-template-columns:minmax(0,1fr);grid-template-areas:"step" "out" "camera" "log" "tables" "commands"}.pickers{width:100%;flex-wrap:wrap}.pickers label{flex:1}.meta{grid-template-columns:repeat(2,minmax(0,1fr))}.log li{grid-template-columns:66px minmax(0,1fr)}.log li>:last-child{grid-column:2}.safety-dock{padding:10px 16px}.safety-dock .stop{font-size:26px}}
+  </style>
 </head>
-<body>
+<body class="scrub-ui" data-page="dashboard">
   <header class="top">
     <div class="brand">
-      <span class="mark">Scrub</span>
+      <div><span class="mark">Scrub</span><span class="subtitle">Live instrument station</span></div>
       <span id="link-pill" class="pill">connecting</span>
       <a id="case-link" href="#">This case</a>
       <a id="cases-link" href="http://127.0.0.1:8080/cases.html">Cases</a>
@@ -33,7 +49,7 @@
     </div>
   </header>
 
-  <p id="banner" class="banner" hidden></p>
+  <p id="banner" class="banner warning" role="status" hidden></p>
   <p id="vision-stale" class="banner stale" hidden>Vision stale. The tray camera is reusing its last reading.</p>
 
   <main>
@@ -43,11 +59,11 @@
       <p id="step-item" class="step-item"></p>
       <p id="next-likely" class="next-likely"></p>
       <dl class="meta">
-        <div><dt>Hand</dt><dd id="hand-seen">—</dd></div>
+        <div><dt>Hand</dt><dd id="hand-seen">--</dd></div>
         <div><dt>Queue</dt><dd id="queue">0</dd></div>
-        <div><dt>Arm</dt><dd id="arm-mode">—</dd></div>
+        <div><dt>Arm</dt><dd id="arm-mode">--</dd></div>
         <div><dt>Lighting</dt><dd id="lighting-now">normal</dd></div>
-        <div><dt>Last handoff</dt><dd id="handoff">—</dd></div>
+        <div><dt>Last handoff</dt><dd id="handoff">-- s</dd></div>
       </dl>
     </section>
 
@@ -60,6 +76,7 @@
       <p class="kicker">Camera</p>
       <div class="camera-frame">
         <img id="camera" alt="Tray camera">
+        <span class="camera-label">CAM OVERHEAD · TRAY VIEW</span>
         <p id="camera-fallback" class="camera-fallback">Camera stream is not up yet.</p>
       </div>
     </section>
@@ -71,7 +88,7 @@
 
     <section class="tables">
       <p class="kicker">Results</p>
-      <p id="median" class="median">Median handoff —</p>
+      <p id="median" class="median">Median handoff -- s</p>
       <p id="handoffs" class="handoffs"></p>
       <div class="table-wrap">
         <table id="by-item">
@@ -103,9 +120,12 @@
     </section>
   </main>
 
-  <button id="reset" type="button" class="reset" hidden>Reset</button>
-  <button id="stop" type="button" class="stop">Stop</button>
-  <p class="stop-hint">Spacebar stops the arm.</p>
+  <footer>Team Scrub · DubHacks '26 <a href="#">Terms</a><a href="#">Privacy</a></footer>
+  <div class="safety-dock">
+    <button id="reset" type="button" class="reset" hidden>Reset</button>
+    <button id="stop" type="button" class="stop">Stop</button>
+    <p class="stop-hint">Spacebar stops the arm. A person must reset.</p>
+  </div>
 
   <script src="app.js"></script>
 </body>
