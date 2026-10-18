@@ -14,6 +14,7 @@ import { isStop, isTrayCheck, localParse } from "../src/parse.js";
 import { caseFacts, clock, endCase, newCase, recordEvent, setCaller, templateSummary, textCaller } from "../src/summary.js";
 import type { Setting } from "../src/settings.js";
 import { CANT_CHECK, textTrayCheck, trayReadyText, voiceTrayCheck } from "../src/tray.js";
+import { BUSY, settingAsked, switchSetting } from "../src/cases.js";
 import { HELP, countReply, handleText, localText, logRestock, runTexts, type InMessage, type InSpace, type Restock } from "../src/texts.js";
 
 const bench: Setting = { id: "bench", label: "Robotics bench", items: [
@@ -107,6 +108,30 @@ assert.equal(JSON.parse(readFileSync(tmp, "utf8").trim()).item, "hemostat");
 await logRestock(restocks[0], tmp, async () => ({ ok: true }));  // the ledger took it: nothing more in the file
 assert.equal(readFileSync(tmp, "utf8").trim().split("\n").length, 1);
 
+// Switching trays by text (X5): local match, fake POST /setting (ok, 409 busy, 404 unknown, down).
+assert.deepEqual(localText("start a dental case", surgical), { kind: "setting", item: null, qty: 1, setting: "dental" });
+assert.equal(localText("Switch to the bench tray", surgical).setting, "bench");
+assert.equal(localText("surgical case", surgical).kind, "setting");
+assert.equal(localText("add a second hemostat to the surgical tray", surgical).kind, "restock");  // not a switch
+assert.equal(settingAsked("grab me the kelly"), null);
+assert.equal(settingAsked("the dental mirror"), null);
+const dentalFile = { id: "dental", label: "Dental office", items: [{ id: "mouth_mirror", name: "mouth mirror" },
+  { id: "explorer", name: "explorer" }, { id: "cotton_pliers", name: "cotton pliers" }] };
+const posted: string[] = [];
+const fakePost = (status: number) => async (id: string) => { posted.push(id); return { status, setting: status === 200 ? dentalFile : null }; };
+assert.equal(await switchSetting("dental", fakePost(200)), "Dental case started: mouth mirror, explorer, cotton pliers.");
+assert.equal(await switchSetting("dental", fakePost(409)), BUSY);
+assert.equal(await switchSetting("dental", fakePost(404)), "I don't have a dental tray.");
+assert.equal(await switchSetting("dental", async () => { throw new Error("down"); }), "I can't reach the arm controller.");
+assert.deepEqual(posted, ["dental", "dental", "dental"]);
+const switched: string[] = [];
+const switchDeps = { ...deps, switchTo: async (id: string) => { switched.push(id); return switchSetting(id, fakePost(200)); } };
+summaries = 0;
+assert.equal(await handleText("start a dental case", "+15555550123", switchDeps), "Dental case started: mouth mirror, explorer, cotton pliers.");
+assert.deepEqual(switched, ["dental"]);
+assert.equal(summaries, 0);  // the previous case's summary is not sent on a switch
+assert.equal(await handleText("switch to the bench tray", null, { ...deps, switchTo: (id: string) => switchSetting(id, fakePost(409)) }), BUSY);
+
 // Call-to-text memory (F4): events grouped by case_id, the text names the case, goes to the caller. Fake sender, no Gemini.
 const start = Math.floor(Date.now() / 1000) - 600;
 ev("released", { command_id: "z", item: "scalpel", case_id: `surgical-${start - 900}`, setting: "surgical" });  // an older case
@@ -181,6 +206,7 @@ const ctl = http.createServer((req, res) => {
   req.on("data", (d) => (raw += d));
   req.on("end", () => {
     res.setHeader("content-type", "application/json");
+    if (req.method === "POST" && req.url === "/setting") return res.end(JSON.stringify(dentalFile));
     if (req.url === "/setting") return res.end(JSON.stringify({ id: "surgical", label: "Operating room",
       items: [{ id: "hemostat", name: "hemostat", aliases: ["kelly"] }, { id: "scalpel", name: "scalpel", aliases: ["knife"], sharp: true }] }));
     if (req.url === "/tray_check") return res.end(JSON.stringify(trayAnswer));
@@ -237,6 +263,9 @@ try {
   assert.equal(await turn("stop"), "Stopped.");
   assert.deepEqual(hits, ["POST /stop"]);  // no GET /setting, no Gemini, no /command
   assert.ok(!out.join("").includes("[gemini]"));
+  hits.length = 0;
+  assert.equal(await turn("start a dental case"), "Dental case started: mouth mirror, explorer, cotton pliers.");
+  assert.deepEqual(hits, ["POST /setting"]);  // a phrase match: no Gemini, no /command
 
   hits.length = 0;
   assert.equal(await turn("check the tray"), READY.say);

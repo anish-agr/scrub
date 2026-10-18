@@ -48,6 +48,12 @@ export interface TrayCheck {
 }
 export const getTrayCheck = (): Promise<TrayCheck> => call("GET", "/tray_check", undefined, 5000);
 export const getStats = (): Promise<unknown> => call("GET", "/stats");
+// POST /setting: the HTTP status (409 busy, 404 unknown id) and, on 200, the loaded setting file.
+export async function postSetting(id: string): Promise<{ status: number; setting: any }> {
+  const res = await fetch(CONTROLLER_URL + "/setting", { method: "POST", headers: { "content-type": "application/json" },
+    body: JSON.stringify({ setting: id }), signal: AbortSignal.timeout(3000) });
+  return { status: res.status, setting: res.ok ? await res.json() : null };
+}
 // For GET /health: is the controller up? Never throws.
 export const controllerUp = (): Promise<boolean> =>
   fetch(CONTROLLER_URL + "/state", { signal: AbortSignal.timeout(1000) }).then((r) => r.ok, () => false);

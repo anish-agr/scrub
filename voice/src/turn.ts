@@ -1,6 +1,7 @@
 // One caller turn: what was heard -> controller -> the lines Scrub speaks back.
 // Event `say` lines stream into the open reply. Lines that arrive with no reply open wait for the next turn.
 import { HOLD_S } from "./config.js";
+import { settingAsked, switchSetting } from "./cases.js";
 import { followEvents, makeCommand, postCommand, postStop, type ScrubEvent } from "./controller.js";
 import { isEndCase, isStop, isTrayCheck, parse } from "./parse.js";
 import { currentSetting, forgetSetting } from "./settings.js";
@@ -87,6 +88,13 @@ async function run(heard: string, hold: (types: string[], holdS: number) => void
   }
   if (isTrayCheck(heard)) {
     speak(await voiceTrayCheck());
+    hold([], 0.5);
+    return;
+  }
+  // "start a dental case": a local phrase match, before Gemini (the Command actions don't include it).
+  const asked = settingAsked(heard);
+  if (asked) {
+    speak(await switchSetting(asked));
     hold([], 0.5);
     return;
   }
