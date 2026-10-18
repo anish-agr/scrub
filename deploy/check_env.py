@@ -35,9 +35,6 @@ ROLES = {
         ],
         "ledger": [
             ("MONGODB_URI", True),
-            ("TIGER_DATABASE_URL", True),
-            ("BACKBOARD_API_KEY", True),
-            ("BACKBOARD_ASSISTANT_ID", True),
         ],
         "vision": [
             ("PERCEPTRON_API_KEY", True),
@@ -220,7 +217,7 @@ def check_elevenlabs() -> tuple[str, str, str]:
         return ("ElevenLabs", *blocked[1:])
     try:
         response = httpx.get(
-            "https://api.elevenlabs.io/v1/user",
+            "https://api.elevenlabs.io/v1/models",  # the sk_ key has no user_read, so not /v1/user
             headers={"xi-api-key": os.environ["ELEVENLABS_API_KEY"]},
             timeout=20,
         )
@@ -232,7 +229,7 @@ def check_elevenlabs() -> tuple[str, str, str]:
                 timeout=20,
             )
             if agent.status_code != 200:
-                return row("ElevenLabs", False, f"user ok, agent HTTP {agent.status_code}")
+                return row("ElevenLabs", False, f"models ok, agent HTTP {agent.status_code}")
         return row("ElevenLabs", ok, detail)
     except httpx.HTTPError as exc:
         return row("ElevenLabs", False, type(exc).__name__)
@@ -379,8 +376,6 @@ def live_rows() -> list[tuple[str, str, str]]:
         check_elevenlabs(),
         check_photon(),
         check_mongo(),
-        check_tiger(),
-        check_backboard(),
         check_hf(),
         check_public(),
         check_port("controller :8000", controller + "/state"),
