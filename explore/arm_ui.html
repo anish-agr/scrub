@@ -34,6 +34,12 @@ body{padding:12px;display:flex;flex-direction:column;gap:12px;min-height:100vh}
 #cams{display:grid;grid-template-columns:1fr 1fr;gap:12px;align-content:start}
 .cam{position:relative;aspect-ratio:4/3;background:#000;border-radius:12px;overflow:hidden;border:2px solid var(--line)}
 .cam img{width:100%;height:100%;object-fit:cover;display:block}
+.cam img.ghost{position:absolute;inset:0;opacity:.45;display:none;pointer-events:none;mix-blend-mode:screen}
+.cam.ghosting img.ghost{display:block}
+#refbar{display:flex;gap:8px;margin-top:8px}
+#refbar button{flex:1;font:inherit;font-size:16px;font-weight:800;padding:10px;border:0;border-radius:10px;cursor:pointer;background:var(--panel2);color:var(--text)}
+#refbar button.on{background:var(--teal);color:#021a17}
+#lastep{margin-top:6px;font-size:16px;color:var(--muted)} #lastep.bad{color:var(--red);font-weight:800}
 .cam .ph{position:absolute;inset:0;display:none;align-items:center;justify-content:center;color:var(--muted);font-size:24px;font-weight:700}
 .cam.none img{display:none} .cam.none .ph{display:flex}
 .lbl{position:absolute;left:8px;top:8px;background:rgba(0,0,0,.7);padding:4px 12px;border-radius:8px;font-size:22px;font-weight:800}
@@ -69,7 +75,7 @@ body{padding:12px;display:flex;flex-direction:column;gap:12px;min-height:100vh}
 <div id="warn"></div>
 <div id="main">
   <div id="cams">
-    <div class="cam" id="cam-side"><img alt=""><div class="ph">No camera</div><div class="lbl">Side</div><div class="chip">--</div></div>
+    <div class="cam" id="cam-side"><img alt=""><img class="ghost" alt="" id="ghost"><div class="ph">No camera</div><div class="lbl">Side</div><div class="chip">--</div></div>
     <div class="cam" id="cam-wrist"><img alt=""><div class="ph">No camera</div><div class="lbl">Wrist</div><div class="chip">--</div></div>
   </div>
   <div id="side">
@@ -84,6 +90,8 @@ body{padding:12px;display:flex;flex-direction:column;gap:12px;min-height:100vh}
       <div style="display:flex;justify-content:space-between;color:var(--muted);font-size:13px;margin:-4px 70px 0 138px"><span>Closed</span><span>Open</span></div>
       <div class="pills"><span class="pill" id="guard">Claw guard: --</span><span class="pill" id="hz">Loop -- Hz</span></div>
       <div id="ds"></div>
+      <div id="lastep"></div>
+      <div id="refbar"><button id="b-ref" title="Save the side camera view as the setup to match">Save setup photo</button><button id="b-ghost" title="Overlay the saved setup on the live side view">Ghost: off</button></div>
     </div>
     <div id="log"></div>
   </div>
@@ -125,7 +133,19 @@ function setCam(name,s){
 ["side","wrist"].forEach(n=>{const img=$("cam-"+n).querySelector("img");
   img.addEventListener("error",()=>{if(!img.dataset.on)return;setTimeout(()=>{if(img.dataset.on)img.src="/stream/"+n+"?t="+Date.now();},2000);});});
 
+let ghost=false;
+$("b-ref").onclick=async()=>{const r=await fetch("/reference",{method:"POST"}).then(r=>r.json()).catch(()=>({}));
+  $("b-ref").textContent=r.ok?"Saved ✓":"No side camera";setTimeout(()=>$("b-ref").textContent="Save setup photo",1500);
+  $("ghost").src="/reference.jpg?t="+Date.now();};
+$("b-ghost").onclick=()=>{ghost=!ghost;$("b-ghost").classList.toggle("on",ghost);$("b-ghost").textContent="Ghost: "+(ghost?"on":"off");
+  if(ghost)$("ghost").src="/reference.jpg?t="+Date.now();$("cam-side").classList.toggle("ghosting",ghost);};
 function render(s){
+  $("b-ghost").disabled=!s.reference; $("b-ghost").style.opacity=s.reference?1:.4;
+  const le=s.last_episode;
+  if(le){const slow=Object.entries(le.camera_fps||{}).filter(([k,v])=>v<29).map(([k,v])=>`${k} ${v} fps`);
+    const bad=le.measured_fps<29||le.measured_fps>31||slow.length;
+    $("lastep").className=bad?"bad":"";
+    $("lastep").textContent=`Last episode ${le.episode_index}: loop ${le.measured_fps} Hz`+(slow.length?` · slow camera: ${slow.join(", ")} (re-record)`:" ✓");}
   const p=PH[s.phase]||[String(s.phase).toUpperCase(),"var(--grey)"];
   const b=$("badge"); b.className=s.phase; $("badgetxt").textContent=p[0];
   $("barfill").style.background=p[1];
