@@ -197,6 +197,14 @@ class VideoTests(unittest.TestCase):
         with self.assertRaises(ValueError):
             reader.get(1)
 
+    def test_preview_keeps_the_edl_duration_at_low_resolution(self):
+        from video.edit import render
+        edl,bindings=self.make_short_edit()
+        report=render(self.ws,edl,bindings,'renders/preview.mp4',demo=True,preview=True)
+        self.assertEqual((report['width'],report['height'],report['fps']),(640,360,15))
+        self.assertEqual(report['duration_s'],1)
+        self.assertEqual(report['frames'],15)
+
 
 if __name__ == "__main__":
     unittest.main()
