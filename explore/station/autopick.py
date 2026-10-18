@@ -88,9 +88,13 @@ def min_jerk(s: float) -> float:
 class AutoPick:
     name = "autopick"
 
-    def __init__(self, calib: dict | None = None, detector=None, kin=None, label="scalpel handle"):
+    def __init__(self, args: dict | None = None, calib: dict | None = None, detector=None, kin=None):
+        args = dict(args or {})
+        label = args.get("label", "scalpel handle")
+        if not isinstance(label, str) or not label.strip():
+            raise ValueError("label must be a non-empty string")
         self.cal = calib or load_calib()
-        self.detector, self.label = detector, label
+        self.detector, self.label = detector, label.strip()
         if kin is None:
             import sys
             if str(ROOT) not in sys.path:
@@ -121,7 +125,7 @@ class AutoPick:
         if self._aborted:
             return None
         if self._phase == "detect":
-            return self._hold_action(self.start_pose)  # stay put while the detector runs
+            return {}  # hold everything while the detector runs on its own thread
         if self._phase == "failed":
             return {"done": "home"}
         if not self.plan:
@@ -207,7 +211,8 @@ class AutoPick:
         approach = self._ik([xy[0], xy[1], zg + cal["approach_dz_m"]], list(grasp.values()))
         lift = self._ik([xy[0], xy[1], zg + cal["lift_dz_m"]], list(grasp.values()))
         home = {m: float(cal["home_deg"][m]) for m in JOINTS}
-        slow = WARM_SLOW if max((st.temps or {}).values(), default=0) >= WARM_C else 1.0
+        temps = st.temps() if callable(getattr(st, "temps", None)) else (getattr(st, "temps", None) or {})
+        slow = WARM_SLOW if max([t for t in temps.values() if isinstance(t, (int, float))], default=0) >= WARM_C else 1.0
         steps = [  # name, arm pose, gripper, extra hold
             ("raise", lift, JAW_OPEN, 0.0, "high above the handle, clear of the tray"),
             ("approach", approach, JAW_OPEN, 0.3, "above the handle, jaw open"),
