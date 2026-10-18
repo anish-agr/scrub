@@ -13,6 +13,17 @@ export const isGotIt = (s: string) =>
 // "check the tray", "is the tray ready", "tray check": GET /tray_check, not a Command (the action enum stays as is).
 export const isTrayCheck = (s: string) =>
   /\b(check (the |my |your )?tray|tray check|(is|are) (the |my )?tray (ready|set( up)?|good|complete|okay|ok)|tray (is )?ready\s*\?)/i.test(s);
+// Reading (OCR pass): "read the count sheet", "what tray is this", "read the pack". Checked before the count and
+// handover words ("count sheet" has "count" in it). "check the tray" stays a tray check (isTrayCheck, in turn.ts first).
+const READS: { action: Action; re: RegExp }[] = [
+  { action: "read_sheet", re: /\b(read|check|scan) (the |my |this |our )?(count )?sheet\b|\bcount sheet\b/ },
+  { action: "read_tray", re: /\b(what|which) tray (is (this|that|it)|this is|am i on|are we on)\b|\b(read|scan) (the |this |that )?tray( s)? (tag|label|qr|code)\b|\bwhat does the tray (tag|label) say\b/ },
+  { action: "read_pack", re: /\b(read|check|scan) (the |this |that |my )?(sterile )?pack( label| labels| tag)?\b|\b(is|are) (this|that|the|these) (sterile )?packs? (expired|out of date|in date|good|still good)\b|\bpack label\b/ },
+];
+export function readAction(heard: string): Action | null {
+  const s = ` ${norm(heard)} `;
+  return READS.find((r) => r.re.test(s))?.action ?? null;
+}
 export const isEndCase = (s: string) => /\b(end (of )?(the )?case|case (is )?(over|done|closed|complete)|close (out )?(the )?case|wrap (it )?up)\b/i.test(s);
 
 export interface Parsed { action: Action; item: string | null; via: "local" | "gemini" }
@@ -33,6 +44,8 @@ export function parseStats() {
 export async function parse(heard: string, setting: Setting): Promise<Parsed> {
   if (isStop(heard)) return { action: "stop", item: null, via: "local" };
   if (isGotIt(heard)) return { action: "got_it", item: null, via: "local" };
+  const read = readAction(heard);
+  if (read) return { action: read, item: null, via: "local" };
   if (ai) {
     const t0 = Date.now();
     try {
@@ -45,6 +58,17 @@ export async function parse(heard: string, setting: Setting): Promise<Parsed> {
   return { ...localParse(heard, setting), via: "local" };
 }
 
+// Gemini's answer shape: a fixed list of actions and item ids, so it can never invent either.
+export const commandSchema = (ids: string[]) => ({
+  type: Type.OBJECT,
+  properties: {
+    action: { type: Type.STRING, enum: ACTIONS },
+    item: { type: Type.STRING, enum: [...ids, "none"] },
+  },
+  required: ["action", "item"],
+  propertyOrdering: ["action", "item"],
+});
+
 async function geminiParse(heard: string, setting: Setting): Promise<{ action: Action; item: string | null }> {
   const ids = setting.items.map((i) => i.id);
   const list = setting.items.map((i) => `- ${i.id}: ${i.name}${i.aliases.length ? ` (also: ${i.aliases.join(", ")})` : ""}`).join("\n");
@@ -56,6 +80,9 @@ Actions:
 - count: they want to know what's out or the count
 - got_it: they have the instrument, release it
 - stop: stop moving now
+- read_sheet: read the paper count sheet in view ("read the count sheet", "check the count sheet")
+- read_tray: read the tray tag or label to tell which tray this is ("what tray is this", "read the tray tag")
+- read_pack: read a sterile pack label, lot or expiry date ("read the pack", "is this pack expired")
 - unknown: anything else, or you can't tell which instrument
 Instruments on this tray:
 ${list}
@@ -66,15 +93,7 @@ Clinician said: "${heard}"`;
     contents: prompt,
     config: {
       responseMimeType: "application/json",
-      responseSchema: {
-        type: Type.OBJECT,
-        properties: {
-          action: { type: Type.STRING, enum: ACTIONS },
-          item: { type: Type.STRING, enum: [...ids, "none"] },
-        },
-        required: ["action", "item"],
-        propertyOrdering: ["action", "item"],
-      },
+      responseSchema: commandSchema(ids),
       temperature: 0,
       abortSignal: AbortSignal.timeout(GEMINI_TIMEOUT_MS),
     },
@@ -122,6 +141,8 @@ export function parseAlias(heard: string, setting: Setting): { item: string; ali
 
 export function localParse(heard: string, setting: Setting): { action: Action; item: string | null } {
   const s = ` ${norm(heard)} `;
+  const read = readAction(heard);
+  if (read) return { action: read, item: null };
   // "take back the mayo scissors" is a return, not a handover of the scissors.
   if (/\b(put (it|that|this) back|return|put back|take (it |that |this )?back)\b/.test(s)) return { action: "return", item: null };
   if (/\b(count|what s out|whats out|what is out|how many)\b/.test(s)) return { action: "count", item: null };

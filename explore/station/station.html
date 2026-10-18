@@ -20,7 +20,7 @@ body{padding:12px;display:flex;flex-direction:column;gap:10px;min-height:100vh}
 #badge{font-size:clamp(24px,3.4vw,44px);font-weight:700;letter-spacing:.04em;padding:6px 20px;background:var(--grey);color:#fff;white-space:nowrap}
 #badge.recording{background:var(--red);animation:pulse 1.2s infinite}
 #badge.idle{background:var(--teal);color:#021a17}
-#badge.homing,#badge.parked{background:var(--blue)}
+#badge.homing,#badge.parked,#badge.off{background:var(--blue)}
 #badge.cooling{background:var(--amber);color:#1a1200}
 #badge.killed,#badge.error{background:#000;color:var(--red);outline:3px solid var(--red)}
 @keyframes pulse{0%,100%{opacity:1}50%{opacity:.55}}
@@ -94,7 +94,7 @@ button.big:disabled{opacity:.3;cursor:default}
 <script>
 const $=id=>document.getElementById(id);
 const M=["shoulder_pan","shoulder_lift","elbow_flex","wrist_flex","wrist_roll","gripper"];
-const LABEL={idle:"TELEOP",recording:"RECORDING",homing:"GOING HOME",parked:"PARKED",cooling:"COOLING",killed:"KILLED",error:"ERROR"};
+const LABEL={idle:"TELEOP",recording:"RECORDING",homing:"GOING HOME",parked:"PARKED",cooling:"COOLING",killed:"KILLED",error:"ERROR",off:"MOTORS OFF"};
 let st=null, fails=0, taskDirty=false;
 const fmt=s=>{s=Math.max(0,Math.floor(s));return String(Math.floor(s/60)).padStart(2,"0")+":"+String(s%60).padStart(2,"0");};
 async function send(action,extra){
@@ -127,7 +127,7 @@ function render(s){
   tg.disabled=!(rec||(s.state==="idle"&&!s.saving));
   $("b-discard").disabled=!rec;
   $("b-home").disabled=rec||!["idle"].includes(s.state);
-  $("b-wake").disabled=!(["parked","homing","killed"].includes(s.state)||(s.killed&&s.state!=="cooling"));
+  $("b-wake").disabled=!(["parked","homing","killed","off"].includes(s.state)||(s.killed&&s.state!=="cooling"));
   $("b-reconnect").style.display=s.state==="error"?"block":"none";
   $("temps").replaceChildren(...M.map(m=>{const t=(s.temps||{})[m], d=document.createElement("div");
     d.className="t "+(t==null?"":t>=60?"red":t>=55?"amber":"ok");
