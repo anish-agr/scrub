@@ -265,3 +265,38 @@ def test_calibrate_recovers_the_table_map(tmp_path, monkeypatch):
         assert np.linalg.norm(p[:2] / p[2] - q[:2] / q[2]) < 0.005
     finally:
         real.write_text(orig)
+
+
+def test_wrist_align_corrects_a_sideways_miss(monkeypatch):
+    """Side camera says y, the handle is really 2 cm off: the wrist camera sees the line off the jaw gap,
+    the test nudge measures px/m, and the grip lands on the real handle."""
+    import cv2
+    d = AP.AutoPick({"mode": "hold"}, detector=Det())
+    st = St()
+    true_dy = 0.02
+    k = -2500.0  # wrist px per metre (unknown to the driver, learned by the nudge)
+
+    def jpeg(cam):
+        if cam != "wrist":
+            return St.jpeg(st, cam)
+        tip = d.kin.forward(np.array([st.joints[m] for m in AP.JOINTS]))
+        x = AP.WRIST_GAP_X + k * ((d.found["xy_m"][1] + true_dy) - tip[1])
+        img = np.full((480, 640, 3), 225, np.uint8)
+        cv2.line(img, (int(x), 40), (int(x), 290), (40, 40, 40), 5)
+        return cv2.imencode(".jpg", img)[1].tobytes()
+    st.jpeg = jpeg
+    d.start(st)
+    d._detect_thread.join(10)
+    t = [0.0]
+    monkeypatch.setattr(AP.time, "perf_counter", lambda: t[0])
+    for _ in range(5000):
+        a = d.tick(st, {})
+        t[0] += 1 / 30
+        if a is None or "done" in a:
+            break
+        if a:
+            st.joints = {m: a.get(f"{m}.pos", st.joints[m]) for m in AP.JOINTS}
+            if "gripper.pos" in a:
+                st.gripper = max(10.5, a["gripper.pos"])
+    assert abs(d.xy_target[1] - (d.found["xy_m"][1] + true_dy)) < 0.004, (d.xy_target, d.found["xy_m"])
+    assert any(p["name"] == "descend" for p in d.plan)

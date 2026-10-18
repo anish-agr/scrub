@@ -181,6 +181,48 @@ LOCAL_MAX_RATIO = 0.38  # object brightness / the surface around it: black handl
                         # (relative, so a brighter or dimmer room shifts both alike)
 
 
+# ---- wrist camera: line the handle up between the jaw tips before going down
+WRIST_GAP_X, WRIST_GAP_Y = 330.0, 300.0   # jaw-gap centre in the 640x480 wrist image (camera rides on the gripper)
+ALIGN_NUDGE_M = 0.012                     # test nudge that measures px per metre at this height, in this room
+ALIGN_MAX_M = 0.03
+
+
+def wrist_line(bgr):
+    """(x where the instrument line crosses the jaw-gap row, angle deg from vertical, length px) of the crisp
+    straight edge nearest the jaw gap, or None. Edges, not darkness: in the wrist view the handle's steel end
+    shines; soft hand shadows give no crisp edges."""
+    import cv2
+    h, w = bgr.shape[:2]
+    sx, sy = w / 640.0, h / 480.0
+    g = cv2.GaussianBlur(cv2.cvtColor(bgr, cv2.COLOR_BGR2GRAY), (5, 5), 0)
+    e = cv2.Canny(g, 60, 160)
+    e[int(WRIST_GAP_Y * sy):] = 0          # the jaws themselves
+    e[:, : int(130 * sx)] = 0              # the tray rim at the left edge
+    e[:, int(560 * sx):] = 0
+    lines = cv2.HoughLinesP(e, 1, np.pi / 180, 40, minLineLength=int(60 * sy), maxLineGap=10)
+    if lines is None:
+        return None
+    cand = []
+    for x1, y1, x2, y2 in lines[:, 0]:
+        x1, x2, y1, y2 = x1 / sx, x2 / sx, y1 / sy, y2 / sy
+        if abs(y2 - y1) < 1e-3:
+            continue  # horizontal: can't cross the gap row
+        ang = math.degrees(math.atan2(x2 - x1, y2 - y1))
+        ang = (ang + 90) % 180 - 90  # -90..90, 0 = straight up the image
+        if abs(ang) > 60:
+            continue
+        cand.append((x1 + (x2 - x1) * (WRIST_GAP_Y - y1) / (y2 - y1), ang, math.hypot(x2 - x1, y2 - y1)))
+    best = None
+    for xg, ang, length in cand:
+        # an instrument has two parallel edges: use the line halfway between them when the partner is there
+        mates = [c for c in cand if abs(c[1] - ang) < 8 and 6 <= abs(c[0] - xg) <= 70]
+        mid = (xg + max(mates, key=lambda c: c[2])[0]) / 2 if mates else xg
+        score = length + (40 if mates else 0) - 0.8 * abs(mid - WRIST_GAP_X)
+        if best is None or score > best[0]:
+            best = (score, float(mid), float(ang), float(length))
+    return None if best is None else best[1:]
+
+
 _reach_cache: dict = {}
 
 
@@ -340,6 +382,7 @@ class AutoPick:
         self.mode = args.get("mode", "handoff")
         if self.mode not in ("handoff", "hold", "offer", "calibrate", "look"):
             raise ValueError("mode must be 'handoff' (wait for a hand, release, go home) or 'hold' (bring it home)")
+        self.align = bool(args.get("align", True))  # wrist-camera line-up before going down
         self.detector_kind = args.get("detector", "local")
         if self.detector_kind not in ("local", "gemini"):
             raise ValueError("detector must be 'local' (on this Mac) or 'gemini' (cloud, then Perceptron)")
@@ -374,6 +417,8 @@ class AutoPick:
         self.handed = False
         self.hand = None          # handoff state: offer -> grabbed -> release -> check -> home
         self._jaw_hist = []
+        self.xy_target = None
+        self.al = None
 
     # ---- interface
     def start(self, st) -> None:
@@ -416,6 +461,12 @@ class AutoPick:
         if self.seg_t0 is None:
             self.seg_t0 = now
         seg = self.plan[self.seg]
+        if seg["name"] == "align":
+            out = self._align_tick(st, now, seg)
+            if out is not None:
+                return out
+            seg = self.plan[self.seg]  # alignment finished and re-planned from here
+            self.seg_t0 = now
         f = min_jerk((now - self.seg_t0) / seg["dur"])
         pose = {k: seg["from"][k] + (seg["to"][k] - seg["from"][k]) * f for k in seg["to"]}
         self._track_jaw(st, now, seg, pose["gripper"])
@@ -573,6 +624,63 @@ class AutoPick:
             return self._hold_action(pose)
         return self._hold_action(pose)
 
+    def _wrist(self, st):
+        import cv2
+        jpg = st.jpeg("wrist") if hasattr(st, "jpeg") else None
+        return None if not jpg else cv2.imdecode(np.frombuffer(jpg, np.uint8), cv2.IMREAD_COLOR)
+
+    def _align_tick(self, st, now, seg):
+        """Hold above the handle, measure the wrist-camera line, test-nudge sideways to learn px/m, correct, then
+        re-plan descend/grip/lift/present from the corrected spot. Returns an action while busy, None when done."""
+        a = self.al
+        base = seg["to"]
+        if a is None:
+            a = self.al = {"state": "settle", "t0": now}
+            self._phase, self._detail = "align", "lining up with the wrist camera"
+        el = now - a["t0"]
+        if a["state"] == "settle":
+            if el < 0.5:
+                return self._hold_action(base)
+            a["m0"] = wrist_line(self._wrist(st)) if self._wrist(st) is not None else None
+            if a["m0"] is None:
+                return self._align_done(st, 0.0, "no clear line in the wrist camera; picking without it")
+            try:
+                xy = self.xy_target
+                nud = self._ik([xy[0], xy[1] + ALIGN_NUDGE_M, self.cal["grasp_z_m"] + self.cal["approach_dz_m"]],
+                               [base[m] for m in JOINTS])
+            except RuntimeError:
+                return self._align_done(st, 0.0, "test nudge out of reach; picking without it")
+            a.update(state="nudge", t0=now, nud={**nud, "gripper": base["gripper"]})
+            return self._hold_action(base)
+        if a["state"] == "nudge":
+            f = min_jerk(el / 0.6)
+            pose = {k: base[k] + (a["nud"][k] - base[k]) * f for k in base}
+            if el < 1.0:
+                return self._hold_action(pose)
+            img = self._wrist(st)
+            m1 = wrist_line(img) if img is not None else None
+            if m1 is None:
+                return self._align_done(st, 0.0, "lost the line after the test nudge; picking without it", pose)
+            gain = (m1[0] - a["m0"][0]) / ALIGN_NUDGE_M  # wrist px per metre of +y, here and now
+            if abs(gain) < 300:
+                return self._align_done(st, 0.0, f"test nudge barely moved the line ({gain:.0f} px/m); picking without it", pose)
+            dy = max(-ALIGN_MAX_M, min(ALIGN_MAX_M, -(a["m0"][0] - WRIST_GAP_X) / gain))
+            return self._align_done(st, dy, f"line {a['m0'][0] - WRIST_GAP_X:+.0f} px off the jaw gap, "
+                                            f"{gain:.0f} px/m: moving {dy * 100:+.1f} cm sideways", pose)
+        return None
+
+    def _align_done(self, st, dy, msg, pose=None):
+        """Re-plan everything after the align step from the corrected target (dy metres along y)."""
+        st.note("autopick align: " + msg)
+        self._log(st, event="align", dy_m=dy, msg=msg, m0=(self.al or {}).get("m0"), frames=("wrist@align",))
+        xy = [self.xy_target[0], self.xy_target[1] + dy]
+        self.xy_target = xy
+        cur = pose or self.plan[self.seg]["to"]
+        rest = self._make_plan(st, np.array(xy), start=cur, skip=("raise", "align"))
+        self.plan = self.plan[: self.seg + 1] + rest
+        self.seg += 1
+        return None
+
     def plan_names(self):
         return [p["name"] for p in self.plan]
 
@@ -675,6 +783,7 @@ class AutoPick:
                 st.note("autopick look: " + self._detail)
                 save_example(frame, box, self.label, "local-look")
                 return
+            self.xy_target = [float(xy[0]), float(xy[1])]
             self.plan = self._make_plan(st, xy)
             self._log(st, event="detected", pixel=[u, v], angle_img=ang, box=[float(t) for t in box],
                       xy_m=[float(xy[0]), float(xy[1])], grasp=self.plan[self.plan_names().index("grip")]["to"],
@@ -692,7 +801,7 @@ class AutoPick:
             raise RuntimeError(f"no reachable joint pose for {np.round(xyz, 3).tolist()}")
         return {m: float(v) for m, v in zip(JOINTS, q)}
 
-    def _make_plan(self, st, xy) -> list[dict]:
+    def _make_plan(self, st, xy, start=None, skip=()) -> list[dict]:
         cal = self.cal
         demo = min(cal["demos"], key=lambda d: np.linalg.norm(np.array(d["tip_m"][:2]) - xy))
         seed = demo["grasp_deg"][:5]
@@ -706,6 +815,7 @@ class AutoPick:
         steps = [  # name, arm pose, gripper, extra hold
             ("raise", lift, JAW_OPEN, 0.0, "high above the handle, clear of the tray"),
             ("approach", approach, JAW_OPEN, 0.3, "above the handle, jaw open"),
+            *([("align", approach, JAW_OPEN, 0.0, "lining up with the wrist camera")] if self.align else []),
             ("descend", grasp, JAW_OPEN, 0.3, "jaw around the handle"),
             ("grip", grasp, JAW_CLOSE, 0.5, "squeezing the handle"),
             ("lift", lift, JAW_CLOSE, 0.0, "lifting it off the table"),
@@ -716,8 +826,10 @@ class AutoPick:
         if self.mode == "hold":
             steps += [("handoff", lift, JAW_CLOSE, HANDOFF_HOLD_S, "holding it up for a hand"),
                       ("home", home, JAW_CLOSE, 0.5, "back home, still holding")]
-        plan, cur = [], dict(self.start_pose)
+        plan, cur = [], dict(start if start is not None else self.start_pose)
         for name, arm, jaw, hold, detail in steps:
+            if name in skip:
+                continue
             to = {**arm, "gripper": jaw}
             span = max(abs(to[m] - cur[m]) for m in JOINTS)
             dur = max(MIN_MOVE_S, span * MJ_PEAK / MAX_DEG_S, abs(jaw - cur["gripper"]) * MJ_PEAK / 60.0) * slow
