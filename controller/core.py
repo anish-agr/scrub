@@ -59,6 +59,7 @@ class Controller:
         self.step = "idle"
         self.item = None
         self.out: list[str] = []
+        self.case_id = self._new_case()
         self.lighting = "normal"
         self.lux = None
         self.jobs: deque = deque()
@@ -92,7 +93,7 @@ class Controller:
             "request_to_hand_s": kw.pop("request_to_hand_s", None), "retries": kw.pop("retries", None),
             "setting": self.setting["id"], "lighting": self.lighting,
             "command_id": kw.pop("command_id", cmd["id"] if cmd else None), "out": list(self.out),
-            "t": time.time(),
+            "case_id": self.case_id, "t": time.time(),
         }
         ev.update(kw)
         self.history.append(ev)
@@ -117,7 +118,7 @@ class Controller:
                 "step": self.step, "item": self.item, "queue": [j["item"] for j in self.jobs],
                 "out": list(self.out), "setting": self.setting["id"], "lighting": self.lighting,
                 "fake_arm": self.fake_arm, "hand_seen": self._hand_fresh() is not None,
-                "out_camera": self._camera_out()[0], "t": time.time(),
+                "out_camera": self._camera_out()[0], "case_id": self.case_id, "t": time.time(),
             }
 
     # ---------- inputs ----------
@@ -214,6 +215,7 @@ class Controller:
         with self.lock:
             if clear_count:
                 self.out = []
+                self.case_id = self._new_case()
             self.held = None
         self.set_step("homing", item=held if holding else None)
         self._call(gen, self.arm.go_home)  # saved poses keep the gripper as it is
@@ -231,6 +233,10 @@ class Controller:
             self.step, self.item = "idle", None
         self.emit("step", say=lines.RESET)
 
+    def _new_case(self) -> str:
+        """CONTRACTS: case_id = <setting>-<unix start seconds>."""
+        return f"{self.setting['id']}-{int(time.time())}"
+
     def set_setting(self, setting_id: str) -> dict:
         data = settings.load(setting_id)
         with self.lock:
@@ -238,6 +244,7 @@ class Controller:
                 raise RuntimeError("busy")
             self.setting = data
             self.out = []
+            self.case_id = self._new_case()
             self.step, self.item = "idle", None
         self.emit("step", item=None)
         return data

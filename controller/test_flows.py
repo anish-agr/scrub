@@ -571,6 +571,26 @@ def reset_keeps_count_unless_asked():
 
 
 @test
+def case_id_on_state_and_every_event():
+    ctl, arm = make()
+    cid = ctl.state()["case_id"]
+    setting, start = cid.rsplit("-", 1)
+    assert setting == "surgical" and abs(int(start) - time.time()) < 5, cid
+    _, evs = run(ctl, HANDOVER)
+    assert {e["case_id"] for e in evs} == {cid}
+    ctl.case_id = "old"  # same second would give the same id; mark it to see it change
+    ctl.stop()
+    reset(ctl)
+    assert ctl.case_id == "old"  # a plain reset keeps the case
+    ctl.reset(clear_count=True)
+    assert wait_for(lambda: ctl.case_id != "old") and ctl.case_id.startswith("surgical-")
+    assert wait_for(lambda: ctl.step == "idle" and ctl.cmd is None)
+    assert ctl.history[-1]["case_id"] == ctl.case_id
+    ctl.set_setting("dental")
+    assert ctl.state()["case_id"].startswith("dental-") and ctl.history[-1]["case_id"] == ctl.case_id
+
+
+@test
 def null_command_id_gets_one():
     ctl, arm = make()
     reply, evs = run(ctl, {"id": None, "action": "handover", "item": "hemostat", "t": None})
