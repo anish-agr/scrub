@@ -55,6 +55,14 @@ def map_camera(index, role: str) -> None:
     cfg["cams"][index] = role
 
 
+def discard_episode(reason: str) -> None:
+    """Throw away the episode being recorded (it is re-recorded after the reset)."""
+    if S["phase"] == "recording" and events and not events.get("rerecord_episode"):
+        events["rerecord_episode"] = True
+        events["exit_early"] = True
+        note(f"episode discarded ({reason})")
+
+
 def camera_down(index, is_down: bool) -> None:
     """While a camera is down, a recording episode is thrown away and re-recorded."""
     name = cfg["cams"].get(index, str(index))
@@ -308,6 +316,8 @@ def status() -> dict:
     for m, v in (S.get("motors") or {}).items():
         if (v.get("temp_c") or 0) >= 55:
             warn.insert(0, f"{m} motor {v['temp_c']} C: rest the arm with torque off")
+        if v.get("limp"):
+            warn.insert(0, f"{m} torque OFF: it wrapped past its calibrated range, recalibrate the follower")
         if v.get("held"):
             warn.append(f"{m} blocked: holding instead of pushing (move the leader back to free it)")
     gh = S.get("grip_health") or {}
