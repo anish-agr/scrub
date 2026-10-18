@@ -79,6 +79,10 @@ body{padding:12px;display:flex;flex-direction:column;gap:12px;min-height:100vh}
     <div class="cam" id="cam-wrist"><img alt=""><div class="ph">No camera</div><div class="lbl">Wrist</div><div class="chip">--</div></div>
   </div>
   <div id="side">
+    <div id="startbox" style="display:none;margin-bottom:12px">
+      <div style="margin-bottom:8px">Preview: nothing is being recorded yet. Check both cameras, the tray and the arm.</div>
+      <button id="b-start" style="width:100%;padding:14px;font-size:17px">Start recording<small>Enter in the terminal also works</small></button>
+    </div>
     <div id="btns">
       <button id="b-next" data-a="next">Next episode<small>&rarr;</small></button>
       <button id="b-rerecord" class="warn" data-a="rerecord">Re-record<small>&larr;</small></button>
@@ -166,6 +170,7 @@ function render(s){
   const d=s.dataset; $("ds").textContent=d?`${d.episodes} episodes · ${d.frames} frames · ${d.root}`:"";
   const L=$("log"), stick=L.scrollTop+L.clientHeight>=L.scrollHeight-30;
   L.textContent=(s.log||[]).join("\n"); if(stick)L.scrollTop=L.scrollHeight;
+  $("startbox").style.display=s.mode==="preview"?"block":"none";
   const show=s.mode==="record"&&(s.phase==="recording"||s.phase==="resetting");
   $("btns").style.display=show?"flex":"none";
   if(!show)disarm();
@@ -196,6 +201,8 @@ async function poll(){
   }
 }
 setInterval(poll,250); poll();
+$("b-start").onclick=async()=>{const b=$("b-start");b.disabled=true;b.firstChild.textContent="Starting...";
+  try{await fetch("/control",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({action:"start"})});}catch(e){}};
 </script>
 </body>
 </html>
