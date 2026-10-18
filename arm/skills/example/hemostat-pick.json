@@ -1,0 +1,14 @@
+{
+  "item": "hemostat",
+  "direction": "pick",
+  "setting": "example",
+  "taught_at": "EXAMPLE",
+  "note": "EXAMPLE for tests and the file format only. These joint values were never taught on the arm. Never play them.",
+  "waypoints": [
+    {"name": "approach", "joints": {"shoulder_pan": 10.0, "shoulder_lift": -20.0, "elbow_flex": 30.0, "wrist_flex": 40.0, "wrist_roll": 0.0}, "gripper": 0.0, "speed": 0.3},
+    {"name": "descend", "joints": {"shoulder_pan": 10.0, "shoulder_lift": -5.0, "elbow_flex": 25.0, "wrist_flex": 50.0, "wrist_roll": 0.0}, "gripper": null, "speed": 0.15},
+    {"name": "grip", "joints": {"shoulder_pan": 10.0, "shoulder_lift": -5.0, "elbow_flex": 25.0, "wrist_flex": 50.0, "wrist_roll": 0.0}, "gripper": 1.0, "speed": 0.15},
+    {"name": "lift", "joints": {"shoulder_pan": 10.0, "shoulder_lift": -20.0, "elbow_flex": 30.0, "wrist_flex": 40.0, "wrist_roll": 0.0}, "gripper": null, "speed": 0.3},
+    {"name": "carry", "joints": {"shoulder_pan": 0.0, "shoulder_lift": -30.0, "elbow_flex": 40.0, "wrist_flex": 30.0, "wrist_roll": 0.0}, "gripper": null, "speed": 0.3}
+  ]
+}
