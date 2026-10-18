@@ -107,6 +107,27 @@ def create_app(arm, grabber=None):
         arm.reload()
         return {"ok": True}
 
+    @app.post("/scene/setting")
+    def scene_setting(body: dict = Body(...)):
+        """{"setting": "bench"}: switch which setting's items are on the table (in memory only)."""
+        if not arm.set_setting(body.get("setting")):
+            raise HTTPException(404, f"no setting {body.get('setting')!r}")
+        return {"ok": True, "setting": arm.layout["setting"]}
+
+    @app.post("/scene/items")
+    def scene_items(body: dict = Body(...)):
+        """Move items to table positions (arm frame m, yaw rad); picks then target those spots.
+        /scene/reset clears it. Body: {"items": [{"id", "x", "y", "yaw"}]}."""
+        results = []
+        for it in body.get("items", []):
+            try:
+                x, y, yaw = float(it["x"]), float(it["y"]), float(it.get("yaw") or 0.0)
+                ok, why = arm.set_item_pose(str(it["id"]), x, y, yaw)
+            except (KeyError, TypeError, ValueError, AttributeError):
+                ok, why = False, "need id, x, y (numbers)"
+            results.append({"id": it.get("id") if isinstance(it, dict) else None, "ok": ok, "why": why})
+        return {"results": results}
+
     @app.get("/layout")
     def get_layout():
         return scene.load_layout()

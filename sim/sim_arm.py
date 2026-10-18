@@ -44,11 +44,14 @@ class SimArm:
         self._thread = None
         self.holding = None
         self._pull_until = 0.0
+        self.setting_override = None  # set by set_setting; layout.json is not touched
         self._load()
 
     # ---- model -----------------------------------------------------------
     def _load(self):
         self.layout = scene.load_layout()
+        if self.setting_override in self.layout["setting_items"]:
+            self.layout["setting"] = self.setting_override
         self.rig = self._read_rig()
         path = scene.build(self.layout)
         with self.lock:
@@ -186,7 +189,7 @@ class SimArm:
         m = re.match(r"\s*(pick|return)\s+(?:up\s+)?(?:the\s+|a\s+)?(.+?)\s*$", instruction.lower())
         if not m:
             return False
-        verb, item = m.group(1), m.group(2).replace(" ", "_")
+        verb, item = m.group(1), re.sub(r"[\s-]+", "_", m.group(2))  # "needle-nose pliers"
         if verb == "return":
             return self._return_held(call, item)
         slot = scene.slot_position(self.layout, item)
@@ -205,6 +208,36 @@ class SimArm:
             return False
         return self._cart_move(call, steps[0], 0.12)
 
+    def set_setting(self, setting):
+        """Show another setting's items (surgical, dental, bench) without writing layout.json.
+        Rebuilds the scene (items back in slots, arm home) unless it is already active."""
+        if setting not in self.layout["setting_items"]:
+            return False
+        if self.layout["setting"] != setting:
+            self.setting_override = setting
+            self.reload()
+        return True
+
+    def set_item_pose(self, item, x, y, yaw=0.0):
+        """Test bench: lay `item` on the table at (x, y) with `yaw`; picks then target that spot
+        (cleared by reload() and when the item is placed). Returns (ok, why)."""
+        if item not in self._mocap:
+            return False, "unknown item"
+        if item not in self.layout["setting_items"][self.layout["setting"]]:
+            return False, "not in the current setting"
+        if self.holding == item:
+            return False, "the arm is holding it"
+        for z in (ABOVE_Z, PICK_Z):
+            ok, err, _ = ik.reachable([x, y, z])
+            if not ok:
+                return False, f"unreachable at z={z} (IK error {err * 100:.1f} cm)"
+        with self.lock:
+            mid = self._mocap[item]
+            self.data.mocap_pos[mid] = (x, y, 0.01)
+            self.data.mocap_quat[mid] = (np.cos(yaw / 2), 0, 0, np.sin(yaw / 2))
+            self.layout.setdefault("_item_xy", {})[item] = [float(x), float(y)]
+        return True, None
+
     def _at_slot(self, item, slot):
         with self.lock:
             p = self.data.mocap_pos[self._mocap[item]]
@@ -220,11 +253,12 @@ class SimArm:
             self.holding = None
             if item:
                 self.data.mocap_pos[self._mocap[item]] = (x, y, 0.01)
+                self.layout.get("_item_xy", {}).pop(item, None)  # it is where we put it now
         return self._gripper(call, 0.0) and self._cart_move(call, (x, y, ABOVE_Z), 0.12)
 
     def _return_held(self, call, item):
         """Put `item` back in its tray slot: pick it from the return spot (or use the held one)."""
-        slot = scene.slot_position(self.layout, item)
+        slot = scene.tray_slot(self.layout, item)
         if slot is None:
             return False
         if self.holding and self.holding != item:

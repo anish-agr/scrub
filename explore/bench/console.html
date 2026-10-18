@@ -1,0 +1,217 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Scrub bench console</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500&family=IBM+Plex+Sans:wght@400;500;600&display=swap" rel="stylesheet">
+<style>
+:root{--bg:#f2f2f0;--panel:#fff;--ink:#1a1a1a;--dim:#666;--line:#bdbdb8;--ok:#1d6b34;--bad:#a1281f;--warn:#8a5a00;--acc:#0f4c81}
+@media (prefers-color-scheme:dark){:root:not([data-theme=light]){--bg:#161616;--panel:#202020;--ink:#e8e8e4;--dim:#9a9a94;--line:#444;--ok:#6fcf8a;--bad:#ff8a80;--warn:#e0b050;--acc:#7fb4e8}}
+*{box-sizing:border-box;border-radius:0}
+body{margin:0;background:var(--bg);color:var(--ink);font:14px/1.4 "IBM Plex Sans",system-ui,sans-serif}
+header{display:flex;gap:16px;align-items:baseline;padding:10px 16px;border-bottom:1px solid var(--line);background:var(--panel)}
+h1{font-size:15px;margin:0;font-weight:600}
+h2{font-size:11px;letter-spacing:.08em;text-transform:uppercase;margin:0 0 8px;color:var(--dim);font-weight:600}
+main{display:grid;grid-template-columns:repeat(auto-fit,minmax(340px,1fr));gap:12px;padding:12px 16px}
+section{background:var(--panel);border:1px solid var(--line);padding:12px;min-width:0}
+.wide{grid-column:1/-1}
+code,pre,input,textarea,.mono{font-family:"IBM Plex Mono",ui-monospace,monospace;font-size:12px}
+img.cam{width:100%;display:block;background:#222;aspect-ratio:4/3;object-fit:contain;border:1px solid var(--line)}
+button{font:500 13px "IBM Plex Sans",sans-serif;background:var(--panel);color:var(--ink);border:1px solid var(--ink);padding:6px 10px;cursor:pointer}
+button:hover{background:var(--ink);color:var(--bg)}
+button.stop{border-color:var(--bad);color:var(--bad)}button.stop:hover{background:var(--bad);color:var(--bg)}
+input[type=text],textarea{width:100%;background:var(--bg);color:var(--ink);border:1px solid var(--line);padding:6px}
+textarea{height:96px;resize:vertical}
+.row{display:flex;gap:6px;flex-wrap:wrap;margin:6px 0;align-items:center}
+.row input[type=text]{flex:1;min-width:160px}
+table{border-collapse:collapse;width:100%}
+th,td{text-align:left;padding:3px 6px;border-bottom:1px solid var(--line);font-size:12px;vertical-align:top}
+th{color:var(--dim);font-weight:500}
+.ok{color:var(--ok)}.bad{color:var(--bad)}.warn{color:var(--warn)}.dim{color:var(--dim)}
+#log{height:240px;overflow:auto;background:var(--bg);border:1px solid var(--line);padding:6px;margin:0;white-space:pre-wrap}
+.kv{display:flex;gap:24px;flex-wrap:wrap}
+.kv div span{display:block;font-size:11px;color:var(--dim)}
+.kv div b{font:500 18px "IBM Plex Mono",monospace}
+.tabs button{margin-right:4px}
+.tabs button.on{background:var(--ink);color:var(--bg)}
+</style>
+</head>
+<body>
+<header><h1>Scrub bench console</h1><span class="mono dim" id="cfg"></span><span class="mono" id="conn"></span></header>
+<main>
+<section>
+  <h2>Request</h2>
+  <div class="row"><input type="text" id="req" placeholder="hand me the allen key" autofocus><button id="send">Send</button></div>
+  <div class="dim mono" id="route"></div>
+  <div class="row" id="quick"></div>
+  <div class="row"><button class="stop" id="stop">Stop</button><button id="reset">Reset scene</button><button id="gotit">Got it</button></div>
+  <div class="mono" id="reply" style="min-height:2.6em"></div>
+</section>
+
+<section>
+  <h2>Controller</h2>
+  <div class="kv">
+    <div><span>step</span><b id="step">-</b></div>
+    <div><span>request to hand</span><b id="r2h">-</b></div>
+    <div><span>holding</span><b id="holding">-</b></div>
+  </div>
+  <div class="mono" id="say" style="margin-top:8px;min-height:2.6em"></div>
+  <div class="mono dim" id="out"></div>
+</section>
+
+<section>
+  <h2>Sim camera <span class="tabs"><button class="on" data-cam="overhead">overhead</button><button data-cam="wrist">wrist</button></span></h2>
+  <img class="cam" id="simcam" alt="sim camera">
+  <div class="mono dim" id="simstate" style="margin-top:6px"></div>
+</section>
+
+<section>
+  <h2>Identifier</h2>
+  <img class="cam" id="idcam" alt="identifier view">
+  <div class="mono" id="idmsg"></div>
+  <table id="idtable"><thead><tr><th>id</th><th>seen</th><th>conf</th><th>by</th><th>center px</th><th>arm xy (m)</th></tr></thead><tbody></tbody></table>
+  <div class="row"><button id="mirror">Mirror tray into sim</button></div>
+  <div class="mono" id="mirrormsg"></div>
+</section>
+
+<section>
+  <h2>Manual layout</h2>
+  <div class="dim">Arm frame meters, x forward, y left. Same shape the mirror sends to the sim.</div>
+  <textarea id="manual" class="mono" spellcheck="false"></textarea>
+  <div class="row"><button id="applyManual">Apply to sim</button><button id="fillManual">Example layout</button></div>
+  <div class="mono" id="manualmsg"></div>
+</section>
+
+<section class="wide">
+  <h2>Events</h2>
+  <pre id="log"></pre>
+</section>
+</main>
+<script>
+const $ = id => document.getElementById(id);
+const qs = new URLSearchParams(location.search);
+const OV = ["controller","sim","identify","voice"].filter(k => qs.has(k)).map(k => k + "=" + encodeURIComponent(qs.get(k))).join("&");
+const api = (p, o) => fetch(p + (OV ? (p.includes("?") ? "&" : "?") + OV : ""), o).then(r => r.json());
+const post = (p, b) => api(p, {method: "POST", headers: {"content-type": "application/json"}, body: JSON.stringify(b || {})});
+let C = {}, SETTING = null, lastReq = null;
+const esc = s => String(s ?? "").replace(/[&<>]/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;"}[c]));
+const fmt = (v, n = 3) => v == null ? "null" : (+v).toFixed(n);
+
+function log(s, cls) {
+  const t = new Date().toLocaleTimeString();
+  const el = $("log"); el.insertAdjacentHTML("beforeend", `<span class="${cls || ""}">${t}  ${esc(s)}</span>\n`);
+  el.scrollTop = el.scrollHeight;
+}
+
+async function init() {
+  C = await api("/api/config");
+  $("cfg").textContent = `controller ${C.controller}  sim ${C.sim}  identify ${C.identify}  voice ${C.voice || "off (local alias match)"}`;
+  $("route").textContent = C.voice ? "route: text -> voice /heard -> controller" : "route: text -> local alias match -> controller /command";
+  $("simcam").src = C.sim + "/stream";
+  loadSetting(); connectWS(); pollId(); pollSim();
+}
+
+async function loadSetting() {
+  const r = await api("/api/items");
+  if (!r.ok) { $("quick").innerHTML = `<span class="bad mono">controller: ${esc(r.error)}</span>`; setTimeout(loadSetting, 3000); return; }
+  SETTING = r.setting;
+  $("quick").innerHTML = SETTING.items.map(it =>
+    `<button data-a="handover" data-i="${it.id}">hand me ${esc(it.name)}</button><button data-a="return" data-i="${it.id}">return ${esc(it.name)}</button>`).join("");
+  $("quick").querySelectorAll("button").forEach(b => b.onclick = () => sendReq({action: b.dataset.a, item: b.dataset.i}));
+  if (!$("manual").value) fillManual();
+}
+
+async function sendReq(body) {
+  lastReq = Date.now();
+  $("r2h").textContent = "...";
+  const r = await post("/api/request", body);
+  const rep = r.reply || {};
+  const say = rep.say ? (Array.isArray(rep.say) ? rep.say.join(" ") : rep.say) : "";
+  $("reply").innerHTML = r.ok
+    ? `${esc(r.path)}: ${r.command ? esc(r.command.action + " " + (r.command.item || "-")) : ""} ${rep.accepted === false ? `<span class="bad">refused: ${esc(rep.reason)}</span>` : ""} ${esc(say)}`
+    : `<span class="bad">${esc(r.error)}</span>`;
+  log(`request (${r.path}) ${JSON.stringify(r.command || body)} -> ${JSON.stringify(r.reply)}`, r.ok ? "" : "bad");
+}
+$("send").onclick = () => { const t = $("req").value.trim(); if (t) { sendReq({text: t}); $("req").value = ""; } };
+$("req").onkeydown = e => { if (e.key === "Enter") $("send").click(); };
+$("stop").onclick = async () => log("stop -> " + JSON.stringify(await api("/api/p/controller/stop", {method: "POST"})));
+$("gotit").onclick = async () => log("got it -> " + JSON.stringify(await post("/api/request", {action: "got_it", item: null})));
+$("reset").onclick = async () => { const r = await post("/api/reset"); log("reset -> " + JSON.stringify(r), r.ok ? "" : "bad"); };
+
+document.querySelectorAll(".tabs button").forEach(b => b.onclick = () => {
+  document.querySelectorAll(".tabs button").forEach(x => x.classList.toggle("on", x === b));
+  $("simcam").src = C.sim + "/stream?cam=" + b.dataset.cam;
+});
+
+// controller events
+function connectWS() {
+  const ws = new WebSocket(C.controller.replace(/^http/, "ws") + "/events");
+  ws.onopen = () => { $("conn").textContent = "events: connected"; $("conn").className = "mono ok"; };
+  ws.onclose = () => { $("conn").textContent = "events: disconnected"; $("conn").className = "mono bad"; setTimeout(connectWS, 2000); };
+  ws.onmessage = m => {
+    const e = JSON.parse(m.data);
+    if (e.step) $("step").textContent = e.step;
+    if (e.say) $("say").textContent = e.say;
+    if (e.out) $("out").textContent = "out: " + (e.out.length ? e.out.join(", ") : "none");
+    if (e.type === "handed" && e.request_to_hand_s != null) $("r2h").textContent = e.request_to_hand_s.toFixed(1) + " s";
+    const bits = [e.type, e.step, e.item, e.say && ('"' + e.say + '"'), e.reason, e.error, e.request_to_hand_s != null && ("r2h " + e.request_to_hand_s + "s")].filter(Boolean);
+    log(bits.join("  "), e.type === "error" || e.accepted === false ? "bad" : "");
+  };
+}
+
+async function pollSim() {
+  try {
+    const s = await (await fetch(C.sim + "/state")).json();
+    $("holding").textContent = s.holding || "-";
+    $("simstate").textContent = `gripper ${s.gripper.toFixed(2)}  q ${s.q.map(v => v.toFixed(2)).join(" ")}`;
+  } catch (e) { $("simstate").textContent = "sim not reachable"; }
+  setTimeout(pollSim, 700);
+}
+
+let ID = null;
+async function pollId() {
+  const r = await api("/api/identify");
+  const tb = $("idtable").querySelector("tbody");
+  if (!r.ok) {
+    $("idmsg").innerHTML = `<span class="warn">identifier not running (${esc(C.identify)}): ${esc(r.error || "")}</span>`;
+    tb.innerHTML = ""; ID = null; $("idcam").style.display = "none";
+  } else {
+    ID = r.state; $("idmsg").textContent = ""; $("idcam").style.display = "block";
+    $("idcam").src = C.identify + "/api/frame.jpg?t=" + Date.now();
+    tb.innerHTML = (ID.items || []).map(it => `<tr><td>${esc(it.id)}</td><td class="${it.present ? "ok" : "dim"}">${it.present ? "yes" : "no"}</td>
+      <td>${it.confidence != null ? (+it.confidence).toFixed(2) : "-"}</td><td>${esc(it.by || "")}</td>
+      <td>${it.center_px ? it.center_px.map(v => Math.round(v)).join(", ") : "-"}</td>
+      <td>${it.arm_xy ? (Array.isArray(it.arm_xy) ? it.arm_xy : [it.arm_xy.x, it.arm_xy.y]).map(v => fmt(v)).join(", ") : '<span class="warn">null</span>'}</td></tr>`).join("");
+  }
+  setTimeout(pollId, 600);
+}
+
+$("mirror").onclick = async () => {
+  const r = await post("/api/mirror", {});
+  const parts = [];
+  if (r.error) parts.push(`<span class="bad">${esc(r.error)}</span>`);
+  (r.results || []).forEach(x => parts.push(`<span class="${x.ok ? "ok" : "bad"}">${esc(x.id)}: ${x.ok ? "moved" : esc(x.why)}</span>`));
+  (r.skipped || []).forEach(x => parts.push(`<span class="warn">${esc(x.id)}: ${esc(x.why)}</span>`));
+  $("mirrormsg").innerHTML = parts.join("<br>");
+  log("mirror -> " + JSON.stringify(r), r.ok ? "" : "bad");
+};
+
+function fillManual() {
+  const ids = SETTING ? SETTING.items.map(i => i.id) : [];
+  const xs = [[0.28, -0.08, 0], [0.24, 0.10, 0.4], [0.30, 0.02, 1.2]];
+  $("manual").value = JSON.stringify({items: ids.map((id, i) => ({id, x: xs[i % 3][0], y: xs[i % 3][1], yaw: xs[i % 3][2]}))}, null, 1);
+}
+$("fillManual").onclick = fillManual;
+$("applyManual").onclick = async () => {
+  let body; try { body = JSON.parse($("manual").value); } catch (e) { $("manualmsg").innerHTML = `<span class="bad">invalid JSON: ${esc(e.message)}</span>`; return; }
+  const r = await post("/api/mirror", body);
+  $("manualmsg").innerHTML = (r.error ? `<span class="bad">${esc(r.error)}</span><br>` : "") +
+    (r.results || []).map(x => `<span class="${x.ok ? "ok" : "bad"}">${esc(x.id)}: ${x.ok ? "moved" : esc(x.why)}</span>`).join("<br>");
+  log("manual layout -> " + JSON.stringify(r.results), r.ok ? "" : "bad");
+};
+init();
+</script>
+</body>
+</html>
