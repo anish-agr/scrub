@@ -1,15 +1,12 @@
 // Voice server, port 3000. The ElevenLabs agent uses this as its Custom LLM (OpenAI chat completions, streamed),
 // so every caller turn lands here and Scrub's reply is the controller's `say` lines.
 import http from "node:http";
-import { LLM_SECRET, VOICE_PORT } from "./config.js";
+import { callerFrom, chunk, heardFrom, type Msg } from "./chat.js";
+import { GEMINI_API_KEY, LLM_SECRET, PHOTON_PROJECT_ID, PHOTON_SECRET, VOICE_PORT } from "./config.js";
+import { controllerUp } from "./controller.js";
 import { endCase, setCaller } from "./summary.js";
 import { startTexts } from "./texts.js";
 import { handleTurn, startEvents } from "./turn.js";
-
-type Msg = { role: string; content: unknown };
-
-const text = (c: unknown): string =>
-  typeof c === "string" ? c : Array.isArray(c) ? c.map((p: any) => p?.text ?? "").join(" ") : "";
 
 function readBody(req: http.IncomingMessage): Promise<any> {
   return new Promise((resolve) => {
@@ -25,42 +22,38 @@ function json(res: http.ServerResponse, code: number, body: unknown) {
 }
 
 async function chatCompletions(req: http.IncomingMessage, res: http.ServerResponse) {
-  if (LLM_SECRET && req.headers.authorization !== `Bearer ${LLM_SECRET}`) return json(res, 401, { error: "bad key" });
+  if (LLM_SECRET && req.headers.authorization !== `Bearer ${LLM_SECRET}`) {
+    console.log("[server] 401: Authorization doesn't match VOICE_LLM_SECRET");
+    return json(res, 401, { error: "bad key" });
+  }
   const body = await readBody(req);
-  const messages: Msg[] = body.messages || body.input || [];
+  const messages: Msg[] = Array.isArray(body.messages) ? body.messages : [];
   // The agent's system prompt carries "Caller: {{system__caller_id}}", so the summary goes to the same thread.
-  const sys = messages.filter((m) => m.role === "system").map((m) => text(m.content)).join("\n");
-  const phone = sys.match(/caller[^+\d\n]*(\+?\d[\d\s-]{9,16}\d)/i)?.[1]?.replace(/[\s-]/g, "");
-  if (phone) setCaller(phone);
-  const lastUser = [...messages].reverse().find((m) => m.role === "user");
-  const heard = lastUser ? text(lastUser.content).trim() : "";
-
+  setCaller(callerFrom(messages));
+  const heard = heardFrom(messages);
   const id = `chatcmpl-${Date.now()}`;
-  const chunk = (delta: object, finish: string | null = null) =>
-    JSON.stringify({ id, object: "chat.completion.chunk", created: Math.floor(Date.now() / 1000), model: "scrub",
-      choices: [{ index: 0, delta, finish_reason: finish }] });
 
   if (body.stream === false) {
     const lines: string[] = [];
     if (heard) await handleTurn(heard, (l) => lines.push(l));
-    return json(res, 200, { id, object: "chat.completion", model: "scrub",
+    return json(res, 200, { id, object: "chat.completion", created: Math.floor(Date.now() / 1000), model: "scrub",
       choices: [{ index: 0, message: { role: "assistant", content: lines.join(" ") }, finish_reason: "stop" }] });
   }
 
   res.writeHead(200, { "content-type": "text/event-stream", "cache-control": "no-cache", connection: "keep-alive" });
-  res.write(`data: ${chunk({ role: "assistant", content: "" })}\n\n`);
+  res.write(chunk(id, { role: "assistant", content: "" }));  // first bytes now, before the controller answers
   const abort = new AbortController();
   res.on("close", () => abort.abort()); // caller talked over Scrub: ElevenLabs drops the request
   let first = true;
   if (heard) {
     await handleTurn(heard, (line) => {
       if (res.writableEnded) return;
-      res.write(`data: ${chunk({ content: (first ? "" : " ") + line })}\n\n`);
+      res.write(chunk(id, { content: (first ? "" : " ") + line }));
       first = false;
     }, abort.signal);
   }
   if (!res.writableEnded) {
-    res.write(`data: ${chunk({}, "stop")}\n\n`);
+    res.write(chunk(id, {}, "stop"));
     res.end("data: [DONE]\n\n");
   }
 }
@@ -77,7 +70,11 @@ const server = http.createServer(async (req, res) => {
       return json(res, 200, { heard, say: lines });
     }
     if (req.method === "POST" && url === "/summary") return json(res, 200, await endCase());
-    if (req.method === "GET" && url === "/health") return json(res, 200, { ok: true });
+    // Which keys are set (booleans only, never values) and whether the controller answers.
+    if (req.method === "GET" && url === "/health") return json(res, 200, { ok: true,
+      keys: { gemini: !!GEMINI_API_KEY, photon: !!(PHOTON_PROJECT_ID && PHOTON_SECRET), llm_secret: !!LLM_SECRET },
+      controller: await controllerUp() });
+    console.log(`[server] 404 ${req.method} ${url}`);  // a wrong Custom LLM URL shows up here
     json(res, 404, { error: "not found" });
   } catch (e) {
     console.log(`[server] ${(e as Error).message}`);
@@ -88,4 +85,4 @@ const server = http.createServer(async (req, res) => {
 
 startEvents();
 startTexts();
-server.listen(VOICE_PORT, () => console.log(`[voice] listening on :${VOICE_PORT} (POST /v1/chat/completions, /heard, /summary)`));
+server.listen(VOICE_PORT, () => console.log(`[voice] listening on :${VOICE_PORT} (POST /v1/chat/completions, /heard, /summary, GET /health)`));

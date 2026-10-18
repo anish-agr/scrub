@@ -6,11 +6,22 @@ TypeScript on Node 20, port 3000. Photon number, then the ElevenLabs agent over 
 
 Done when: "grab me the kelly" on the call becomes `handover hemostat` at the controller and Scrub answers out loud.
 
+## How a call reaches us
+
+caller -> Photon number -> Photon Voice profile (SIP, TLS) -> ElevenLabs agent (speech to text, text to speech) -> its LLM is "Custom LLM" = our `POST /v1/chat/completions` through a public tunnel. Each caller turn prints `[heard] ...`. The reply streams back as OpenAI `chat.completion.chunk` SSE lines (`data: {...}\n\n`, then `data: [DONE]\n\n`) and the agent speaks them. The first chunk goes out before the controller answers; the reply stays open up to `VOICE_HOLD_S` (8 s) to speak follow-up event lines ("Scalpel down.").
+
+- We only act when the last message is the caller's. ElevenLabs also asks for a reply after silence; that gets an empty reply instead of a repeated command.
+- The system prompt line `Caller: {{system__caller_id}}` gives us the caller's number for the summary text (`[case] caller +1...`). If that line never prints, Photon isn't passing caller id over SIP: set `PHOTON_SUMMARY_TO` in `.env`.
+- Optional: `VOICE_LLM_SECRET=<anything>` in `.env` makes the endpoint require `Authorization: Bearer <it>`. ElevenLabs sends its `OPENAI_API_KEY` secret that way, so give that secret the same value. A mismatch prints `[server] 401`.
+- Any other path prints `[server] 404 POST /...`: the Custom LLM URL is wrong.
+
 ## Run and test
 
 - `npm run dev` (port 3000). `CONTROLLER_URL` and `VOICE_PORT` from the shell override `.env`, so a test copy can run beside the real one: `CONTROLLER_URL=http://localhost:8071 VOICE_PORT=3071 npm run dev`.
-- No call needed: `curl -XPOST localhost:3000/heard -d '{"text":"grab me the kelly"}'` returns the lines Scrub would say. Checked Oct 17 with Gemini live: kelly, mayo, "knife please", "what's out" and "stop" all map right. The first Gemini call after start can pass the 1.5 s timeout and fall back to the alias match.
-- `npm test`: offline checks for the alias match (punctuation in names, "needle-nose") and the case summary counts.
+- `curl localhost:3000/health`: `{"ok":true,"keys":{"gemini":..,"photon":..,"llm_secret":..},"controller":true}`. Booleans only, never key values.
+- No call needed: `npm run say -- "grab me the kelly"` sends what ElevenLabs sends and prints the streamed reply with timings. `VOICE_URL=https://<tunnel> npm run say -- "stop"` does it through the tunnel. `curl -XPOST localhost:3000/heard -d '{"text":"grab me the kelly"}'` returns the lines as JSON.
+- `npm test`: offline. Alias match, case summary counts, caller id and last-message rules, and the real server against a fake controller: SSE chunk shape, `[DONE]`, "stop" hits only `POST /stop` (no `/setting`, no Gemini, no `/command`), `/health`. `VOICE_NO_KEYS=1` (set by `npm test`) ignores `.env`, so it never calls Gemini or Photon.
+- Gemini: checked Oct 17 live, kelly, mayo, "knife please", "what's out" and "stop" all map right. The first Gemini call after start can pass the 1.5 s timeout and fall back to the alias match.
 - The setting is cached for 30 s and dropped when an event shows a different setting, so a turn doesn't wait on `GET /setting` before Gemini.
 - End-of-case summary: the count comes first, from the controller's own `out` list. A no-pull or no-hand set-down is listed as "set at the safe spot", not as a pass; a pick that worked on the retry is not a failed request.
 
@@ -20,7 +31,7 @@ Text the Photon number (same iMessage thread as the end-of-case summary). The li
 
 | You text | Scrub replies |
 | --- | --- |
-| "add a second hemostat to the surgical tray", "added 2 kellys" | `Logged: +1 hemostat on the surgical tray.` The restock is appended to `voice/restocks.jsonl` (git-ignored) until the ledger has an HTTP way in |
+| "add a second hemostat to the surgical tray", "added 2 kellys" | `Logged: +1 hemostat on the surgical tray.` Logged to the ledger through the controller's `POST /restock`; if that fails or the ledger isn't loaded, appended to `voice/restocks.jsonl` (git-ignored) |
 | "what's out?", "count" | `Out (2): hemostat, scalpel.` from `GET /state` `out`, plus what the camera says (`out_camera`) when the controller has it |
 | "summary", "end of case" | the end-of-case summary, and a new case starts |
 | anything else | one help line |
@@ -28,3 +39,46 @@ Text the Photon number (same iMessage thread as the end-of-case summary). The li
 Code in `src/texts.ts`; `npm test` runs it against a fake message stream and fake state, no network.
 
 The end-of-case text (saying "end of case" on the call, or `POST /summary`) goes to the number that called (`Caller:` in the agent's system prompt) or else `PHOTON_SUMMARY_TO`, on that same thread. It names the case: count first, then `Scrub case: surgical, started 2:41 PM (23 min)`, the items used, what was passed, set down or failed, and the median request-to-hand time. Events are grouped by the controller's `case_id` (a new `case_id` starts a new case); without it, one case runs until "end of case".
+
+## Tunnel
+
+ElevenLabs has to reach port 3000 from the internet. Every tunnel below gives a new URL each start (except ngrok's free static domain), and **the ElevenLabs Custom LLM Server URL must be updated to match every time**.
+
+- `npm run tunnel`: Pinggy over SSH on port 443, no account. Works on the venue Wi-Fi (Oct 17). Prints `https://<x>.run.pinggy-free.link`. Free tunnels end after 60 min: run it again and paste the new URL.
+- `npm run tunnel:cf`: cloudflared quick tunnel (`voice/.bin/cloudflared`, gitignored; `--protocol http2`). Needs outbound port 7844, which the venue Wi-Fi blocks (UDP and TCP: "dial tcp ...:7844: i/o timeout"). Use it on a phone hotspot.
+- `npm run tunnel:ngrok`: needs a free ngrok account once: `ngrok config add-authtoken <token>` (a human, from dashboard.ngrok.com). Claim the free static domain there and run `ngrok http --url=<name>.ngrok-free.app 3000` so the URL never changes.
+
+Measured Oct 17, fake-arm controller, alias match (no Gemini): request to first streamed byte about 20 ms locally, 0.5 to 0.75 s through Pinggy on a fresh connection (about 0.27 s of that is the TLS handshake). The spoken line follows 0 to 60 ms later; "stop" is the fastest path (no setting fetch, no Gemini). Gemini adds up to the 1.5 s timeout.
+
+## Call setup (Caiden)
+
+Only a human can do these. Order: Photon, ElevenLabs agent, import the number, then run.
+
+1. **Run** (three terminals, repo root):
+   1. `.venv/bin/python -m controller --fake-arm` (port 8000; add `--pull-s 0` so "got it" is what releases).
+   2. `cd voice && npm run dev`. Expect `[events] connected ws://localhost:8000/events`.
+   3. `cd voice && npm run tunnel`. Copy the `https://...` URL. Check: `curl https://<tunnel>/health` shows `"controller":true`.
+2. **ElevenLabs agent** (elevenlabs.io, Agents): Create agent, Blank.
+   - First message: `Scrub here. What do you need?`
+   - System prompt: `You are Scrub, a robot arm that passes surgical instruments. Caller: {{system__caller_id}}`
+   - LLM: **Custom LLM**. API type **Chat Completions** (not Responses). Server URL: `https://<tunnel>/v1` (we accept `/v1` or the full `/v1/chat/completions`). Model ID: `scrub`. API key: only if you set `VOICE_LLM_SECRET`: Create new secret, name `OPENAI_API_KEY`, value the same string.
+   - Advanced: Interruptions on (so "stop" cuts Scrub off). Turn eagerness: Eager. Soft timeout: off. Take turn after silence: 30 s.
+   - Voice/ASR: add keywords `kelly, hemostat, scalpel, mayo, scissors, knife`.
+   - Test in **Preview** (say "grab me the kelly", watch `[heard]` in terminal 2), then **Publish**.
+3. **Photon** (app.photon.codes): your project, **Voice**. Under **Lines** find the number. **Set up default**, **SIP**, **Create profile** (or open the profile the number already uses). Media encryption: **Auto**. Under **Inbound calls**, **Enable inbound**: SIP address `sips:sip.rtc.elevenlabs.io:5061`, Transport **TLS**, no inbound SIP credentials. Outbound is not needed for answering calls; to also let Scrub call out: **Outbound calls**, Digest algorithm **SHA-256**, **Enable outbound**, save the password (shown once), note the **SIP connection** server and port (e.g. `sip.photon.codes:5061`) and **Username**.
+4. **Import the number** (ElevenLabs, Deploy, Phone Numbers, Import number, **From SIP Trunk**):
+   - Label `Scrub Photon`. Phone number: the Photon number with `+` and country code.
+   - Inbound: Media Encryption **Allowed**, Allowed Numbers empty, Allowed Source IP Addresses `0.0.0.0/0`, Remote Domains empty, SIP Trunk Username and Password empty.
+   - Outbound (only if enabled in Photon): Address `sip.photon.codes:5061` (no `sip:` prefix; use the server shown in Photon), Transport **TLS**, Media Encryption **Allowed**, codecs G.722, PCMU, PCMA, no custom headers, SIP Trunk Username and Password from Photon.
+   - Import. On the number's page, **Agent**: the Scrub agent. **Branch**: Follow traffic split.
+5. **Call** the Photon number from a phone. Scrub says "Scrub here. What do you need?"
+
+| Say | Terminal 2 shows | Scrub says |
+| --- | --- | --- |
+| "grab me the kelly" | `[heard] grab me the kelly`, `[command] handover hemostat` | "Hemostat coming." |
+| "got it" | `[command] got_it` | nothing (released) |
+| "knife please" | `[command] handover scalpel` | "Scalpel to the safe spot." then "Scalpel down." (sharps never go hand to hand) |
+| "what's out" | `[command] count` | "Out: hemostat, scalpel." |
+| "stop" | `[command] stop (POST /stop)` | "Stopped." |
+
+`(local)` or `(gemini)` after each command says which parser ran. After "stop", reset the controller (`curl -XPOST localhost:8000/reset`) before the next request. If the call connects but Scrub is silent, check terminal 2: no `[heard]` means the Custom LLM URL is stale (new tunnel URL) or wrong (`[server] 404`); a phone that doesn't ring means Photon inbound or the agent assignment (Photon's troubleshooting table in the cookbook, and **SIP Messages** on the ElevenLabs number page).
