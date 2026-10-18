@@ -196,6 +196,15 @@ function applyState(state) {
     }
   }
   if (state.lighting) model.lighting = state.lighting;
+  const caseLink = $("case-link");
+  if (caseLink) {
+    if (state.case_id) {
+      caseLink.hidden = false;
+      caseLink.href = `${ledgerOrigin()}/case.html?id=${encodeURIComponent(state.case_id)}`;
+    } else {
+      caseLink.hidden = true;
+    }
+  }
   model.fakeArm = Boolean(state.fake_arm);
   model.handSeen = Boolean(state.hand_seen);
   render();
@@ -448,6 +457,17 @@ function openSocket() {
   };
 }
 
+function rateText(row) {
+  const pct = percent(row.success_rate);
+  if (row.wilson_low == null || row.wilson_high == null) return pct;
+  return `${pct} (${row.successes} of ${row.attempts}, ${percent(row.wilson_low)} to ${percent(row.wilson_high)})`;
+}
+
+function ledgerOrigin() {
+  const host = location.hostname || "127.0.0.1";
+  return `http://${host}:8080`;
+}
+
 function percent(rate) {
   if (rate == null || Number.isNaN(Number(rate))) return "—";
   return `${Math.round(Number(rate) * 100)}%`;
@@ -464,7 +484,7 @@ function fillTable(tableId, rows, labelKey) {
   rows.forEach((row) => {
     const tr = document.createElement("tr");
     const label = labelKey === "item" ? nameOf(row.item) : row[labelKey];
-    [label, row.attempts, percent(row.success_rate), seconds(row.median_request_to_hand_s)].forEach((value) => {
+    [label, row.attempts, rateText(row), seconds(row.median_request_to_hand_s)].forEach((value) => {
       const cell = document.createElement("td");
       cell.textContent = value;
       tr.appendChild(cell);
@@ -481,6 +501,13 @@ function paintStats(report) {
     .slice(-6)
     .map((event) => seconds(event.request_to_hand_s));
   $("handoffs").textContent = recent.length ? `Recent handoffs ${recent.join(", ")}` : "";
+  const next = report && report.next_likely;
+  const line = $("next-likely");
+  if (line) {
+    line.textContent = next && next.item
+      ? `Likely next: ${nameOf(next.item)} (${Math.round(Number(next.share) * 100)}%)`
+      : "";
+  }
   fillTable("by-item", (report && report.by_item) || [], "item");
   fillTable("by-lighting", (report && report.by_lighting) || [], "lighting");
   document.querySelector(".tables").classList.toggle("has-rows", rows > 0);
@@ -653,6 +680,8 @@ async function resetArm() {
 function wire() {
   fillSettings();
   onCamera();
+  const cases = $("cases-link");
+  if (cases) cases.href = `${ledgerOrigin()}/cases.html`;
   $("stop").addEventListener("click", stopArm);
   $("reset").addEventListener("click", resetArm);
   $("setting").addEventListener("change", (event) => changeSetting(event.target.value));

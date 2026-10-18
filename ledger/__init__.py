@@ -7,6 +7,7 @@
 from __future__ import annotations
 
 import json
+import math
 import os
 import threading
 import time
@@ -262,12 +263,15 @@ def _rate_rows(tests: list[dict], events: list[dict], key: str) -> list[dict]:
         group = grouped[name]
         attempts = len(group)
         successes = sum(1 for test in group if test.get("success"))
+        low, high = _wilson(successes, attempts)
         rows.append(
             {
                 key: name,
                 "attempts": attempts,
                 "successes": successes,
                 "success_rate": successes / attempts if attempts else None,
+                "wilson_low": low,
+                "wilson_high": high,
                 "median_request_to_hand_s": _median(_samples(group, events, **{key: name})),
             }
         )
@@ -297,6 +301,80 @@ def _out(events: list[dict]) -> list[str]:
     return held
 
 
+def _wilson(successes: int, attempts: int, z: float = 1.96) -> tuple[float | None, float | None]:
+    """95% Wilson interval for a success rate. None when there are no tries."""
+    if attempts <= 0:
+        return None, None
+    p = successes / attempts
+    z2 = z * z
+    denom = 1 + z2 / attempts
+    center = (p + z2 / (2 * attempts)) / denom
+    margin = z * math.sqrt(p * (1 - p) / attempts + z2 / (4 * attempts * attempts)) / denom
+    return max(0.0, center - margin), min(1.0, center + margin)
+
+
+def stored_rows() -> tuple[list[dict], list[dict]]:
+    """Events and trials from Atlas plus anything still in the local buffer."""
+    try:
+        _wait_for_connect(2.5 if _uri() else 0)
+        with _lock:
+            _flush_locked()
+        mongo_events, mongo_tests = _read_mongo()
+        file_events, file_tests = _read_buffer()
+        return mongo_events + file_events, mongo_tests + file_tests
+    except Exception:
+        return [], []
+
+
+def next_likely(events: list[dict]) -> dict | None:
+    """The instrument that most often follows the latest request, in this setting.
+
+    A suggestion only. Nothing here moves the arm.
+    """
+    ordered = sorted(events, key=lambda event: float(event.get("t") or 0))
+    setting = None
+    for event in reversed(ordered):
+        if event.get("setting"):
+            setting = event["setting"]
+            break
+    sequences: dict[str, list[str]] = {}
+    last_item = None
+    last_t = -1.0
+    for event in ordered:
+        if event.get("type") != "command" or event.get("action") != "handover":
+            continue
+        if event.get("accepted") is False or not event.get("item"):
+            continue
+        if setting and event.get("setting") not in (None, setting):
+            continue
+        cid = str(event.get("case_id") or "no-case")
+        sequences.setdefault(cid, []).append(event["item"])
+        stamp = float(event.get("t") or 0)
+        if stamp >= last_t:
+            last_t = stamp
+            last_item = event["item"]
+    if not last_item:
+        return None
+    counts: dict[str, int] = {}
+    total = 0
+    for seq in sequences.values():
+        for previous, following in zip(seq, seq[1:]):
+            if previous != last_item:
+                continue
+            counts[following] = counts.get(following, 0) + 1
+            total += 1
+    if not total:
+        return None
+    item = max(counts, key=lambda name: (counts[name], name))
+    return {
+        "item": item,
+        "after": last_item,
+        "share": counts[item] / total,
+        "n": total,
+        "setting": setting,
+    }
+
+
 def stats() -> dict:
     """Success rate by item and by lighting, plus the median handoff time."""
     empty = {
@@ -304,21 +382,17 @@ def stats() -> dict:
         "by_lighting": [],
         "median_request_to_hand_s": None,
         "out": [],
+        "next_likely": None,
         "t": time.time(),
     }
     try:
-        _wait_for_connect(2.5 if _uri() else 0)
-        with _lock:
-            _flush_locked()
-        mongo_events, mongo_tests = _read_mongo()
-        file_events, file_tests = _read_buffer()
-        events = mongo_events + file_events
-        tests = mongo_tests + file_tests
+        events, tests = stored_rows()
         return {
             "by_item": _rate_rows(tests, events, "item"),
             "by_lighting": _rate_rows(tests, events, "lighting"),
             "median_request_to_hand_s": _median(_samples(tests, events)),
             "out": _out(events),
+            "next_likely": next_likely(events),
             "t": time.time(),
         }
     except Exception:

@@ -8,6 +8,7 @@ import unittest
 from pathlib import Path
 
 import ledger
+from ledger.cases import case_view, list_cases
 from ledger.logbook import log_batch
 
 
@@ -64,7 +65,51 @@ class StatsTests(unittest.TestCase):
         self.assertEqual(report["by_item"][0]["item"], "hemostat")
         self.assertEqual(report["by_item"][0]["successes"], 1)
         self.assertEqual(report["median_request_to_hand_s"], 6.4)
+        self.assertIsNone(report["next_likely"])
+        low, high = report["by_item"][0]["wilson_low"], report["by_item"][0]["wilson_high"]
+        self.assertLess(low, 1)
+        self.assertGreater(high, low)
         self.assertTrue(self.buffer.exists())
+
+    def test_likely_next_uses_what_usually_follows(self):
+        stamp = 1
+        for case, second in enumerate(("scalpel", "scalpel", "mayo_scissors")):
+            for item in ("hemostat", second):
+                ledger.log(
+                    {
+                        "type": "command",
+                        "action": "handover",
+                        "accepted": True,
+                        "item": item,
+                        "setting": "surgical",
+                        "case_id": f"case-{case}",
+                        "out": [],
+                        "t": stamp,
+                    }
+                )
+                stamp += 1
+        # Latest request is still inside a case that ended on mayo, so add one more hemostat.
+        ledger.log(
+            {
+                "type": "command",
+                "action": "handover",
+                "accepted": True,
+                "item": "hemostat",
+                "setting": "surgical",
+                "case_id": "case-now",
+                "out": [],
+                "t": stamp,
+            }
+        )
+        guess = ledger.stats()["next_likely"]
+        self.assertEqual(guess["after"], "hemostat")
+        self.assertEqual(guess["item"], "scalpel")
+        self.assertAlmostEqual(guess["share"], 2 / 3)
+        rows = list_cases()
+        self.assertEqual(rows[0]["case_id"], "case-now")
+        view = case_view("case-0")
+        self.assertIn("hemostat", view["summary"])
+        self.assertEqual(len(view["events"]), 2)
 
 
 class LogbookTests(unittest.TestCase):
