@@ -48,6 +48,10 @@ GRIP_STALL_S = 0.3   # closing but not moving this long: something is in the jaw
 GRIP_MOVE = 1.0      # gripper units (0 closed .. 100 open) that count as still moving
 GRIP_SQUEEZE = 1.5   # how far past the contact point to keep pressing. 3.0 kept the claw stalled
                      # against LeRobot's 50% current limit until it tripped overload (Oct 17 crash)
+GRIP_LOAD_MAX = 300  # raw |Present_Load| (LeRobot caps the gripper near 500): above this the claw is straining
+GRIP_LOAD_S = 1.0    # straining this long eases the claw open a unit per loop, before overload trips
+GRIP_TEMP_WARN = 55  # deg C: warn on the page
+GRIP_TEMP_EASE = 62  # deg C: open the claw until it cools (STS3215 shuts itself off near 70)
 GRIP_BACKOFF = 4.0   # on an overload reply, open this much per loop until the servo stops reporting it
 
 
@@ -166,6 +170,28 @@ def _guard_ui(holding: bool, at) -> None:
         pass
 
 
+def _grip_health(bus, st: dict, now: float):
+    """Gripper load every loop and temperature every 2 s; None when a read fails. Shown on the page."""
+    load = temp = None
+    try:
+        load = abs(int(bus.read("Present_Load", "gripper", normalize=False)))
+    except Exception:  # noqa: BLE001 - an error flag or a busy bus is not a reason to stop teleop
+        pass
+    temp = st.get("temp")
+    if now - st.get("temp_t", 0.0) > 2.0:
+        st["temp_t"] = now
+        try:
+            temp = st["temp"] = int(bus.read("Present_Temperature", "gripper", normalize=False))
+        except Exception:  # noqa: BLE001
+            temp = st["temp"] = None
+    try:
+        import arm_ui
+        arm_ui.S["grip_health"] = {"load": load, "temp_c": temp}
+    except ImportError:
+        pass
+    return load, temp
+
+
 def guard_gripper() -> None:
     """Patch SOFollower.send_action so a blocked claw times out to a gentle hold."""
     from lerobot.robots.so_follower.so_follower import SOFollower
@@ -190,6 +216,19 @@ def guard_gripper() -> None:
             return send(self, {**action, "gripper.pos": max(goal, st["hold"])})
         st["pos"] = pos
         now = time.perf_counter()
+        load, temp = _grip_health(self.bus, st, now)
+        if (load is not None and load > GRIP_LOAD_MAX) or (temp is not None and temp >= GRIP_TEMP_EASE):
+            st["strain"] = st.get("strain") or now
+            if now - st["strain"] > GRIP_LOAD_S or (temp is not None and temp >= GRIP_TEMP_EASE):
+                # Ease off before the servo trips overload or overheats; the leader opening still releases.
+                st["hold"], st["ref"] = min(100.0, max(st["hold"] or 0.0, pos) + 1.0), None
+                if not st.get("eased"):
+                    print(f"gripper guard: straining (load {load}, {temp} C), easing open", flush=True)
+                st["eased"] = True
+                _guard_ui(True, round(st["hold"]))
+                return send(self, {**action, "gripper.pos": max(goal, st["hold"])})
+        else:
+            st["strain"], st["eased"] = None, False
         if st["hold"] is not None:
             if goal >= st["hold"] + GRIP_SQUEEZE:  # leader opened past the contact point: let go
                 st["hold"], st["ref"] = None, None
@@ -298,17 +337,21 @@ def find_camera(spec: str) -> int | None:
 
 
 def bus_ok(port: str) -> bool:
-    """All six motors answer (only called while no session owns the port)."""
+    return not silent_motors(port)
+
+
+def silent_motors(port: str) -> list[int]:
+    """Motor ids 1-6 that don't answer a ping, [0] if the port won't open (only while no session owns it)."""
     import scservo_sdk as scs
     ph = scs.PortHandler(port)
     try:
         if not ph.openPort():
-            return False
+            return [0]
         ph.setBaudRate(1_000_000)
         pk = scs.PacketHandler(0)
-        return all(pk.ping(ph, i)[1] == scs.COMM_SUCCESS for i in range(1, 7))
+        return [i for i in range(1, 7) if pk.ping(ph, i)[1] != scs.COMM_SUCCESS]
     except Exception:  # noqa: BLE001 - unplugged mid-check
-        return False
+        return [0]
     finally:
         try:
             ph.closePort()
@@ -321,8 +364,12 @@ def missing_devices(a) -> list[str]:
     for name, port in (("follower arm", a.follower), ("leader arm", a.leader)):
         if not os.path.exists(port):
             out.append(f"{name} USB ({Path(port).name})")
-        elif not bus_ok(port):
-            out.append(f"{name} motors (power or cable)")
+        elif silent := silent_motors(port):
+            if silent == [0] or len(silent) == 6:
+                out.append(f"{name} motors (power or cable)")
+            else:
+                hint = "; check the gripper cable" if 6 in silent else ""
+                out.append(f"{name} motor {', '.join(map(str, silent))} not answering: power-cycle the arm{hint}")
     for role in ("side", "wrist"):
         spec = getattr(a, role)
         if spec and find_camera(spec) is None:
