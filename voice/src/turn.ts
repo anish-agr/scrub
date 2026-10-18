@@ -58,7 +58,7 @@ export function startEvents() {
     if (line) console.log(`[say] ${line}  (${e.type}${e.skill_source === "taught" ? ", taught skill" : ""})`);
     speak(line, true, e.command_id);
     open?.onEvent(e);
-  });
+  }, recordEvent);  // missed while reconnecting: counted in the summary, never spoken
 }
 
 export async function handleTurn(heard: string, say: Say, signal?: AbortSignal): Promise<void> {
