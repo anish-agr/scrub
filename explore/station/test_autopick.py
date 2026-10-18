@@ -7,6 +7,7 @@ import numpy as np
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
+sys.path.insert(0, str(Path(__file__).resolve().parents[1]))  # explore/ (arm_ui)
 import autopick as AP  # noqa: E402
 
 
@@ -65,7 +66,7 @@ def run(driver, st):
 
 
 def test_full_pick_is_smooth_and_ends_off():
-    acts, end = run(AP.AutoPick({}, detector=Det()), St())
+    acts, end = run(AP.AutoPick({"mode": "hold"}, detector=Det()), St())
     assert end == {"done": "off"}
     A = np.array([[a[f"{m}.pos"] for m in AP.JOINTS] for a in acts if a])
     assert np.abs(np.diff(A, axis=0)).max() * 30 <= AP.MAX_DEG_S + 0.5
@@ -74,7 +75,7 @@ def test_full_pick_is_smooth_and_ends_off():
 
 
 def test_warm_motors_move_slower():
-    d1, d2 = AP.AutoPick({}, detector=Det()), AP.AutoPick({}, detector=Det())
+    d1, d2 = AP.AutoPick({"mode": "hold"}, detector=Det()), AP.AutoPick({"mode": "hold"}, detector=Det())
     a1, _ = run(d1, St())
     a2, _ = run(d2, St(hot=True))
     assert len(a2) > len(a1) * 1.4
@@ -107,12 +108,12 @@ def test_bad_args():
     raise AssertionError("empty label accepted")
 
 
-def _run_with_jaw(stall):
+def _run_with_jaw(stall, mode="hold"):
     class S2(St):
         def __init__(self):
             super().__init__()
             self.gripper = 35.0
-    d, st = AP.AutoPick({}, detector=Det()), S2()
+    d, st = AP.AutoPick({"mode": mode}, detector=Det()), S2()
     d.start(st)
     d._detect_thread.join(10)
     t = [0.0]
@@ -131,10 +132,68 @@ def _run_with_jaw(stall):
 
 
 def test_handle_in_jaw_holds_gentle_squeeze():
-    d, end = _run_with_jaw(10.5)
+    d, end = _run_with_jaw(10.5, mode="hold")
     assert end == {"done": "off"} and d.grip_hold == 9.0
 
 
 def test_empty_close_is_a_miss():
     d, end = _run_with_jaw(3.0)
     assert end == {"done": "home"} and d.missed and d.status()["phase"] == "missed"
+
+
+def _handoff(take_at=None, pull_at=None, timeout=60.0):
+    """Simulate a person: grabs (load jumps) at pull_at s into the offer, takes it once the jaw opens."""
+    import arm_ui
+    d, st = AP.AutoPick({}, detector=Det()), St()
+    d.start(st)
+    d._detect_thread.join(10)
+    t = [0.0]
+    real = AP.time.perf_counter
+    AP.time.perf_counter = lambda: t[0]
+    phases, end, taken = [], None, False
+    try:
+        for _ in range(int(120 * 30)):
+            a = d.tick(st, {})
+            t[0] += 1 / 30
+            ph = d.status()["phase"]
+            if not phases or phases[-1] != ph:
+                phases.append(ph)
+            if a is None or "done" in a:
+                end = a
+                break
+            if d.hand == "release" and take_at is not None:
+                taken = True  # the person takes it while the jaw is open
+            stop = 3.0 if taken else 10.5  # nothing left to stop the jaw once it's taken
+            if "gripper.pos" in a:
+                st.gripper = max(stop, a["gripper.pos"])
+            offer_t = (t[0] - d.h_t0) if d.hand == "offer" else 0
+            arm_ui.S["motors"] = {"gripper": {"load": 120 if (pull_at is not None and d.hand == "offer" and offer_t > pull_at) else 20}}
+    finally:
+        AP.time.perf_counter = real
+        arm_ui.S.pop("motors", None)
+    return d, end, phases
+
+
+def test_handoff_grab_release_home():
+    d, end, phases = _handoff(take_at=0, pull_at=3.0)
+    assert end == {"done": "home"} and d.handed, phases
+    for p in ("offer", "grabbed", "release", "check", "handed over"):
+        assert p in phases, phases
+
+
+def test_handoff_not_taken_regrips_and_offers_again():
+    d, end, phases = _handoff(take_at=None, pull_at=3.0)
+    assert phases.count("offer") >= 2 and "check" in phases, phases
+
+
+def test_handoff_nobody_comes_goes_home_holding():
+    d, end, phases = _handoff(take_at=None, pull_at=None)
+    assert end == {"done": "off"} and not d.handed and d.grip_hold is not None
+
+
+def test_bad_mode():
+    try:
+        AP.AutoPick({"mode": "fling"}, detector=Det())
+    except ValueError:
+        return
+    raise AssertionError("bad mode accepted")

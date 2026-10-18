@@ -13,7 +13,11 @@ What it learned, and from where (explore/station/autopick_calib.json):
 
 Sequence: detect (Perceptron /v1/detect "scalpel handle" on the side frame, midpoint refined from the
 handle's dark pixels) -> approach 6 cm above the midpoint, jaw open -> descend -> close -> lift 12 cm ->
-hold at the handoff spot -> glide home still holding -> {"done": "off"} (torque off in place, still gripping).
+then, by mode (POST args {"mode": ...}):
+  handoff (default): hold it up and wait for a hand (gripper load jump or the jaw being moved), keep holding
+    3 s, open, close slowly to check: the jaw shuts -> it was taken -> home, motors off ({"done": "home"});
+    something stops the jaw -> still there -> offer again. Nobody in 45 s -> home holding it, torque off.
+  hold: pause at the handoff spot, glide home still holding -> {"done": "off"} (torque off, still gripping).
 Every segment is a minimum-jerk joint move capped at ~25 deg/s (slower when motors are warm), so motion is
 smooth and holding time, the main heat source, stays short.
 """
@@ -35,6 +39,12 @@ MJ_PEAK = 1.875
 WARM_C, WARM_SLOW = 52, 1.6   # above this, every move takes 1.6x longer
 JAW_OPEN, JAW_CLOSE = 35.0, 2.0   # the gripper guard stops the close at the handle and holds gently
 HANDOFF_HOLD_S = 3.0      # pause at the handoff spot so someone can see / take it
+OFFER_TIMEOUT_S = 45.0    # nobody took it: go home holding it, motors off (holding still heats the servos)
+GRAB_LOAD = 35            # gripper |load| change (or 4x the baseline noise) that means a hand took hold
+GRAB_JAW = 1.2            # ... or the jaw moving this much while we hold it still
+GRAB_SUSTAIN_S = 0.15
+AFTER_GRAB_S = 3.0        # keep holding this long after the grab, then let go
+RELEASE_S = 1.5           # jaw open this long for the hand to take it
 SQUEEZE = 1.5             # once the jaw stalls on the handle, hold this far past the contact point
 EMPTY_JAW = 5.0           # a jaw that stops at or below this closed on nothing
 MIN_MOVE_S = 0.8
@@ -113,6 +123,9 @@ class AutoPick:
 
     def __init__(self, args: dict | None = None, calib: dict | None = None, detector=None, kin=None):
         args = dict(args or {})
+        self.mode = args.get("mode", "handoff")
+        if self.mode not in ("handoff", "hold"):
+            raise ValueError("mode must be 'handoff' (wait for a hand, release, go home) or 'hold' (bring it home)")
         label = args.get("label", "scalpel handle")
         if not isinstance(label, str) or not label.strip():
             raise ValueError("label must be a non-empty string")
@@ -135,6 +148,8 @@ class AutoPick:
         self._detect_thread = None
         self.grip_hold = None     # jaw target once the handle stopped the jaw (gentle squeeze)
         self.missed = False
+        self.handed = False
+        self.hand = None          # handoff state: offer -> grabbed -> release -> check -> home
         self._jaw_hist = []
 
     # ---- interface
@@ -157,6 +172,8 @@ class AutoPick:
         if not self.plan:
             return None
         now = time.perf_counter()
+        if self.hand is not None and self.hand != "done":
+            return self._handoff_tick(st, now)
         if self.seg_t0 is None:
             self.seg_t0 = now
         seg = self.plan[self.seg]
@@ -172,6 +189,14 @@ class AutoPick:
                 self._missed(st, pose)  # closed on nothing: don't carry an empty jaw to the handoff
             self.seg += 1
             self.seg_t0 = None
+            if self.seg >= len(self.plan) and self.mode == "handoff" and not self.missed and self.hand != "done":
+                if self.hand is None:
+                    self._offer_start(st, now, pose)
+                return self._hold_action(pose)
+            if self.seg >= len(self.plan) and self.handed:
+                self._phase, self._progress = "handed over", 1.0
+                st.note("autopick: handed over; home, motors off, ready for the next one")
+                return {"done": "home"}
             if self.seg >= len(self.plan):
                 self._phase, self._progress = ("missed" if self.missed else "done"), 1.0
                 if self.missed:
@@ -192,6 +217,99 @@ class AutoPick:
         if self.found:
             out["target"] = self.found
         return out
+
+    # ---- handoff: wait for a hand, release, check the jaw is empty, go home
+    @staticmethod
+    def _grip_load():
+        try:
+            import arm_ui
+            v = (arm_ui.S.get("motors") or {}).get("gripper", {}).get("load")
+            if v is None:
+                return None
+            v = int(v)
+            return float(v - 1024 if 1023 < v < 2048 else abs(v))  # raw sign-magnitude, bit 10 = direction
+        except Exception:  # noqa: BLE001
+            return None
+
+    def _offer_start(self, st, now, pose) -> None:
+        self.hand, self.offer_pose = "offer", dict(pose)
+        self.h_t0, self.h_base, self.h_since = now, [], None
+        self._phase, self._detail = "offer", "holding it up: take it from the jaw"
+        st.note("autopick: offering the handle; take hold of it")
+
+    def _set(self, st, state, now, msg) -> None:
+        self.hand, self.h_t0 = state, now
+        self._phase, self._detail = state, msg
+        st.note("autopick: " + msg)
+
+    def _handoff_tick(self, st, now):
+        pose = dict(self.offer_pose)
+        el = now - self.h_t0
+        jaw, load = (float(st.gripper) if st.gripper is not None else None), self._grip_load()
+        if self.hand == "offer":
+            pose["gripper"] = self.grip_hold if self.grip_hold is not None else JAW_CLOSE
+            if el < 1.0:  # learn the still baseline first
+                if jaw is not None:
+                    self.h_base.append((jaw, load))
+                return self._hold_action(pose)
+            jb = float(np.median([b[0] for b in self.h_base])) if self.h_base else jaw
+            lb = [b[1] for b in self.h_base if b[1] is not None]
+            l0, ln = (float(np.median(lb)), float(np.std(lb))) if lb else (None, 0.0)
+            moved = jaw is not None and jb is not None and abs(jaw - jb) >= GRAB_JAW
+            tugged = load is not None and l0 is not None and abs(load - l0) >= max(GRAB_LOAD, 4 * ln)
+            if moved or tugged:
+                self.h_since = self.h_since or now
+                if now - self.h_since >= GRAB_SUSTAIN_S:
+                    self.found = {**(self.found or {}), "grab": {"jaw": jaw, "jaw_base": jb, "load": load, "load_base": l0}}
+                    self._set(st, "grabbed", now, f"hand detected (jaw {jb:.1f}->{jaw:.1f}, load {l0}->{load}); "
+                                                  f"letting go in {AFTER_GRAB_S:.0f} s")
+            else:
+                self.h_since = None
+            if el > OFFER_TIMEOUT_S:  # nobody came: home holding it, motors off
+                self.mode, self.hand = "hold", "done"
+                home = {m: float(self.cal["home_deg"][m]) for m in JOINTS}
+                to = {**home, "gripper": pose["gripper"]}
+                dur = max(MIN_MOVE_S, max(abs(to[m] - pose[m]) for m in JOINTS) * MJ_PEAK / MAX_DEG_S)
+                self.plan.append({"name": "home", "from": pose, "to": to, "dur": round(dur, 2), "hold": 0.5,
+                                  "detail": "nobody took it: home, still holding"})
+                self.seg, self.seg_t0 = len(self.plan) - 1, None
+                st.note("autopick: nobody took it in time; going home holding it, then motors off")
+            return self._hold_action(pose)
+        if self.hand == "grabbed":
+            pose["gripper"] = self.grip_hold if self.grip_hold is not None else JAW_CLOSE
+            if el >= AFTER_GRAB_S:
+                self._set(st, "release", now, "letting go")
+            return self._hold_action(pose)
+        if self.hand == "release":
+            g0 = self.grip_hold if self.grip_hold is not None else JAW_CLOSE
+            pose["gripper"] = g0 + (JAW_OPEN - g0) * min_jerk(el / 0.8)
+            if el >= 0.8 + RELEASE_S:
+                self._jaw_hist.clear()
+                self._set(st, "check", now, "checking the jaw is empty")
+            return self._hold_action(pose)
+        if self.hand == "check":
+            cmd = JAW_OPEN + (JAW_CLOSE - JAW_OPEN) * min_jerk(el / 1.2)
+            pose["gripper"] = cmd
+            if jaw is not None and jaw <= EMPTY_JAW + 1.0:  # closed on nothing: it's gone
+                home = {m: float(self.cal["home_deg"][m]) for m in JOINTS}
+                to = {**home, "gripper": EMPTY_JAW}
+                frm = {**self.offer_pose, "gripper": jaw}
+                dur = max(MIN_MOVE_S, max(abs(to[m] - frm[m]) for m in JOINTS) * MJ_PEAK / MAX_DEG_S)
+                self.plan.append({"name": "home", "from": frm, "to": to, "dur": round(dur, 2), "hold": 0.3,
+                                  "detail": "taken: going home"})
+                self.seg, self.seg_t0, self.hand, self.handed = len(self.plan) - 1, None, "done", True
+                self.found = {**(self.found or {}), "result": "handed over"}
+                st.note("autopick: it's gone from the jaw; going home to wait")
+                return self._hold_action(pose)
+            if jaw is not None:
+                self._jaw_hist.append((now, jaw))
+            recent = [g for t, g in self._jaw_hist if now - t <= 0.4]
+            stalled = len(recent) >= 6 and max(recent) - min(recent) < 0.6
+            if el > 1.4 and stalled and jaw > EMPTY_JAW + 1.0:  # something stopped the jaw: still there
+                self.grip_hold = max(0.0, jaw - SQUEEZE)
+                self._offer_start(st, now, {**self.offer_pose, "gripper": self.grip_hold})
+            return self._hold_action(pose)
+        return self._hold_action(pose)
 
     def _missed(self, st, pose) -> None:
         """Replace the rest of the plan with: open, lift clear, home."""
@@ -288,9 +406,10 @@ class AutoPick:
             ("descend", grasp, JAW_OPEN, 0.3, "jaw around the handle"),
             ("grip", grasp, JAW_CLOSE, 0.5, "squeezing the handle"),
             ("lift", lift, JAW_CLOSE, 0.0, "lifting it off the table"),
-            ("handoff", lift, JAW_CLOSE, HANDOFF_HOLD_S, "holding it up for a hand"),
-            ("home", home, JAW_CLOSE, 0.5, "back home, still holding"),
         ]
+        if self.mode == "hold":
+            steps += [("handoff", lift, JAW_CLOSE, HANDOFF_HOLD_S, "holding it up for a hand"),
+                      ("home", home, JAW_CLOSE, 0.5, "back home, still holding")]
         plan, cur = [], dict(self.start_pose)
         for name, arm, jaw, hold, detail in steps:
             to = {**arm, "gripper": jaw}
