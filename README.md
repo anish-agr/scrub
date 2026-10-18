@@ -4,12 +4,11 @@ A robot arm that passes instruments by voice. Built at DubHacks '26 (Oct 17 to 1
 
 A clinician asks for an instrument out loud. The SO-101 arm picks it from the tray and brings it to the clinician's open hand, handle first, and lets go when they pull or say "got it." Scalpels go to a fixed safe spot instead of hand to hand. Instruments set in the return spot go back to their slots. Scrub keeps a running count and reads back what's out.
 
-One fine-tuned model runs three settings:
+Scrub is surgical first: the operating room tray is the main setting. The robotics bench tray is the second setting, to show that a new setting needs only demonstrations and no new code. A dental tray file exists in `settings/` but isn't demoed.
 
 | Setting | Items |
 | --- | --- |
 | Operating room | scalpel handle, hemostat, Mayo scissors |
-| Dental office | mouth mirror, explorer, cotton pliers |
 | Robotics bench | needle-nose pliers, wire cutters, hex key |
 
 ## How it fits together
