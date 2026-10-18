@@ -229,8 +229,14 @@ class TrayTests(unittest.TestCase):
         self.assertFalse(second["stale"])
 
         third = publish_tray(runtime)
-        self.assertTrue(third["stale"])
+        self.assertFalse(third["stale"])
+        self.assertEqual(third["detector"], "local")
         self.assertFalse(_slot(third, "hemostat")["present"])
+        runtime.local_detector = None
+        detector.script.append(RuntimeError("api down"))
+        fourth = publish_tray(runtime)
+        self.assertTrue(fourth["stale"])
+        self.assertEqual(fourth.get("detector"), "none")
         self.assertEqual(runtime.tray_period, 1.0)
 
     def test_return_spot_and_aliases(self):
@@ -1073,6 +1079,13 @@ class CombTests(unittest.TestCase):
         mgr.add_frame(frame, 1.0)  # the same grabber frame from the other loop
         self.assertEqual(len(mgr.buffer), 1)
         self.assertEqual(mgr.buffer[0][1].shape, (360, 640, 3))
+
+
+def load_tests(loader, standard_tests, pattern):
+    suite = unittest.TestSuite()
+    suite.addTests(standard_tests)
+    suite.addTests(loader.loadTestsFromName("vision.test_pipeline"))
+    return suite
 
 
 def _free_port() -> int:
