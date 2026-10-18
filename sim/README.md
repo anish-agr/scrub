@@ -21,7 +21,7 @@ From the repo root:
 ```bash
 python3.10 -m venv .venv && .venv/bin/pip install -r sim/requirements.txt   # once
 .venv/bin/python -m sim.fetch_model        # once, only if sim/models/so101 is missing
-.venv/bin/python -m sim                    # server on http://127.0.0.1:8002
+.venv/bin/python -m sim                    # server on http://127.0.0.1:8002 (--port 8102 if 8002 is taken)
 .venv/bin/mjpython -m sim --view           # native MuJoCo viewer (macOS needs mjpython) plus the server
 .venv/bin/python -m sim.reach_check        # is every tape position reachable?
 .venv/bin/python -m pytest sim/test_sim.py # tests

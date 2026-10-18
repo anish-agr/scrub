@@ -1,6 +1,6 @@
 # How to train Scrub (one page to share)
 
-This is the plain version. Every command with every flag is in `docs/BRINGUP.md` sections 6 to 8. Run all of this on **the laptop the arm is plugged into**.
+This is the plain version. Every command with every flag is in `docs/BRINGUP.md` sections 6 to 8. Run all of this on **the laptop the arm is plugged into** (the Mac), from the repo root, after `source .venv/bin/activate` (plain `python` is not on the Mac's PATH without it).
 
 For a detailed operator-agent walkthrough, give the helper
 [`docs/TRAINING-HANDOFF-PROMPT.md`](TRAINING-HANDOFF-PROMPT.md). It requires one-step
@@ -61,5 +61,5 @@ Split each row across bright (lamp on, close), normal (room lights) and dim (som
 | `401` | The Robotics team key is missing or wrong in `.env` |
 | Cadence under 29 Hz | Close apps, re-record those episodes |
 | Validation failed | Read `python -m arm.train validation <id>`, fix, make a new dataset |
-| No deployment after training | Wait (export takes a while), check `python -m arm.train status`, then ask Perceptron staff |
+| No deployment after training | Wait (export takes a while), check `python -m arm.train status job <job-id>` and `python -m arm.train deployments`, then ask Perceptron staff |
 | The arm jerks or stutters | Network is slow: get closer to the router or use a wired connection |

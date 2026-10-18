@@ -29,7 +29,7 @@ Every part codes against these. Build against fake inputs that match them, and t
 | `POST /command` | a Command | `{"accepted": bool, "reason": str or null, "say": str or null}` |
 | `POST /stop` | nothing | `{"accepted": true}`. Always accepted, skips the queue, freezes the arm |
 | `GET /state` | | a State |
-| `POST /setting` | `{"setting": "surgical"}` | the loaded setting file. 409 if the arm is busy (idle or stopped only; clears `out`), 404 for an unknown id |
+| `POST /setting` | `{"setting": "surgical"}` | the loaded setting file. 409 if the arm is busy (idle or stopped only), 404 for an unknown id. Keeps `out`: an item still out of the last tray stays counted until it comes back or `POST /reset {"clear_count": true}`. Never clears a stop or error; only a reset rearms |
 | `POST /lighting` | `{"lighting": "bright" or "normal" or "dim", "lux": number or null}` | `{"ok": true}`. Tags later events for the tables |
 | `POST /vision/tray` | a TrayState | `{"ok": true}` |
 | `POST /vision/hand` | a Hand | `{"ok": true}` |
@@ -41,7 +41,7 @@ Every part codes against these. Build against fake inputs that match them, and t
 | `GET /events/recent?n=50` | | the last n Events, oldest first (optional) |
 | `GET /vision` | | `{"tray": TrayState or null, "tray_age_s": number or null, "hand": Hand or null, "hand_age_s": number or null}`: the last posts as received (optional) |
 | `GET /nurse` | | the nurse console page (optional) |
-| `GET /arm/pose` | | `{"available": bool, "joints_deg": [5] or null, "gripper": 0..1 or null, "tip_m": [x, y, z] or null, "tip_px": [x, y] or null, "calibrated": bool, "reason": str or null, "t": float}` (optional, read-only) |
+| `GET /arm/pose` | | `{"available": bool, "joints_deg": [5] or null, "gripper": 0..1 or null, "tip_m": [x, y, z] or null, "tip_px": [x, y] or null, "calibrated": bool, "reason": str or null, "t": float}` (optional, read-only). Real arm only, optional: `"counters": {"accepted", "late", "holds", "ticks", "overruns", "api_errors"}` and `"last_reason": str` for first-contact checks |
 | `GET /arm/camera/{side,wrist}`, `GET /arm/stream/{side,wrist}` | | a JPEG, or MJPEG; 404 until the arm has `camera_jpeg(name)` (optional) |
 | `GET /camera/overhead` | | vision's `/snapshot` proxied, 502 if vision is down (optional) |
 | `GET /calibration` | | `vision/calibration.json`, 404 if missing (optional) |
@@ -112,7 +112,7 @@ Every part codes against these. Build against fake inputs that match them, and t
 ```
 
 - Rates come from `log_test` rows; medians from `handed` events (else the test rows' `seconds`). Rows with `fake_arm` or `sim` true are left out unless `GET /api/stats?sim=1`. `next_likely` and `out` may be `null` / `[]`.
-- Without the ledger the controller answers `{"source": "controller memory (ledger not loaded)", "by_item": {"<item>": {"ok", "missed"}}, "median_request_to_hand_s"}`. That `by_item` is an object, not the list above, so the dashboard tables stay empty (see Known mismatches).
+- Without the ledger the controller answers the same shape with `"source": "controller memory (ledger not loaded)"`, `wilson_low`/`wilson_high` null and `by_lighting` empty.
 
 ## TrayState (vision to the controller, about once a second)
 
@@ -243,7 +243,7 @@ class Arm:
     def prepare(self, instructions: list[str]) -> list: ...  # pre-open robot model sessions; blocking, raises APIError
 ```
 
-The controller calls `prepare` with every item's `pick_instruction` and `return_instruction` at start, on each setting change and after a reset if the last one didn't finish, on its own thread (never the event loop, never under its lock). Perceptron failures raise `APIError` (`arm/perceptron.py`, message "Perceptron HTTP <status>"); the controller turns them into `error` events with `code`.
+The controller calls `prepare` with every item's `pick_instruction` and `return_instruction` at start, on each setting change and after a reset if the last one didn't finish, on its own thread (never the event loop, never under its lock). `run_skill` retries on its own first (503/504/429 or a timeout: hold and retry; 409/422: reset the session; 401/404/410: a fresh grant and session once) and raises `APIError` after 5 failures in a row. A `return` skill succeeds only after the jaw closed on the item and opened again. `connect()` refuses while another process holds the serial port. `SO101_SIDE_CAMERA` and `SO101_WRIST_CAMERA` may be an index, a /dev path or part of the camera's name. Perceptron failures raise `APIError` (`arm/perceptron.py`, message "Perceptron HTTP <status>"); the controller turns them into `error` events with `code`.
 
 The fake arm sleeps about 1 second per motion and returns `True`. `freeze()` interrupts a running call.
 
@@ -265,7 +265,6 @@ The controller calls `log` on every event. If `ledger` fails to import, the cont
 ## Known mismatches (Oct 17 comb)
 
 - Judge mode: this file says `/setting` still works in judge mode, and the controller allows it (`controller/core.py` `set_setting`). Voice is stricter on purpose: by call or text it never posts `/setting`, `/alias` or `/restock` in judge mode (`voice/src/turn.ts`, `voice/src/texts.ts`). Voice also handles a 403 from `/setting` and `/alias`, which the controller never sends (`/alias` answers 200 `ok: false`). Harmless.
-- `GET /stats` without the ledger has a different `by_item` shape (above).
 
 ## Keys
 

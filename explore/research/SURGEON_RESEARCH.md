@@ -31,7 +31,7 @@ Sources:
 As of 2025, there were **117,460 employed surgical technologists** in the US (Bureau of Labor Statistics). This workforce is critically understaffed relative to surgical demand.
 
 ### Shortage Severity
-- **Turnover Crisis:** 42.9% first-year turnover and 55.6% 90-day turnover among surgical technologists
+- **Turnover Crisis (UNCONFIRMED, don't use on stage):** 42.9% first-year turnover and 55.6% 90-day turnover among surgical technologists. The comb found no source for surgical techs; the only 42.9% found is a circulating-nurse rate in one cardiovascular OR
 - **Staffing Delays:** Filling a surgical technologist position takes an average of **120 days**
 - **Exodus Trend:** 28% of technicians plan to leave their role by end of 2025, with **42% citing pay and benefits as the primary driver**
 - **Training Pipeline Decline:** Accredited surgical technology programs have decreased from over 500 to approximately 430 programs, narrowing the supply pipeline
@@ -43,7 +43,7 @@ As of 2025, there were **117,460 employed surgical technologists** in the US (Bu
 Surgical instrument handoffs consume significant operative time:
 - **Single handoff impact:** Increases operative time by 3.89 minutes (knee arthroplasty) to 6.20 minutes (hip arthroplasty)
 - **Multiple handoffs:** Two or more handoffs increase operative time by 15.99–18.52 minutes
-- **Handoff frequency:** In one study, 74 handoffs occurred across 2919 minutes of OR time, totaling 225.2 minutes (7.7% of operative time)
+- **Staff handoff frequency (scrub nurse SHIFT handoffs, not instrument passes; never say "instrument handoffs"):** In one study, 74 handoffs occurred across 2919 minutes of OR time, totaling 225.2 minutes (7.7% of operative time)
 - **Interruptions:** 45.1% of handoffs were interrupted or delayed due to competing activities
 
 Sources:
@@ -206,7 +206,7 @@ Sources:
 
 ## Summary (150 words)
 
-Retained surgical items cost hospitals $2.4 billion annually; sponges account for 34% of cases. Manual counting fails due to communication breakdowns and limited visibility. RFID and barcode sponges provide existing solutions but require procedural integration. Surgical technologist shortages are acute: 28% plan to leave by 2025, with position-filling taking 120 days. Instrument handoffs consume 7.7% of OR time and add 15–18 minutes to multi-handoff cases. Prior robotic systems (Gestonurse at Purdue achieved 95% gesture recognition; Penelope at Columbia uses voice commands; AESOP, FreeHand, and AutoLap focused on laparoscopic camera control) addressed single tasks without integrated training benefits. GEARS and OSATS assess robotic and manual surgical skill; JIGSAWS provides labeled video datasets (G1–G15 gestures); deep learning achieves 95–100% accuracy on video skill assessment. Hackathon winners emphasize safety, clinical validity, and sterility barriers. Five risky claims to avoid: claiming prevention of retained items, oversimplifying FDA clearance, replacing technologists, matching da Vinci precision, and claiming clinical readiness.
+Retained surgical items cost hospitals $2.4 billion annually; sponges account for 34% of cases. Manual counting fails due to communication breakdowns and limited visibility. RFID and barcode sponges provide existing solutions but require procedural integration. Surgical technologist shortages are acute: 28% plan to leave by 2025, with position-filling taking 120 days. Scrub nurse shift handoffs (not instrument passes) took 7.7% of OR time in one study. Prior robotic systems (Gestonurse at Purdue achieved 95% gesture recognition; Penelope at Columbia uses voice commands; AESOP, FreeHand, and AutoLap focused on laparoscopic camera control) addressed single tasks without integrated training benefits. GEARS and OSATS assess robotic and manual surgical skill; JIGSAWS provides labeled video datasets (G1–G15 gestures); deep learning achieves 95–100% accuracy on video skill assessment. Hackathon winners emphasize safety, clinical validity, and sterility barriers. Five risky claims to avoid: claiming prevention of retained items, oversimplifying FDA clearance, replacing technologists, matching da Vinci precision, and claiming clinical readiness.
 
 Sources:
 - [Retained Surgical Items in Healthcare Finance](https://www.healthcarefinancenews.com/news/damages-left-behind-surgical-tools-top-billions-systems-seek-end-gruesome-errors)

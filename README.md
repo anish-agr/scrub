@@ -74,7 +74,9 @@ One command starts the whole stack and prints every URL (Ctrl-C stops it all):
 .venv/bin/python -m controller.run_all --arm real --vision real --tunnel   # the demo: real arm, camera, public voice URL
 ```
 
-Add `--judge` for judge mode (only handover, count and stop), `--no-voice`, `--ledger` (public page on 8080), or `--base-port 8100` to run a second stack beside a live one.
+Add `--judge` for judge mode (only handover, count and stop), `--no-voice`, or `--ledger` (public page on 8080).
+
+A second stack beside a live one (for testing) needs `--base-port 8100 --offline`. The ports move together: controller 8100, vision 8101, sim 8102, voice 3100, ledger 8103. `--offline` matters: voice reads its keys from `.env`, so without it a second voice server also listens on the live Photon line. It also keeps the ledger off MongoDB (it buffers to `ledger/buffer.jsonl`, or `LEDGER_BUFFER`). On a moved stack, open the dashboard as `http://localhost:8100/?vision=http://localhost:8101&ledger=http://localhost:8103`. Without those, it shows the camera on 8001 and links the ledger page on 8080.
 
 | URL | What |
 | --- | --- |
@@ -89,10 +91,13 @@ At the demo table (the full run order is in [docs/DEMO.md](docs/DEMO.md)):
 ```
 .venv/bin/python -m controller.run_all reset     # between judges: clear the count, surgical tray, normal light
 .venv/bin/python -m controller.run_all backup    # the arm failed: the sim arm plays a full run
-.venv/bin/python -m controller.run_all check     # every part answers and connects
+.venv/bin/python -m controller.run_all check --url http://localhost:8000 --vision-url http://localhost:8001 --voice-url http://localhost:3000
+                                                 # the running stack: every part answers and connects
 ```
 
-Each part also runs alone: `python -m controller --fake-arm` (8000), `python -m vision --fake` (8001), `cd voice && npm run dev` (3000), `python -m ledger serve` (8080).
+`check` without `--url` starts its own fake stack on 8100 and checks that instead. With `--url` it never moves a real arm. It does switch to the bench tray and back, which clears the count, and on a fake or sim arm it runs one hemostat handover. So run it before a case, then `run_all reset`.
+
+Each part also runs alone: `.venv/bin/python -m controller --fake-arm` (8000), `.venv/bin/python -m vision --fake` (8001), `cd voice && npm run dev` (3000), `.venv/bin/python -m ledger serve` (8080). The docs write `python -m ...` for short; on the Mac that means `source .venv/bin/activate` first.
 
 Tests:
 
@@ -105,7 +110,7 @@ Tests:
 cd voice && npm test
 ```
 
-Recording demos for training: `python -m arm.check_setup`, then `python -m arm.record` ([docs/TRAINING.md](docs/TRAINING.md)).
+Recording demos for training: `.venv/bin/python -m arm.check_setup --side C920 --wrist icspring`, then `.venv/bin/python -m arm.record` ([docs/TRAINING.md](docs/TRAINING.md)).
 
 ## Team
 
