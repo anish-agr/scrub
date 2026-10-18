@@ -56,6 +56,7 @@ GRIP_BACKOFF = 4.0   # on an overload reply, open this much per loop until the s
 
 
 DROP_TARGET = [None, False]  # camera index for the SCRUB_DROP_CAMERA drill, done flag
+LAST_ERROR = Path.home() / "scrub-logs" / "last-error.txt"  # a crashed session's reason, for the page
 CAM_SPECS: dict = {}         # starting OpenCV index -> (role, name spec), to find a camera again after a replug
 
 
@@ -159,6 +160,55 @@ def tolerate_camera_stalls() -> None:
                 threading.Timer(float(drop), lambda: (print("drill: closing camera", flush=True),
                                                       disconnect(self))).start()
         OpenCVCamera.connect = connect_and_arm
+
+
+def lenient_motor_check() -> None:
+    """LeRobot's start-up check pings each motor once and counts a reply carrying an error flag
+    (angle out of range, overload) as a missing motor. A motor that answers is there: retry a
+    missed reply twice and ignore the flag."""
+    from lerobot.motors.motors_bus import MotorsBus
+
+    def ping(self, motor, num_retry: int = 0, raise_on_error: bool = False):
+        id_ = self._get_motor_id(motor)
+        for _ in range(1 + max(num_retry, 2)):
+            model, comm, _error = self.packet_handler.ping(self.port_handler, id_)
+            if self._is_comm_success(comm):
+                return model
+        if raise_on_error:
+            raise ConnectionError(f"motor {id_} did not answer")
+        return None
+    MotorsBus.ping = ping
+
+
+def joint_limits(bus) -> dict:
+    """Each follower joint's calibrated range in LeRobot's units, 1 inside the ends."""
+    out = {}
+    for m, c in bus.calibration.items():
+        if m == "gripper":
+            out[m] = (1.0, 99.0)
+            continue
+        mid = (c.range_min + c.range_max) / 2
+        lo, hi = ((r - mid) * 360 / 4095 for r in (c.range_min, c.range_max))
+        out[m] = (lo + 1, hi - 1)
+    return out
+
+
+def clamp_follower() -> None:
+    """The leader's wrist reaches past the follower's range; a goal past a limit sets the motor's
+    angle error, which later fails LeRobot's start-up check. Keep every goal inside the range."""
+    from lerobot.robots.so_follower.so_follower import SOFollower
+    send = SOFollower.send_action
+
+    def clamped(self, action):
+        lim = getattr(self, "_scrub_limits", None) or joint_limits(self.bus)
+        self._scrub_limits = lim
+        action = dict(action)
+        for k, v in action.items():
+            m = k[:-4] if k.endswith(".pos") else None
+            if m in lim:
+                action[k] = min(lim[m][1], max(lim[m][0], v))
+        return send(self, action)
+    SOFollower.send_action = clamped
 
 
 def _guard_ui(holding: bool, at) -> None:
@@ -468,6 +518,7 @@ def supervise(a, argv: list) -> None:
             env = {**os.environ, "SCRUB_CHILD": "1", "SCRUB_RESTARTS": str(restarts)}
             if opened:
                 env["BROWSER"] = "true"  # the tab is already open; don't open another
+            LAST_ERROR.unlink(missing_ok=True)
             proc = subprocess.Popen([sys.executable, str(Path(__file__).resolve()), *child], env=env)
             opened = opened or not a.no_ui
             try:
@@ -479,8 +530,15 @@ def supervise(a, argv: list) -> None:
                 print("session finished", flush=True)
                 return
             restarts += 1
-            print(f"session ended (exit {rc}): restarting when the devices are back ({restarts}x)", flush=True)
-            time.sleep(2)
+            err = LAST_ERROR.read_text().strip() if LAST_ERROR.exists() else f"exit {rc}"
+            delay = min(15, 2 * 2 ** min(restarts - 1, 3))  # 2, 4, 8, 15 s: don't spin on a startup error
+            print(f"session ended ({err}): restarting in {delay} s ({restarts}x)", flush=True)
+            if not a.no_ui:
+                arm_ui.S["phase"] = "waiting"
+                arm_ui.S["waiting"] = [f"restart in {delay} s (session ended: {err})"]
+                arm_ui.start_server()
+                serving = True
+            time.sleep(delay)
     except KeyboardInterrupt:
         pass
     finally:
@@ -548,8 +606,10 @@ def main() -> None:
     else:
         cmd = ["lerobot-teleoperate", *robot, *teleop, "--fps=30"]
 
+    lenient_motor_check()
     ease(a.follower, a.leader, a.ease_s)
     print(" ".join(cmd), flush=True)
+    clamp_follower()  # innermost: the gripper guard below sees and sends clamped goals
     guard_gripper()
     DROP_TARGET[0] = cams.get("wrist")
     tolerate_camera_stalls()
@@ -564,7 +624,12 @@ def main() -> None:
     else:
         from lerobot.scripts.lerobot_teleoperate import main as run
     sys.argv = cmd  # same arguments as the CLI, run in this process so the guard applies
-    run()
+    try:
+        run()
+    except BaseException as e:
+        if not isinstance(e, (KeyboardInterrupt, SystemExit)):
+            LAST_ERROR.write_text(f"{type(e).__name__}: {str(e).strip().splitlines()[0][:160] if str(e).strip() else ''}")
+        raise
 
 
 if __name__ == "__main__":
