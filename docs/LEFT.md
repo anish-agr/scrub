@@ -37,6 +37,22 @@ From `docs/PROPOSAL.md` (tracks section) and the demo. All of these are in the p
 | F3 | **Photon texts in:** the same Photon thread accepts texts. "add a second hemostat to the surgical tray" logs a restock to the ledger and replies; "what's out?" replies with the count. Gemini parses it with the same item list | Photon | Caiden phase 2 |
 | F4 | **Call to text memory:** the end-of-case text goes to the number that called and names the case (setting, start time, items used, anything still out, median request-to-hand time). Optional `case_id` on events | Photon | Caiden phase 2 |
 
+## Extensions (X): more for every track, all planned
+
+From `docs/PROPOSAL.md` ("What's next", the tracks) and `explore/research/04-buildout-ideas.md`. Each one makes a side track stronger. Build in order; each must keep the demo working.
+
+| # | What | Track it serves | Who | May edit |
+| --- | --- | --- | --- | --- |
+| X1 | **Case replay ("flight recorder"):** a page per `case_id` with every event on a timeline, request-to-hand times, the count at each moment, and the end-of-case summary. Linked from the dashboard and the public page | MongoDB Atlas, Community Kitchen, NEXT | Evan | `dashboard/`, `ledger/` |
+| X2 | **Preference memory:** from the ledger, each clinician's usual order of instruments per setting; `stats()` gains `next_likely` and the dashboard shows "likely next: hemostat (70%)". Suggestion only; the arm never moves on it | MongoDB, NEXT, Community Kitchen | Evan | `ledger/`, `dashboard/` |
+| X3 | **Tray check before a case:** vision compares the tray to the setting's item list and reports what's missing or in the wrong slot; "check the tray" by voice or text answers it. The sterile-processing use from the proposal | Perceptron Perception, Photon | Antigravity (vision side), Caiden (command) | `vision/`, `docs/PERCEPTRON.md` / `controller/`, `voice/` |
+| X4 | **Find events in video:** vision keeps short clips around each event per `case_id`; after the case, Perceptron's video or caption capability (check docs.perceptron.inc for what exists) labels them ("scalpel set at the safe spot, 14:02"), shown in the replay | Perceptron Perception | Antigravity | `vision/`, `docs/PERCEPTRON.md` |
+| X5 | **Photon extras:** a "tray ready" text when the tray check passes; texting "start a dental case" switches the setting; a short reply with the case link (public page) after the summary | Photon | Caiden | `voice/`, `controller/` |
+| X6 | **Clinic words:** when Scrub doesn't understand, it asks, and "call the hemostat a clamp" (spoken or texted) adds the alias. Saved in `settings/<id>.local.json` (an overlay the controller merges), so Evan's files stay untouched | Gemini, Photon, Community Kitchen | Caiden | `controller/`, `voice/` |
+| X7 | **Tablet mode:** a large-text, high-contrast view of the dashboard for a nurse across the room (step, what's out, stop and reset only). Port from `explore` status-board mockups | Community Kitchen (design, accessibility) | Evan | `dashboard/` |
+| X8 | **Honest tables:** success rates with 95% Wilson intervals and the number of tries, per item and lighting, on the dashboard and the public page | Perceptron Robotics, Devpost | Evan | `ledger/`, `dashboard/` |
+| X9 | **Data and model links:** the Hugging Face dataset and the deployment id shown on the dashboard and in the Devpost text, filled in by `arm.train pipeline` | Perceptron Robotics | Codex | `arm/` |
+
 ## Blockers only people can clear
 
 | What | Blocks | Who |
