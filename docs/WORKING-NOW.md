@@ -1,4 +1,4 @@
-# Working now (Sat 10:10 PM)
+# Working now (Sat 11 PM)
 
 Who is editing what right now, so nobody collides. Caiden's comb pass (`docs/COMB-PROMPT.md`) is running with several agents. Its commits land on `main` one item at a time over the next hour or so. When it finishes, this file is deleted and `docs/STATE.md`, `docs/HARDWARE-TODO.md` and `docs/ACCOUNTS-TODO.md` take over.
 
@@ -6,14 +6,9 @@ Who is editing what right now, so nobody collides. Caiden's comb pass (`docs/COM
 
 **Evan: the Devpost draft is due 10:30 PM.** `docs/DEVPOST.md` on `main` is the final rewrite: it matches the new pitch, every statistic has a source, dental is gone, and it names you as the submitter. Paste it into Devpost and submit the draft now. Fill the `[measured]` numbers on Sunday before 9:30 AM.
 
-## In flight: don't edit these until the comb commits them
+## Comb status
 
-| Area | Files being edited | By |
-| --- | --- | --- |
-| Controller and arm safety, real-arm readiness | `controller/core.py`, `controller/test_flows.py`, `arm/backends.py`, `arm/perceptron.py`, `arm/real_arm.py`, `arm/streaming.py` | comb A |
-| Voice, vision, contracts | `voice/src/*`, `voice/scripts/*`, `voice/README.md`, `vision/*.py`, `docs/CONTRACTS.md` | comb B |
-| Full stack on the sim arm, docs commands | `README.md` "Running it", `docs/BRINGUP.md`, `docs/TRAINING.md`, folder READMEs (only where a command is wrong) | comb D |
-| Final pass | `docs/AUDIT.md` (new), `docs/STATUS.md`, `docs/LEFT.md` | Caiden, at the end |
+The comb pass is done except one agent fixing small controller and voice bugs from the full-stack test (`controller/`, `voice/`, `ledger/shots.py`, `ledger/qr.py`). Everything else is committed: `docs/AUDIT.md` (all findings), `docs/STATE.md`, `docs/HARDWARE-TODO.md`, `docs/ACCOUNTS-TODO.md`, and `docs/LEFT.md` now points at those.
 
 ## Already pushed by the comb (Evan, your folders changed)
 

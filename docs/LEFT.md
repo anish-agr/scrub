@@ -1,80 +1,34 @@
-# What's left (Sat 5:05 PM)
+# What's left (Sat Oct 17, after the comb pass)
 
-Evan's tasks (E1 to E7) aren't listed here; he's on them. As of 5 PM he has pushed settings, the dashboard, the ledger, the tables page and a Devpost draft, and `controller.test_flows` (28/28) and `vision.test_vision` still pass with them in. `docs/STATUS.md` stays the checklist; this file is the gap list. Whoever finishes an item deletes it here in the same commit.
+The software is finished for the demo: every planned feature is built, the comb fixed every critical and high finding (`docs/AUDIT.md`), and every test suite passes. What remains is hardware and accounts, which only people can do. Two ordered lists replace this file:
 
-> **Scope change (Sat 6:30 PM): no dental tools, so the dental setting is dropped.** Scrub is surgical first. The demo runs the operating room tray, plus the robotics bench tray to show a second setting with no new code. `settings/dental.json` stays in the code but isn't recorded or demoed. The arm time saved goes into more operating room demos.
+- **`docs/HARDWARE-TODO.md`**: every arm, camera, recording, training and test step, in order, with the exact command for this Mac, what you should see, and what to do if you don't. Start at step 1 (the wrist camera).
+- **`docs/ACCOUNTS-TODO.md`**: every key and account (Perceptron team key, Hugging Face, ElevenLabs agent, Photon line, MongoDB on this Mac, Vultr, GoDaddy, Devpost, Commit Fellowship, DEV), with where to get it and whether it works now.
 
-## Agents running now (stay in your scope)
+`docs/STATUS.md` stays the checklist. `docs/STATE.md` is the map of the system. `docs/WORKING-NOW.md` says who is editing what.
 
-| Agent | Works on | May edit |
+> **Scope (Sat 6:30 PM): no dental tools, so the dental setting is dropped.** Scrub is surgical first. The demo runs the operating room tray, plus the robotics bench tray to show a second setting with no new code. `settings/dental.json` stays in the code but isn't recorded or demoed.
+
+## Decisions the team still owes
+
+| Decision | Why it matters | Where |
 | --- | --- | --- |
-| Caiden, session 1 (orchestrator) | L1 to L10 below | `controller/` (except `trials.py`), `voice/`, `arm/check_setup.py`, `arm/record.py`, `controller/run_all.py`, `README.md` "Running it", `docs/SLIDES.md`, `explore/` |
-| Evan, Cursor (Grok only) | E3 to E7 and the dashboard QA bugs. This pass landed the log command, the Devpost draft, the tables page, and V1 to V3. Still needs Evan: Atlas URI, Vultr, GoDaddy, Devpost submit | `dashboard/`, `ledger/`, `settings/`, `docs/DATA-LOG.md`, `docs/DEVPOST.md` |
-| Anish, Codex | R1 to R4, Q1, Q2 below | `arm/` except `check_setup.py` and `record.py`; `docs/BRINGUP.md`; `controller/trials.py` (new file only) |
-| Brandon, Cursor chat 1 (Grok) | hardware walkthrough: overhead camera, B5, B6 with Anish, B8 | `.env`, box fields in `settings/*.json`, `vision/calibration.json`, `vision/hand_heights.json`, his STATUS section |
-| Brandon, Cursor chat 2 (Grok) | `deploy/check_env.py`, Vultr and GoDaddy (E6 deploy, from Evan) | `deploy/` |
-| Anish, Antigravity | Integration pass complete: all repo tests pass, full sim stack driven on surgical & bench trays via voice, QA bugs QA-12 through QA-16 resolved. | `vision/`, `sim/`, `controller/`, `voice/`, `docs/QA.md`, `docs/LEFT.md` |
-| Caiden, phase 2 (after session 1 ends) | F1 to F4 and QA-12 done; left: the real call and text (C3, C4, C7) | `controller/`, `voice/` |
+| May the real arm use the saved spot when vision is down? | Today, after 5 s with no Hand posts, the arm goes to the saved spot without a hand check. "Only toward an open hand" holds only while vision runs | `docs/AUDIT.md` Low |
+| Is the 400 ms deadline measured from the right moment? | Image age at execution can reach about 580 ms. Decide after reading `counters.late` on `/arm/pose` during the first real handovers | `docs/AUDIT.md` M6, M7 |
 
-## More work (Q, R, G)
+## Software left (small, owned)
 
-| # | What | Who |
-| --- | --- | --- |
-| Q3 | `docs/AUDIT.md`: read every part against `docs/CONTRACTS.md` and list mismatches and likely bugs, by owner. Done in the final verification pass | Caiden, final pass |
-| Q4 | Sim backup: `python -m controller.run_all backup` plays a full run on the MuJoCo arm (checked clean). Left: screen-record one run with voice and the dashboard as the backup video | Caiden, final pass |
-| R4 | Live bring-up with Anish once the arm is plugged in and the team key is in: capabilities, `real_arm --dry-run` against the real joints, the five-point `move_to` check, gripper load sign | Codex |
+| What | Who |
+| --- | --- |
+| `explore/arm_session.py`: refuse to record while another process holds the follower port (`arm.backends.port_holders`), like `arm.record` and `arm.teach` already do | Caiden |
+| `docs/OVERVIEW.md` section 2: "and turnover is high" has no source; use "a surgical tech job takes about 120 days to fill (Periop Leader, 2024)". Section 7: the gripper guard and heat watching now hold for the real arm too (comb H6) | Anish |
+| P2: build the Google Slides deck from `docs/SLIDES.md` and paste the link there | a person |
+| Q4: screen-record `python -m controller.run_all backup` with the dashboard as the backup video | Evan or Caiden |
 
-## After everyone finishes: the final pass
+## Sunday, before judging
 
-When Caiden session 1, Codex, Antigravity and Evan's Cursor are done, Caiden runs one verification pass with subagents: Q3 (the audit), Q4 (the sim backup), every test in the repo, the full stack on the sim arm, and small fixes anywhere. That pass is the last software step before the hardware work takes over.
-
-## Features from the plan not built yet (F)
-
-From `docs/PROPOSAL.md` (tracks section) and the demo. All of these are in the plan, so all get built.
-
-| # | What | Track it serves | Who |
-| --- | --- | --- | --- |
-
-## Extensions (X): more for every track, all planned
-
-From `docs/PROPOSAL.md` ("What's next", the tracks) and `explore/research/04-buildout-ideas.md`. Each one makes a side track stronger. Build in order; each must keep the demo working.
-
-| # | What | Track it serves | Who | May edit |
-| --- | --- | --- | --- | --- |
-
-## Blockers only people can clear
-
-| What | Blocks | Who |
-| --- | --- | --- |
-| **Perceptron Robotics team key (coming soon).** The key we have is the vision key (`api.perceptron.inc`, in `PERCEPTRON_API_KEY`); it gets 401 on `robotics.perceptron.inc`. When the team key arrives it goes in `PERCEPTRON_TEAM_API_KEY`, then run `python -m arm.train capabilities` | training (A5, A10), live inference (A6), `python -m arm.train capabilities` | Anish |
-| **Photon number** answering calls | C3, the voice prize, the summary text | Caiden |
-| **Arm physical setup:** ports, both cameras (`side`, `wrist`), calibration with fixed ids, tray and cameras taped | all recording, A6 to A8 live, B5, B6 | Anish + one person |
-| **Overhead camera for `vision/`:** a third USB webcam, separate from `side` and `wrist` | B5, B6, B8 | Brandon |
-
-## Code agents can finish now (no hardware)
-
-| # | What | Files |
-| --- | --- | --- |
-| L9 | P2: slide text final and the diagram is `docs/media/system.svg` / `.png`. Left: a person builds the Google Slides deck from `docs/SLIDES.md` and pastes the link there | a person |
-
-## Needs the arm (people, with agents helping)
-
-In order:
-1. A3: set up and calibrate, measure home, carry and safe-spot poses and the handoff region into `arm/rig.json`.
-2. A7 live: five `move_to` points within about 2 cm.
-3. Gripper load: check the sign and size of the jump when someone pulls, then turn on release on pull.
-4. A4: record the operating room set (75). Check the cadence line and replay episode 0.
-5. A5: run 1. **We only get 2 successful runs.**
-6. While it trains: B5 slot boxes and B6 camera-to-arm calibration (Brandon with Anish), then record dental and bench into the same dataset.
-7. A6 live: real "pick the hemostat" from the controller with `--real-arm`.
-8. A8: first real handoff by voice (target 10:30 PM).
-9. A10: run 2 on everything (target 11 PM).
-10. C8: ten clean full runs. B8: lighting tests. A11: the success tables.
-
-## Presentation and submission (not Evan's)
-
-- P1 pitch script with measured numbers (Anish). Caiden helps.
-- A12 Perceptron arm video (Anish).
-- P5 three rehearsals Sunday, under 3 minutes.
-- Sunday 8:30 AM: repo made public, history checked for keys, README final.
-- P6 Commit Fellowship form after submitting.
+- Fill every `[measured]` in `docs/PITCH.md`, `docs/DEVPOST.md` and the slides from `GET /stats` (real-arm tries only; fake-arm rows are left out).
+- E7 demo video (2 to 3 min) from the shot list in `docs/DEVPOST.md`; A12 Perceptron arm video.
+- P5: rehearse three times with the roles in `docs/DEMO.md`, under 3 minutes.
+- 8:30 AM: `docs/README-PUBLIC.md` becomes `README.md`, repo made public (history already scanned: no keys).
+- 9:30 AM: final Devpost submitted. P6 Commit Fellowship form after.

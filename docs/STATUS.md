@@ -2,6 +2,8 @@
 
 Agents: the first unchecked box in your person's section is the next task. Tick it when its "done when" passes and add one line under it: what works and how to run it. Edit only your person's section. Task details are in `docs/TASKS.md`.
 
+> Comb pass (Sat Oct 17, about 11 PM): the boxes below were checked against evidence. What's left for people is ordered in `docs/HARDWARE-TODO.md` and `docs/ACCOUNTS-TODO.md`; every finding is in `docs/AUDIT.md`; the system map is `docs/STATE.md`.
+
 ## Anish
 
 - [x] A1 workshop notes in `docs/ARM.md`
@@ -9,10 +11,14 @@ Agents: the first unchecked box in your person's section is the next task. Tick 
 - [x] A2 `arm/perceptron.py`, `arm/train.py`, `arm/upload_dataset.py`
   - Client/CLI/uploader implemented; `python -m unittest arm.test_perceptron -v` passes 5 offline tests. Live `python -m arm.train capabilities` blocked by missing `PERCEPTRON_TEAM_API_KEY` (no root `.env`). Anish authorized A7/A6 work while this check waits.
 - [ ] A3 arm connected, both cameras, poses in `arm/rig.json`
-- [ ] A4 operating room demos recorded (75)
+  - Evidence Oct 17 night: follower recalibrated 21:49; the side camera (C920) is not seen by the Mac; the wrist camera (icspring) runs 22.6 fps (needs 30); `arm/rig.json` is the unmeasured template (`hardware_verified: false`, null poses). Steps 1 to 5 in `docs/HARDWARE-TODO.md`.
+- [ ] A4 operating room demos recorded (90: 20 pick + 10 put-back per item, `docs/TRAINING.md`)
+  - 0 recorded (two 4-episode test sets only; `docs/DATA-LOG.md` has no rows).
 - [ ] A5 fine-tuning run 1 started
+  - Blocked: `PERCEPTRON_TEAM_API_KEY` is set but robotics answers HTTP 401 (`python -m deploy`).
 - [ ] A6 `arm/real_arm.py` with `run_skill`
   - [x] Offline implementation/dry-run: complete interface, LeRobot adapter, 30 Hz playback + RTC predicts, stop/load/session tests. `python -m arm --dry-run --self-test` succeeds; all 26 arm tests pass on Python 3.10.11. Live API/hardware acceptance pending. Caiden integration items are in `arm/README.md`.
+  - [x] Comb fixes: holds the last command (no sag, no slack grip), claw guard, API retries then `APIError`, busy-port refusal, returns end on release. `unittest discover -s arm -t .` 94 OK, incl. `arm/test_safety.py`.
 - [ ] A7 `move_to` with IK
   - [x] Offline FK/IK, random round trips, handoff-box preflight, speed limits and fake-joint `Arm.move_to` pass. Run `python -m unittest arm.test_kinematics arm.test_real_arm -v`. Real calibration and five-point ~2 cm hardware acceptance still pending; rig is an unmeasured, hardware-disabled template.
 - [ ] A8 first real handoff by voice
@@ -36,6 +42,7 @@ Agents: the first unchecked box in your person's section is the next task. Tick 
 - [x] C2 pushed and announced
   - Pushed `ed084b6`. Point vision at `POST :8000/vision/hand` and `/vision/tray`; the dashboard at `WS :8000/events`, `GET /state`, `GET /setting`.
 - [ ] C3 Photon call reaches `voice/`
+  - Oct 17 night: Photon project id and secret are in `.env` (as `SPECTRUM_PROJECT_ID`/`SPECTRUM_PROJECT_SECRET`); live voice `/health` shows photon true and `[texts] listening on the Photon line`. Left: find the iMessage line number, `ELEVENLABS_AGENT_ID`, SIP inbound, and whether a shared-pool line takes calls (`docs/ACCOUNTS-TODO.md`).
   - Ready for the call: ElevenLabs Custom LLM → `voice/` `/v1/chat/completions`, verified through a public tunnel (`npm run tunnel`, Pinggy on 443; cloudflared is blocked on venue Wi-Fi). `curl localhost:3000/health` shows keys (booleans) and the controller. Left: Caiden's clicks in Photon and ElevenLabs, steps in `voice/README.md` "Call setup".
 - [ ] C4 Gemini commands, stop path, spoken replies
   - Works without a call: `curl -XPOST localhost:3000/heard -d '{"text":"grab me the kelly"}'` gives `handover hemostat` and "Hemostat coming." with Gemini live; mayo, "knife please", "what's out" and "stop" checked too. `cd voice && npm test` passes offline. Merged code checked Oct 17 against the fake arm through `npm run say`: kelly, got it, knife, what's out, stop. Left: the same on a real Photon call (C3).
@@ -70,6 +77,7 @@ Agents: the first unchecked box in your person's section is the next task. Tick 
 - [x] L2 robot sessions pre-opened per tray; Perceptron 401/409/503 spoken as `error` events with `code` (`controller.test_flows` 53/53)
 - [x] L3 judge mode: `POST /judge`, `--judge`, J on `/demo`; only handover, count, stop, got it. Voice refuses tray switches, clinic words and restocks in judge mode (`cd voice && npm test`)
 - [x] L6 `python -m arm.check_setup` and `python -m arm.record` (official recorder over `explore/arm_session.py`, or `--lerobot`; appends `docs/DATA-LOG.md`); `unittest arm.test_record` 23 tests
+- [x] Q3 `docs/AUDIT.md`: the comb pass (contracts, line by line, safety checklist, full stack on the sim arm, public-repo scan). Criticals and highs fixed with tests; `controller.test_flows` 62/62
 - [x] L7/L10 `python -m controller.run_all` (start, `reset`, `backup`, `check`): sim backup run clean, full-stack check 18/18 on a fake stack (`controller.test_run_all` 27 tests)
 
 ## Brandon
@@ -83,7 +91,9 @@ Agents: the first unchecked box in your person's section is the next task. Tick 
 - [x] B4 tray perception posting TrayState
   - Perceptron `/v1/detect` about once a second, mapped onto slot boxes, posted to `/vision/tray`. A failed call keeps the last state and sets `stale: true`. The controller's `GET /setting` supplies aliases and boxes. Shapes are in `docs/PERCEPTRON.md`. Live calls need `PERCEPTRON_API_KEY` in `.env`. `python -m vision.test_vision`
 - [ ] B5 slot boxes marked for all three trays
+  - Oct 17 night: `slot` and `return_spot` are null in every `settings/*.json`. Only surgical and bench are needed now (dental dropped).
 - [ ] B6 camera-to-arm calibration
+  - `vision/calibration.json` does not exist yet. Vision on :8001 is running `--fake`.
 - [x] B7 `path_clear` and saved hand height
   - `path_clear` is false when a second hand or a robot-arm box crosses the gripper-to-target segment. Hand height is saved per clinician with `POST /clinician`. `python -m vision.test_vision`. On the real camera, wave a hand through the path and the preview should say "path blocked".
 - [ ] B8 lighting tests
