@@ -60,6 +60,7 @@ export function receiveEvent(e: ScrubEvent) {
       currentSetting(settingId).catch(() => {});  // warm the cache before the next turn
     }
     const origin = dialogue.event(e);
+    if (origin?.ignore) return;
     let line = origin?.line || e.say;
     // "Scalpel down" call-out, if the controller didn't word one.
     if (!line && e.type === "set_down" && e.item) line = `${e.item.replace(/_/g, " ")} down`;
@@ -111,7 +112,7 @@ export async function handleTurn(heard: string, sayTo: Say, signal?: AbortSignal
       cmdId = id;
       timer = setTimeout(finish, holdS * 1000);
       if (seen.some(ends)) setTimeout(finish, 300);
-    }, context).catch((err) => {
+    }, context, signal).catch((err) => {
       console.log(`[turn] ${(err as Error).message}`);
       say("I can't reach the arm controller.");
       finish();
@@ -135,20 +136,23 @@ async function stopNow(hold: Hold, clock: Clock) {
 type Clock = { tm: TurnTiming; t0: number };
 const posting = ({ tm, t0 }: Clock) => { const now = Date.now(); tm.heard_to_command_ms = now - t0; return now; };
 
-async function run(heard: string, clock: Clock, hold: Hold, context: string) {
+async function run(heard: string, clock: Clock, hold: Hold, context: string, signal?: AbortSignal) {
+  const say = (line: string) => speak(line, false, undefined, context);
   // Stop first, before Gemini or anything else that takes time.
   if (isStop(heard)) { clock.tm.parser = "local"; return stopNow(hold, clock); }
+  const version = dialogue.version();
+  const stale = () => signal?.aborted || dialogue.version() !== version;
   flushPending();
   if (isEndCase(heard)) {
     dialogue.clear(context);
     // Only promise a text that can be sent; with no Photon keys or no number the summary is just logged.
-    speak(canText() ? "Closing the case. The summary is on its way to your phone." : "Closing the case.");
+    say(canText() ? "Closing the case. The summary is on its way to your phone." : "Closing the case.");
     hold([], 0.5);
     endCase().catch((e) => console.log(`[summary] ${(e as Error).message}`));
     return;
   }
   if (isTrayCheck(heard)) {
-    speak(await voiceTrayCheck());
+    say(await voiceTrayCheck());
     hold([], 0.5);
     return;
   }
@@ -158,33 +162,38 @@ async function run(heard: string, clock: Clock, hold: Hold, context: string) {
   if (asked) {
     dialogue.clear(context);
     // A tray voice doesn't offer (dental) gets its "not set up" line without asking for judge mode.
-    speak(SETTING_IDS.includes(asked) && await io.judgeMode() ? JUDGE_LINE : await io.switchSetting(asked));
+    say(SETTING_IDS.includes(asked) && await io.judgeMode() ? JUDGE_LINE : await io.switchSetting(asked));
     hold([], 0.5);
     return;
   }
   // The controller's current setting, so Gemini only sees ids on this tray.
   const setting = await io.currentSetting(settingId);
+  if (stale()) { hold([], 0); return; }
   settingId = setting.id;
   // X6 clinic words, before Gemini: "call the hemostat a clamp" -> POST /alias, say its line. Not in judge mode.
   const taught = parseAlias(heard, setting);
   if (taught) {
-    if (await io.judgeMode()) { speak(JUDGE_LINE); hold([], 0.5); return; }
+    if (await io.judgeMode()) { say(JUDGE_LINE); hold([], 0.5); return; }
     const r = await io.teach(taught.item, taught.alias);
     console.log(`[alias] ${taught.alias} -> ${taught.item}${r.ok ? "" : ` refused: ${r.reason}`}`);
-    speak(r.say);
+    say(r.say);
     hold([], 0.5);
     return;
   }
   const parsed = Date.now();
   const answer = dialogue.answer(context, heard, setting);
-  if (answer && "say" in answer) { speak(answer.say); hold([], 0.05); return; }
-  const p = answer && "parsed" in answer ? { ...answer.parsed, via: "local" as const } : await io.parse(heard, setting);
+  if (answer && "say" in answer) { say(answer.say); hold([], 0.05); return; }
+  let p = answer && "parsed" in answer ? { ...answer.parsed, via: "local" as const } : await io.parse(heard, setting);
+  if (stale()) { hold([], 0); return; }
   clock.tm.parser = p.via;
   if (p.via === "gemini") clock.tm.gemini_ms = Date.now() - parsed;
   // Gemini heard a stop the local words missed ("hold on, freeze it up"): the POST /stop fast path, not the queue.
   if (p.action === "stop") { console.log(`[command] stop  (${p.via})`); return stopNow(hold, clock); }
+  const scoped = dialogue.scope(context, p, setting);
+  if (scoped && "say" in scoped) { say(scoped.say); hold([], 0.05); return; }
+  if (scoped && "parsed" in scoped) p = { ...scoped.parsed, via: p.via };
   const question = dialogue.askParsed(context, p, setting);
-  if (question) { speak(question); hold([], 0.05); return; }
+  if (question) { say(question); hold([], 0.05); return; }
   const cmd = makeCommand(p.action, p.item, heard);
   if (p.instance) cmd.instance = p.instance;
   dialogue.track(context, cmd, setting);
@@ -193,6 +202,7 @@ async function run(heard: string, clock: Clock, hold: Hold, context: string) {
   const reply = await io.postCommand(cmd);
   clock.tm.controller_ms = Date.now() - sent;
   if (reply.clarify) {
+    if (!dialogue.commandActive(cmd.id)) { hold([], 0); return; }
     speak(dialogue.ask(context, reply.clarify, setting, cmd.action, false, false), true, cmd.id, context);
     hold([], 0.05, cmd.id); return;
   }

@@ -9,7 +9,7 @@ export const QUESTION_MS = 15_000;
 const CANCEL = /\b(cancel|never mind|nevermind|forget it)\b/;
 const CHOICE = /\b(left|right|closest|first|second|either|any|you pick|other|yes|no)\b/;
 interface Question { q: Clarification; setting: string; action: Action; at: number; confirm: boolean; chosen?: Candidate }
-interface Context { question?: Question; lastQuestion?: Question; lastHanded?: Candidate; setting?: string }
+interface Context { question?: Question; lastQuestion?: Question; lastHanded?: Candidate; setting?: string; latestCommand?: string }
 interface Origin { context: string; command: Command; setting: Setting; at: number; epoch: number; notify?: (line: string) => void }
 export type Answer = { say: string } | { parsed: ParseResult } | null;
 
@@ -31,8 +31,14 @@ export class Dialogue {
     if (context) this.contexts.delete(context);
     else { this.contexts.clear(); this.epoch++; }
   }
+  version() { return this.epoch; }
+  commandActive(id: string) {
+    const o = this.commands.get(id);
+    return !!o && o.epoch === this.epoch && this.contexts.get(o.context)?.latestCommand === id;
+  }
   pending(context: string) { const q = this.contexts.get(context)?.question; return !!q && this.now() - q.at < QUESTION_MS; }
   track(context: string, command: Command, setting: Setting, notify?: (line: string) => void) {
+    this.context(context, setting.id).latestCommand = command.id;
     for (const [id, o] of this.commands) if (this.now() - o.at > 300_000) this.commands.delete(id);
     if (this.commands.size > 500) this.commands.delete(this.commands.keys().next().value!);
     this.commands.set(command.id, { context, command, setting, at: this.now(), epoch: this.epoch, notify });
@@ -59,6 +65,7 @@ export class Dialogue {
     if (previous && !question.question_id && previous.q.say === q.say && JSON.stringify(previous.q.candidates) === JSON.stringify(q.candidates)) return previous.q.say;
     c.question = { q, setting: setting.id, action, at: this.now(), confirm };
     c.lastQuestion = c.question;
+    if (local) c.latestCommand = undefined;
     if (local) this.note({ type: "clarify", ...q, context });
     return q.say;
   }
@@ -71,15 +78,20 @@ export class Dialogue {
     }
     return null;
   }
+  scope(context: string, p: ParseResult, setting: Setting): Answer {
+    // Even a model-parsed pronoun return must not invoke the controller's global last-out fallback.
+    return p.action === "return" && !p.item && !p.clarify ? this.followup(context, "put it back", setting) : { parsed: p };
+  }
   answer(context: string, heard: string, setting: Setting): Answer {
     const c = this.context(context, setting.id), q = c.question, s = norm(heard);
-    if (CANCEL.test(s)) { c.question = undefined; if (q) this.answered(context, q, heard); return { say: "Cancelled. Nothing will move." }; }
+    if (CANCEL.test(s)) { c.question = undefined; c.latestCommand = undefined; if (q) this.answered(context, q, heard); return { say: "Cancelled. Nothing will move." }; }
     const followup = q?.confirm ? null : this.followup(context, heard, setting);
     if (followup) { c.question = undefined; return followup; }
     if (!q) return null;
     if (isGotIt(heard)) return null; // release must not be trapped behind a question
     if (this.now() - q.at >= QUESTION_MS) {
       c.question = undefined;
+      c.latestCommand = undefined;
       return { say: "That question timed out. Please ask for the instrument again." };
     }
     if (q.confirm && /^(no|nope|not that|negative)( please)?$/.test(s)) {
@@ -147,7 +159,7 @@ export class Dialogue {
     return { parsed: { action: returning ? "return" : "handover", item: last.item, ...(instance ? { instance } : {}) } };
   }
   // Returns the originating context; callers route this line only there, not into an unrelated open call.
-  event(e: ScrubEvent): { context: string; line?: string; notify?: (line: string) => void } | null {
+  event(e: ScrubEvent): { context: string; line?: string; notify?: (line: string) => void; ignore?: boolean } | null {
     if (e.case_id && this.caseId && e.case_id !== this.caseId) {
       const previous = Number(this.caseId.match(/-(\d+(?:\.\d+)?)$/)?.[1]);
       const next = Number(e.case_id.match(/-(\d+(?:\.\d+)?)$/)?.[1]);
@@ -155,22 +167,26 @@ export class Dialogue {
       const active = e.command_id ? this.commands.get(e.command_id) : undefined;
       this.clear();
       // The first event of a new case may be the command we just posted. Keep its routing, not old history.
-      if (active) active.epoch = this.epoch;
+      if (active) {
+        active.epoch = this.epoch;
+        this.context(active.context, active.setting.id).latestCommand = active.command.id;
+      }
     }
     if (e.case_id) this.caseId = e.case_id;
     if (e.type === "stopped") { this.clear(); return null; }
+    if (e.type === "returned") {
+      // A dashboard/automatic return also invalidates the person's last-out memory.
+      for (const c of this.contexts.values()) if (c.lastHanded?.item === e.item) c.lastHanded = undefined;
+    }
     const o = e.command_id ? this.commands.get(e.command_id) : undefined;
     if (!o || o.epoch !== this.epoch || this.now() - o.at > 300_000) return null;
     if (e.type === "clarify" && e.candidates && e.say) {
+      if (!this.commandActive(o.command.id)) return { context: o.context, ignore: true };
       const line = this.ask(o.context, { say: e.say, item: e.item, candidates: e.candidates, question_id: e.question_id }, o.setting, o.command.action, false, false);
       return { context: o.context, line, notify: o.notify };
     }
     if ((e.type === "released" || e.type === "handed") && e.item) {
       this.context(o.context, o.setting.id).lastHanded = { item: e.item, instance: e.instance || o.command.instance };
-    }
-    if (e.type === "returned") {
-      // A return by another person still makes that instrument no longer out.
-      for (const c of this.contexts.values()) if (c.lastHanded?.item === e.item) c.lastHanded = undefined;
     }
     return { context: o.context, notify: o.notify };
   }

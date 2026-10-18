@@ -95,6 +95,8 @@ for (const phrase of ["put it back", "take it back", "return that"]) {
 }
 assert.ok("say" in d.answer("person:b", "take it back", setting)!);
 assert.ok("say" in d.answer("person:b", "same again", setting)!);
+assert.ok("say" in d.scope("person:b", { action: "return", item: null }, setting)!);
+assert.equal((d.scope("person:a", { action: "return", item: null }, setting) as any).parsed.item, "mayo_curved");
 d.ask("other", question, setting);
 d.answer("other", "curved", setting);
 assert.equal((d.answer("other", "the other one", setting) as any).parsed.item, "mayo_straight");
@@ -102,6 +104,21 @@ d.event({ type: "returned", t: 2, command_id: handover.id, item: handover.item }
 assert.ok("say" in d.answer("person:a", "take it back", setting)!);
 assert.equal(localParse("put the curved scissors back", setting).item, "mayo_curved");
 assert.equal(localParse("take back scissors", setting).clarify?.candidates.length, 2);
+
+const delayed: Command = { ...handover, id: "delayed", item: "hemostat" };
+const sightEvent: ScrubEvent = { type: "clarify", t: 3, command_id: delayed.id, item: "hemostat", say: "Left or right?", candidates: visible, question_id: "delayed-question" };
+d.track("late", delayed, setting);
+d.event(sightEvent);
+assert.ok(d.pending("late"));
+d.answer("late", "cancel", setting);
+d.event(sightEvent);
+assert.ok(!d.pending("late"), "a duplicate event cannot revive a cancelled question");
+d.track("late", { ...delayed, id: "newer" }, setting);
+d.event(sightEvent);
+assert.ok(!d.pending("late"), "an older command cannot replace a newer question");
+d.ask("late", question, setting);
+d.event(sightEvent);
+assert.equal((d.answer("late", "curved", setting) as any).parsed.item, "mayo_curved");
 
 // Actual turn machinery and text handler, with isolated fake I/O.
 dialogue.clear();
@@ -186,6 +203,41 @@ try {
   assert.equal(posted.length, textBefore);
   await handleText("yes", "+confirm", uncertainText);
   assert.equal(posted.length, textBefore + 1);
+
+  // HTTP + websocket copies of a texted by-sight question are delivered once, to its own thread.
+  let sightCommand: Command | undefined;
+  const notices: string[] = [];
+  const textQuestion = { say: "Left or right?", item: "hemostat", candidates: visible, question_id: "text-sight" };
+  const bySightText = { ...td, notify: (line: string) => notices.push(line), command: async (c: Command) => {
+    sightCommand = c; return { accepted: false, reason: "clarify", say: textQuestion.say, clarify: textQuestion };
+  } };
+  assert.equal(await handleText("kelly", "+sight", bySightText), "Left or right?");
+  receiveEvent({ type: "clarify", t: Date.now() / 1000, command_id: sightCommand!.id, ...textQuestion });
+  assert.equal(notices.length, 0);
+  assert.ok(dialogue.pending("text:+sight"));
+  assert.ok(!dialogue.pending("call:+sight"));
+  await handleText("right", "+sight", td);
+  assert.deepEqual(posted.at(-1)?.instance, { side: "right", slot: 1 });
+
+  const eventOnly = { ...td, notify: (line: string) => notices.push(line), command: async (c: Command) => {
+    sightCommand = c; return { accepted: true, reason: null, say: null };
+  } };
+  await handleText("kelly", "+sight-event", eventOnly);
+  receiveEvent({ type: "clarify", t: Date.now() / 1000, command_id: sightCommand!.id, ...textQuestion });
+  assert.deepEqual(notices, ["Left or right?"]);
+  assert.ok(dialogue.pending("text:+sight-event"));
+
+  // A slow parse finishing after a concurrent stop must not enqueue a request or revive a question.
+  let finishParse: (value: any) => void = () => {};
+  io.parse = () => new Promise((resolve) => { finishParse = resolve; });
+  const beforeStop = posted.length;
+  const slow = turn("a slow uncertain request", "call:slow");
+  await new Promise((resolve) => setTimeout(resolve, 0));
+  const stopping = turn("stop", "call:stopper");
+  finishParse(confirmed);
+  await Promise.all([slow, stopping]);
+  assert.equal(posted.length, beforeStop);
+  assert.ok(!dialogue.pending("call:slow"));
 } finally { Object.assign(io, saved); dialogue.clear(); }
 
 // Real HTTP routes + websocket controller: /heard and ElevenLabs both preserve context across turns.
