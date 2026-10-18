@@ -88,3 +88,11 @@ def test_leaked_test_tries_drop_out_once_real_tries_exist():
     out = H.build({"events": rows, "episodes": [], "thermal": [], "read_at": T0}, Path("/tmp"))
     s = out["summary"]
     assert s["trusted"] is True and s["real_tries"] == 4 and "6 tries under 1 s" in s["why"]
+
+
+def test_untagged_rows_after_tags_are_shown_apart():
+    rows = [ev("step", "tag", True, t=T0 - 5)] + flow("u1", secs=9.0)
+    for r in rows[1:]:
+        r.pop("fake_arm", None)
+    s = H.build({"events": rows, "episodes": [], "thermal": [], "read_at": T0}, Path("/tmp"))["summary"]
+    assert s["untagged_tries"] == 1 and s["real_tries"] == 0 and s["untagged_table"][0]["successes"] == 1
