@@ -214,6 +214,10 @@ kbd{border:1px solid var(--hair);padding:0 4px;font:inherit}
         <button id="t-voice" class="big">Start listening<small>one click: microphone and Scrub's voice on</small></button>
         <button id="t-letgo" class="big">Let go<small>opens the jaw while it holds the item out</small></button>
       </div>
+      <div class="grid2" style="margin-top:8px">
+        <button id="t-home">Return to home<small>stops what it is doing, goes home, motors off</small></button>
+        <button id="t-stop">Stop<small>freezes where it is (say "continue" to go on)</small></button>
+      </div>
       <div id="t-status" class="mute" style="margin-top:8px;font-size:14px;min-height:1.3em"></div>
       <form id="t-form" class="row" style="margin-top:8px;gap:8px;display:flex">
         <input id="t-text" placeholder="Or type a command and press Enter" autocomplete="off" style="flex:1;min-width:0;font:500 15px var(--m);background:var(--paper2);color:var(--ink);border:1px solid var(--hair);padding:8px 10px">
@@ -440,7 +444,8 @@ function vIntent(text){
   if(/\bkill\b/.test(t)) return {a:"kill",say:"Motors off."};
   if(/\b(stop|freeze|hold on|hang on|halt|pause)\b/.test(t)) return {a:"pause",say:"Stopped."};
   if(/\b(let go|let it go|drop it|release|got it)\b/.test(t)) return {a:"release",say:"Letting go."};
-  if(/\b(return (to )?home|go (back )?home|return home)\b/.test(t)) return {a:"home",say:"Going home.",final:true};
+  if(/\b(return (to )?home|go (back )?(to )?home|back (to )?home|head home|home position)\b/.test(t)||/^\s*home\s*$/.test(t))
+    return {a:"home",say:"Going home.",final:true};
   if(/\b(continue|resume|keep going|carry on|go ahead)\b/.test(t)) return {a:"resume",say:"Continuing."};
   // an instrument word picks only right after a request ("get the kelly", "can I have the scalpel": the
   // request within 3 words before it) or on its own ("kelly"), so chatter with "handle" in it doesn't move the arm
@@ -448,7 +453,7 @@ function vIntent(text){
   const REQ="\\b(get|grab|hand|give|pass|bring|fetch|need|want|have|take)\\b(\\s+(me|us|the|a|an|that|this|my|your|another|other))*\\s+";
   for(const it of (st&&st.voice_items)||[])
     for(const w of it.words)
-      if(new RegExp((short?"":REQ)+"\\b"+vEsc(w)+"\\b").test(t)) return {a:"pick",task:it.task,say:"Getting the "+it.item.replace(/_/g," ")+"."};
+      if(new RegExp((short?"":REQ)+"\\b"+vEsc(w)+"\\b").test(t)) return {a:"pick",task:it.task,say:"Getting the "+w+"."};  // the word they used
   return null;
 }
 function talkLog(who,text,cls){
@@ -535,6 +540,8 @@ function vToggle(){
 }
 $("b-voice").onclick=vToggle;
 $("t-voice").onclick=vToggle;
+$("t-home").onclick=()=>{talkLog("you","(Return to home button)");vLast={key:"",t:0};vDo({a:"home",say:"Going home."},"return to home");};
+$("t-stop").onclick=()=>{talkLog("you","(Stop button)");vLast={key:"",t:0};vDo({a:"pause",say:"Stopped."},"stop");};
 $("t-letgo").onclick=()=>{talkLog("you","(Let go button)");vDo({a:"release",say:"Letting go."},"let go");};
 $("t-form").addEventListener("submit",e=>{
   e.preventDefault(); const text=$("t-text").value.trim(); $("t-text").value=""; if(!text) return;
