@@ -14,7 +14,8 @@ const realQuestionTimers: QuestionTimers = {
   clear: (timer) => clearTimeout(timer as NodeJS.Timeout),
 };
 const CANCEL = /\b(cancel|never mind|nevermind|forget it)\b/;
-const CHOICE = /\b(left|right|closest|first|second|either|any|you pick|other|yes|no)\b/;
+const selectorOf = (s: string) => s.match(/^(?:(?:please|i ll take|i want|give me|hand me|pass me|bring me|take|choose|pick) )?(?:the )?(?:one on (?:the )?)?(left|right|closest|first|second|1st|2nd|one|two)(?: one)?(?: please)?$/)?.[1];
+const freeChoice = (s: string) => /^(?:(?:please|i ll take|give me|hand me|choose|pick) )?(either(?: one)?|any(?: one)?|you pick)(?: please)?$/.test(s);
 interface Question { q: Clarification; setting: string; action: Action; at: number; confirm: boolean; chosen?: Candidate; timer?: unknown; controllerId?: string }
 interface Context { question?: Question; expired?: Question; lastQuestion?: Question; lastHanded?: Candidate; setting?: string; latestCommand?: string; notify?: (line: string) => void }
 interface Origin { context: string; command: Command; setting: Setting; at: number; epoch: number; notify?: (line: string) => void }
@@ -132,7 +133,7 @@ export class Dialogue {
   }
   async answerAsync(context: string, heard: string, setting: Setting, stats = getStats): Promise<Answer> {
     const q = this.contexts.get(context)?.question;
-    if (!q || q.confirm || !/\b(either|any|you pick)\b/i.test(heard)) return this.answer(context, heard, setting);
+    if (!q || q.confirm || !freeChoice(norm(heard))) return this.answer(context, heard, setting);
     let timer: NodeJS.Timeout | undefined;
     const data = await Promise.race([
       Promise.resolve().then(stats).catch(() => null),
@@ -146,13 +147,19 @@ export class Dialogue {
     if (CANCEL.test(s)) { this.close(context, c, heard, "cancelled"); c.expired = undefined; c.latestCommand = undefined; return { say: "Cancelled. Nothing will move." }; }
     if (!q && c.expired) {
       const old = c.expired; c.expired = undefined;
-      const bareAnswer = CHOICE.test(s) || old.q.candidates.some((x) => [x.variant, x.instance?.variant, x.label].some((w) => w && norm(w) === s));
+      const bareAnswer = !!selectorOf(s) || freeChoice(s) || /^(yes|no)$/.test(s)
+        || old.q.candidates.some((x) => [x.variant, x.instance?.variant, x.label].some((w) => w && norm(w) === s));
       if (bareAnswer) return { say: TIMEOUT_LINE };
     }
     const followup = q?.confirm ? null : this.followup(context, heard, setting);
     if (followup) { this.close(context, c, "superseded", "cancelled"); return followup; }
     if (!q) return null;
     if (isGotIt(heard)) return null; // release must not be trapped behind a question
+    const local = localParse(heard, setting);
+    // These are new non-movement commands, not choice answers, even when they contain "right" or "first".
+    if (["count", "read_sheet", "read_tray", "read_pack"].includes(local.action)) {
+      this.close(context, c, "superseded", "cancelled"); return null;
+    }
     if (this.now() - q.at >= QUESTION_MS) {
       this.expire(context, q);
       return { say: TIMEOUT_LINE };
@@ -165,10 +172,11 @@ export class Dialogue {
     if (q.confirm) {
       if (/^(yes|yes please|yeah|yep|correct|that s right)$/.test(s)) chosen = q.q.candidates[0];
     } else {
-      if (/\b(first|1st)\b/.test(s) || /^(the )?one( please)?$/.test(s)) chosen = q.q.candidates[0];
-      if (/\b(second|2nd)\b/.test(s) || /^(the )?two( please)?$/.test(s)) chosen = q.q.candidates[1];
-      if (/\b(either|any|you pick)\b/.test(s)) chosen = preferred || chooseCandidate(q.q.candidates);
-      const side = s.match(/\b(left|right|closest)\b/)?.[1];
+      const selector = selectorOf(s);
+      if (["first", "1st", "one"].includes(selector || "")) chosen = q.q.candidates[0];
+      if (["second", "2nd", "two"].includes(selector || "")) chosen = q.q.candidates[1];
+      if (freeChoice(s)) chosen = preferred || chooseCandidate(q.q.candidates);
+      const side = ["left", "right", "closest"].includes(selector || "") ? selector : undefined;
       if (side) {
         const sided = q.q.candidates.filter((x) => (x.instance?.side || x.side) === side);
         if (sided.length === 1) chosen = sided[0];
@@ -176,7 +184,8 @@ export class Dialogue {
       }
       const named = q.q.candidates.map((x) => {
         const it = setting.items.find((i) => i.id === x.item);
-        const words = [x.label, x.variant, x.instance?.variant, x.id, it?.name, ...(it?.aliases || [])].filter((x): x is string => !!x).map(norm);
+        const words = [x.label, x.variant, x.instance?.variant, x.id, it?.name, ...(it?.aliases || [])]
+          .filter((x): x is string => !!x).map(norm).filter((w) => !selectorOf(w));
         return { x, score: Math.max(0, ...words.filter((w) => w && (` ${s} `).includes(` ${w} `)).map((w) => w.length)) };
       });
       const max = Math.max(0, ...named.map((x) => x.score));
@@ -192,8 +201,7 @@ export class Dialogue {
     }
     if (q.confirm) return { say: q.q.say }; // no alternative wording can accidentally bypass the required yes
     // A new explicit non-choice command replaces the question. An unrecognized answer just repeats it.
-    const local = localParse(heard, setting);
-    if (!CHOICE.test(s) && local.action !== "unknown" && !local.clarify) { this.close(context, c, "superseded", "cancelled"); return null; }
+    if (!selectorOf(s) && !freeChoice(s) && local.action !== "unknown" && !local.clarify) { this.close(context, c, "superseded", "cancelled"); return null; }
     return { say: q.q.say };
   }
   private followup(context: string, heard: string, setting: Setting): Answer {
