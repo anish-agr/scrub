@@ -40,6 +40,11 @@ class Lighting(BaseModel):
     lux: Optional[float] = None
 
 
+class Alias(BaseModel):
+    item: str
+    alias: str
+
+
 class Force(BaseModel):
     miss_grasp: int = 0
     out_of_region: int = 0
@@ -92,6 +97,11 @@ def make_app(ctl: Controller, extra=None) -> FastAPI:
             raise HTTPException(404, f"no setting {body.setting!r}")
         except RuntimeError:
             raise HTTPException(409, "busy: stop or wait for idle before switching trays")
+
+    @app.post("/alias")
+    async def alias(body: Alias):
+        """X6: teach a clinic word ("call the hemostat a clamp"). {"ok", "say", "reason"}; saved in settings/<id>.local.json."""
+        return await asyncio.to_thread(ctl.add_alias, body.item, body.alias)
 
     @app.post("/lighting")
     async def lighting(body: Lighting):

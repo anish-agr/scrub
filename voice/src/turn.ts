@@ -3,8 +3,8 @@
 import { HOLD_S } from "./config.js";
 import { settingAsked, switchSetting } from "./cases.js";
 import { followEvents, makeCommand, postCommand, postStop, type ScrubEvent } from "./controller.js";
-import { isEndCase, isStop, isTrayCheck, parse } from "./parse.js";
-import { currentSetting, forgetSetting } from "./settings.js";
+import { isEndCase, isStop, isTrayCheck, parse, parseAlias } from "./parse.js";
+import { currentSetting, forgetSetting, teach } from "./settings.js";
 import { endCase, recordEvent } from "./summary.js";
 import { voiceTrayCheck } from "./tray.js";
 
@@ -101,6 +101,15 @@ async function run(heard: string, hold: (types: string[], holdS: number) => void
   // The controller's current setting, so Gemini only sees ids on this tray.
   const setting = await currentSetting(settingId);
   settingId = setting.id;
+  // X6 clinic words, before Gemini: "call the hemostat a clamp" -> POST /alias, say its line.
+  const taught = parseAlias(heard, setting);
+  if (taught) {
+    const r = await teach(taught.item, taught.alias);
+    console.log(`[alias] ${taught.alias} -> ${taught.item}${r.ok ? "" : ` refused: ${r.reason}`}`);
+    speak(r.say);
+    hold([], 0.5);
+    return;
+  }
   const p = await parse(heard, setting);
   const cmd = makeCommand(p.action, p.item, heard);
   console.log(`[command] ${cmd.action}${cmd.item ? " " + cmd.item : ""}  (${p.via})`);

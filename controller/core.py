@@ -162,7 +162,7 @@ class Controller:
                 return False, "not holding anything out", None
             return True, None, None
         if action not in ("handover", "return"):
-            return False, "unknown command", lines.UNKNOWN
+            return False, "unknown command", self._unknown_line()
         if self.step in ("stopped", "error"):
             return False, "stopped: reset first", lines.NEEDS_RESET  # the arm stays frozen until reset
         if len(self.jobs) >= MAX_QUEUE:
@@ -258,6 +258,31 @@ class Controller:
             self.step, self.item = "idle", None
         self.emit("step", item=None)
         return data
+
+    def _unknown_line(self) -> str:
+        """Ask which instrument, with a teaching hint from this tray (the first non-sharp item with an alias)."""
+        it = next((i for i in self.setting["items"] if i.get("aliases") and not i.get("sharp")), None)
+        return lines.unknown(it["name"], settings.norm(it["aliases"][0])) if it else lines.UNKNOWN
+
+    def add_alias(self, item_id: str, alias: str) -> dict:
+        """X6: a clinic-taught word for an item in the current setting. Writes settings/<id>.local.json and
+        reloads the setting in memory. Works while busy; never touches the arm, out or the case."""
+        word = settings.norm(alias or "")
+        with self.lock:
+            sid = self.setting["id"]
+            it = settings.item(self.setting, item_id or "")
+            if it is None:
+                return {"ok": False, "say": lines.NOT_IN_SETTING, "reason": f"{item_id!r} is not in {sid}"}
+            if not word or len(word) > 40:
+                return {"ok": False, "say": lines.BAD_ALIAS, "reason": "bad alias"}
+            other = next((o for o in self.setting["items"] if o["id"] != it["id"] and word in settings.words_for(o)), None)
+            if other:
+                return {"ok": False, "say": lines.alias_taken(word, other["name"]), "reason": f"already {other['id']}"}
+            if word not in settings.words_for(it):
+                settings.add_alias(sid, it["id"], word)
+                self.setting = settings.load(sid)
+        print(f"[alias] {word} -> {it['id']} ({sid})")
+        return {"ok": True, "say": lines.alias_added(word, it["name"]), "reason": None}
 
     def set_lighting(self, lighting: str, lux) -> None:
         with self.lock:

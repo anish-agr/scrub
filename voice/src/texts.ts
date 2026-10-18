@@ -5,19 +5,19 @@ import path from "node:path";
 import { GoogleGenAI, Type } from "@google/genai";
 import { GEMINI_API_KEY, GEMINI_MODEL, VOICE_DIR } from "./config.js";
 import { getState, postRestock, type State } from "./controller.js";
-import { isEndCase } from "./parse.js";
-import { currentSetting, type Setting } from "./settings.js";
+import { isEndCase, isTrayCheck, parseAlias } from "./parse.js";
+import { currentSetting, teach, type Setting } from "./settings.js";
+import type { AliasReply } from "./controller.js";
 import { closeCase, closeCaseWithLink, getPhoton, photonConfigured } from "./summary.js";
-import { isTrayCheck } from "./parse.js";
 import { textTrayCheck } from "./tray.js";
 import { settingAsked, switchSetting } from "./cases.js";
 
 const ai = GEMINI_API_KEY ? new GoogleGenAI({ apiKey: GEMINI_API_KEY }) : null;
 
 export const SETTINGS = ["surgical", "dental", "bench"];
-const KINDS = ["restock", "count", "summary", "setting", "help"] as const;
+const KINDS = ["restock", "count", "summary", "setting", "alias", "help"] as const;
 type Kind = typeof KINDS[number];
-export interface TextIntent { kind: Kind; item: string | null; qty: number; setting: string | null }
+export interface TextIntent { kind: Kind; item: string | null; qty: number; setting: string | null; alias?: string }
 
 export const RESTOCKS_FILE = path.join(VOICE_DIR, "restocks.jsonl");
 export const HELP = `Text me "add a hemostat to the surgical tray", "what's out?" or "summary".`;
@@ -42,10 +42,11 @@ Kinds:
 - count: they want to know what's out
 - summary: they want the end-of-case summary, or say the case is over
 - setting: they want to start a case on, or switch to, a tray ("start a dental case", "switch to the bench tray"). setting is that tray.
+- alias: they teach a word for an instrument on this tray ("call the hemostat a clamp", "clamp means the hemostat", "when I say clamp I mean the hemostat"). item is that instrument, alias is the new word, lowercase.
 - help: anything else
 Instruments on the current tray:
 ${list}
-item is the instrument id for restock, otherwise "none". setting is the tray they name (${SETTINGS.join(", ")}), otherwise "none".
+item is the instrument id for restock or alias, otherwise "none". alias is the new word for alias, otherwise "none". setting is the tray they name (${SETTINGS.join(", ")}), otherwise "none".
 Text: "${text}"`,
     config: {
       responseMimeType: "application/json",
@@ -56,9 +57,10 @@ Text: "${text}"`,
           item: { type: Type.STRING, enum: [...ids, "none"] },
           qty: { type: Type.INTEGER },
           setting: { type: Type.STRING, enum: [...SETTINGS, "none"] },
+          alias: { type: Type.STRING },
         },
-        required: ["kind", "item", "qty", "setting"],
-        propertyOrdering: ["kind", "item", "qty", "setting"],
+        required: ["kind", "item", "qty", "setting", "alias"],
+        propertyOrdering: ["kind", "item", "qty", "setting", "alias"],
       },
       temperature: 0,
       abortSignal: AbortSignal.timeout(5000),
@@ -66,6 +68,10 @@ Text: "${text}"`,
   });
   const out = JSON.parse(res.text || "{}");
   const kind: Kind = KINDS.includes(out.kind) ? out.kind : "help";
+  if (kind === "alias") {
+    const alias = norm(String(out.alias || "")).replace(/^(the|a|an) /, "");
+    return { kind, item: ids.includes(out.item) ? out.item : null, qty: 1, setting: null, alias: alias && alias !== "none" ? alias : undefined };
+  }
   return {
     kind,
     item: kind === "restock" && ids.includes(out.item) ? out.item : null,
@@ -80,6 +86,8 @@ const NUMS: Record<string, number> = { two: 2, three: 3, four: 4, five: 5, six: 
 export function localText(text: string, setting: Setting): TextIntent {
   const s = ` ${norm(text)} `;
   const named = SETTINGS.find((id) => s.includes(` ${id} `)) || null;
+  const taught = parseAlias(text, setting);
+  if (taught) return { kind: "alias", item: taught.item, qty: 1, setting: null, alias: taught.alias };
   if (isEndCase(text) || /\b(summary|recap|wrap up)\b/.test(s)) return { kind: "summary", item: null, qty: 1, setting: named };
   if (/\b(what s out|whats out|what is out|count|how many|anything out)\b/.test(s)) return { kind: "count", item: null, qty: 1, setting: named };
   const asked = settingAsked(text);
@@ -126,9 +134,10 @@ export interface TextDeps {
   summary: () => Promise<string>;
   trayCheck: () => Promise<string>;
   switchTo: (id: string) => Promise<string>;
+  teach: (item: string, alias: string) => Promise<AliasReply>;
 }
 const DEFAULTS: TextDeps = { state: getState, setting: currentSetting, parse: parseText, log: logRestock,
-  summary: () => closeCaseWithLink(), trayCheck: () => textTrayCheck(), switchTo: (id) => switchSetting(id) };
+  summary: () => closeCaseWithLink(), trayCheck: () => textTrayCheck(), switchTo: (id) => switchSetting(id), teach };
 
 // One text in -> the reply text.
 export async function handleText(text: string, from: string | null, deps: Partial<TextDeps> = {}): Promise<string> {
@@ -141,6 +150,10 @@ export async function handleText(text: string, from: string | null, deps: Partia
   if (p.kind === "count") return st ? countReply(st) : "I can't reach the arm controller.";
   if (p.kind === "summary") return d.summary();
   if (p.kind === "setting") return p.setting ? d.switchTo(p.setting) : `Which tray? ${SETTINGS.join(", ")}.`;
+  if (p.kind === "alias") {
+    if (!p.item || !p.alias) return `Say it like: call the ${setting.items[0]?.name ?? "hemostat"} a clamp. On this tray: ${setting.items.map((i) => i.name).join(", ")}.`;
+    return d.teach(p.item, p.alias).then((r) => r.say, () => "I can't reach the arm controller.");
+  }
   if (p.kind === "restock") {
     if (!p.item) return `Which instrument? On this tray: ${setting.items.map((i) => i.name).join(", ")}.`;
     const tray = p.setting || setting.id;

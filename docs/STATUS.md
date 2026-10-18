@@ -55,6 +55,12 @@ Agents: the first unchecked box in your person's section is the next task. Tick 
   - The end-of-case text goes to the caller's thread and names the case, grouped by `case_id` (now on State and every event). Offline tests in `npm test`; the real send is C7.
 - [x] QA-12 sharp acknowledgement
   - A scalpel handover now says "Scalpel to the safe spot." (test in `controller.test_flows`).
+- [x] X3 tray check, command side
+  - "check the tray" / "is the tray ready" by voice or text → controller `GET /tray_check` → vision's `/tray_check` (3 s timeout, in a thread) → "Tray's ready: …", "Missing the scalpel.", "The hemostat is in the Mayo scissors' slot."; a passing check on a call also texts "Tray ready". Until vision adds the endpoint: "I can't check the tray right now." Tests in `controller.test_flows` and `cd voice && npm test`.
+- [x] X5 Photon extras
+  - Text or say "start a bench case" / "switch to the surgical tray" → `POST /setting`, reply lists the tray's instruments (busy: "The arm is busy…"). After the summary text, "Case replay: <SCRUB_PUBLIC_URL>/case.html?id=<case_id>" (Evan's replay page) when `SCRUB_PUBLIC_URL` is set. The "tray ready" text is in X3. Offline tests in `npm test`.
+- [x] X6 clinic words
+  - "call the hemostat a clamp", "when I say clamp I mean the hemostat" or "clamp means the hemostat" (call or text) → controller `POST /alias` → saved in `settings/<id>.local.json`, merged over Evan's file (never written) and live at once. Unknown requests now hint: "Which instrument? You can say: call the hemostat a kelly." Tests in `controller.test_flows` (45/45) and `npm test`.
 - [ ] C8 ten clean full runs
   - Tool ready: `.venv/bin/python -m controller --real-arm` then `.venv/bin/python -m controller.smoke --runs 10 --human --return` counts the clean streak. Needs `arm/real_arm.py` (A6) and the arm.
 - [x] P4 demo mode and backup run

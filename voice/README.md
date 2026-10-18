@@ -23,6 +23,7 @@ caller -> Photon number -> Photon Voice profile (SIP, TLS) -> ElevenLabs agent (
 - `npm test`: offline. Alias match, case summary counts, caller id and last-message rules, and the real server against a fake controller: SSE chunk shape, `[DONE]`, "stop" hits only `POST /stop` (no `/setting`, no Gemini, no `/command`), "check the tray" hits only `GET /tray_check`, `/health`. `VOICE_NO_KEYS=1` (set by `npm test`) ignores `.env`, so it never calls Gemini or Photon.
 - Gemini: checked Oct 17 live, kelly, mayo, "knife please", "what's out" and "stop" all map right. The first Gemini call after start can pass the 1.5 s timeout and fall back to the alias match.
 - The setting is cached for 30 s and dropped when an event shows a different setting, so a turn doesn't wait on `GET /setting` before Gemini.
+- Clinic words (X6): "call the hemostat a clamp", "clamp means the hemostat", "when I say clamp I mean the hemostat" are caught by a local pattern (`parseAlias` in `src/parse.ts`) before Gemini, on the call and by text (texts also have a Gemini `alias` kind). The item side has to name an item on the tray. They go to the controller's `POST /alias` (saved in `settings/<id>.local.json`), Scrub says its `say`, and the cached setting is dropped so the next turn hears the new word. The Command action enum is unchanged.
 - End-of-case summary: the count comes first, from the controller's own `out` list. A no-pull or no-hand set-down is listed as "set at the safe spot", not as a pass; a pick that worked on the retry is not a failed request.
 
 ## Texts
@@ -36,6 +37,7 @@ Text the Photon number (same iMessage thread as the end-of-case summary). The li
 | "check the tray", "is the tray ready?", "tray check" | `Tray ready: Operating room, all 3 instruments in place.` when it passes, else the controller's line ("Missing the scalpel.", "I can't check the tray right now."). From `GET /tray_check`, matched before Gemini |
 | "summary", "end of case" | the end-of-case summary, and a new case starts (plus the case link line, below) |
 | "start a dental case", "switch to the bench tray", "surgical case" | `Dental case started: mouth mirror, explorer, cotton pliers.` (names from the setting file `POST /setting` returns). The controller starts a new `case_id`; the previous case's summary is not sent. 409: `The arm is busy. Stop or wait, then try again.` Saying it on the call does the same (a local phrase match before Gemini, `src/cases.ts`) |
+| "call the hemostat a clamp", "clamp means the hemostat", "when I say clamp I mean the hemostat" | the controller's `POST /alias` line: `Got it: clamp means the hemostat.` (or `Clamp already means the X.`) |
 | anything else | one help line |
 
 Code in `src/texts.ts`; `npm test` runs it against a fake message stream and fake state, no network.
@@ -85,5 +87,7 @@ Only a human can do these. Order: Photon, ElevenLabs agent, import the number, t
 | "what's out" | `[command] count` | "Out: hemostat, scalpel." |
 | "stop" | `[command] stop (POST /stop)` | "Stopped." |
 | "check the tray", "is the tray ready", "tray check" | `[tray] ready` (or `not ready`, `can't check`) | the controller's `GET /tray_check` `say`: "Tray's ready: scalpel, hemostat, Mayo scissors." / "Missing the scalpel." / "I can't check the tray right now." A pass also texts `Tray ready: Operating room, all 3 instruments in place.` to the caller's thread |
+| "hand me the bovie" | `[command] unknown` | "Which instrument? You can say: call the hemostat a kelly." |
+| "call the hemostat a crile" | `[alias] crile -> hemostat` | "Got it: crile means the hemostat." Then "crile please" hands the hemostat |
 
 `(local)` or `(gemini)` after each command says which parser ran. After "stop", reset the controller (`curl -XPOST localhost:8000/reset`) before the next request. If the call connects but Scrub is silent, check terminal 2: no `[heard]` means the Custom LLM URL is stale (new tunnel URL) or wrong (`[server] 404`); a phone that doesn't ring means Photon inbound or the agent assignment (Photon's troubleshooting table in the cookbook, and **SIP Messages** on the ElevenLabs number page).
