@@ -12,6 +12,10 @@ from .streaming import DELAY
 
 class PolicySession:
     def __init__(self, deployment_id, instruction, verified_contract_id):
+        self.closed = False
+        # Grant TTL requested below is six hours. Idle expiry may be earlier;
+        # server errors/reset failure still invalidate a session at run time.
+        self.expires_at = time.monotonic() + 21600 - 60
         self.control = Perceptron()
         self.inference = None
         self.session_id = None
@@ -40,6 +44,9 @@ class PolicySession:
         self.inference.reset(self.session_id)
 
     def close(self):
+        if self.closed:
+            return
+        self.closed = True
         try:
             if self.inference is not None and self.session_id:
                 self.inference.delete(self.session_id)
