@@ -211,6 +211,90 @@ def clamp_follower() -> None:
     SOFollower.send_action = clamped
 
 
+JOINT_LOAD_MAX = 250  # |Present_Load| (0.1% of max torque) a joint may push without moving
+JOINT_STALL_S = 1.0   # pushing this long while stuck: hold where it is instead of pushing
+TEMP_WARN, TEMP_RELAX = 55, 62  # deg C: warn on the page; stop pushing with that motor
+ARM_JOINTS = ("shoulder_pan", "shoulder_lift", "elbow_flex", "wrist_flex", "wrist_roll")
+
+
+def guard_joints() -> None:
+    """A blocked joint (the folded rest pose against the base or table, an object in the way) keeps
+    its motor stalled at the current limit until it overheats and trips overload, one motor after
+    another (Oct 17: all six at 54-61 C, wrist_flex flagged overload). If a joint pushes hard without
+    moving for JOINT_STALL_S, or its motor is too hot, command its present position until the leader
+    moves it back the other way."""
+    from lerobot.robots.so_follower.so_follower import SOFollower
+    send = SOFollower.send_action
+    st = {"since": {}, "hold": {}, "dir": {}, "temp": {}, "temp_t": 0.0}
+
+    def guarded(self, action):
+        now = time.perf_counter()
+        try:
+            loads = self.bus.sync_read("Present_Load", normalize=False)
+            pos = self.bus.sync_read("Present_Position")
+        except Exception:  # noqa: BLE001 - no fresh reading: send as is
+            return send(self, action)
+        if now - st["temp_t"] > 2.0:
+            st["temp_t"] = now
+            try:
+                st["temp"] = {k: int(v) for k, v in self.bus.sync_read("Present_Temperature", normalize=False).items()}
+            except Exception:  # noqa: BLE001
+                pass
+        action = dict(action)
+        for m in ARM_JOINTS:
+            k = m + ".pos"
+            if k not in action or m not in pos:
+                continue
+            goal, here, load = action[k], pos[m], abs(int(loads.get(m, 0)))
+            push = goal - here
+            if m in st["hold"]:
+                # Released when the leader comes back to where the follower is or moves the other way.
+                if abs(goal - st["hold"][m]) < 2.0 or push * st["dir"][m] < 0:
+                    st["hold"].pop(m)
+                    st["since"].pop(m, None)
+                    print(f"joint guard: {m} released", flush=True)
+                else:
+                    action[k] = st["hold"][m]
+                    continue
+            hot = st["temp"].get(m, 0) >= TEMP_RELAX
+            if (load > JOINT_LOAD_MAX and abs(push) > 3.0) or (hot and abs(push) > 1.0):
+                st["since"].setdefault(m, now)
+                if hot or now - st["since"][m] > JOINT_STALL_S:
+                    st["hold"][m], st["dir"][m] = here, (1 if push > 0 else -1)
+                    action[k] = here
+                    print(f"joint guard: {m} {'hot ' + str(st['temp'][m]) + ' C' if hot else 'blocked (load ' + str(load) + ')'}, "
+                          f"holding at {here:.0f} instead of pushing to {goal:.0f}", flush=True)
+            else:
+                st["since"].pop(m, None)
+        try:
+            import arm_ui
+            arm_ui.S["motors"] = {m: {"temp_c": st["temp"].get(m), "load": int(loads.get(m, 0)),
+                                      "held": m in st["hold"]} for m in (*ARM_JOINTS, "gripper")}
+        except ImportError:
+            pass
+        return send(self, action)
+    SOFollower.send_action = guarded
+
+    disconnect = SOFollower.disconnect
+
+    def safe_disconnect(self, *a, **kw):
+        """Keeping torque on stops a raised arm falling, but at rest it only keeps the motors
+        pushing into the base. Folded at rest: torque off. Raised: hold where it is, no push."""
+        try:
+            p = self.bus.sync_read("Present_Position")
+            if p["shoulder_lift"] <= -90 and p["elbow_flex"] >= 85:
+                self.bus.disable_torque()
+                print("exit: arm folded at rest, torque off so the motors cool", flush=True)
+            else:
+                raw = self.bus.sync_read("Present_Position", normalize=False)
+                self.bus.sync_write("Goal_Position", raw, normalize=False)
+                print("exit: arm raised, holding where it is", flush=True)
+        except Exception:  # noqa: BLE001 - the original disconnect still runs
+            pass
+        return disconnect(self, *a, **kw)
+    SOFollower.disconnect = safe_disconnect
+
+
 def _guard_ui(holding: bool, at) -> None:
     try:
         import arm_ui
@@ -611,6 +695,7 @@ def main() -> None:
     print(" ".join(cmd), flush=True)
     clamp_follower()  # innermost: the gripper guard below sees and sends clamped goals
     guard_gripper()
+    guard_joints()  # outermost: sees the leader's goals before the claw guard and the clamp
     DROP_TARGET[0] = cams.get("wrist")
     tolerate_camera_stalls()
     if not a.no_ui:
