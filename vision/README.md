@@ -106,6 +106,26 @@ A backend whose key is not set is skipped. With neither key the result is `ok: f
 `GET /locate?item=<id>` (`locate.py`) returns where the item really is: `center_px`, `offset_px`/`offset_mm` from its slot, `yaw_deg` vs the slot's long axis, and `arm_xy`/`arm_offset` when `vision/calibration.json` exists. Local OpenCV check on the slot crop first, the tray loop's Perceptron boxes second (live detect only if they are stale), Gemini only when they disagree by more than 15 mm, one says absent, or confidence is under 0.5. Total budget 2.5 s; a miss is `found` false, `method` "none", never a 500. `offset_mm` uses `TRAY_MM` (400 x 300 mm) in `locate.py` unless the setting has `tray_mm`. The tray tag is read in the background and cached for 60 s (`tray`, `setting_ok`).
 `GET /safe_zone` says whether the set-down square is free of a hand and of instruments. Zone pixels come from `arm/rig.json` `safe_zone` through the calibration, or the setting's `safe_zone_px` `[x0, y0, x1, y1]`; with neither, `clear` is null and `method` "none". Tests: `python -m pytest -q vision/test_locate.py`.
 
+Instance selection: `/locate?item=hemostat&side=right&slot=2` also accepts `variant`. More than one matching
+detection returns `found: false`, `ambiguous: true`, `candidates` instead of choosing the nearest slot or
+asking Gemini to guess. Each candidate has `item`, `label`, `box`, 1-based `slot`, optional `variant`/`side`,
+and `instance` (the hint to echo). An exactly matching hint returns the selected detection's center and
+calibrated arm coordinates with `instance_validated: true`, `instance`, `candidate`, and `candidates`.
+Contradictory hints, duplicate slots/boxes, overlapping boxes, or a failed detector stay unresolved.
+Without a calibrated pose the real controller will not move to a physical instance.
+
+Camera convention: mount the overhead view with the surgeon at image bottom. Image-left is surgeon-left;
+larger y is closer. Generated slots sort left-to-right then top-to-bottom (explicit stable slots win).
+Two separated detections receive left/right; with more than two, only a uniquely bottommost detection
+receives `closest`, and others are addressed by slot. Tied geometry never gets an arbitrary relative label.
+`vision/instances.py` is pure validation shared with the controller; it imports no camera, model, or arm code.
+Production `TrayState` posts preserve each physical detection in `candidates`, alongside the backwards-compatible
+configured `slots` (`kind: "configured"`). `ambiguous_items` names multi-instance or unsafe detections. The tray
+loop forwards these fields, retains generated physical slot ids across missing detections by unambiguous box
+overlap, and annotates cached detections so `/locate` uses the same ids. Local fallback cannot disprove known
+multiplicity: it carries `candidates_stale: true`, which blocks instance picks. Return-spot objects are not
+offered as on-tray candidates. Regression tests: `python -m pytest -q vision/test_instances.py`.
+
 ## Detect timing
 
 `docs/RECOGNITION.md` measured `/v1/detect` at 3.8 to 4.7 s on 640x480 trays. A live `--check-api` call on a flat 640x480 frame took 1.6 s on Oct 18. So the detector shrinks any frame wider than 640 px before upload (the 1280x720 camera frame goes up as 640x360) and scales the boxes back to the full frame. Its timeout is 6 s. `GET /tray_check` calls a read stale once it is older than that timeout plus 2 s (8 s). Watch `detect_p50_ms` on `/health`. Override in `.env`:

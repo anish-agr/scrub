@@ -21,6 +21,7 @@ from vision.heights import height_for, load_heights, save_heights, set_clinician
 from vision.tray import (
     PerceptronDetector,
     categories_for,
+    detection_box,
     empty_tray,
     gripper_and_obstacles,
     load_setting,
@@ -261,6 +262,24 @@ def publish_tray(runtime: Runtime) -> dict | None:
     setting = setting_document(runtime)
     try:
         state, detections = perceive_tray(runtime, frame, setting)
+        from vision import instances
+        previous = runtime.last_good_tray or {}
+        if state.get("detector") == "perceptron" and "candidates" in state:
+            old = previous.get("candidates", []) if previous.get("setting") == state.get("setting") else []
+            state["candidates"] = instances.stabilize(state["candidates"], old)
+            unresolved = {c["item"] for c in state["candidates"] if c.get("identity_ambiguous")}
+            if unresolved:
+                state["ambiguous_items"] = sorted(set(state.get("ambiguous_items", [])) | unresolved)
+                state["candidates_stale"] = True
+            # /locate reuses these detections: carry the same stable physical identity, not a re-numbered slot.
+            for detection in detections:
+                box = detection_box(detection)
+                matches = [c for c in state["candidates"] if c.get("box") == box]
+                if len(matches) == 1:
+                    detection.update({k: matches[0][k] for k in ("id", "slot", "side", "variant", "slot_source") if k in matches[0]})
+        elif previous.get("ambiguous_items") and previous.get("setting") == state.get("setting"):
+            # Local occupancy cannot disprove previously observed multiplicity.
+            state.update(candidates=previous.get("candidates", []), ambiguous_items=previous["ambiguous_items"], candidates_stale=True)
         with runtime.lock:
             if runtime.tray_failing:
                 logger.info("tray perception back")
@@ -301,6 +320,9 @@ def publish_tray(runtime: Runtime) -> dict | None:
     }
     if state.get("detector"):
         payload["detector"] = state["detector"]
+    for key in ("candidates", "ambiguous_items", "candidates_stale"):
+        if key in state:
+            payload[key] = state[key]
     runtime.poster.post("/vision/tray", payload)
     return payload
 
