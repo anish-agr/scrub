@@ -92,6 +92,8 @@ label.f{display:flex;flex-direction:column;gap:4px;font:700 12px var(--f);letter
 select,#r-args{font:500 15px var(--m);background:var(--paper2);color:var(--ink);border:1px solid var(--hair);padding:8px 10px;min-width:0}
 #runform{display:grid;grid-template-columns:1fr 2fr 1fr;gap:10px;margin-bottom:12px}
 #b-run,#b-stop,#b-toggle{font-size:22px;padding:16px}
+#b-pick,#b-cal{font-size:17px;padding:12px}
+#b-cal.on{background:var(--amber,#ffcc00);color:#111;border-color:var(--amber,#ffcc00)}
 #b-run:not(:disabled){background:var(--green);color:#0b1a10;border-color:var(--green)}
 #b-stop:not(:disabled){background:var(--amber);color:#111;border-color:var(--amber)}
 #runlive{margin-top:12px;font:500 14px var(--m)}
@@ -171,6 +173,10 @@ kbd{border:1px solid var(--hair);padding:0 4px;font:inherit}
       <div class="grid2">
         <button id="b-run" class="big">Run<small>arm must be on (Motors on)</small></button>
         <button id="b-stop" class="big">Stop<small>ends the run, home, motors off</small></button>
+      </div>
+      <div class="grid2" id="autopick-row" style="margin-top:10px">
+        <button id="b-pick">Pick &amp; hand over<small>finds the scalpel handle, offers it, lets go when you take it</small></button>
+        <button id="b-cal">Calibrate camera<small>arm maps the camera to the tray by itself (~1.5 min); hands clear</small></button>
       </div>
       <div id="runhint" class="mute" style="margin-top:8px;font-size:14px"></div>
       <div id="runlive" hidden><div id="runtext"></div><div class="prog"><i id="runprog"></i></div></div>
@@ -287,6 +293,9 @@ function renderRun(s){
   $("b-run").querySelector("small").textContent=s.state==="idle"?"starts from where the arm is":
     running?"running…":["parked","off","killed"].includes(s.state)?"press Motors on first":`not while ${LABEL[s.state]||s.state}`;
   $("b-stop").disabled=!running;
+  const apOk=[...$("r-driver").options].some(o=>o.value==="autopick"&&!o.disabled);
+  ["b-pick","b-cal"].forEach(id=>{$(id).disabled=running||s.state!=="idle"||!apOk;});
+  if($("b-cal").disabled)calArm(false);
   ["r-driver","r-episode","r-speed","r-args"].forEach(id=>$(id).disabled=running);
   $("runlive").hidden=!running;
   if(running&&run){const d=run.driver_status||{};
@@ -364,6 +373,18 @@ $("b-run").onclick=()=>{
   send("run",{driver:d,args});
 };
 $("b-stop").onclick=()=>send("stop");
+$("b-pick").onclick=()=>send("run",{driver:"autopick",args:{mode:"handoff"}});
+let calArmed=null;
+function calArm(on){
+  clearTimeout(calArmed); calArmed=null;
+  const b=$("b-cal"); b.classList.toggle("on",on);
+  b.firstChild.textContent=on?"Click again to calibrate":"Calibrate camera";
+  if(on)calArmed=setTimeout(()=>calArm(false),5000);
+}
+$("b-cal").onclick=()=>{
+  if(!calArmed){calArm(true);return;}            // two clicks: it sweeps the jaw over the whole tray
+  calArm(false); send("run",{driver:"autopick",args:{mode:"calibrate"}});
+};
 $("b-grab").onclick=()=>send("mark",{result:"grabbed"});
 $("b-miss").onclick=()=>send("mark",{result:"missed"});
 document.querySelectorAll("button").forEach(b=>b.addEventListener("click",()=>b.blur()));  // Space never double-fires
