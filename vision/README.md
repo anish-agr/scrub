@@ -45,7 +45,7 @@ python -m vision.lighting --test --label normal --seconds 10
 python -m vision.lighting --test --label dim --seconds 10
 ```
 
-`--fake` runs the same row without a camera or an API key. `python -m vision.lighting --check-api` makes one live `/v1/detect` call and prints the status and the latency, not the key. The CSV is a local log. Do not commit it.
+`--fake` runs the same row without a camera or an API key. `--all-conditions` writes bright, then normal, then dim. On a real camera it waits for Enter between lamps. In a script, run one `--label` at a time. `python -m vision.lighting --check-api` makes one live `/v1/detect` call and prints the status and the latency, not the key. The CSV is a local log. Do not commit it.
 
 ## Marking slots (B5)
 
@@ -56,7 +56,7 @@ python -m vision.mark_slots --setting surgical --image tray.jpg
 python -m vision.mark_slots --setting surgical --live
 ```
 
-`--live` grabs one frame from `CAMERA_INDEX`, saves it, and opens the click window. Or pass corners without a window: `--clicks x,y,x,y,...`. The JSON it writes is a full settings file with `slot` and `return_spot` filled. Evan copies those numbers into `settings/<id>.json`. Repeat for `dental` and `bench`.
+`--live` grabs one frame from `CAMERA_INDEX`, saves it, and opens the click window. Or pass corners without a window: `--clicks x,y,x,y,...`. The JSON it writes is a full settings file with `slot` and `return_spot` filled. Evan copies those numbers into `settings/<id>.json`. Do surgical, then bench. Dental is dropped. Until those boxes are filled, a detection anywhere counts as in the right slot.
 
 `python -m vision.mark_slots --fake --out /tmp/marked` writes every tray file from a synthetic frame, with no camera and no window. It does not change `settings/`.
 
@@ -84,3 +84,23 @@ curl -X POST http://localhost:8001/clinician -H "Content-Type: application/json"
 ## Keys
 
 `PERCEPTRON_API_KEY` and `CAMERA_INDEX` live in `.env`. Optional: `CAMERA_EXPOSURE`, `CAMERA_WB`, `CONTROLLER_URL`, `CLINICIAN`. The hand model downloads into `vision/models/` (git-ignored) on first real run.
+
+## Tested
+
+Comb on Oct 17, 2026. `python -m vision.test_vision`: 36 tests OK.
+
+What passed:
+
+- Fake mode (`python -m vision --fake --port 8011`): `/health` camera true and exposure locked. `/vision/hand` saw an open palm. `GET /tray_check` returned 200 with scalpel, hemostat, and mayo scissors correct. That "ready" result is because the slot boxes are still null, so a detection anywhere counts. `POST /clips/record` wrote `vision/clips/comb-fake/handed_hemostat_1792297259.mp4` and `GET /clips?case_id=comb-fake` listed it. Those files stay local.
+- Stream soak, 10 minutes, against the vision process already bound to port 8001: 9577 frames, 0 stream errors, `/health` 200 every 30 seconds. Working set started near 235 MB, dropped to 155 MB by 90 seconds, and stayed between 155.0 and 155.1 MB through 570 seconds.
+- Slow detect: a detector that sleeps 1.5 seconds then raises does not block `/vision/hand` or `GET /tray_check`. After it fails, `/vision/tray` and `/tray_check` come back with `stale` true. `GET /tray_check` reads the last tray state. It does not call Perceptron itself.
+- Camera read failure: after `read()` starts failing, the grabber thread stays up, the last frame is kept, and `/health` reports `camera` false.
+- `--fake --test --all-conditions` writes three CSV rows (bright, normal, dim).
+
+What failed or still needs a person:
+
+- `python -m vision.lighting --check-api` exited 1: `PERCEPTRON_API_KEY` is empty, so no live `/v1/detect` call was made. On the port 8001 process the tray state was already `stale: true` while `/health` and `/vision/hand` kept answering.
+- That port 8001 process is an older `python -m vision`. `GET /tray_check` and `GET /clips` returned 404 there. Restart it (`python -m vision`) to load this build. The camera was not unplugged for real; the unplug case above is the fake capture.
+- Gloves: not a controlled test. MediaPipe's hand landmarker has no glove model. During the soak `/vision/hand` answered, including one `seen: true` read, but nobody held a gloved hand up for it.
+- B5 is not done. Slot boxes in the settings files are still null. With the overhead camera mounted, run `python -m vision.mark_slots --setting surgical --live`, then the same for `bench`. Click two corners per item, then the return spot. It writes `vision/marked/<id>.json` for Evan. Do not pass `--write-settings`.
+- B8 is not done. The three lamp rows are not in `docs/STATUS.md`. Run `python -m vision.lighting --test --label bright --seconds 10 --csv vision/lighting_tests.csv`, then `normal`, then `dim`, changing the lamp between them. Do not commit the CSV.
