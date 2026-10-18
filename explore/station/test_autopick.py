@@ -266,8 +266,10 @@ def test_calibrate_recovers_the_table_map(tmp_path, monkeypatch):
                 st.gripper = a["gripper.pos"]
         assert d.status()["phase"] == "calibrated", d.status()
         hn = np.array(AP.load_calib()["table_H"])
-        p, q = hn @ np.array([530, 305, 1.0]), np.linalg.inv(h_true) @ np.array([530, 305, 1.0])
-        assert np.linalg.norm(p[:2] / p[2] - q[:2] / q[2]) < 0.008
+        for x, y in ((0.20, -0.05), (0.25, 0.08), (0.18, 0.0)):  # inside the calibrated area
+            px = h_true @ np.array([x, y, 1.0])
+            p = hn @ np.array([px[0] / px[2], px[1] / px[2], 1.0])
+            assert np.linalg.norm(p[:2] / p[2] - [x, y]) < 0.008, (x, y, p[:2] / p[2])
     finally:
         assert real.read_text() == orig  # synthetic fitting must never overwrite the measured camera map
 
