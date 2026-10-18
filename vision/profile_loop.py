@@ -6,6 +6,7 @@ import argparse
 import json
 import tempfile
 import threading
+import sys
 import time
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
@@ -30,7 +31,14 @@ class _Poster:
 
 
 def rss_bytes() -> int:
-    """Working set of this process. 0 only if the OS call is missing."""
+    """Working set of this process (Windows), or peak resident size elsewhere. 0 only if the OS call is missing."""
+    if sys.platform != "win32":
+        try:
+            import resource
+            peak = resource.getrusage(resource.RUSAGE_SELF).ru_maxrss
+            return int(peak if sys.platform == "darwin" else peak * 1024)  # bytes on macOS, KiB on Linux
+        except Exception:
+            return 0
     try:
         import ctypes
         from ctypes import wintypes

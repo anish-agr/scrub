@@ -2,14 +2,18 @@
 // "read the count sheet", "what tray is this", "read the pack": the same Command as on the call; the reply is the
 // `say` of the controller's `read` event for that command (GET /events/recent, polled up to 25 s).
 // A photo on the thread: vision's POST /read/<kind> with the image (the controller only reads its overhead camera),
-// worded the way the controller words it. Nothing is posted to the controller; the read is kept for the summary.
+// then the controller's POST /read_result with vision's answer, so the photo sets the case's sheet and packs (and can
+// switch the tray) like a camera read. The reply is its `say`. Controller down or an error: worded here the same way,
+// and the read is kept for the summary.
 import { execFile } from "node:child_process";
+import { randomUUID } from "node:crypto";
 import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { promisify } from "node:util";
 import { VISION_URL } from "./config.js";
-import { getRecent, getState, makeCommand, postCommand, type Action, type Command, type CommandReply, type ScrubEvent, type State } from "./controller.js";
+import { getRecent, getState, makeCommand, postCommand, postReadResult, type Action, type Command, type CommandReply,
+  type ReadResultReply, type ScrubEvent, type State } from "./controller.js";
 import { HIDDEN_SETTINGS, notSetUp, SETTING_IDS } from "./cases.js";
 import { currentSetting, trayLabel, type Setting } from "./settings.js";
 import { CANT_READ_PACK, CANT_READ_SHEET, CANT_READ_TAG, packLine, sheetState, sheetWords } from "./sheet.js";
@@ -110,8 +114,10 @@ export interface PhotoDeps {
   vision: (kind: PhotoKind, jpeg: Buffer, setting: string, today: string) => Promise<any | null>;
   record: (e: ScrubEvent) => void;
   convert: (bytes: Buffer, mime?: string, name?: string) => Promise<Buffer>;
+  controller: (kind: PhotoKind, result: any, heard: string | null) => Promise<ReadResultReply>;
 }
-const PHOTO_DEFAULTS: PhotoDeps = { state: getState, setting: currentSetting, vision: postVision, record: recordEvent, convert: toJpeg };
+const PHOTO_DEFAULTS: PhotoDeps = { state: getState, setting: currentSetting, vision: postVision, record: recordEvent, convert: toJpeg,
+  controller: postReadResult };
 
 // One photo in -> the reply text.
 export async function handlePhoto(photo: Photo, text: string, from: string | null, deps: Partial<PhotoDeps> = {}): Promise<string> {
@@ -126,8 +132,15 @@ export async function handlePhoto(photo: Photo, text: string, from: string | nul
   const res = await d.vision(kind, jpeg, setting.id, localDay());
   if (!res) console.log("[photo] vision can't be reached");
   else console.log(`[photo] ${kind} ok=${!!res.ok} method=${res.method ?? null} ${res.latency_ms ?? "?"} ms`);
+  if (res) {
+    // The controller's `read` event reaches the summary over WS /events (and the ledger), so it isn't recorded here.
+    const r = await d.controller(kind, res, text || null)
+      .catch((e) => { console.log(`[photo] /read_result: ${(e as Error).message}`); return null; });
+    if (r && typeof r.say === "string" && r.say) return r.say;
+  }
   const { say, read } = wordPhoto(kind, res, setting, st?.out || []);
-  // Kept for the end-of-case summary only (sheet comparison, expired packs). Never sent to the controller.
-  if (res) d.record({ type: "read", t: Date.now() / 1000, command_id: null, case_id: st?.case_id ?? null, say, read: read as ScrubEvent["read"] });
+  // Controller down or an error: kept for the end-of-case summary (sheet comparison, expired packs).
+  // Own id per photo read: two reads in the same millisecond would otherwise share summary.ts's dedupe key.
+  if (res) d.record({ type: "read", t: Date.now() / 1000, command_id: `photo-${randomUUID()}`, case_id: st?.case_id ?? null, say, read: read as ScrubEvent["read"] });
   return say;
 }

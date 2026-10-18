@@ -798,7 +798,7 @@ console.log("voice tests passed");
   assert.equal(localText("what's the count", surgical).kind, "count");
   assert.equal(localText("call the hemostat a pack", surgical).kind, "alias");
 
-  const posted: any[] = [], events: any[] = [], visionHits: { url: string; type: string; bytes: string }[] = [];
+  const posted: any[] = [], events: any[] = [], readResults: any[] = [], visionHits: { url: string; type: string; bytes: string }[] = [];
   let refuse = false, silent = false;
   const visionAnswer: Record<string, object> = {
     count_sheet: { ok: true, method: "perceptron", latency_ms: 900, tray: "surgical",
@@ -824,6 +824,13 @@ console.log("voice tests passed");
         events.push({ type: "command", t: Date.now() / 1000, command_id: c.id, say: "Reading." });
         return res.end(JSON.stringify({ accepted: true, reason: null, say: "Reading the count sheet." }));
       }
+      if (req.method === "POST" && req.url === "/read_result") {
+        const b = JSON.parse(body.toString());
+        readResults.push(b);
+        const say: Record<string, string> = { count_sheet: "Sheet says 0 hemostats back, I count 1.",
+          tray_tag: "This is the robotics bench tray. Switched.", pack_label: "Expired: mayo scissors pack, 2026-09-30. Don't open it." };
+        return res.end(JSON.stringify({ ok: true, say: say[b.kind], read: { ...b.result, kind: b.kind, ok: true, source: "photo" } }));
+      }
       const m = req.url?.match(/^\/read\/(\w+)/);
       if (req.method === "POST" && m) {
         visionHits.push({ url: req.url!, type: String(req.headers["content-type"]), bytes: body.toString() });
@@ -839,7 +846,16 @@ console.log("voice tests passed");
   const recent = async () => (await fetch(`${base}/events/recent?n=100`)).json();
   const read = (a: any, text: string) => textRead(a, text, post, recent, 3000, 50);
   const state = async (): Promise<State> => ({ step: "idle", out: [], setting: "surgical", case_id: "surgical-1760800000", t: 1 });
-  const photoDeps = { state, setting: async () => surgical, vision: (k: any, j: Buffer, s: string, d: string) => postVision(k, j, s, d, base) };
+  const toController = async (kind: string, result: unknown, heard: string | null) => {
+    const r = await fetch(`${base}/read_result`, { method: "POST", headers: { "content-type": "application/json" },
+      body: JSON.stringify({ kind, result, source: "photo", heard }) });
+    if (!r.ok) throw new Error(`POST /read_result -> ${r.status}`);
+    return r.json();
+  };
+  const photoDeps = { state, setting: async () => surgical, vision: (k: any, j: Buffer, s: string, d: string) => postVision(k, j, s, d, base),
+    controller: toController };
+  const controllerDown = async (): Promise<never> => { throw new Error("fetch failed"); };
+  const photoDown = { ...photoDeps, controller: controllerDown };
   try {
     // Texts: post the Command, reply with its `read` event's say (not the "Reading..." reply).
     const textDeps = { ...deps, state, read, photo: (p: any, t: string, f: string | null) => handlePhoto(p, t, f, photoDeps) };
@@ -881,17 +897,37 @@ console.log("voice tests passed");
     newCase();
     const vn = visionHits.length;
     await runTexts(photos(), textDeps);
+    // Vision's answer goes to the controller's POST /read_result; the reply is its say (the tray switched there).
     assert.deepEqual(photoSent, [
       "Sheet says 0 hemostats back, I count 1.",
       "Expired: mayo scissors pack, 2026-09-30. Don't open it.",
-      'This is the robotics bench tray, not the operating room tray. Text "switch to the bench tray" to change.',
+      "This is the robotics bench tray. Switched.",
     ]);
     const hits = visionHits.slice(vn);
     assert.deepEqual(hits.map((h) => h.url.split("?")[0]), ["/read/count_sheet", "/read/pack_label", "/read/tray_tag"]);
     assert.match(hits[0].url, /\?setting=surgical&today=\d{4}-\d{2}-\d{2}$/);
     assert.equal(hits[0].type, "image/jpeg");
     assert.equal(hits[0].bytes, "JPEG-BYTES");
-    assert.equal(posted.length, n);  // a photo posts nothing to the controller
+    assert.equal(posted.length, n);  // no Command: the photo's read goes to /read_result
+    assert.deepEqual(readResults.map((b) => [b.kind, b.source, b.heard]),
+      [["count_sheet", "photo", null], ["pack_label", "photo", "read the pack"], ["tray_tag", "photo", "what tray is this"]]);
+    assert.deepEqual(readResults[0].result, { kind: "count_sheet", ...visionAnswer.count_sheet });
+    // The controller's read event feeds the summary over WS /events: nothing recorded here.
+    assert.equal(sheetLine(caseFacts()), null);
+
+    // Controller down: the same photos are worded here and kept for the summary.
+    newCase();
+    photoSent.length = 0;
+    await runTexts(photos(), { ...textDeps, photo: (p: any, t: string, f: string | null) => handlePhoto(p, t, f, photoDown) });
+    assert.deepEqual(photoSent, [
+      "Sheet says 0 hemostats back, I count 1.",
+      "Expired: mayo scissors pack, 2026-09-30. Don't open it.",
+      'This is the robotics bench tray, not the operating room tray. Text "switch to the bench tray" to change.',
+    ]);
+    // A controller error (500) falls back the same way.
+    const err500 = { ...photoDeps, controller: async () => { throw new Error("POST /read_result -> 500"); } };
+    assert.equal(await handlePhoto({ mimeType: "image/jpeg", read: jpg.read }, "what tray is this", null, err500),
+      'This is the robotics bench tray, not the operating room tray. Text "switch to the bench tray" to change.');
     // Photo reads are kept for the summary: the sheet's disagreement and the expired pack.
     let pf = caseFacts();
     assert.deepEqual(pf.count_sheet, { compare: "closing", mismatch: [{ item: "hemostat", sheet: 0, scrub: 1 }] });
@@ -900,9 +936,9 @@ console.log("voice tests passed");
     assert.equal(await handlePhoto({ mimeType: "image/jpeg", read: jpg.read }, "", null, { ...photoDeps, vision: async () => null }), "I can't read the count sheet.");
     assert.equal(await handlePhoto({ mimeType: "image/heic", read: jpg.read }, "", null, { ...photoDeps, convert: async () => { throw new Error("no sips"); } }),
       "I can't open that photo. Send it as a JPEG.");
-    assert.equal(await handlePhoto({ mimeType: "image/jpeg", read: jpg.read }, "pack", null, { ...photoDeps, vision: async () => ({ ok: true, labels: [{ item: "hemostat", expires: "2027-04-30", expired: false }] }) }),
+    assert.equal(await handlePhoto({ mimeType: "image/jpeg", read: jpg.read }, "pack", null, { ...photoDown, vision: async () => ({ ok: true, labels: [{ item: "hemostat", expires: "2027-04-30", expired: false }] }) }),
       "Hemostat pack, expires 2027-04-30.");
-    assert.equal(await handlePhoto({ mimeType: "image/jpeg", read: jpg.read }, "", null, { ...photoDeps, vision: async () => ({ ok: true, tray: "surgical", items: [{ item: "hemostat", expected: 1, initial: 1, closing: 1 }] }) }),
+    assert.equal(await handlePhoto({ mimeType: "image/jpeg", read: jpg.read }, "", null, { ...photoDown, vision: async () => ({ ok: true, tray: "surgical", items: [{ item: "hemostat", expected: 1, initial: 1, closing: 1 }] }) }),
       "Sheet matches my count.");
   } finally {
     fake.close();

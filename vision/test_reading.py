@@ -250,6 +250,18 @@ class ValidationTests(unittest.TestCase):
         self.assertNotIn("additionalProperties", label)
 
 
+class LotTests(unittest.TestCase):
+    def test_printed_lot_prefix_is_stripped(self):
+        # Live, Oct 18: Perceptron on a camera-simulated pack sheet returned "LOT SC-24-0917".
+        setting = reading.load_setting_merged(reading.ROOT, "surgical")
+        for raw, want in [("LOT SC-24-0917", "SC-24-0917"), ("Lot no.: 4471", "4471"), ("lot# A12", "A12"),
+                          ("SC-24-0917", "SC-24-0917"), ("LOT", "LOT"), ("null", None)]:
+            out = reading.validate_pack_label({"labels": [{"item": "scalpel", "item_text": "scalpel", "lot": raw,
+                                                           "sterilized": None, "expires": None, "indicator_text": None}]},
+                                              setting, "2026-10-18")
+            self.assertEqual(out["labels"][0]["lot"], want, raw)
+
+
 class QrTests(unittest.TestCase):
     def test_qr_tag_answers_without_ocr(self):
         boom = FakeBackend("perceptron", error=AssertionError("OCR must not run when the QR reads"))

@@ -60,7 +60,8 @@ def main() -> None:
     # A deployment exists on the real arm only with PERCEPTRON_DEPLOYMENT_ID; fake and sim always count as having one.
     deployment = bool(os.environ.get("PERCEPTRON_DEPLOYMENT_ID")) if a.real_arm else True
     ctl = Controller(arm, fake_arm=not a.real_arm, setting_id=a.setting, judge=a.judge, state_file=state_file or None,
-                     skills=a.skills, deployment=deployment)
+                     skills=a.skills, deployment=deployment,
+                     arm_kind="real" if a.real_arm else "sim" if a.sim_arm else "fake")
     print(f"controller: {'real' if a.real_arm else 'sim' if a.sim_arm else 'fake'} arm, setting {a.setting} "
           f"({ctl.setting['_source']}), ledger {'on' if core.ledger else 'off'}, skills {a.skills}"
           f"{', judge mode' if a.judge else ''}", flush=True)

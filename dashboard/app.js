@@ -119,6 +119,11 @@ function render() {
   $("queue").textContent = String(model.queue.length);
   $("arm-mode").textContent = model.fakeArm == null ? "--" : model.fakeArm ? "fake" : "real";
   $("lighting-now").textContent = model.lighting || "--";
+  const zone = $("safe-zone");
+  if (zone) {
+    const c = model.safeZone && model.safeZone.center;
+    zone.textContent = c ? `taught (${(c[0] * 100).toFixed(0)}, ${(c[1] * 100).toFixed(0)} cm)` : "not taught";
+  }
   $("handoff").textContent = model.handoff == null ? "-- s" : `${model.handoff.toFixed(1)} s`;
   const recent = model.events
     .filter((event) => event.request_to_hand_s != null)
@@ -309,6 +314,7 @@ function applyState(state) {
       caseLink.hidden = true;
     }
   }
+  model.safeZone = state.safe_zone && Array.isArray(state.safe_zone.center) ? state.safe_zone : null;
   model.fakeArm = Boolean(state.fake_arm);
   model.handSeen = Boolean(state.hand_seen);
   render();

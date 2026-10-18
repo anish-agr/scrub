@@ -70,6 +70,11 @@ export async function judgeMode(get: () => Promise<State> = () => call("GET", "/
   return judgeCache.on;
 }
 export const postRestock = (r: object): Promise<{ ok: boolean }> => call("POST", "/restock", r);
+// A texted photo's read (vision's JSON): the controller sets sheet / packs, may switch the tray, emits the `read`
+// event and words it. {"ok", "say", "read"}; in judge mode ok false with the judge line. 400 for an unknown kind.
+export interface ReadResultReply { ok: boolean; say?: string | null; read?: ScrubEvent["read"]; reason?: string | null }
+export const postReadResult = (kind: string, result: unknown, heard: string | null): Promise<ReadResultReply> =>
+  call("POST", "/read_result", { kind, result, source: "photo", heard }, 5000);
 // X3: the controller asks vision (up to 3 s) and words the answer in `say`.
 export interface TrayCheck {
   ok: boolean; say?: string | null; available?: boolean; setting?: string; label?: string; items?: string[];

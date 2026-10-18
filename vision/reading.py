@@ -591,7 +591,7 @@ def validate_pack_label(raw: dict, setting: dict, today) -> dict:
         if not text:
             continue
         exp = parse_date(row.get("expires"))
-        labels.append({"item": match_name(text, setting), "item_text": text, "lot": _s(row.get("lot")),
+        labels.append({"item": match_name(text, setting), "item_text": text, "lot": _lot(row.get("lot")),
                        "sterilized": parse_date(row.get("sterilized")), "expires": exp,
                        "sterilized_text": _s(row.get("sterilized")), "expires_text": _s(row.get("expires")),
                        "indicator_text": _s(row.get("indicator_text")), "expired": is_expired(exp, today)})
@@ -607,6 +607,17 @@ def _s(value) -> str | None:
     """Text, or None for empty and null-like answers ("null", "N/A", "unknown")."""
     text = str(value).strip() if value is not None else ""
     return None if text.lower() in NULL_WORDS else text
+
+
+LOT_PREFIX = re.compile(r"^\s*(lot|load)\s*(no\.?|number|#)?\s*[:#.]?\s*", re.I)
+
+
+def _lot(value) -> str | None:
+    """The lot number without a printed "LOT" / "Lot no.:" prefix (the model sometimes copies it)."""
+    text = _s(value)
+    if text is None:
+        return None
+    return _s(LOT_PREFIX.sub("", text)) or text
 
 
 def read_pack_label(img, setting: dict, today=None, backends=None) -> dict:

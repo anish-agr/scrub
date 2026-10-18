@@ -246,6 +246,7 @@ def url_table(a, public_url: str | None = None, lan: str | None = None, skipped:
         rows += [("vision preview", f"{v}/"), ("vision stream", f"{v}/stream")]
     if "voice" not in skipped and not voice_skip_reason(a):
         rows.append(("voice health", f"http://localhost:{P['voice']}/health"))
+        rows.append(("no phone (talk)", f"http://localhost:{P['voice']}/talk"))
     if a.ledger:
         rows.append(("ledger page", f"http://localhost:{P['ledger']}/"))
     if a.tunnel:
@@ -741,11 +742,29 @@ def demo_run(c: httpx.Client, say=print, pause: float = 1.0) -> bool:
     return clean
 
 
+def _port_owner(port: int) -> str:
+    """ (pid N: command) for the process listening on port, or "" when lsof can't say."""
+    try:
+        out = subprocess.run(["lsof", "-nP", f"-iTCP:{port}", "-sTCP:LISTEN", "-t"], capture_output=True, text=True,
+                             timeout=3).stdout.split()
+        if not out:
+            return ""
+        cmd = subprocess.run(["ps", "-o", "command=", "-p", out[0]], capture_output=True, text=True, timeout=3).stdout
+        words = cmd.split() or ["?"]
+        return f" (pid {out[0]}: {' '.join([os.path.basename(words[0]), *words[1:8]])})"
+    except (OSError, subprocess.SubprocessError):
+        return ""
+
+
 def cmd_backup(a) -> int:
     url, P = controller_url(a), ports(a)
     stack = Stack(verbose=a.verbose)
     signal.signal(signal.SIGTERM, _sigterm)
     try:
+        if answers(f"{url}/state") and not a.url:  # never run the script on someone else's (maybe older) controller
+            print(f"run_all backup: port {P['controller']} is taken by another controller{_port_owner(P['controller'])}. "
+                  f"Run beside it with --base-port 8200, or pass --url {url} to use that one on purpose.")
+            return 1
         if answers(f"{url}/state"):
             if httpx.get(f"{url}/sim/vision", timeout=3).status_code != 200:
                 print(f"run_all backup: {url} is a controller without the sim arm. Stop it (Ctrl-C in its terminal), "

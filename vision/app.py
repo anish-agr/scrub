@@ -13,7 +13,7 @@ from fastapi.concurrency import run_in_threadpool
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import HTMLResponse, JSONResponse, Response, StreamingResponse
 
-from vision import reading
+from vision import locate, reading
 from vision.service import Runtime, controls_locked, remember_clinician, setting_document
 from vision.tray import load_setting
 from vision.tray_check import check_tray
@@ -121,6 +121,8 @@ def create_app(runtime: Runtime) -> FastAPI:
         fresh = age is not None and not tray.get("stale") and age <= tray_stale_s(runtime.detector)
         result["stale"] = not fresh
         return result
+
+    locate.register(app, runtime)  # GET /locate?item=<id>, GET /safe_zone
 
     @app.get("/clips")
     def list_clips(case_id: str | None = None):
