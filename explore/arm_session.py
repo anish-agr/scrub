@@ -24,9 +24,31 @@ from pathlib import Path
 
 FOLLOWER = "/dev/tty.usbmodem5C821089781"
 LEADER = "/dev/tty.usbmodem5C821067211"
+CAM_STALL_MS = 2000  # LeRobot stops the whole session if a camera frame is over 500 ms old
 GRIP_STALL_S = 0.3   # closing but not moving this long: something is in the jaws
 GRIP_MOVE = 1.0      # gripper units (0 closed .. 100 open) that count as still moving
 GRIP_SQUEEZE = 3.0   # how far past the contact point to keep pressing, for a firm grip
+
+
+def tolerate_camera_stalls() -> None:
+    """A flaky camera that misses one frame shouldn't end the session. Accept frames up to
+    CAM_STALL_MS old, count each stall (the page says to re-record that episode), raise beyond."""
+    from lerobot.cameras.opencv.camera_opencv import OpenCVCamera
+    read_latest = OpenCVCamera.read_latest
+
+    def tolerant(self, max_age_ms: int = 500):
+        try:
+            return read_latest(self, max_age_ms)
+        except TimeoutError:
+            frame = read_latest(self, CAM_STALL_MS)  # still raises if the camera is really gone
+            print(f"camera {self.config.index_or_path} stalled (frame over {max_age_ms} ms old)", flush=True)
+            try:
+                import arm_ui
+                arm_ui.camera_stall(self.config.index_or_path)
+            except ImportError:
+                pass
+            return frame
+    OpenCVCamera.read_latest = tolerant
 
 
 def _guard_ui(holding: bool, at) -> None:
@@ -204,6 +226,7 @@ def main() -> None:
     ease(a.follower, a.leader, a.ease_s)
     print(" ".join(cmd), flush=True)
     guard_gripper()
+    tolerate_camera_stalls()
     if not a.no_ui:
         import webbrowser
         import arm_ui
