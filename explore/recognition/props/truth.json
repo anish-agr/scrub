@@ -1,0 +1,298 @@
+{
+  "files": {
+    "count_sheet_surgical.png": {
+      "kind": "count_sheet",
+      "tray_id": "surgical",
+      "tray_label": "Operating room",
+      "title": "Scrub count sheet",
+      "qr": "scrub:tray:surgical",
+      "items": [
+        {
+          "id": "scalpel",
+          "name": "scalpel",
+          "expected": 1,
+          "initial": null,
+          "closing": null
+        },
+        {
+          "id": "hemostat",
+          "name": "hemostat",
+          "expected": 1,
+          "initial": null,
+          "closing": null
+        },
+        {
+          "id": "mayo_scissors",
+          "name": "mayo scissors",
+          "expected": 1,
+          "initial": null,
+          "closing": null
+        }
+      ],
+      "angle_deg": 0,
+      "date": null,
+      "case": null,
+      "counted_by": null
+    },
+    "count_sheet_surgical_filled.png": {
+      "kind": "count_sheet",
+      "tray_id": "surgical",
+      "tray_label": "Operating room",
+      "title": "Scrub count sheet",
+      "qr": "scrub:tray:surgical",
+      "items": [
+        {
+          "id": "scalpel",
+          "name": "scalpel",
+          "expected": 1,
+          "initial": 1,
+          "closing": 1
+        },
+        {
+          "id": "hemostat",
+          "name": "hemostat",
+          "expected": 1,
+          "initial": 1,
+          "closing": 0
+        },
+        {
+          "id": "mayo_scissors",
+          "name": "mayo scissors",
+          "expected": 1,
+          "initial": 1,
+          "closing": 1
+        }
+      ],
+      "angle_deg": 0,
+      "date": "2026-10-18",
+      "case": "C-0417",
+      "counted_by": "J. Rivera"
+    },
+    "tray_tag_surgical.png": {
+      "kind": "tray_tag",
+      "tray_id": "surgical",
+      "tray_label": "Operating room",
+      "qr": "scrub:tray:surgical",
+      "text": [
+        "TRAY",
+        "Operating room",
+        "SURGICAL"
+      ]
+    },
+    "count_sheet_surgical_angle.png": {
+      "kind": "count_sheet",
+      "tray_id": "surgical",
+      "tray_label": "Operating room",
+      "title": "Scrub count sheet",
+      "qr": "scrub:tray:surgical",
+      "items": [
+        {
+          "id": "scalpel",
+          "name": "scalpel",
+          "expected": 1,
+          "initial": 1,
+          "closing": 1
+        },
+        {
+          "id": "hemostat",
+          "name": "hemostat",
+          "expected": 1,
+          "initial": 1,
+          "closing": 0
+        },
+        {
+          "id": "mayo_scissors",
+          "name": "mayo scissors",
+          "expected": 1,
+          "initial": 1,
+          "closing": 1
+        }
+      ],
+      "angle_deg": 20,
+      "date": "2026-10-18",
+      "case": "C-0417",
+      "counted_by": "J. Rivera"
+    },
+    "count_sheet_bench.png": {
+      "kind": "count_sheet",
+      "tray_id": "bench",
+      "tray_label": "Robotics bench",
+      "title": "Scrub count sheet",
+      "qr": "scrub:tray:bench",
+      "items": [
+        {
+          "id": "needle_nose_pliers",
+          "name": "needle-nose pliers",
+          "expected": 1,
+          "initial": null,
+          "closing": null
+        },
+        {
+          "id": "wire_cutters",
+          "name": "wire cutters",
+          "expected": 1,
+          "initial": null,
+          "closing": null
+        },
+        {
+          "id": "hex_key",
+          "name": "hex key",
+          "expected": 1,
+          "initial": null,
+          "closing": null
+        }
+      ],
+      "angle_deg": 0,
+      "date": null,
+      "case": null,
+      "counted_by": null
+    },
+    "count_sheet_bench_filled.png": {
+      "kind": "count_sheet",
+      "tray_id": "bench",
+      "tray_label": "Robotics bench",
+      "title": "Scrub count sheet",
+      "qr": "scrub:tray:bench",
+      "items": [
+        {
+          "id": "needle_nose_pliers",
+          "name": "needle-nose pliers",
+          "expected": 1,
+          "initial": 1,
+          "closing": 1
+        },
+        {
+          "id": "wire_cutters",
+          "name": "wire cutters",
+          "expected": 1,
+          "initial": 1,
+          "closing": 0
+        },
+        {
+          "id": "hex_key",
+          "name": "hex key",
+          "expected": 1,
+          "initial": 1,
+          "closing": 1
+        }
+      ],
+      "angle_deg": 0,
+      "date": "2026-10-18",
+      "case": "C-0417",
+      "counted_by": "J. Rivera"
+    },
+    "tray_tag_bench.png": {
+      "kind": "tray_tag",
+      "tray_id": "bench",
+      "tray_label": "Robotics bench",
+      "qr": "scrub:tray:bench",
+      "text": [
+        "TRAY",
+        "Robotics bench",
+        "BENCH"
+      ]
+    },
+    "pack_labels.png": {
+      "kind": "pack_labels",
+      "reference_date": "2026-10-18",
+      "labels": [
+        {
+          "item": "scalpel",
+          "lot": "SC-24-0917",
+          "sterilized": "2026-09-02",
+          "expires": "2027-03-15",
+          "event_related": false,
+          "method": "Steam 132 C 4 min",
+          "indicator_class": "Class 5 indicator",
+          "indicator": "Indicator: PASS",
+          "expired": false
+        },
+        {
+          "item": "hemostat",
+          "lot": "SC-24-0918",
+          "sterilized": "2026-09-02",
+          "expires": "2027-01-20",
+          "event_related": false,
+          "method": "Steam 132 C 4 min",
+          "indicator_class": "Class 5 indicator",
+          "indicator": "Indicator: PASS",
+          "expired": false
+        },
+        {
+          "item": "mayo scissors",
+          "lot": "SC-24-0611",
+          "sterilized": "2026-08-01",
+          "expires": "2026-09-30",
+          "event_related": false,
+          "method": "Steam 132 C 4 min",
+          "indicator_class": "Class 5 indicator",
+          "indicator": "Indicator: PASS",
+          "expired": true
+        },
+        {
+          "item": "scalpel",
+          "lot": "SC-24-0921",
+          "sterilized": "2026-10-05",
+          "expires": null,
+          "event_related": true,
+          "method": "Steam 132 C 4 min",
+          "indicator_class": "Class 5 indicator",
+          "indicator": "Indicator: PASS",
+          "expired": false
+        }
+      ],
+      "angle_deg": 0
+    },
+    "pack_labels_angle.png": {
+      "kind": "pack_labels",
+      "reference_date": "2026-10-18",
+      "labels": [
+        {
+          "item": "scalpel",
+          "lot": "SC-24-0917",
+          "sterilized": "2026-09-02",
+          "expires": "2027-03-15",
+          "event_related": false,
+          "method": "Steam 132 C 4 min",
+          "indicator_class": "Class 5 indicator",
+          "indicator": "Indicator: PASS",
+          "expired": false
+        },
+        {
+          "item": "hemostat",
+          "lot": "SC-24-0918",
+          "sterilized": "2026-09-02",
+          "expires": "2027-01-20",
+          "event_related": false,
+          "method": "Steam 132 C 4 min",
+          "indicator_class": "Class 5 indicator",
+          "indicator": "Indicator: PASS",
+          "expired": false
+        },
+        {
+          "item": "mayo scissors",
+          "lot": "SC-24-0611",
+          "sterilized": "2026-08-01",
+          "expires": "2026-09-30",
+          "event_related": false,
+          "method": "Steam 132 C 4 min",
+          "indicator_class": "Class 5 indicator",
+          "indicator": "Indicator: PASS",
+          "expired": true
+        },
+        {
+          "item": "scalpel",
+          "lot": "SC-24-0921",
+          "sterilized": "2026-10-05",
+          "expires": null,
+          "event_related": true,
+          "method": "Steam 132 C 4 min",
+          "indicator_class": "Class 5 indicator",
+          "indicator": "Indicator: PASS",
+          "expired": false
+        }
+      ],
+      "angle_deg": 20
+    }
+  }
+}
