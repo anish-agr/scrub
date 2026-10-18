@@ -115,9 +115,13 @@ VISUAL = """<visual>
 
 ASSETS = """<asset>
   <texture name="cine_sky" type="skybox" builtin="gradient" rgb1="0.14 0.16 0.18" rgb2="0.02 0.02 0.03" width="512" height="512"/>
-  <texture name="cine_floor" type="2d" builtin="checker" rgb1="0.17 0.18 0.19" rgb2="0.14 0.15 0.16" width="512" height="512"/>
+  <texture name="cine_floor" type="2d" builtin="checker" rgb1="0.27 0.29 0.33" rgb2="0.25 0.27 0.31" width="512" height="512"/>
   <material name="cine_floor_mat" texture="cine_floor" texrepeat="10 10" reflectance="0.12"/>
-  <material name="table_mat" rgba="0.62 0.64 0.66 1" specular="0.4" shininess="0.5" reflectance="0.04"/>
+  <material name="table_mat" rgba="0.80 0.66 0.48 1" specular="0.25" shininess="0.35" reflectance="0.03"/>
+  <material name="alum" rgba="0.78 0.79 0.81 1" specular="0.9" shininess="0.8" reflectance="0.18"/>
+  <material name="tape" rgba="0.10 0.36 0.85 1" specular="0.1" shininess="0.1"/>
+  <material name="paper" rgba="0.95 0.95 0.93 1" specular="0.05" shininess="0.05"/>
+  <material name="cam_black" rgba="0.08 0.08 0.09 1" specular="0.4" shininess="0.5"/>
   <material name="tray_mat" rgba="0.70 0.72 0.75 1" specular="0.9" shininess="0.85" reflectance="0.22"/>
   <material name="drape" rgba="0.22 0.42 0.64 1" specular="0.03" shininess="0.05"/>
   <material name="steel" rgba="0.82 0.84 0.88 1" specular="1" shininess="0.95" reflectance="0.35"/>
@@ -140,17 +144,29 @@ def cinematic_xml():
     src = re.sub(r"<asset>.*?</asset>", ASSETS, src, count=1, flags=re.S)
     src = re.sub(r"<light [^>]*/>", LIGHTS, src, count=1)
     src = re.sub(r'(<geom name="floor"[^>]*?)rgba="[^"]*"', r'\1material="cine_floor_mat"', src)
-    m = re.search(r'<geom name="tray" type="box" size="([\d.]+) ([\d.]+) ([\d.]+)" pos="([\d.-]+) ([\d.-]+) ([\d.-]+)"', src)
-    if m:
-        hx, hy, hz, x, y, z = map(float, m.groups())
-        rim = "".join(f'<geom type="box" pos="{px} {py} {z + hz + 0.004}" size="{sx} {sy} 0.004" material="tray_mat" '
-                      f'contype="0" conaffinity="0"/>'
-                      for px, py, sx, sy in ((x - hx, y, 0.0015, hy), (x + hx, y, 0.0015, hy),
-                                             (x, y - hy, hx, 0.0015), (x, y + hy, hx, 0.0015)))
-        drape = ('<geom name="drape" type="box" pos="0.25 0 -0.0002" size="0.19 0.29 0.0003" material="drape" '
-                 'contype="0" conaffinity="0"/>')
-        src = src.replace(m.group(0), drape + rim + m.group(0), 1)
-    src = re.sub(r'(<geom name="slot\d"[^>]*?)rgba="[^"]*"', r'\1rgba="0.62 0.64 0.67 0.12"', src)
+    m = re.search(r'<geom name="tray" type="box" size="([\d.]+) ([\d.]+) ([\d.]+)" pos="([\d.-]+) ([\d.-]+) ([\d.-]+)"[^>]*/>', src)
+    if m:  # the real tray: an aluminum sheet pan, blue tape around the inside, a white paper liner
+        cx, cy, hx, hy = 0.265, 0.0, 0.13, 0.235
+        g = lambda pos, size, mat: (f'<geom type="box" pos="{pos[0]} {pos[1]} {pos[2]}" size="{size[0]} {size[1]} {size[2]}" '
+                                    f'material="{mat}" contype="0" conaffinity="0"/>')
+        pan = g((cx, cy, 0.0008), (hx, hy, 0.0008), "alum")
+        pan += "".join(g((cx + sx * (hx - 0.004), cy, 0.008), (0.004, hy, 0.008), "alum") for sx in (-1, 1))
+        pan += "".join(g((cx, cy + sy * (hy - 0.004), 0.008), (hx, 0.004, 0.008), "alum") for sy in (-1, 1))
+        pan += g((cx, cy, 0.0018), (hx - 0.01, hy - 0.01, 0.0002), "tape")
+        pan += g((cx, cy, 0.0021), (hx - 0.03, hy - 0.03, 0.0002), "paper")
+        # instruments that sit on the real tray but aren't part of the demo (forceps, probe, a second clamp)
+        for x, y, r in ((0.33, -0.15, 0.1), (0.35, 0.05, -0.05), (0.16, 0.12, 0.05)):
+            pan += (f'<body pos="{x} {y} 0.004" euler="0 0 {r}">' + _cap((-0.0015, -0.055, 0), (0, 0.05, 0), 0.0013, "steel")
+                    + _cap((0.0015, -0.055, 0), (0, 0.05, 0), 0.0013, "steel") + "</body>")
+        # the overhead webcam on its clamp at the table corner
+        pan += (g((0.52, 0.34, 0.20), (0.012, 0.045, 0.014), "cam_black")
+                + _cap((0.53, 0.34, 0.0), (0.53, 0.34, 0.19), 0.005, "cam_black"))
+        src = src.replace(m.group(0), pan, 1)
+    src = re.sub(r'(<geom name="(return_spot|safe_spot)"[^>]*?size=")[^"]*"', r'\g<1>0.032 0.0004"', src)
+    src = re.sub(r'(<geom name="return_spot"[^>]*?)rgba="[^"]*"', r'\g<1>rgba="0.16 0.55 0.32 1"', src)  # green tape
+    src = re.sub(r'(<geom name="safe_spot"[^>]*?)rgba="[^"]*"', r'\g<1>rgba="0.82 0.14 0.11 1"', src)  # red tape: sharps
+    src = re.sub(r'(<geom name="(return_spot|safe_spot)"[^>]*?pos="[\d.-]+ [\d.-]+ )[\d.]+"', r'\g<1>0.0026"', src)
+    src = re.sub(r'(<geom name="slot\d"[^>]*?)rgba="[^"]*"', r'\1rgba="0 0 0 0"', src)
     for item, geoms in ITEM_GEOMS.items():
         src = re.sub(rf'(<body name="item_{item}"[^>]*>).*?(</body>)', lambda mm: mm.group(1) + geoms + mm.group(2),
                      src, count=1, flags=re.S)
@@ -165,9 +181,15 @@ def load_model():
     path = SCENES / "_cinematic.xml"  # next to _arm.xml so the include resolves
     path.write_text(cinematic_xml(), encoding="utf-8")
     try:
-        return mujoco.MjModel.from_xml_path(str(path))
+        model = mujoco.MjModel.from_xml_path(str(path))
     finally:
         path.unlink(missing_ok=True)
+    for i in range(model.nmat):  # the real arm is printed in white PLA with black servos
+        r, g_, b, a = model.mat_rgba[i]
+        if r > 0.9 and g_ > 0.7 and b < 0.3:
+            model.mat_rgba[i] = (0.93, 0.93, 0.91, 1.0)
+            model.mat_specular[i], model.mat_shininess[i] = 0.25, 0.3
+    return model
 
 
 # ---- render ---------------------------------------------------------------------------------------
@@ -235,7 +257,8 @@ def _overlay(img, cap, step_i, label, fonts):
     return img
 
 
-def render(inp, out, fps=30, width=1920, height=1080, max_s=None, cut_idle=True):
+def render(inp, out, fps=30, width=1920, height=1080, max_s=None, cut_idle=True, start_s=0.0, end_s=None,
+           shot=None, orbit=False):
     import imageio_ffmpeg
     import mujoco
     from PIL import Image
@@ -246,6 +269,12 @@ def render(inp, out, fps=30, width=1920, height=1080, max_s=None, cut_idle=True)
     t0, t1 = frames[0]["t"], frames[-1]["t"]
     if max_s:
         t1 = min(t1, t0 + max_s)
+    if end_s is not None:
+        t1 = min(t1, t0 + end_s)
+    t0 += start_s
+    if orbit:  # hold the first pose and circle the table: an establishing shot
+        frames = [dict(frames[0], t=t0 + i / fps) for i in range(int((end_s or 6.0) * fps))]
+        t1 = frames[-1]["t"]
     says = [(e["t"], e["say"]) for e in events if e.get("say") and t0 - 1 <= e["t"] <= t1]
     hands = [(e["t"], e.get("item"), e.get("request_to_hand_s")) for e in events
              if e.get("type") == "handed" and e.get("request_to_hand_s")]
@@ -267,6 +296,7 @@ def render(inp, out, fps=30, width=1920, height=1080, max_s=None, cut_idle=True)
     writer = imageio_ffmpeg.write_frames(str(out), (width, height), fps=fps, codec="libx264", quality=8,
                                          pix_fmt_out="yuv420p", macro_block_size=8)
     writer.send(None)
+    force_shot = shot
     look = np.array([0.22, 0.0, 0.06])
     dist, az, el = 0.82, 60.0, -26.0
     times, idle_since, t = [], None, t0
@@ -301,7 +331,7 @@ def render(inp, out, fps=30, width=1920, height=1080, max_s=None, cut_idle=True)
         mujoco.mj_forward(model, data)
         tip = data.site_xpos[site].copy()
 
-        shot = _shot(a["step"], a["holding"])
+        shot = "orbit" if orbit else (force_shot or _shot(a["step"], a["holding"]))
         hand = np.array(a["mocap"].get("hand_zone", [0.28, -0.14, 0.14])[:3])
         drift = math.sin(2 * math.pi * k / fps / 30.0)
         if shot == "close":
@@ -310,6 +340,8 @@ def render(inp, out, fps=30, width=1920, height=1080, max_s=None, cut_idle=True)
             goal, gd, ga, ge = 0.5 * tip + 0.5 * hand, 0.58, 72 + 10 * drift, -20
         elif shot == "top":
             goal, gd, ga, ge = 0.5 * tip + 0.5 * np.array([0.2, -0.1, 0.0]), 0.72, 90, -70
+        elif shot == "orbit":
+            goal, gd, ga, ge = np.array([0.2, 0.0, 0.08]), 0.9, 20 + 80 * k / max(1, n), -24
         else:
             goal, gd, ga, ge = 0.4 * tip + 0.6 * np.array([0.22, 0.0, 0.08]), 0.82, 60 + 15 * drift, -26
         s = 0.06  # dolly smoothing per frame
@@ -350,6 +382,33 @@ def still(out, az=150.0, el=-26.0, dist=0.8):
     print(out)
 
 
+def live(sim="http://localhost:8002", hz=30):
+    """A window you can orbit and zoom (left drag, right drag, scroll) that mirrors the running sim live."""
+    import httpx
+    import mujoco
+    import mujoco.viewer
+
+    model = load_model()
+    data = mujoco.MjData(model)
+    mocap_ids = {model.body(i).name: model.body_mocapid[i] for i in range(model.nbody) if model.body_mocapid[i] >= 0}
+    with mujoco.viewer.launch_passive(model, data) as v, httpx.Client(timeout=1.0) as c:
+        v.cam.lookat[:], v.cam.distance, v.cam.azimuth, v.cam.elevation = [0.22, 0.0, 0.06], 0.95, 60, -28
+        while v.is_running():
+            t = time.time()
+            try:
+                p = c.get(f"{sim}/pose").json()
+                data.qpos[:6] = p["qpos"]
+                for name, pose in p["mocap"].items():
+                    if name in mocap_ids:
+                        data.mocap_pos[mocap_ids[name]] = pose[:3]
+                        data.mocap_quat[mocap_ids[name]] = pose[3:7]
+                mujoco.mj_forward(model, data)
+            except Exception:
+                pass  # sim not up yet: keep the window open
+            v.sync()
+            time.sleep(max(0.0, 1.0 / hz - (time.time() - t)))
+
+
 def main():
     p = argparse.ArgumentParser(description=__doc__.split("\n\n")[0])
     sub = p.add_subparsers(dest="cmd", required=True)
@@ -364,6 +423,12 @@ def main():
     ren.add_argument("--out", default="data/video/out/sim-cinematic.mp4")
     ren.add_argument("--max-s", type=float)
     ren.add_argument("--keep-idle", action="store_true", help="keep idle stretches (default cuts each to 1 s)")
+    ren.add_argument("--start-s", type=float, default=0.0, help="start this many seconds into the recording")
+    ren.add_argument("--end-s", type=float, help="stop this many seconds into the recording (orbit: its length)")
+    ren.add_argument("--shot", choices=["wide", "close", "hand", "top"], help="hold one camera instead of following")
+    ren.add_argument("--orbit", action="store_true", help="circle the table at the first pose (establishing shot)")
+    lv = sub.add_parser("live", help="open a 3D window that mirrors the running sim (orbit with the mouse)")
+    lv.add_argument("--sim", default="http://localhost:8002")
     st = sub.add_parser("still", help="one frame of the detailed scene")
     st.add_argument("--out", default="data/video/simcine/still.png")
     st.add_argument("--az", type=float, default=150.0)
@@ -372,8 +437,11 @@ def main():
     a = p.parse_args()
     if a.cmd == "record":
         record(a.sim, a.controller, a.seconds, a.out, wait_reset=not a.now)
+    elif a.cmd == "live":
+        live(a.sim)
     elif a.cmd == "render":
-        render(a.input, a.out, max_s=a.max_s, cut_idle=not a.keep_idle)
+        render(a.input, a.out, max_s=a.max_s, cut_idle=not (a.keep_idle or a.orbit), start_s=a.start_s, end_s=a.end_s,
+               shot=a.shot, orbit=a.orbit)
     else:
         Path(a.out).parent.mkdir(parents=True, exist_ok=True)
         still(a.out, a.az, a.el, a.dist)
