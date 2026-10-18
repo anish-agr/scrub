@@ -1,4 +1,4 @@
-"""Replay recorded LeRobot (v3) SO-101 demos through the MuJoCo sim next to the real videos.
+"""Replay recorded LeRobot (v3, or v2.x) SO-101 demos through the MuJoCo sim next to the real videos.
 
     .venv/bin/python explore/dataset/replay.py --root <ds> --episode 0 [--port 8095]
     .venv/bin/python explore/dataset/replay.py --root <ds> --check
@@ -22,6 +22,7 @@ import pandas as pd
 
 REPO = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(REPO))
+from explore.dataset import lerobot_meta  # noqa: E402
 NAMES = ["shoulder_pan", "shoulder_lift", "elbow_flex", "wrist_flex", "wrist_roll", "gripper"]
 HTML = Path(__file__).with_name("replay.html")
 # fixed sim camera approximating the real side camera (tune with --cam az,el,dist,lx,ly,lz)
@@ -34,17 +35,26 @@ class Dataset:
         self.root = Path(root)
         self.info = json.loads((self.root / "meta/info.json").read_text())
         self.fps = self.info["fps"]
-        eps = [pd.read_parquet(f) for f in sorted((self.root / "meta/episodes").glob("chunk-*/file-*.parquet"))]
+        if lerobot_meta.is_v2(self.root):  # LeRobot v2.x: episodes.jsonl, one data/video file per episode
+            eps = [lerobot_meta.v2_episodes_df(self.root, self.info)]
+        else:
+            eps = [pd.read_parquet(f) for f in sorted((self.root / "meta/episodes").glob("chunk-*/file-*.parquet"))]
         self.eps = pd.concat(eps).sort_values("episode_index").set_index("episode_index", drop=False)
         self._data = {}
 
     def episodes(self):
         return [int(i) for i in self.eps.index]
 
+    def _data_path(self, c, f):
+        tpl = self.info["data_path"]
+        if "{episode_index" in tpl:  # v2: file index is the episode index
+            return self.root / tpl.format(episode_chunk=c, episode_index=f)
+        return self.root / tpl.format(chunk_index=c, file_index=f)
+
     def _file(self, c, f):
         key = (c, f)
         if key not in self._data:
-            p = self.root / self.info["data_path"].format(chunk_index=c, file_index=f)
+            p = self._data_path(c, f)
             self._data[key] = pd.read_parquet(p, columns=["observation.state", "action", "episode_index", "frame_index"])
         return self._data[key]
 
@@ -63,8 +73,7 @@ class Dataset:
         import av
         k = f"observation.images.{cam}"
         r = self.eps.loc[ep]
-        p = self.root / self.info["video_path"].format(
-            video_key=k, chunk_index=int(r[f"videos/{k}/chunk_index"]), file_index=int(r[f"videos/{k}/file_index"]))
+        p = lerobot_meta.video_file(self.root, self.info, k, r)
         t0 = float(r[f"videos/{k}/from_timestamp"])
         n = int(r["length"])
         out = []

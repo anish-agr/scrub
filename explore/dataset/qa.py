@@ -1,12 +1,19 @@
 #!/usr/bin/env python
-"""Demo QA checker for Scrub LeRobot (v3) datasets. Read-only on the dataset.
+"""Demo QA checker for Scrub LeRobot datasets (v3, or v2.x with meta/episodes.jsonl). Read-only on the dataset.
 
   .venv/bin/python -m explore.dataset.qa --root <dataset> [--out report.html]
+
+Callable from other modules (no HTML unless html_out is given, nothing printed):
+  qa_failures(root, html_out=None) -> list[str]
+      one "episode N: reason" string per FAIL flag over the whole dataset; [] means no FAIL.
+      A dataset that cannot be read at all returns one "dataset: ..." reason instead of exiting.
 """
-import argparse, base64, glob, html, json, os, sys, tempfile
+import argparse, base64, contextlib, glob, html, io, json, os, sys, tempfile
 import cv2
 import numpy as np
 import pandas as pd
+
+from explore.dataset import lerobot_meta
 
 # ---- thresholds (tune here) -------------------------------------------------
 LEN_SHORT_FRAC = 0.5       # WARN if length < this * median length
@@ -57,7 +64,10 @@ def _read_all(pattern):
 
 def load_meta(root):
     info = json.load(open(os.path.join(root, "meta/info.json")))
-    eps = _read_all(os.path.join(root, "meta/episodes/**/*.parquet"))
+    if lerobot_meta.is_v2(root):
+        eps = lerobot_meta.v2_episodes_df(root, info)
+    else:
+        eps = _read_all(os.path.join(root, "meta/episodes/**/*.parquet"))
     data = _read_all(os.path.join(root, "data/**/*.parquet"))
     eps = eps[eps["episode_index"].isin(data["episode_index"].unique())]  # only episodes with readable frames
     return info, eps.sort_values("episode_index").reset_index(drop=True), data
@@ -177,8 +187,7 @@ def check_episode(root, info, row, df, cams):
     thumbs, cam_m = {}, {}
     for cam in cams:
         key = f"observation.images.{cam}"
-        fi = int(row[f"videos/{key}/file_index"]); ci = int(row[f"videos/{key}/chunk_index"])
-        p = os.path.join(root, info["video_path"].format(video_key=key, chunk_index=ci, file_index=fi))
+        p = lerobot_meta.video_file(root, info, key, row)
         start = int(round(float(row[f"videos/{key}/from_timestamp"]) * fps))
         frames = read_video_segment(p, start, n, fps) if os.path.exists(p) else None
         if not frames:
@@ -247,14 +256,8 @@ def write_html(path, root, results, counts):
     open(path, "w").write("\n".join(p))
 
 
-def main(argv=None):
-    ap = argparse.ArgumentParser()
-    ap.add_argument("--root", required=True)
-    ap.add_argument("--out", default=os.path.join(tempfile.gettempdir(), "qa_report.html"))
-    a = ap.parse_args(argv)
-    root = os.path.abspath(a.root)
-    if os.path.commonpath([root, os.path.abspath(a.out)]) == root:
-        sys.exit("--out must not be inside the dataset")
+def run_qa(root):
+    """Check every episode. Returns (results, counts); results[i] has ep, m, flags [(level, text)], status, thumbs, svg."""
     info, eps, data = load_meta(root)
     cams = [k.split(".")[-1] for k, v in info["features"].items() if v["dtype"] == "video"]
     med = float(eps["length"].median())
@@ -273,6 +276,35 @@ def main(argv=None):
         status = max((l for l, _ in flags), key=LEVEL.get, default="PASS")
         results.append(dict(ep=e, m=m, flags=flags, status=status, thumbs=thumbs, svg=svg_traces(st, ac)))
     counts = {k: sum(r["status"] == k for r in results) for k in LEVEL}
+    return results, counts
+
+
+def qa_failures(root, html_out=None):
+    """Plain entry point for `python -m arm.train preflight`: a list of failure reasons, [] when no episode FAILs."""
+    root = os.path.abspath(os.path.expanduser(str(root)))
+    if html_out and os.path.commonpath([root, os.path.abspath(html_out)]) == root:
+        return ["dataset: html_out must not be inside the dataset"]
+    try:
+        with contextlib.redirect_stdout(io.StringIO()):
+            results, counts = run_qa(root)
+    except SystemExit as e:
+        return [f"dataset: {e.code}"]
+    except Exception as e:  # noqa: BLE001 - missing meta, corrupt files
+        return [f"dataset: cannot be read ({type(e).__name__}: {e})"]
+    if html_out:
+        write_html(html_out, root, results, counts)
+    return [f"episode {r['ep']}: {t}" for r in results for l, t in r["flags"] if l == "FAIL"]
+
+
+def main(argv=None):
+    ap = argparse.ArgumentParser()
+    ap.add_argument("--root", required=True)
+    ap.add_argument("--out", default=os.path.join(tempfile.gettempdir(), "qa_report.html"))
+    a = ap.parse_args(argv)
+    root = os.path.abspath(a.root)
+    if os.path.commonpath([root, os.path.abspath(a.out)]) == root:
+        sys.exit("--out must not be inside the dataset")
+    results, counts = run_qa(root)
     print(f"{'EP':>3} {'LEN s':>6} {'STATUS':<6} REASON")
     for r in results:
         why = "; ".join(t for _, t in r["flags"]) or "-"

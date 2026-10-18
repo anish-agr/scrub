@@ -1138,8 +1138,8 @@ def main() -> None:
     p.add_argument("--task", help='record this exact instruction, e.g. "pick the hemostat"; omit to teleop')
     p.add_argument("--episodes", type=int, default=5)
     # Episodes end when you say so: "Done" on the page or Enter in the terminal. These are only caps.
-    p.add_argument("--episode-s", type=int, default=600, help="cap; end an episode with Done / Enter")
-    p.add_argument("--reset-s", type=int, default=600, help="cap; start the next episode with Next / Enter")
+    p.add_argument("--episode-s", type=int, default=25, help="cap; end an episode with Done / Enter")
+    p.add_argument("--reset-s", type=int, default=10, help="cap; start the next episode with Next / Enter")
     p.add_argument("--root", default=str(Path.home() / "scrub-dataset"))
     p.add_argument("--repo", default="local/scrub", help="dataset name; only matters if pushed later")
     p.add_argument("--ease-s", type=float, default=3.0)
@@ -1153,6 +1153,9 @@ def main() -> None:
     a = p.parse_args()
     if a.check:
         return check_dataset(Path(a.root))
+    if a.task:  # exits with the valid instructions unless --task is an exact string from settings/*.json
+        from arm.record import resolve_task
+        resolve_task(a.task)
     start_log()
     if not os.environ.get("SCRUB_CHILD"):
         return supervise(a, sys.argv[1:])
