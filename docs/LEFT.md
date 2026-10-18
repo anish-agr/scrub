@@ -48,14 +48,14 @@ When Caiden session 1, Codex, Antigravity and Evan's Cursor are done, Caiden run
 | --- | --- | --- |
 | L1 | Codex's 4 handoff items in `arm/README.md` ("Handoff to Caiden"). 8153bd3 covered the latched freeze; check the rest: no gripper load means wait for `got_it` without crashing, a failed `set_down_safe_spot()` is reported (not counted as out), and put-back is done only when tray perception shows the item in its slot (not just `max_s`) | `controller/` |
 | L2 | Pre-open Perceptron robot sessions for the current setting's instructions when the setting changes, so the first motion doesn't wait on a grant. Expose 401/409/503 from the arm as events and spoken lines | `controller/` (calls into `arm/` through the interface only) |
-| L3 | P4 demo mode: one key per setting, a reset that homes the arm and clears the count, a "judge mode" that only allows handover, count and stop | `controller/` |
+| L3 | P4 demo mode is in (`GET /demo`, reset with `clear_count`). Left: a "judge mode" that only allows handover, count and stop | `controller/` |
 | L4 | C7: end-of-case summary sent as a Photon text to the same thread. Make it work with a stub until the number exists | `voice/` |
 | L5 | Voice end to end without a phone: a script that sends text to `voice/` the way ElevenLabs would and checks the command reaches the controller and the reply line comes back. Measure latency | `voice/` |
 | L6 | `arm/check_setup.py` (ports, cameras at 640x480 at 30 fps, real fps, one test frame each) and `arm/record.py` (builds and runs `lerobot-record` with `use_degrees=true`, fps 30, episode 25 s, reset 10 s, one repo `<HF_USER>/scrub`, `--resume` when it exists, appends to `docs/DATA-LOG.md`, `--print-only`). Anish allows these two new files in `arm/` | `arm/check_setup.py`, `arm/record.py` |
 | L7 | One command that starts the whole stack for a demo or test: controller (fake, sim or real arm), vision (real or `--fake`), voice, and opens the dashboard. Plus a full-stack smoke test on the sim arm | `controller/run_all.py` |
 | L8 | README "Running it" section with the real commands, once L7 works | `README.md` (Anish allows) |
 | L10 | Full-stack check with Evan's parts: the controller serves `dashboard/`, events reach the ledger (buffer file when Mongo is down), `GET /stats` returns the tables, settings load. Report mismatches to Evan rather than editing his folders | read only outside `controller/` |
-| L9 | P2: the 5-slide backup deck outline and slide text in `docs/SLIDES.md`; system diagram as an image | `docs/SLIDES.md`, `explore/` |
+| L9 | P2: slide text is in `docs/SLIDES.md`. Left: the system diagram as an image, and the Google Slides deck itself | `docs/SLIDES.md`, `explore/` |
 
 ## Needs the arm (people, with agents helping)
 

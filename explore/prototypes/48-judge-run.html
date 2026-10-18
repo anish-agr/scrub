@@ -13,7 +13,7 @@ FEATURES:
 - Cue card per beat: Anish's line, Brandon's request, Evan's tray or lamp move, Caiden's key, the judge's part. Each arm beat
   has goals read from WS /events (released / set_down / returned / count, setting and lighting changes). When the goals
   are met and the arm is back to idle, the cue advances by itself. Speech-only beats advance on Enter.
-- P4 demo keys: 1 / 2 / 3 POST /setting surgical / dental / bench, R POST /reset (homes, opens gripper, clears out),
+- P4 demo keys: 1 / 2 / 3 POST /setting surgical / dental / bench, R POST /reset {"clear_count": true} (homes, opens gripper, clears out),
   Space or Esc POST /stop (latched until a reset succeeds), L toggles bright / normal via POST /lighting, Shift+L dim.
   C sends the current cue request as a dashboard /command (rehearsing without the phone), G sends got_it.
 - Live arm panel: step, item, out list, request-to-hand seconds, last 8 events, plus a top view of the table in mm from
@@ -291,7 +291,8 @@ footer a{color:var(--dim)}
 <script>
 "use strict";
 const Q=new URLSearchParams(location.search);
-let API=(Q.get("api")||"http://localhost:8000").replace(/\/$/,"");
+// Served by the controller at /demo: same origin. Opened from disk: localhost:8000.
+let API=(Q.get("api")||(location.protocol.startsWith("http")?location.origin:"http://localhost:8000")).replace(/\/$/,"");
 const $=id=>document.getElementById(id);
 $("api").value=API; $("mockapi").textContent=API;
 
@@ -570,7 +571,7 @@ async function doStop(){
 }
 function setLatched(v){latched=v;document.body.classList.toggle("latched",v);$("stopword").textContent=v?"STOPPED":"STOP"}
 async function doReset(){
-  try{await http("POST","/reset");flash("POST /reset: homing, gripper open, count cleared");S.rth=null;
+  try{await http("POST","/reset",{clear_count:true});flash("POST /reset {clear_count}: homing, gripper open, count cleared");S.rth=null;
     if(mode==="live")setTimeout(()=>{if(S.step!=="stopped")setLatched(false)},300);}
   catch(e){flash("reset refused ("+(e.status||"")+"): "+e.message,true)}
 }
