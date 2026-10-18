@@ -2,7 +2,7 @@
 
 About 15 minutes, one person, about 140 frames. Run every command from the repo root. Use one set name (`tray1` below) so everything lands in one folder.
 
-Setup: overhead camera on its mount, tray in place, the surgical setting items on the tray (scalpel, hemostat, mayo scissors). Print the props first: `print explore/recognition/props/*.html` (count sheet, tray tag, pack label). Find camera indexes with `.venv/bin/python -m arm.check_setup --side C920 --wrist icspring` if the defaults are wrong. Defaults: overhead is `CAMERA_INDEX` from `.env`, side is `CAPTURE_SIDE_INDEX` (1), wrist is `CAPTURE_WRIST_INDEX` (2). `--camera 3` also works.
+Setup: overhead camera on its mount, tray in place, the surgical setting items on the tray (scalpel, hemostat, mayo scissors). Print the props first: `print explore/recognition/props/*.html` (count sheet, tray tag, pack label). Find camera indexes with `.venv/bin/python -m arm.check_setup --side C920 --wrist icspring` if the defaults are wrong. Defaults: overhead is `CAMERA_INDEX` if it is set in your shell (else 0), side is `CAPTURE_SIDE_INDEX` (1), wrist is `CAPTURE_WRIST_INDEX` (2). `--camera 3` also works.
 
 Keys (the same list prints when the tool starts and is drawn on the preview):
 
