@@ -31,6 +31,7 @@ are marked "hardware".
 | `bench/console.py`, `console.html` | Test bench console on :8098 against a controller started with `--sim-arm --setting bench` |
 | `bench/identify.py`, `identify.html` | On-device tray identifier (Apple Vision OCR and torchvision) |
 | `bench/refs/` | Saved crops per item, used by `recognition/` |
+| `analysis/` | `python -m explore.analysis`: read-only MongoDB report (training episodes, real-arm handoffs, heat, reading) into `docs/DATA.md`, `team/NOTES-DATA.md`, `docs/media/data/` and `data/analysis.json`; `--fixture` runs on a JSON dump. Tests: `.venv/bin/python -m pytest -q explore/analysis` |
 | `recognition/bench.py`, `test_bench.py` | Perceptron detect and Gemini on saved tray images: `python -m explore.recognition.bench`. Results in `recognition/out/` and `docs/RECOGNITION.md` |
 
 ## Notes, pages and prototypes (moving to `team/`)
