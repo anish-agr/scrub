@@ -58,7 +58,10 @@ GRIP_BACKOFF = 4.0   # on an overload reply, open this much per loop until the s
 DROP_TARGET = [None, False]  # camera index for the SCRUB_DROP_CAMERA drill, done flag
 START = Path.home() / "scrub-logs" / "start-recording"  # the preview was confirmed (page button or Enter)
 COOLDOWN = Path.home() / "scrub-logs" / "cooldown.json"  # written when a motor trips the cool-down
-COOL_TRIP, COOL_RESUME = 60, 45  # deg C: fold to rest and stop at COOL_TRIP; resume once all <= COOL_RESUME
+# deg C: fold to rest and stop at COOL_TRIP; resume once all <= COOL_RESUME, or when cooling has levelled
+# off. A powered motor idles at ~45 C (the leader, torque off, reads 45-47 C), so 45 is unreachable.
+COOL_TRIP, COOL_RESUME = 60, 50
+COOL_PLATEAU_S = 180  # no further drop for this long while <= COOL_TRIP - 5: resume anyway
 REST = {"shoulder_lift": -98.0, "elbow_flex": 92.0, "wrist_flex": 70.0}  # folded, just off the stops
 REST_DEG_S = 30.0
 LAST_ERROR = Path.home() / "scrub-logs" / "last-error.txt"  # a crashed session's reason, for the page
@@ -227,6 +230,19 @@ TEMP_WARN, TEMP_RELAX = 55, 62  # deg C: warn on the page; stop pushing with tha
 ARM_JOINTS = ("shoulder_pan", "shoulder_lift", "elbow_flex", "wrist_flex", "wrist_roll")
 
 
+def _thermal_row(row: dict) -> None:
+    """One telemetry row to ~/scrub-logs/thermal and MongoDB (explore/thermal_log.py). Never raises."""
+    try:
+        import thermal_log
+        thermal_log.get({"source": "arm_session", "pid": os.getpid(),
+                         "settings": {"COOL_TRIP": COOL_TRIP, "COOL_RESUME": COOL_RESUME, "GENTLE_ACCEL": GENTLE_ACCEL,
+                                      "GENTLE_SPEED": GENTLE_SPEED, "DEADBAND_DEG": DEADBAND_DEG,
+                                      "JOINT_LOAD_MAX": JOINT_LOAD_MAX, "GAP_DEG": GAP_DEG,
+                                      "EASE_DEG_S": EASE_DEG_S, "GRIP_SQUEEZE": GRIP_SQUEEZE}}).write(row)
+    except Exception:  # noqa: BLE001 - telemetry must never stop the arm
+        pass
+
+
 def _say(text: str, key=None) -> None:
     try:
         import arm_voice
@@ -242,6 +258,7 @@ def _start_cooldown(temps: dict) -> None:
     hot = {m: t for m, t in temps.items() if t >= COOL_TRIP}
     COOLDOWN.parent.mkdir(parents=True, exist_ok=True)
     COOLDOWN.write_text(json.dumps({"t": time.time(), "temps": temps, "hot": hot}))
+    _thermal_row({"kind": "event", "event": "cooldown_trip", "temps": temps, "hot": hot})
     print(f"COOL-DOWN: {', '.join(f'{m} {t} C' for m, t in hot.items())}: folding to rest, torque off, "
           f"resuming at {COOL_RESUME} C", flush=True)
     _say("My motors are hot. I'm folding up to cool down.")
@@ -290,6 +307,8 @@ def guard_joints() -> None:
             st["temp_t"] = now
             try:
                 st["temp"] = {k: int(v) for k, v in self.bus.sync_read("Present_Temperature", normalize=False).items()}
+                st["amps"] = {k: int(v) for k, v in self.bus.sync_read("Present_Current", normalize=False).items()}
+                st["volt"] = {k: int(v) for k, v in self.bus.sync_read("Present_Voltage", normalize=False).items()}
             except Exception:  # noqa: BLE001
                 pass
         hottest = max(st["temp"].values(), default=0)
@@ -362,10 +381,24 @@ def guard_joints() -> None:
                         except ImportError:
                             pass
                     action[k] = here
+                    _thermal_row({"kind": "event", "event": "joint_hold", "motor": m, "hot": hot, "load": load,
+                                  "temp": st["temp"].get(m), "pos": here, "goal": goal})
                     print(f"joint guard: {m} {'hot ' + str(st['temp'][m]) + ' C' if hot else 'blocked (load ' + str(load) + ')'}, "
                           f"holding at {here:.0f} instead of pushing to {goal:.0f}", flush=True)
             else:
                 st["since"].pop(m, None)
+        if now - st.get("log_t", 0.0) >= 0.5:
+            st["log_t"] = now
+            try:
+                import arm_ui
+                ph, hz = arm_ui.S.get("phase"), arm_ui._rate(arm_ui.loop_ticks)
+            except Exception:  # noqa: BLE001
+                ph, hz = None, None
+            _thermal_row({"kind": "sample", "phase": ph, "loop_hz": hz, "motors": {
+                m: {"temp": st["temp"].get(m), "load": int(loads.get(m, 0)), "pos": round(float(pos.get(m, 0)), 1),
+                    "goal": round(float(action.get(m + ".pos", 0)), 1) if (m + ".pos") in action else None,
+                    "current": st.get("amps", {}).get(m), "volt": st.get("volt", {}).get(m),
+                    "held": m in st["hold"], "limp": m in st["limp"]} for m in (*ARM_JOINTS, "gripper")}})
         try:
             import arm_ui
             arm_ui.S["motors"] = {m: {"temp_c": st["temp"].get(m), "load": int(loads.get(m, 0)),
@@ -466,6 +499,7 @@ def guard_gripper() -> None:
             base = st["hold"] if st["hold"] is not None else st.get("pos", goal)
             st["hold"], st["ref"] = min(100.0, base + GRIP_BACKOFF), None
             print(f"gripper guard: overload, easing to {st['hold']:.0f}", flush=True)
+            _thermal_row({"kind": "event", "event": "gripper_overload", "hold": st["hold"]})
             _guard_ui(True, round(st["hold"]))
             return send(self, {**action, "gripper.pos": max(goal, st["hold"])})
         st["pos"] = pos
@@ -829,15 +863,20 @@ def cool_down(a, arm_ui) -> None:
         arm_ui.S["phase"] = "cooling"
         arm_ui.start_server()
     started, said = time.time(), 0
+    best, best_t = None, time.time()
     while True:
         temps = motor_temps(a.follower)
         hot = max(temps.values()) if temps else None
+        if hot is not None and (best is None or hot < best):
+            best, best_t = hot, time.time()
+        level = hot is not None and hot <= COOL_TRIP - 5 and time.time() - best_t > COOL_PLATEAU_S
+        _thermal_row({"kind": "cooling", "temps": temps})
         mins = (time.time() - started) / 60
         msg = (f"COOLING DOWN: hottest motor {hot} C, resumes at {COOL_RESUME} C ({mins:.0f} min so far)"
                if hot is not None else "COOLING DOWN: can't read the motors (power?)")
         arm_ui.S["waiting"] = [msg]
         print(msg, flush=True)
-        if hot is not None and hot <= COOL_RESUME:
+        if hot is not None and (hot <= COOL_RESUME or level):
             COOLDOWN.unlink(missing_ok=True)
             _say("Cooled down. Starting again.")
             print("cool-down done: restarting the session", flush=True)
