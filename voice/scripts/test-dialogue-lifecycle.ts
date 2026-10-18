@@ -91,6 +91,23 @@ for (const phrase of ["either", "any", "you pick"]) {
 }
 
 const one: Setting = { id: "single", label: "Test", items: [{ id: "hemostat", name: "hemostat", aliases: ["kelly"], sharp: false }] };
+const sides = { say: "Left or right?", item: "hemostat", candidates: [
+  { item: "hemostat", label: "left", side: "left", slot: 1 }, { item: "hemostat", label: "right", side: "right", slot: 2 },
+] };
+for (const words of ["count right now", "count first", "read the count sheet first"]) {
+  d.ask("non-choice", sides, one);
+  assert.equal(d.answer("non-choice", words, one), null, words);
+  assert.ok(!d.pending("non-choice"), "new command supersedes the question");
+}
+for (const words of ["are you right", "first things first", "all right now"]) {
+  d.ask("non-choice", sides, one);
+  assert.ok("say" in d.answer("non-choice", words, one)!, words);
+  assert.ok(d.pending("non-choice"));
+}
+for (const [words, slot] of [["the right one", 2], ["first one please", 1], ["the one on the left", 1], ["second", 2]] as const) {
+  d.ask("non-choice", sides, one);
+  assert.equal((d.answer("non-choice", words, one) as any).parsed.instance.slot, slot, words);
+}
 const offer = { say: "The left one is out. Would you like the right one?", item: "hemostat", confirm: true, question_id: "offer-q",
   candidates: [{ item: "hemostat", instance: { slot: 2, side: "right" as const } }] };
 d.ask("offer", offer, one, "handover", false, false);
@@ -166,6 +183,16 @@ try {
   assert.equal(commands.length, before);
   await handleText("yes", "+offer", { ...td, command: accept });
   assert.equal(commands.at(-1)?.question_id, "offer-q");
+  io.currentSetting = async () => one;
+  dialogue.ask("call:non-choice", sides, one);
+  io.postCommand = accept;
+  await handleTurn("count right now", () => {}, undefined, Date.now(), "call:non-choice");
+  assert.equal(commands.at(-1)?.action, "count");
+  dialogue.ask("text:+count", sides, one);
+  const countBefore = commands.length;
+  const countReply = await handleText("count first", "+count", { ...td, command: accept });
+  assert.match(countReply, /Count:/);
+  assert.equal(commands.length, countBefore, "text count never selects a physical candidate");
 
   Object.assign(io, { currentSetting: async () => one, postCommand: async (c: Command) => {
     setTimeout(() => receiveEvent({ type: "clarify", t: Date.now() / 1000, command_id: c.id, ...offer }), 10);
@@ -184,3 +211,5 @@ try {
   assert.equal(commands.at(-1)?.question_id, "offer-q");
 } finally { Object.assign(io, saved); dialogue.clear(); }
 console.log("voice clarification lifecycle tests passed");
+
+await import("./test-command-transport.js");
