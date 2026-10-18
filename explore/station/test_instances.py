@@ -28,6 +28,15 @@ def hit(u, v=300, variant=None):
     return (*value, variant) if variant else value
 
 
+@pytest.mark.parametrize("shape", [(2, 4), (2, 1, 4)])
+def test_wrist_edges_accept_both_opencv_array_shapes(monkeypatch, shape):
+    import cv2
+    lines = np.array([[300, 40, 300, 280], [310, 40, 310, 280]], dtype=np.int32).reshape(shape)
+    monkeypatch.setattr(cv2, "HoughLinesP", lambda *a, **k: lines)
+    found = AP.wrist_line(np.zeros((480, 640, 3), np.uint8))
+    assert found is not None and abs(found[0] - 305) < 1
+
+
 class FakeStation:
     joints = dict.fromkeys(AP.JOINTS, 0.0)
     gripper = 30.0
