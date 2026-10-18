@@ -22,6 +22,13 @@ try {
     Get-ChildItem -Path $Stage -Recurse -Force |
         Where-Object { $_.Name -eq "__pycache__" -or $_.Name -eq "buffer.jsonl" } |
         Remove-Item -Recurse -Force -ErrorAction SilentlyContinue
+    $utf8 = New-Object System.Text.UTF8Encoding $false
+    Get-ChildItem -Path $Stage -Recurse -File |
+        Where-Object { $_.Extension -in ".sh", ".service", ".conf" } |
+        ForEach-Object {
+        $text = [System.IO.File]::ReadAllText($_.FullName) -replace "`r`n", "`n" -replace "`r", "`n"
+        [System.IO.File]::WriteAllText($_.FullName, $text, $utf8)
+    }
     $keep = Get-Content $EnvFile | Where-Object { $_ -match '^(MONGODB_URI|SCRUB_PUBLIC_URL)=' }
     if (-not ($keep | Where-Object { $_ -match '^MONGODB_URI=.+' })) {
         throw "MONGODB_URI is empty in $EnvFile"
@@ -29,7 +36,9 @@ try {
     # LF line endings and no BOM, so the server reads it cleanly
     [System.IO.File]::WriteAllText((Join-Path $Stage ".env"), (($keep -join "`n") + "`n"))
     ssh $Target "mkdir -p /opt/scrub"
+    if ($LASTEXITCODE -ne 0) { throw "ssh mkdir failed ($LASTEXITCODE)" }
     scp -r (Join-Path $Stage "ledger") (Join-Path $Stage "deploy") (Join-Path $Stage ".env") "${Target}:/opt/scrub/"
+    if ($LASTEXITCODE -ne 0) { throw "scp failed ($LASTEXITCODE)" }
 }
 finally {
     Remove-Item -Recurse -Force $Stage -ErrorAction SilentlyContinue
@@ -37,4 +46,5 @@ finally {
 $setupArgs = ""
 if ($Domain -ne "" -and $Email -ne "") { $setupArgs = "$Domain $Email" }
 ssh $Target "chmod 600 /opt/scrub/.env && bash /opt/scrub/deploy/setup_public.sh $setupArgs"
+if ($LASTEXITCODE -ne 0) { throw "setup_public.sh failed ($LASTEXITCODE)" }
 Write-Host "open http://$($Target.Split('@')[-1])/"
