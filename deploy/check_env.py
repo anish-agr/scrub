@@ -145,17 +145,54 @@ def check_detect() -> tuple[str, str, str]:
         "categories": ["hemostat"],
         "config": {"output": "box", "reasoning_effort": "none"},
     }
+    for attempt in (1, 2):  # the API sometimes takes over 20 s on the first call; vision itself sees 2 s
+        try:
+            response = httpx.post(
+                "https://api.perceptron.inc/v1/detect",
+                json=payload,
+                headers={"Authorization": f"Bearer {os.environ['PERCEPTRON_API_KEY']}"},
+                timeout=30,
+            )
+            ok, detail = detect_verdict(response.status_code)
+            return row("Perceptron detect", ok, detail)
+        except httpx.HTTPError as exc:
+            if attempt == 2 or not isinstance(exc, httpx.TimeoutException):
+                return row("Perceptron detect", False, type(exc).__name__)
+
+
+def check_deployment() -> tuple[str, str, str]:
+    """--real-arm needs a deployment that exists. The id in .env is only a name until run 1 writes it."""
+    blocked = need("PERCEPTRON_TEAM_API_KEY") or need("PERCEPTRON_DEPLOYMENT_ID")
+    if blocked:
+        return ("Perceptron deployment", *blocked[1:])
     try:
-        response = httpx.post(
-            "https://api.perceptron.inc/v1/detect",
-            json=payload,
-            headers={"Authorization": f"Bearer {os.environ['PERCEPTRON_API_KEY']}"},
+        response = httpx.get(
+            "https://robotics.perceptron.inc/v1/deployments",
+            headers={"Authorization": f"Bearer {os.environ['PERCEPTRON_TEAM_API_KEY']}"},
             timeout=20,
         )
-        ok, detail = detect_verdict(response.status_code)
-        return row("Perceptron detect", ok, detail)
+        if response.status_code != 200:
+            return row("Perceptron deployment", False, f"HTTP {response.status_code}")
+        ids = [str(item.get("id") or item.get("deployment_id")) for item in response.json().get("items", [])]
+        found = os.environ["PERCEPTRON_DEPLOYMENT_ID"].strip() in ids
+        return row("Perceptron deployment", found, "found" if found else f"id not among {len(ids)} deployments")
+    except (httpx.HTTPError, ValueError, AttributeError) as exc:
+        return row("Perceptron deployment", False, type(exc).__name__)
+
+
+def check_public() -> tuple[str, str, str]:
+    """Vultr page: SCRUB_PUBLIC_URL (the domain) or SCRUB_SERVER_IP, and it must serve /api/stats from the ledger."""
+    base = os.getenv("SCRUB_PUBLIC_URL", "").strip().rstrip("/")
+    if not base and os.getenv("SCRUB_SERVER_IP", "").strip():
+        base = "http://" + os.environ["SCRUB_SERVER_IP"].strip()
+    if not base:
+        return row("Vultr public page", False, "missing SCRUB_PUBLIC_URL or SCRUB_SERVER_IP")
+    try:
+        response = httpx.get(base + "/api/stats", timeout=10)
+        ok, detail = http_ok(response)
+        return row("Vultr public page", ok, detail)
     except httpx.HTTPError as exc:
-        return row("Perceptron detect", False, type(exc).__name__)
+        return row("Vultr public page", False, type(exc).__name__)
 
 
 def check_gemini() -> tuple[str, str, str]:
@@ -317,6 +354,7 @@ def live_rows() -> list[tuple[str, str, str]]:
     return [
         check_robotics(),
         check_detect(),
+        check_deployment(),
         check_gemini(),
         check_elevenlabs(),
         check_photon(),
@@ -324,6 +362,7 @@ def live_rows() -> list[tuple[str, str, str]]:
         check_tiger(),
         check_backboard(),
         check_hf(),
+        check_public(),
         check_port("controller :8000", controller + "/state"),
         check_port("vision :8001", vision + "/health"),
         check_port("voice :3000", f"http://127.0.0.1:{voice_port}/health"),

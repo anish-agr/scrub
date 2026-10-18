@@ -166,6 +166,27 @@ class TestPlan(unittest.TestCase):
         self.assertNotIn("--judge", kids[0].cmd)
         self.assertTrue(any("no --judge" in n for n in notes))
 
+    def test_skills_and_real_arm_pass_through(self):
+        c = self.plan(["--skills", "taught"])[0][0].cmd
+        self.assertEqual(c[c.index("--skills") + 1], "taught")
+        self.assertNotIn("--skills", self.plan([])[0][0].cmd)
+        self.assertIn("--real-arm", self.plan(["--real-arm"])[0][0].cmd)
+        with self.assertRaises(SystemExit):
+            R.parse(["--skills", "both"])
+
+    def test_real_preset_is_the_judging_stack(self):
+        a = R.parse(["--real"])
+        self.assertEqual((a.arm, a.vision, a.ledger, a.judge, a.skills), ("real", "real", True, True, "auto"))
+        kids, _ = self.plan(["--real"], judge_ok=True)
+        c = kids[0].cmd
+        self.assertEqual([k.name for k in kids if k.name != "voice"], ["controller", "vision", "ledger"])
+        self.assertTrue({"--real-arm", "--judge"} <= set(c))
+        self.assertEqual(c[c.index("--skills") + 1], "auto")
+        self.assertNotIn("--fake", kids[1].cmd)
+        self.assertEqual(R.parse(["--real", "--skills", "taught"]).skills, "taught")
+        self.assertEqual(R.parse(["--real", "--arm", "sim"]).arm, "sim")
+        self.assertEqual(R.parse(["backup", "--real"]).arm, "sim")  # backup never starts the real arm
+
     def test_tunnel_variants_and_skips(self):
         by = {k.name: k for k in self.plan(["--tunnel", "cf"])[0]}
         self.assertEqual(by["tunnel"].cmd, ["npm", "run", "tunnel:cf"])
@@ -196,6 +217,7 @@ class TestUrls(unittest.TestCase):
         self.assertEqual(t["judge console"], "http://localhost:8000/demo")
         self.assertEqual(t["nurse console"], "http://localhost:8000/nurse")
         self.assertEqual(t["tablet"], "http://localhost:8000/tablet.html")
+        self.assertEqual(t["ops"], "http://localhost:8000/ops")
         self.assertEqual(t["vision preview"], "http://localhost:8001/")
         self.assertEqual(t["vision stream"], "http://localhost:8001/stream")
         self.assertEqual(t["voice health"], "http://localhost:3000/health")

@@ -4,12 +4,16 @@ Owner: Brandon. Tasks B1 to B8 in `docs/TASKS.md`.
 
 One process owns the overhead camera (locked exposure and white balance). It runs the MediaPipe hand tracker (POST a Hand to the controller about 10 times a second) and the Perceptron tray perception (POST a TrayState about once a second). It serves an MJPEG stream with boxes and the palm dot at `http://localhost:8001/stream`. `calibrate.py` fits the camera-to-arm mapping into `calibration.json`.
 
+It binds 127.0.0.1, so the camera stream is not reachable from the venue network. The dashboard and nurse page on the same laptop work as is. To open the stream to another device (a dashboard opened at `http://<laptop LAN IP>:8000/` reads the camera at `<that IP>:8001`), run with `--host 0.0.0.0` or set `VISION_HOST=0.0.0.0` in `.env`.
+
 Run from the repo root:
 
 ```
 python -m vision              # camera CAMERA_INDEX from .env, preview at http://localhost:8001/
-python -m vision --fake      # no camera: synthetic tray, open palm, locked-exposure stand-in
+python -m vision --fake      # no camera: synthetic tray, open palm, locked-exposure stand-in (30 fps)
+python -m vision --fake --port 8011 --host 0.0.0.0   # another port, open to the LAN
 python -m vision.test_vision # fake-input checks for B1 to B7, plus the slot, calibration, and lighting tools
+.venv/bin/python -m pytest -q vision/test_vision.py  # the same tests under pytest
 ```
 
 The controller does not have to be running. The first failed POST to `/vision/hand` or `/vision/tray` is logged once.
@@ -18,16 +22,37 @@ The controller does not have to be running. The first failed POST to `/vision/ha
 
 | File | Task |
 | --- | --- |
-| `camera.py` | Opens the camera, turns off auto exposure and auto white balance, one grabber thread |
+| `__main__.py` | `python -m vision`: picks the real camera or `--fake`, starts the loops, serves on `--port` and `--host` |
+| `service.py` | The hand (10 Hz), tray (1 Hz), lighting (1 Hz) and clip-event (2 Hz) loops, and the posts to the controller |
+| `camera.py` | Opens the camera, turns off auto exposure and auto white balance, one grabber thread, `FakeCapture` |
 | `hand.py` | MediaPipe Tasks hand landmarker, palm center, open-palm check |
-| `tray.py` | `POST https://api.perceptron.inc/v1/detect`, maps boxes onto slots. See `docs/PERCEPTRON.md` |
-| `app.py` | Preview page, `/stream`, `/snapshot` |
-| `mark_slots.py` | Click slot corners, or `--fake` to write all three trays in the settings shape |
+| `tray.py` | `POST https://api.perceptron.inc/v1/detect`, maps boxes onto slots, `FakeDetector` for `--fake`. See `docs/PERCEPTRON.md` |
+| `tray_check.py` | Missing and wrong-slot items for `GET /tray_check` |
+| `clips.py` | Rolling frame buffer, one .mp4 and thumbnail per event under `vision/clips/<case_id>/` (git-ignored), labels |
+| `app.py` | HTTP routes (below) |
+| `draw.py` | Slot boxes, detections, palm dot and target on the preview frame |
+| `geometry.py` | Box math and the gripper-to-target path check |
+| `heights.py` | Load and save `hand_heights.json` |
+| `mark_slots.py` | Click slot corners, or `--fake` to write the surgical and bench trays in the settings shape |
 | `calibrate.py` | Homography from guided gripper points or `--pairs` (explore page 42). Prints the max error in cm. Target is 4 cm short of the palm |
 | `lighting.py` | Mean brightness, and `--test` to append hand / detect / stale rates to a CSV |
 | `hand_heights.json` | Default hand height 0.18 m, plus one height per clinician |
+| `test_vision.py` | All the fake-input tests |
 
-`GET /tray_check` reports `stale: true` with no tray read yet, after a failed read, or when the last read is over 3 s old (a hung detect), so the controller says it can't check instead of "missing everything". `wrong_slot[].in_slot_of` is another item's id or null. Event clips: vision polls the controller's `/events/recent` every 0.5 s and saves a clip for each picked, handed, set_down, released, returned, stopped and missed event once its 1.5 s after-window has passed. Events from before vision started are skipped. The clip buffer keeps frames at 640 px wide. `target` stays null until `vision/calibration.json` exists, except `python -m vision --fake`, which posts a stand-in target so the fake arm can finish a handover. The API returns no confidence, so a fresh TrayState uses `1.0`. A failed call keeps the last good state and sets `stale` true (optional field).
+Routes on port 8001: `GET /` preview page, `/stream` (MJPEG, `?frames=N` stops after N), `/snapshot`, `/health` (camera, exposure lock, `fps.overhead`, `detect_ms` and `detect_p50_ms` over the last 50 detects), `/vision/hand`, `/vision/tray`, `/lighting`, `/tray_check`, `/clips`, `/clips/{case_id}/{file}`; `POST /clinician`, `/gripper`, `/clips/record`, `/clips/label`.
+
+## Detect timing
+
+`docs/RECOGNITION.md` measured `/v1/detect` at 3.8 to 4.7 s on 640x480 trays. A live `--check-api` call on a flat 640x480 frame took 1.6 s on Oct 18. So the detector shrinks any frame wider than 640 px before upload (the 1280x720 camera frame goes up as 640x360) and scales the boxes back to the full frame. Its timeout is 6 s. `GET /tray_check` calls a read stale once it is older than that timeout plus 2 s (8 s). Watch `detect_p50_ms` on `/health`. Override in `.env`:
+
+```
+VISION_DETECT_TIMEOUT_S=6
+VISION_DETECT_WIDTH=640      # 0 sends the full frame
+VISION_TRAY_STALE_S=8        # default: detect timeout + 2 s
+```
+
+The controller has its own 3 s cutoff (`TRAY_STALE_S` in `controller/core.py`), so with a 4 s detect it sees the tray as stale between reads.
+`GET /tray_check` reports `stale: true` with no tray read yet, after a failed read, or when the last read is older than the cutoff above (a hung detect), so the controller says it can't check instead of "missing everything". `wrong_slot[].in_slot_of` is another item's id or null. Event clips: vision polls the controller's `/events/recent` every 0.5 s and saves a clip for each picked, handed, set_down, released, returned, stopped and missed event once its 1.5 s after-window has passed. Events from before vision started are skipped. The clip buffer keeps frames at 640 px wide. `target` stays null until `vision/calibration.json` exists, except `python -m vision --fake`, which posts a stand-in target so the fake arm can finish a handover. The API returns no confidence, so a fresh TrayState uses `1.0`. A failed call keeps the last good state and sets `stale` true (optional field).
 
 ## Lamp check (B1)
 
@@ -58,7 +83,7 @@ python -m vision.mark_slots --setting surgical --live
 
 `--live` grabs one frame from `CAMERA_INDEX`, saves it, and opens the click window. Or pass corners without a window: `--clicks x,y,x,y,...`. The JSON it writes is a full settings file with `slot` and `return_spot` filled. Evan copies those numbers into `settings/<id>.json`. Do surgical, then bench. Dental is dropped. Until those boxes are filled, a detection anywhere counts as in the right slot.
 
-`python -m vision.mark_slots --fake --out /tmp/marked` writes every tray file from a synthetic frame, with no camera and no window. It does not change `settings/`.
+`python -m vision.mark_slots --fake --out /tmp/marked` writes the surgical and bench files (and a .jpg of each synthetic frame), with no camera and no window. It does not change `settings/`.
 
 ## Calibration (B6)
 
@@ -81,11 +106,15 @@ Save a clinician's hand height:
 curl -X POST http://localhost:8001/clinician -H "Content-Type: application/json" -d "{\"name\":\"brandon\",\"hand_height_m\":0.16}"
 ```
 
+That writes `vision/hand_heights.json`, which is in git. `CLINICIAN` in `.env` picks the active one at start.
+
 ## Keys
 
-`PERCEPTRON_API_KEY` and `CAMERA_INDEX` live in `.env`. Optional: `CAMERA_EXPOSURE`, `CAMERA_WB`, `CONTROLLER_URL`, `CLINICIAN`. The hand model downloads into `vision/models/` (git-ignored) on first real run.
+`PERCEPTRON_API_KEY` and `CAMERA_INDEX` live in `.env`. Optional: `CAMERA_EXPOSURE`, `CAMERA_WB`, `CONTROLLER_URL` (default `http://localhost:8000`), `CLINICIAN`, `VISION_PORT` (8001), `VISION_HOST` (127.0.0.1), `VISION_FAKE=1` (same as `--fake`), `VISION_SETTING` (surgical, used when the controller is down), `VISION_EXTRA_CATEGORIES=0` (stop asking for "robot arm" and "gripper"), and the three detect settings above. The hand model downloads into `vision/models/` (git-ignored) on first real run.
 
 ## Tested
+
+Comb on Oct 18, 2026: `.venv/bin/python -m pytest -q vision/test_vision.py` 47 passed (added: detect downscale and box scaling, detect env settings, the 8 s tray-check cutoff, tray check with the controller's aliases, the 127.0.0.1 default bind, fake camera at 30 fps). `python -m vision --fake --port 8150` answered `/health` (29.9 fps, 4 % CPU; before the fix the fake camera spun at 38000 reads/s and a full core), `/vision/hand`, `/tray_check`, `/snapshot`, `/stream?frames=3`, `/lighting`, `/clinician`, `/gripper`, `/clips`, listening on 127.0.0.1 only. `python -m vision.lighting --check-api`: status 200, 1.58 s, 0 detections on a flat gray frame.
 
 Comb on Oct 17, 2026. `python -m vision.test_vision`: 41 tests OK (second comb pass added clip events, tray check `in_slot_of`, tray check staleness, clip paths, clip buffer size).
 
@@ -99,7 +128,7 @@ What passed:
 
 What failed or still needs a person:
 
-- `python -m vision.lighting --check-api` exited 1: `PERCEPTRON_API_KEY` is empty, so no live `/v1/detect` call was made. On the port 8001 process the tray state was already `stale: true` while `/health` and `/vision/hand` kept answering.
+- Oct 17: `python -m vision.lighting --check-api` exited 1 (`PERCEPTRON_API_KEY` was empty then; it passed on Oct 18, above). On the port 8001 process the tray state was already `stale: true` while `/health` and `/vision/hand` kept answering.
 - That port 8001 process is an older `python -m vision`. `GET /tray_check` and `GET /clips` returned 404 there. Restart it (`python -m vision`) to load this build. The camera was not unplugged for real; the unplug case above is the fake capture.
 - Gloves: not a controlled test. MediaPipe's hand landmarker has no glove model. During the soak `/vision/hand` answered, including one `seen: true` read, but nobody held a gloved hand up for it.
 - B5 is not done. Slot boxes in the settings files are still null. With the overhead camera mounted, run `python -m vision.mark_slots --setting surgical --live`, then the same for `bench`. Click two corners per item, then the return spot. It writes `vision/marked/<id>.json` for Evan. Do not pass `--write-settings`.

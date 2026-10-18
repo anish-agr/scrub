@@ -4,7 +4,7 @@ import os
 import unittest
 from unittest import mock
 
-from deploy.check_env import check_backboard, check_tiger, detect_verdict, format_table, key_lines, need, present, redact
+from deploy.check_env import check_backboard, check_deployment, check_public, check_tiger, detect_verdict, format_table, key_lines, need, present, redact
 
 
 class CheckEnvTests(unittest.TestCase):
@@ -64,6 +64,11 @@ class CheckEnvTests(unittest.TestCase):
         self.assertTrue(detect_verdict(200)[0])
         self.assertFalse(detect_verdict(401)[0])
         self.assertFalse(detect_verdict(403)[0])
+
+    def test_deployment_and_public_page_missing_keys(self):
+        with mock.patch.dict(os.environ, {"PERCEPTRON_TEAM_API_KEY": "", "SCRUB_PUBLIC_URL": "", "SCRUB_SERVER_IP": ""}):
+            self.assertEqual(check_deployment()[1], "FAIL")
+            self.assertIn("missing", check_public()[2])
 
     def test_table_has_pass_and_fail(self):
         text = format_table([("Gemini", "FAIL", "missing GEMINI_API_KEY"), ("MongoDB Atlas", "PASS", "ping ok")])

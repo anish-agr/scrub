@@ -155,24 +155,6 @@ def parse_guided_lines(lines: list[str]) -> tuple[list, list]:
     return image_points, arm_points
 
 
-def fake_calibration() -> dict:
-    """A stand-in fit so `python -m vision --fake` can post a hand target.
-
-    The synthetic palm (about 335, 353 on a 640x480 frame) maps near the
-    controller's saved handoff spot, inside arm/rig.json's handoff region.
-    """
-    image_points = [[335, 353], [435, 353], [435, 253], [235, 253], [300, 300], [380, 320]]
-    arm_points = [
-        [0.264, -0.120, 0.18],
-        [0.344, -0.120, 0.18],
-        [0.344, -0.040, 0.18],
-        [0.184, -0.040, 0.18],
-        [0.236, -0.080, 0.18],
-        [0.300, -0.090, 0.18],
-    ]
-    return calibration_from_points(image_points, arm_points, hand_height_m=0.18)
-
-
 def save_calibration(path: Path, calibration: dict) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(json.dumps(calibration, indent=2), encoding="utf-8")
