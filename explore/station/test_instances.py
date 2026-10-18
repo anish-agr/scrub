@@ -44,6 +44,7 @@ def wait_for(check, timeout=2):
 
 @pytest.fixture
 def setup_pick(monkeypatch):
+    monkeypatch.setattr(S.arm_ui, "S", {**S.arm_ui.S, "park_req": None})
     def make(hits=None, args=None):
         hits = [hit(450), hit(500)] if hits is None else hits
         st = FakeStation()
@@ -71,6 +72,7 @@ def test_two_candidates_hold_until_matching_answer(setup_pick, side, pixel):
     wait_for(lambda: d.status()["question"])
     try:
         q = d.status()["question"]
+        assert q["say"] == "I see two scalpel handles: the left one or the right one?"
         assert q["choices"] == ["left", "right"] and "image right" in q["orientation"]
         assert d.tick(st, {}) == {} and not calls and not d.plan
         assert not d.answer(st, "stale", side)[0]
@@ -84,6 +86,7 @@ def test_two_candidates_hold_until_matching_answer(setup_pick, side, pixel):
         assert not d.answer(st, q["id"], side)[0]  # double clicks never reselect
         assert [e["type"] for e in st.events] == ["clarify", "clarify_answer"]
         assert st.events[-1]["answer_ms"] >= 0 and st.events[-1]["question_id"] == q["id"]
+        assert st.events[-1]["status"] == "answered" and st.events[-1]["answer"] == side
     finally:
         d.abort()
 
@@ -110,7 +113,8 @@ def test_three_candidates_closest_wording_and_answer(setup_pick):
     d, st, calls = setup_pick([hit(450, 310), hit(480, 285), hit(500, 305)])
     wait_for(lambda: d.status()["question"])
     q = d.status()["question"]
-    assert q["count"] == 3 and "closest" in q["say"]
+    assert q["count"] == 3 and "the one closest to you" in q["say"]
+    assert st.events[0]["say"] == q["say"]
     assert not calls and d.tick(st, {}) == {}
     assert d.answer(st, q["id"], "closest")[0]
     d._detect_thread.join(2)
@@ -126,7 +130,15 @@ def test_timeout_clears_question_and_never_moves(setup_pick, monkeypatch):
     d._detect_thread.join(2)
     assert not calls and not d.plan and d.status()["question"] is None
     assert d.status()["phase"] == "clarify_timeout" and d.tick(st, {}) == {}
+    assert d.status()["detail"] == "I'll wait for you to ask again."
     assert not d.answer(st, q["id"], "left")[0]
+    answers = [e for e in st.events if e["type"] == "clarify_answer"]
+    assert len(answers) == 1
+    assert answers[0]["question_id"] == q["id"] and answers[0]["answer_ms"] >= 0
+    assert answers[0]["answer"] == answers[0]["status"] == answers[0]["reason"] == "timeout"
+    assert answers[0]["say"] == "I'll wait for you to ask again."
+    d.abort()
+    assert [e for e in st.events if e["type"] == "clarify_answer"] == answers
 
 
 def test_abort_wakes_worker_and_late_detection_cannot_publish(setup_pick):
@@ -138,6 +150,11 @@ def test_abort_wakes_worker_and_late_detection_cannot_publish(setup_pick):
     assert not d._detect_thread.is_alive() and not calls
     assert d.status()["question"] is None and d.tick(st, {}) is None
     assert not d.answer(st, q["id"], "left")[0]
+    d.abort()  # no duplicate cancellation or answered metric
+    answers = [e for e in st.events if e["type"] == "clarify_answer"]
+    assert len(answers) == 1
+    assert answers[0]["question_id"] == q["id"] and answers[0]["answer_ms"] >= 0
+    assert answers[0]["answer"] == "timeout" and answers[0]["status"] == answers[0]["reason"] == "cancelled"
 
 
 @pytest.mark.parametrize("value", [[], {"slot": 0}, {"slot": True}, {"slot": 1.5},
@@ -223,6 +240,7 @@ def minimal_station(tmp_path, driver, fake_st):
     st.auto_run = {"id": 1, "driver": "autopick", "args": {}, "t0": time.perf_counter()}
     st.root, st.runs = tmp_path / "fake", []
     st.killed, st.held_off = False, False
+    st.joints, st.gripper = dict(fake_st.joints), fake_st.gripper
     st.robot = SimpleNamespace(bus=SimpleNamespace(disable_torque=lambda: None))
     st.note, st.event = fake_st.note, fake_st.event
     st.status = lambda: {"state": st.state, "run": st._run_status()}
@@ -263,3 +281,113 @@ def test_station_lifecycle_clears_question(setup_pick, tmp_path, action):
     assert st.auto is None and d.status()["question"] is None and not calls
     assert "question" not in (st._run_status() or {})
     assert not st.control("clarify_answer", payload={"side": "left"})["ok"]
+    answers = [e for e in fake_st.events if e["type"] == "clarify_answer"]
+    assert len(answers) == 1 and answers[0]["status"] == "cancelled"
+
+
+def timed_out_station(setup_pick, monkeypatch, tmp_path):
+    monkeypatch.setattr(I, "CLARIFY_TIMEOUT_S", 0.05)
+    old, fake_st, calls = setup_pick()
+    wait_for(lambda: old.status()["question"])
+    question = old.status()["question"]
+    old._detect_thread.join(2)
+    assert old.status()["phase"] == "clarify_timeout"
+    return minimal_station(tmp_path, old, fake_st), old, question, calls, fake_st
+
+
+def test_timeout_requires_explicit_fresh_request_and_atomic_handoff(setup_pick, monkeypatch, tmp_path):
+    st, old, old_question, calls, fake_st = timed_out_station(setup_pick, monkeypatch, tmp_path)
+    obs = {f"{m}.pos": float(i) for i, m in enumerate([*AP.JOINTS, "gripper"])}
+    for _ in range(3):
+        assert st._auto_step(obs) == obs and st.auto is old and st.state == "running"
+    assert not calls and not st.runs  # timeout alone neither moves nor starts another request
+    monkeypatch.setattr(I, "CLARIFY_TIMEOUT_S", 15.0)
+
+    class Fresh(AP.AutoPick):
+        def __init__(self, args):
+            assert st.auto is old and not old._aborted
+            super().__init__(args, kin=object())
+
+        def start(self, station):
+            assert station.auto is old and station.state == "running"
+            assert old.tick(station, obs) == {}  # old hold survives until start returns successfully
+            super().start(station)
+
+        def _frame(self, station):
+            return np.zeros((480, 640, 3), np.uint8)
+
+        def _make_plan(self, station, xy):
+            calls.append(xy.tolist())
+            pose = {**station.joints, "gripper": station.gripper}
+            return [{"name": "raise", "from": pose, "to": pose, "dur": 1.0}]
+
+    monkeypatch.setattr(S, "load_driver", lambda name: Fresh)
+    srv = S.serve(st, 0, host="127.0.0.1")
+    try:
+        req = urllib.request.Request(f"http://127.0.0.1:{srv.server_port}/control", method="POST",
+                                     headers={"Content-Type": "application/json"},
+                                     data=json.dumps({"action": "run", "driver": "autopick", "args": {}}).encode())
+        assert json.load(urllib.request.urlopen(req))["ok"]
+        fresh = st.auto
+        assert fresh is not old and old._aborted and st.state == "running"
+        assert st.runs[-1]["then"] == "hold" and st.runs[-1]["result"] == "clarify_timeout"
+        assert not S.arm_ui.S.get("park_req") and not st.killed
+        wait_for(lambda: fresh.status()["question"])
+        new_question = fresh.status()["question"]
+        assert new_question["id"] != old_question["id"] and not calls
+        assert st._auto_step(obs) == obs
+        assert not st.control("clarify_answer", payload={"question_id": old_question["id"], "side": "left"})["ok"]
+        assert st.auto is fresh and fresh.status()["question"] and not calls
+        assert st.control("clarify_answer", payload={"question_id": new_question["id"], "side": "right"})["ok"]
+        fresh._detect_thread.join(2)
+        assert len(calls) == 1 and fresh.found["pixel"][0] == 450
+        answers = [e for e in fake_st.events if e["type"] == "clarify_answer"]
+        assert [e["status"] for e in answers] == ["timeout", "answered"]
+    finally:
+        st.auto.abort()
+        srv.shutdown()
+        srv.server_close()
+
+
+@pytest.mark.parametrize("bad_stage", ["constructor", "start"])
+def test_bad_explicit_retry_preserves_old_hold(setup_pick, monkeypatch, tmp_path, bad_stage):
+    st, old, question, calls, fake_st = timed_out_station(setup_pick, monkeypatch, tmp_path)
+    created = []
+
+    class Bad:
+        def __init__(self, args):
+            assert st.auto is old and st.state == "running"
+            if bad_stage == "constructor":
+                raise ValueError("bad new args")
+            self.aborted = False
+            created.append(self)
+
+        def start(self, station):
+            assert station.auto is old and not old._aborted
+            raise ValueError("bad new start")
+
+        def abort(self):
+            self.aborted = True
+
+    monkeypatch.setattr(S, "load_driver", lambda name: Bad)
+    assert not st.control("run", payload={"driver": "autopick", "args": {"bad": True}})["ok"]
+    assert st.auto is old and not old._aborted and st.state == "running" and not st.runs
+    assert all(d.aborted for d in created) and not calls
+    obs = {f"{m}.pos": 7.0 for m in [*AP.JOINTS, "gripper"]}
+    assert st._auto_step(obs) == obs and not S.arm_ui.S.get("park_req")
+    assert len([e for e in fake_st.events if e["type"] == "clarify_answer"]) == 1
+    old.abort()
+
+
+@pytest.mark.parametrize("phase", ["clarify", "clarify_failed", "raise"])
+def test_only_timed_out_driver_can_be_replaced(setup_pick, monkeypatch, tmp_path, phase):
+    old, fake_st, calls = setup_pick()
+    wait_for(lambda: old.status()["question"])
+    st = minimal_station(tmp_path, old, fake_st)
+    old._phase = phase
+    monkeypatch.setattr(S, "load_driver", lambda name: pytest.fail("attempted replacement before timeout"))
+    try:
+        assert not st.control("run", payload={"driver": "autopick"})["ok"]
+        assert st.auto is old and not calls
+    finally:
+        old.abort()

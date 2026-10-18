@@ -106,8 +106,9 @@ From the station, a driver can use `st.joints`, `st.gripper`, `st.temps()` (per 
 AutoPick keeps every reachable matching handle, instead of silently choosing the darkest one. A single
 candidate works as before. When two or more remain, it holds the observed joint positions (including the
 jaw; never follows the leader), asks **Which one?**, and shows **My left / My right** on the Run page.
+For two handles: "I see two scalpel handles: the left one or the right one?"
 With more than two, those mean the extreme left/right; **C** chooses the closest (or answer through the
-API). No grasp plan or motion starts until a valid choice. Leave the tray still while
+API), described as "the one closest to you". No grasp plan or motion starts until a valid choice. Leave the tray still while
 answering; candidates are from that detection frame, not live-tracked objects.
 
 **Orientation is surgeon-relative, not camera-relative.** The station assumes the surgeon stands opposite
@@ -138,12 +139,21 @@ a different slot. Bad selector syntax refuses the run before starting.
 
 `side: "closest"` is also accepted by that control. The existing localhost-only control restriction applies.
 Stale ids, duplicate answers, invalid sides and answers after **15 seconds** are refused. Timeout clears
-the question and keeps the run holding (`clarify_timeout`); press Stop/Home to end it deliberately. An
+the question, says "I'll wait for you to ask again.", and keeps the run holding (`clarify_timeout`).
+Run and its argument fields unlock for an **explicit fresh request**: the old driver keeps holding until
+the new driver has been constructed and started successfully, then its run ends with `then: "hold"` and
+the new driver takes over. Bad args or a failed start leave the old hold intact. There is no automatic
+retry, homing, motors-off or return to leader-following. Stop/Home still end the hold deliberately. An
 unresolvable selector similarly holds (`clarify_failed`). Stop, Home, KILL, reconnect, cool-down, bus error
 and exit abort the worker and clear the question immediately. KILL still cuts torque; a raised arm drops.
 
 Telemetry records `clarify` and `clarify_answer`, linked by `question_id`; the answer includes `answer_ms`,
-`side` and selected `slot`. A valid local detection makes **no network calls**, even with `detector: "gemini"`;
+`answer` and `status`. Actual choices have `status: "answered"`, `answer`/`side` left, right or closest,
+and selected `slot`. Timeout and pending-question abort also emit one `clarify_answer`, both with
+`answer: "timeout"`, elapsed `answer_ms`, and respectively `status`/`reason` `"timeout"` or `"cancelled"`;
+count only `status: "answered"`
+in answered-choice metrics. Repeated aborts, stale answers and replacing a timed-out hold do not create
+extra answers. A valid local detection makes **no network calls**, even with `detector: "gemini"`;
 that option enables cloud fallback only when local finds nothing. Gemini still requires two agreeing votes
 out of at most three detection votes per frame, now for each candidate; its existing model fallback,
 spend log/cap and Perceptron
