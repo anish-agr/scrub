@@ -66,6 +66,11 @@ Agents: the first unchecked box in your person's section is the next task. Tick 
 - [x] P4 demo mode and backup run
   - `http://localhost:8000/demo`: 1/2/3 load the trays, R resets and clears the count (`POST /reset {"clear_count": true}`), Space/Esc stop, 3:00 cue cards and a rehearsal log. Checked live on the fake arm. A plain `POST /reset` now keeps the count after a stop. The backup full run is recorded Sunday morning.
 - [ ] P2 backup slide deck
+  - Slide text final in `docs/SLIDES.md` (surgical first, bench second), diagram `docs/media/system.svg` / `.png`, judge Q&A `docs/QNA.md`, run order `docs/DEMO.md`. Left: a person builds the Google Slides deck and pastes the link.
+- [x] L2 robot sessions pre-opened per tray; Perceptron 401/409/503 spoken as `error` events with `code` (`controller.test_flows` 53/53)
+- [x] L3 judge mode: `POST /judge`, `--judge`, J on `/demo`; only handover, count, stop, got it. Voice refuses tray switches, clinic words and restocks in judge mode (`cd voice && npm test`)
+- [x] L6 `python -m arm.check_setup` and `python -m arm.record` (official recorder over `explore/arm_session.py`, or `--lerobot`; appends `docs/DATA-LOG.md`); `unittest arm.test_record` 23 tests
+- [x] L7/L10 `python -m controller.run_all` (start, `reset`, `backup`, `check`): sim backup run clean, full-stack check 18/18 on a fake stack (`controller.test_run_all` 27 tests)
 
 ## Brandon
 
