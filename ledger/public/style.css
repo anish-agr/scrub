@@ -148,6 +148,14 @@ th {
 .summary { font-size: 20px; line-height: 1.4; }
 .timeline li { border-bottom: 1px solid var(--line); padding-bottom: 6px; }
 
+.bars { display: flex; flex-direction: column; gap: 8px; margin-top: 12px; }
+.bar { display: grid; grid-template-columns: 64px minmax(0, 1fr) auto; gap: 8px; align-items: center; }
+.track { display: block; height: 14px; background: var(--paper); border-radius: 999px; overflow: hidden; }
+.fill { display: block; height: 100%; background: var(--green); }
+form#ask { display: flex; gap: 8px; margin-top: 12px; }
+form#ask input { flex: 1; min-width: 0; border: 1px solid var(--line); border-radius: 10px; padding: 10px 12px; font: inherit; }
+form#ask button { border: 0; border-radius: 10px; background: var(--ink); color: var(--paper); padding: 10px 14px; font: inherit; cursor: pointer; }
+
 .empty-note { color: var(--muted); margin: 10px 0 0; }
 .has-rows .empty-note { display: none; }
 main:not(.has-rows) .table-wrap { display: none; }

@@ -1,0 +1,28 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Scrub series</title>
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <header class="top">
+    <span class="mark">Scrub</span>
+    <nav>
+      <a href="/">Count</a>
+      <a href="memory.html">Memory</a>
+    </nav>
+  </header>
+  <p id="status" class="banner" hidden></p>
+  <main class="has-rows">
+    <section>
+      <p class="kicker">Handoffs over time</p>
+      <p id="source" class="note"></p>
+      <div id="bars" class="bars"></div>
+      <p id="empty" class="empty-note" hidden>No handoffs yet.</p>
+    </section>
+  </main>
+  <script src="series.js"></script>
+</body>
+</html>
