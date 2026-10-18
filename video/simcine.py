@@ -100,27 +100,35 @@ ITEM_GEOMS = {
                       + _cap((0.0012, 0.0, 0), (0.0006, 0.052, 0), 0.0022, "steel")),
 }
 
-HAND = ('<geom type="ellipsoid" size="0.034 0.04 0.011" material="glove" contype="0" conaffinity="0"/>'
-        + "".join(_cap((-0.03, y, 0.002), (-0.068 + abs(y) * 0.5, y * 1.15, 0.008), 0.0075, "glove")
-                  for y in (-0.024, -0.008, 0.008, 0.024))
-        + _cap((-0.004, 0.034, 0), (-0.03, 0.056, 0.008), 0.0085, "glove")
-        + _cap((0.032, 0, -0.004), (0.15, 0.0, -0.05), 0.017, "gown"))
+DECOR = {
+    "hemostat": None, "mayo_scissors": None,  # filled from ITEM_GEOMS below
+    "forceps": (_cap((-0.004, -0.05, 0), (-0.0008, 0.05, 0), 0.0014, "steel")
+                + _cap((0.004, -0.05, 0), (0.0008, 0.05, 0), 0.0014, "steel")
+                + _box((0, -0.05, 0), (0.0045, 0.003, 0.0014), "steel")),
+    "probe": _cap((0, -0.06, 0), (0, 0.06, 0), 0.0016, "steel") + _cap((0, 0.06, 0), (0.003, 0.068, 0), 0.0012, "steel"),
+    "needle_holder": (_ring(-0.008, -0.036, 0.006, 0.0013, "steel") + _ring(0.008, -0.036, 0.006, 0.0013, "steel")
+                      + _cap((-0.006, -0.03, 0), (-0.0015, 0.012, 0), 0.0018, "steel")
+                      + _cap((0.006, -0.03, 0), (0.0015, 0.012, 0), 0.0018, "steel")
+                      + _box((0, 0.013, 0), (0.0032, 0.003, 0.0018), "steel_dark")
+                      + _cap((0, 0.015, 0), (0, 0.032, 0), 0.0024, "steel_dark")),
+}
+DECOR["hemostat"], DECOR["mayo_scissors"] = ITEM_GEOMS["hemostat"], ITEM_GEOMS["mayo_scissors"]
+HAND = ""  # the handoff spot has no prop; the arm's motion shows it
 
 VISUAL = """<visual>
-  <headlight diffuse="0.12 0.12 0.12" ambient="0.16 0.16 0.17" specular="0.05 0.05 0.05"/>
+  <headlight diffuse="0.15 0.15 0.15" ambient="0.22 0.22 0.23" specular="0.05 0.05 0.05"/>
   <global offwidth="1920" offheight="1080" fovy="36"/>
   <quality shadowsize="8192" offsamples="8"/>
   <map znear="0.01" zfar="20" shadowclip="1.2"/>
 </visual>"""
 
 ASSETS = """<asset>
-  <texture name="cine_sky" type="skybox" builtin="gradient" rgb1="0.14 0.16 0.18" rgb2="0.02 0.02 0.03" width="512" height="512"/>
-  <texture name="cine_floor" type="2d" builtin="checker" rgb1="0.27 0.29 0.33" rgb2="0.25 0.27 0.31" width="512" height="512"/>
-  <material name="cine_floor_mat" texture="cine_floor" texrepeat="10 10" reflectance="0.12"/>
-  <material name="table_mat" rgba="0.80 0.66 0.48 1" specular="0.25" shininess="0.35" reflectance="0.03"/>
-  <material name="alum" rgba="0.78 0.79 0.81 1" specular="0.9" shininess="0.8" reflectance="0.18"/>
-  <material name="tape" rgba="0.10 0.36 0.85 1" specular="0.1" shininess="0.1"/>
-  <material name="paper" rgba="0.95 0.95 0.93 1" specular="0.05" shininess="0.05"/>
+  <texture name="cine_sky" type="skybox" builtin="gradient" rgb1="0.95 0.94 0.91" rgb2="0.86 0.84 0.80" width="512" height="512"/>
+  <material name="cine_floor_mat" rgba="0.87 0.85 0.81 1" specular="0" shininess="0"/>
+  <material name="table_mat" rgba="0.40 0.28 0.19 1" specular="0.2" shininess="0.3" reflectance="0.02"/>
+  <material name="alum" rgba="0.60 0.62 0.65 1" specular="0.9" shininess="0.8" reflectance="0.18"/>
+  <material name="tape" rgba="0.18 0.42 0.80 1" specular="0.1" shininess="0.1"/>
+  <material name="paper" rgba="0.98 0.98 0.97 1" specular="0.05" shininess="0.05"/>
   <material name="cam_black" rgba="0.08 0.08 0.09 1" specular="0.4" shininess="0.5"/>
   <material name="tray_mat" rgba="0.70 0.72 0.75 1" specular="0.9" shininess="0.85" reflectance="0.22"/>
   <material name="drape" rgba="0.22 0.42 0.64 1" specular="0.03" shininess="0.05"/>
@@ -131,7 +139,7 @@ ASSETS = """<asset>
   <material name="gown" rgba="0.30 0.47 0.52 1" specular="0.05"/>
 </asset>"""
 
-LIGHTS = """<light name="key" pos="0.75 -0.55 1.25" dir="-0.5 0.38 -1" castshadow="true" cutoff="50" exponent="6" diffuse="0.78 0.76 0.72" specular="0.35 0.35 0.35"/>
+LIGHTS = """<light name="key" pos="0.75 -0.55 1.25" dir="-0.5 0.38 -1" castshadow="true" cutoff="50" exponent="6" diffuse="0.55 0.55 0.54" specular="0.25 0.25 0.25"/>
     <light name="fill" pos="-0.45 0.65 1.0" dir="0.45 -0.55 -1" castshadow="false" diffuse="0.24 0.26 0.30" specular="0 0 0"/>
     <light name="top" pos="0.25 0 1.6" dir="0 0 -1" directional="true" castshadow="true" diffuse="0.32 0.32 0.32" specular="0.1 0.1 0.1"/>"""
 
@@ -155,16 +163,13 @@ def cinematic_xml():
         pan += g((cx, cy, 0.0018), (hx - 0.01, hy - 0.01, 0.0002), "tape")
         pan += g((cx, cy, 0.0021), (hx - 0.03, hy - 0.03, 0.0002), "paper")
         # instruments that sit on the real tray but aren't part of the demo (forceps, probe, a second clamp)
-        for x, y, r in ((0.33, -0.15, 0.1), (0.35, 0.05, -0.05), (0.16, 0.12, 0.05)):
-            pan += (f'<body pos="{x} {y} 0.004" euler="0 0 {r}">' + _cap((-0.0015, -0.055, 0), (0, 0.05, 0), 0.0013, "steel")
-                    + _cap((0.0015, -0.055, 0), (0, 0.05, 0), 0.0013, "steel") + "</body>")
-        # the overhead webcam on its clamp at the table corner
-        pan += (g((0.52, 0.34, 0.20), (0.012, 0.045, 0.014), "cam_black")
-                + _cap((0.53, 0.34, 0.0), (0.53, 0.34, 0.19), 0.005, "cam_black"))
+        for x, y, kind in ((0.31, -0.13, "hemostat"), (0.31, 0.0, "forceps"), (0.31, 0.13, "mayo_scissors"),
+                           (0.355, -0.13, "probe"), (0.355, 0.0, "needle_holder"), (0.355, 0.13, "forceps"),
+                           (0.185, -0.17, "probe"), (0.185, 0.17, "forceps")):
+            pan += f'<body pos="{x} {y} 0.004">' + DECOR[kind] + "</body>"
         src = src.replace(m.group(0), pan, 1)
-    src = re.sub(r'(<geom name="(return_spot|safe_spot)"[^>]*?size=")[^"]*"', r'\g<1>0.032 0.0004"', src)
-    src = re.sub(r'(<geom name="return_spot"[^>]*?)rgba="[^"]*"', r'\g<1>rgba="0.16 0.55 0.32 1"', src)  # green tape
-    src = re.sub(r'(<geom name="safe_spot"[^>]*?)rgba="[^"]*"', r'\g<1>rgba="0.82 0.14 0.11 1"', src)  # red tape: sharps
+    src = re.sub(r'(<geom name="return_spot"[^>]*?)rgba="[^"]*"', r'\g<1>rgba="0 0 0 0"', src)
+    src = re.sub(r'(<geom name="safe_spot"[^>]*?)rgba="[^"]*"', r'\g<1>rgba="0 0 0 0"', src)
     src = re.sub(r'(<geom name="(return_spot|safe_spot)"[^>]*?pos="[\d.-]+ [\d.-]+ )[\d.]+"', r'\g<1>0.0026"', src)
     src = re.sub(r'(<geom name="slot\d"[^>]*?)rgba="[^"]*"', r'\1rgba="0 0 0 0"', src)
     for item, geoms in ITEM_GEOMS.items():
@@ -187,9 +192,31 @@ def load_model():
     for i in range(model.nmat):  # the real arm is printed in white PLA with black servos
         r, g_, b, a = model.mat_rgba[i]
         if r > 0.9 and g_ > 0.7 and b < 0.3:
-            model.mat_rgba[i] = (0.93, 0.93, 0.91, 1.0)
+            model.mat_rgba[i] = (0.93, 0.92, 0.89, 1.0)
             model.mat_specular[i], model.mat_shininess[i] = 0.25, 0.3
+        elif r < 0.2 and g_ < 0.2 and b < 0.2:  # servos: warm ink, not pure black
+            model.mat_rgba[i] = (0.13, 0.13, 0.12, 1.0)
     return model
+
+
+def apply_pose(data, mocap_ids, pose_a, pose_b=None, u=0.0, holding=None):
+    """Set arm joints and every mocap body from recorded poses; items not in the gripper lie flat on the table."""
+    qa = np.array(pose_a["qpos"])
+    qb = np.array(pose_b["qpos"]) if pose_b else qa
+    data.qpos[:6] = (1 - u) * qa + u * qb
+    for name, pose in pose_a["mocap"].items():
+        mid = mocap_ids.get(name)
+        if mid is None:
+            continue
+        pb = (pose_b or pose_a)["mocap"].get(name, pose)
+        data.mocap_pos[mid] = (1 - u) * np.array(pose[:3]) + u * np.array(pb[:3])
+        w, x, y, z = pose[3:7]
+        if name.startswith("item_") and name != f"item_{holding}":
+            yaw = math.atan2(2 * (w * z + x * y), 1 - 2 * (y * y + z * z))
+            data.mocap_quat[mid] = [math.cos(yaw / 2), 0, 0, math.sin(yaw / 2)]
+            data.mocap_pos[mid][2] = min(data.mocap_pos[mid][2], 0.006) if data.mocap_pos[mid][2] > -0.5 else data.mocap_pos[mid][2]
+        else:
+            data.mocap_quat[mid] = pose[3:7]
 
 
 # ---- render ---------------------------------------------------------------------------------------
@@ -320,14 +347,7 @@ def render(inp, out, fps=30, width=1920, height=1080, max_s=None, cut_idle=True,
         a = frames[j]
         b = frames[min(j + 1, len(frames) - 1)]
         u = 0.0 if b["t"] == a["t"] else min(1.0, max(0.0, (t - a["t"]) / (b["t"] - a["t"])))
-        data.qpos[:6] = (1 - u) * np.array(a["qpos"]) + u * np.array(b["qpos"])
-        for name, pose in a["mocap"].items():
-            mid = mocap_ids.get(name)
-            if mid is None:
-                continue
-            pb = b["mocap"].get(name, pose)
-            data.mocap_pos[mid] = (1 - u) * np.array(pose[:3]) + u * np.array(pb[:3])
-            data.mocap_quat[mid] = pose[3:7]
+        apply_pose(data, mocap_ids, a, b, u, a["holding"])
         mujoco.mj_forward(model, data)
         tip = data.site_xpos[site].copy()
 
@@ -382,8 +402,11 @@ def still(out, az=150.0, el=-26.0, dist=0.8):
     print(out)
 
 
-def live(sim="http://localhost:8002", hz=30):
-    """A window you can orbit and zoom (left drag, right drag, scroll) that mirrors the running sim live."""
+def live(sim="http://localhost:8002", hz=60):
+    """A window you can orbit and zoom (left drag, right drag, scroll) that mirrors the running sim live.
+    Poses are polled on a thread and the view eases toward the latest one, so motion stays smooth."""
+    import threading
+
     import httpx
     import mujoco
     import mujoco.viewer
@@ -391,23 +414,33 @@ def live(sim="http://localhost:8002", hz=30):
     model = load_model()
     data = mujoco.MjData(model)
     mocap_ids = {model.body(i).name: model.body_mocapid[i] for i in range(model.nbody) if model.body_mocapid[i] >= 0}
-    with mujoco.viewer.launch_passive(model, data) as v, httpx.Client(timeout=1.0) as c:
-        v.cam.lookat[:], v.cam.distance, v.cam.azimuth, v.cam.elevation = [0.22, 0.0, 0.06], 0.95, 60, -28
+    latest, stop = {}, threading.Event()
+
+    def poll():
+        with httpx.Client(timeout=1.0) as c:
+            while not stop.is_set():
+                try:
+                    latest["p"] = c.get(f"{sim}/pose").json()
+                except Exception:
+                    time.sleep(0.5)
+
+    threading.Thread(target=poll, daemon=True).start()
+    shown = None
+    with mujoco.viewer.launch_passive(model, data, show_left_ui=False, show_right_ui=False) as v:
+        v.cam.lookat[:], v.cam.distance, v.cam.azimuth, v.cam.elevation = [0.24, 0.0, 0.08], 0.9, 60, -30
         while v.is_running():
             t = time.time()
-            try:
-                p = c.get(f"{sim}/pose").json()
-                data.qpos[:6] = p["qpos"]
-                for name, pose in p["mocap"].items():
-                    if name in mocap_ids:
-                        data.mocap_pos[mocap_ids[name]] = pose[:3]
-                        data.mocap_quat[mocap_ids[name]] = pose[3:7]
-                mujoco.mj_forward(model, data)
-            except Exception:
-                pass  # sim not up yet: keep the window open
+            p = latest.get("p")
+            if p:
+                if shown is None:
+                    shown = np.array(p["qpos"])
+                shown += 0.25 * (np.array(p["qpos"]) - shown)
+                with v.lock():
+                    apply_pose(data, mocap_ids, dict(p, qpos=list(shown)), holding=p.get("holding"))
+                    mujoco.mj_forward(model, data)
             v.sync()
             time.sleep(max(0.0, 1.0 / hz - (time.time() - t)))
-
+    stop.set()
 
 def main():
     p = argparse.ArgumentParser(description=__doc__.split("\n\n")[0])
