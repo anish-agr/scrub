@@ -10,9 +10,10 @@ import http from "node:http";
 import type { AddressInfo } from "node:net";
 import { WebSocketServer } from "ws";
 import { callerFrom, heardFrom } from "../src/chat.js";
-import { localParse } from "../src/parse.js";
-import { caseFacts, clock, endCase, newCase, recordEvent, setCaller, templateSummary } from "../src/summary.js";
+import { isStop, isTrayCheck, localParse } from "../src/parse.js";
+import { caseFacts, clock, endCase, newCase, recordEvent, setCaller, templateSummary, textCaller } from "../src/summary.js";
 import type { Setting } from "../src/settings.js";
+import { CANT_CHECK, textTrayCheck, trayReadyText, voiceTrayCheck } from "../src/tray.js";
 import { HELP, countReply, handleText, localText, logRestock, runTexts, type InMessage, type InSpace, type Restock } from "../src/texts.js";
 
 const bench: Setting = { id: "bench", label: "Robotics bench", items: [
@@ -138,6 +139,32 @@ newCase();
 ev("released", { command_id: "x", item: "hemostat" });
 assert.equal(caseFacts().case_id, `surgical-${start}`);  // still the controller's last case
 assert.deepEqual(caseFacts().passed, { hemostat: 1 });
+// Tray check (X3): local phrase match, fake controller replies, fake sender (never Photon).
+for (const s of ["check the tray", "Can you check the tray?", "is the tray ready", "Tray check", "tray ready?", "is my tray set up"])
+  assert.ok(isTrayCheck(s) && !isStop(s), s);
+for (const s of ["grab me the kelly", "what's out", "Tray ready: Operating room, all 3 instruments in place.", "end of case"])
+  assert.ok(!isTrayCheck(s), s);
+const READY = { ok: true, say: "Tray's ready: scalpel, hemostat, mayo scissors.", setting: "surgical", label: "Operating room",
+  items: ["scalpel", "hemostat", "mayo scissors"], missing: [], wrong_slot: [], extra: [], stale: false };
+const MISSING = { ...READY, ok: false, say: "Missing the scalpel.", missing: ["scalpel"] };
+assert.equal(trayReadyText(READY), "Tray ready: Operating room, all 3 instruments in place.");
+const notes: string[] = [];
+const notify = async (t: string) => { notes.push(t); };
+assert.equal(await voiceTrayCheck(async () => READY, notify), READY.say);
+await new Promise((r) => setTimeout(r, 0));
+assert.deepEqual(notes, ["Tray ready: Operating room, all 3 instruments in place."]);  // passing by voice: also a text
+assert.equal(await voiceTrayCheck(async () => MISSING, notify), "Missing the scalpel.");
+assert.equal(await voiceTrayCheck(async () => { throw new Error("GET /tray_check -> 404"); }, notify), CANT_CHECK);
+assert.equal(notes.length, 1);  // no text unless it passed
+assert.equal(await textTrayCheck(async () => READY), "Tray ready: Operating room, all 3 instruments in place.");
+assert.equal(await textTrayCheck(async () => MISSING), "Missing the scalpel.");
+assert.equal(await textTrayCheck(async () => { throw new Error("down"); }), CANT_CHECK);
+assert.equal(await handleText("is the tray ready?", null, { ...deps, parse: async () => { throw new Error("no parse for tray checks"); },
+  trayCheck: async () => "Tray ready: Operating room, all 3 instruments in place." }), "Tray ready: Operating room, all 3 instruments in place.");
+const trayTexts: [string, string][] = [];
+assert.equal(await textCaller("Tray ready: x", async (to, t) => { trayTexts.push([to, t]); return true; }), true);
+assert.deepEqual(trayTexts, [["+15555550123", "Tray ready: x"]]);  // the caller's thread, same sender as the summary
+
 // What ElevenLabs sends: caller id from the system prompt, act only on a trailing user message.
 const sys = (c: string) => ({ role: "system", content: c });
 assert.equal(callerFrom([sys("You are Scrub.\nCaller: +1 (555) 555-0123")]), "+15555550123");
@@ -156,6 +183,7 @@ const ctl = http.createServer((req, res) => {
     res.setHeader("content-type", "application/json");
     if (req.url === "/setting") return res.end(JSON.stringify({ id: "surgical", label: "Operating room",
       items: [{ id: "hemostat", name: "hemostat", aliases: ["kelly"] }, { id: "scalpel", name: "scalpel", aliases: ["knife"], sharp: true }] }));
+    if (req.url === "/tray_check") return res.end(JSON.stringify(trayAnswer));
     if (req.url === "/stop") { emit({ type: "stopped", say: "Stopped." }); return res.end('{"accepted":true}'); }
     if (req.url === "/command") {
       const c = JSON.parse(raw);
@@ -168,6 +196,7 @@ const ctl = http.createServer((req, res) => {
     res.end("{}");
   });
 });
+let trayAnswer: object = READY;
 const wss = new WebSocketServer({ server: ctl });
 const emit = (e: object) => wss.clients.forEach((c) => c.send(JSON.stringify({ t: Date.now() / 1000, ...e })));
 await new Promise<void>((r) => ctl.listen(0, r));
@@ -208,6 +237,14 @@ try {
   assert.equal(await turn("stop"), "Stopped.");
   assert.deepEqual(hits, ["POST /stop"]);  // no GET /setting, no Gemini, no /command
   assert.ok(!out.join("").includes("[gemini]"));
+
+  hits.length = 0;
+  assert.equal(await turn("check the tray"), READY.say);
+  assert.deepEqual(hits, ["GET /tray_check"]);  // no /setting, no Gemini, no /command
+  for (let i = 0; i < 20 && !out.join("").includes("[photon] not sent"); i++) await new Promise((r) => setTimeout(r, 50));
+  assert.ok(out.join("").includes("[photon] not sent"), out.join(""));  // the "tray ready" text was tried (no keys: not sent)
+  trayAnswer = MISSING;
+  assert.equal(await turn("is the tray ready"), "Missing the scalpel.");
 
   const health = await (await fetch(`${base}/health`)).json();
   assert.deepEqual(health, { ok: true, keys: { gemini: false, photon: false, llm_secret: false }, controller: true });

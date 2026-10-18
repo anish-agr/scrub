@@ -32,6 +32,7 @@ websocat ws://localhost:8000/events      # or open http://localhost:8000/
 | `core.py` | state, events, the step machine (one worker thread runs arm calls; `stop` never waits on it) |
 | `lines.py` | every line Scrub says (`say`). Change wording here only |
 | `fake_arm.py` | the arm interface with sleeps, plus forced failures |
+| `traycheck.py` | `GET /tray_check`: asks vision's `/tray_check`, words the answer with `lines.py` |
 | `settings.py` | loads `settings/<id>.json`, built-in defaults until those files exist |
 
 ## Behaviour other parts should know
@@ -65,11 +66,14 @@ websocat ws://localhost:8000/events      # or open http://localhost:8000/
 - `GET /nurse`: the nurse console, a live port of `explore/prototypes/24-scrub-nurse.html`. Tray slots (on tray, out, held, plus the camera's view from TrayState), item chips and typed or browser-mic requests matched against the setting's aliases, the step track for the running request, request-to-hand time per request (`?target=10` sets the line), the queue, hand lamps (seen, open, path), stop that turns into reset, got it, count, return per item, fake-arm pull and forced failures, and the event log. Space or Esc stops (Esc also from the text box), G is got it, / types.
 - `controller/armview.py` (read-only, nothing moves): `GET /arm/pose` gives `joints_deg`, `gripper` (0 open, 1 closed), `tip_m` from `arm/rig.json` forward kinematics and `tip_px`, the tip projected into the overhead image with `vision/calibration.json` (table-plane homography, so approximate above the table). `available: false` with a `reason` on the fake arm. `GET /arm/camera/side|wrist` (one JPEG) and `GET /arm/stream/side|wrist` (MJPEG, about 10 fps) need `Arm.camera_jpeg(name)` in `arm/real_arm.py` (Anish), else 404 with the reason. `GET /camera/overhead` proxies vision's `/snapshot` (`VISION_URL`, default `http://localhost:8001`) so pages on :8000 get it same-origin. `GET /calibration` returns `vision/calibration.json` or 404.
 - `GET /vision`: the last TrayState and Hand as posted, with `tray_age_s` and `hand_age_s` (for the nurse console).
+- `GET /tray_check` (X3): "check the tray". Calls vision's `GET {VISION_URL}/tray_check` (default `http://localhost:8001`, 3 s timeout, in a thread so `stop` never waits) and returns vision's fields plus `say`, `available`, `label` (the setting's label) and `items` (its item names). Always 200. Vision must answer, for the controller's current setting (item ids from `settings/<id>.json`):
+  `{"ok": bool, "setting": "surgical", "missing": ["scalpel"], "wrong_slot": [{"item": "hemostat", "in_slot_of": "mayo_scissors"}], "extra": [], "stale": false, "t": 1760731200.1}`.
+  Missing fields are fine (`ok` defaults to "nothing missing or in the wrong slot"; a non-empty `missing` or `wrong_slot` always means not ok), extra fields are passed through. `say` is "Tray's ready: scalpel, hemostat, Mayo scissors." / "Missing the scalpel." / "The hemostat is in the Mayo scissors' slot." (plus "Extra on the tray: ..." when `extra` is set). Vision down, 404, timeout, not JSON or `stale: true`: `ok` false, "I can't check the tray right now." (`available` false unless it was just stale). A different `setting` from vision: `ok` false, "The camera is checking the dental tray, not the surgical tray."
 - `POST /fake/force` with `{"miss_grasp": 1, "out_of_region": 1, "skill_fail": 1, "no_pull": 1, "no_load": 1}`: the next fake-arm calls fail that way (testing C6).
 
 ## Tests
 
-`.venv/bin/python -m controller.test_flows` forces every failure case on the fake arm (grasp miss and retry, tray grasp check, stale tray, empty slot, no pull, no load reading, load drop, `got_it`, no hand, hand lost and path blocked holding until reset, failed set-down, arm exception, out of region, stop mid-pick, mid-move and while holding out, sharp set-down, return checked against the tray, count, auto return, count against the camera, case_id, rejects). About 50 s, prints `37/37 passed`.
+`.venv/bin/python -m controller.test_flows` forces every failure case on the fake arm (grasp miss and retry, tray grasp check, stale tray, empty slot, no pull, no load reading, load drop, `got_it`, no hand, hand lost and path blocked holding until reset, failed set-down, arm exception, out of region, stop mid-pick, mid-move and while holding out, sharp set-down, return checked against the tray, count, auto return, count against the camera, case_id, rejects). Also the tray check against a fake vision (ready, missing, wrong slot, 404, timeout, vision down). About 50 s, prints `40/40 passed`.
 
 ## Full runs (Checkpoint 1, C8)
 

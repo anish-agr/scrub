@@ -20,7 +20,7 @@ caller -> Photon number -> Photon Voice profile (SIP, TLS) -> ElevenLabs agent (
 - `npm run dev` (port 3000). `CONTROLLER_URL` and `VOICE_PORT` from the shell override `.env`, so a test copy can run beside the real one: `CONTROLLER_URL=http://localhost:8071 VOICE_PORT=3071 npm run dev`.
 - `curl localhost:3000/health`: `{"ok":true,"keys":{"gemini":..,"photon":..,"llm_secret":..},"controller":true}`. Booleans only, never key values.
 - No call needed: `npm run say -- "grab me the kelly"` sends what ElevenLabs sends and prints the streamed reply with timings. `VOICE_URL=https://<tunnel> npm run say -- "stop"` does it through the tunnel. `curl -XPOST localhost:3000/heard -d '{"text":"grab me the kelly"}'` returns the lines as JSON.
-- `npm test`: offline. Alias match, case summary counts, caller id and last-message rules, and the real server against a fake controller: SSE chunk shape, `[DONE]`, "stop" hits only `POST /stop` (no `/setting`, no Gemini, no `/command`), `/health`. `VOICE_NO_KEYS=1` (set by `npm test`) ignores `.env`, so it never calls Gemini or Photon.
+- `npm test`: offline. Alias match, case summary counts, caller id and last-message rules, and the real server against a fake controller: SSE chunk shape, `[DONE]`, "stop" hits only `POST /stop` (no `/setting`, no Gemini, no `/command`), "check the tray" hits only `GET /tray_check`, `/health`. `VOICE_NO_KEYS=1` (set by `npm test`) ignores `.env`, so it never calls Gemini or Photon.
 - Gemini: checked Oct 17 live, kelly, mayo, "knife please", "what's out" and "stop" all map right. The first Gemini call after start can pass the 1.5 s timeout and fall back to the alias match.
 - The setting is cached for 30 s and dropped when an event shows a different setting, so a turn doesn't wait on `GET /setting` before Gemini.
 - End-of-case summary: the count comes first, from the controller's own `out` list. A no-pull or no-hand set-down is listed as "set at the safe spot", not as a pass; a pick that worked on the retry is not a failed request.
@@ -33,6 +33,7 @@ Text the Photon number (same iMessage thread as the end-of-case summary). The li
 | --- | --- |
 | "add a second hemostat to the surgical tray", "added 2 kellys" | `Logged: +1 hemostat on the surgical tray.` Logged to the ledger through the controller's `POST /restock`; if that fails or the ledger isn't loaded, appended to `voice/restocks.jsonl` (git-ignored) |
 | "what's out?", "count" | `Out (2): hemostat, scalpel.` from `GET /state` `out`, plus what the camera says (`out_camera`) when the controller has it |
+| "check the tray", "is the tray ready?", "tray check" | `Tray ready: Operating room, all 3 instruments in place.` when it passes, else the controller's line ("Missing the scalpel.", "I can't check the tray right now."). From `GET /tray_check`, matched before Gemini |
 | "summary", "end of case" | the end-of-case summary, and a new case starts |
 | anything else | one help line |
 
@@ -80,5 +81,6 @@ Only a human can do these. Order: Photon, ElevenLabs agent, import the number, t
 | "knife please" | `[command] handover scalpel` | "Scalpel to the safe spot." then "Scalpel down." (sharps never go hand to hand) |
 | "what's out" | `[command] count` | "Out: hemostat, scalpel." |
 | "stop" | `[command] stop (POST /stop)` | "Stopped." |
+| "check the tray", "is the tray ready", "tray check" | `[tray] ready` (or `not ready`, `can't check`) | the controller's `GET /tray_check` `say`: "Tray's ready: scalpel, hemostat, Mayo scissors." / "Missing the scalpel." / "I can't check the tray right now." A pass also texts `Tray ready: Operating room, all 3 instruments in place.` to the caller's thread |
 
 `(local)` or `(gemini)` after each command says which parser ran. After "stop", reset the controller (`curl -XPOST localhost:8000/reset`) before the next request. If the call connects but Scrub is silent, check terminal 2: no `[heard]` means the Custom LLM URL is stale (new tunnel URL) or wrong (`[server] 404`); a phone that doesn't ring means Photon inbound or the agent assignment (Photon's troubleshooting table in the cookbook, and **SIP Messages** on the ElevenLabs number page).

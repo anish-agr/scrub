@@ -8,6 +8,8 @@ import { getState, postRestock, type State } from "./controller.js";
 import { isEndCase } from "./parse.js";
 import { currentSetting, type Setting } from "./settings.js";
 import { closeCase, getPhoton, photonConfigured } from "./summary.js";
+import { isTrayCheck } from "./parse.js";
+import { textTrayCheck } from "./tray.js";
 
 const ai = GEMINI_API_KEY ? new GoogleGenAI({ apiKey: GEMINI_API_KEY }) : null;
 
@@ -118,12 +120,15 @@ export interface TextDeps {
   parse: (text: string, setting: Setting) => Promise<TextIntent>;
   log: (r: Restock) => void | Promise<void>;
   summary: () => Promise<string>;
+  trayCheck: () => Promise<string>;
 }
-const DEFAULTS: TextDeps = { state: getState, setting: currentSetting, parse: parseText, log: logRestock, summary: () => closeCase() };
+const DEFAULTS: TextDeps = { state: getState, setting: currentSetting, parse: parseText, log: logRestock, summary: () => closeCase(),
+  trayCheck: () => textTrayCheck() };
 
 // One text in -> the reply text.
 export async function handleText(text: string, from: string | null, deps: Partial<TextDeps> = {}): Promise<string> {
   const d = { ...DEFAULTS, ...deps };
+  if (isTrayCheck(text)) { console.log(`[text] ${from ?? "?"}: ${text} -> tray check`); return d.trayCheck(); }
   const st = await d.state().catch(() => null);
   const setting = await d.setting(st?.setting || "surgical");
   const p = await d.parse(text, setting);
