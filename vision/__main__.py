@@ -14,6 +14,7 @@ from vision.camera import FakeCapture, lock_controls, open_capture
 from vision.hand import synthetic_landmarks
 from vision.calibrate import fake_calibration
 from vision.service import ROOT, build_runtime, start_loops
+from vision.tray import FakeDetector
 
 logger = logging.getLogger("vision")
 
@@ -83,16 +84,18 @@ def main(argv: list[str] | None = None) -> None:
     if fake:
         capture = FakeCapture()
         controls = lock_controls(capture, exposure=-6, white_balance=4500)
-        detector = _ScriptedDetector()
+        detector = FakeDetector(repo=ROOT)
         runtime = build_runtime(
             capture,
             controls=controls,
             fake_hands=lambda _frame: [synthetic_landmarks(True)],
             detector=detector,
+            fake_calibration=True,
         )
         detector.runtime = runtime
         if runtime.calibration is None:
             runtime.calibration = fake_calibration()
+            logger.info("no calibration.json; using a fake handoff target")
             logger.info("no calibration.json; using a fake handoff target")
         logger.info("fake camera, exposure locked=%s", controls)
     else:

@@ -57,6 +57,33 @@ def reprojection_error_m(homography, image_points, arm_points) -> float:
     return max(errors) if errors else 0.0
 
 
+def rms_error_m(homography, image_points, arm_points) -> float:
+    errors = []
+    for pixel, arm in zip(image_points, arm_points):
+        x, y = pixel_to_arm(homography, pixel[0], pixel[1])
+        errors.append((x - arm[0]) ** 2 + (y - arm[1]) ** 2)
+    return math.sqrt(sum(errors) / len(errors)) if errors else 0.0
+
+
+def synthetic_calibration(hand_height_m: float = 0.18) -> dict:
+    """Synthetic calibration mapping the synthetic hand palm [335, 353] to [0.22, -0.10, hand_height_m]."""
+    cx, cy = 335.0, 353.0
+    ax, ay = 0.25641, -0.11655
+    image_points = [
+        [cx - 100.0, cy - 100.0],
+        [cx + 100.0, cy - 100.0],
+        [cx + 100.0, cy + 100.0],
+        [cx - 100.0, cy + 100.0],
+    ]
+    arm_points = [
+        [ax + 100.0 * 0.0005, ay - 100.0 * 0.0005, hand_height_m],
+        [ax + 100.0 * 0.0005, ay + 100.0 * 0.0005, hand_height_m],
+        [ax - 100.0 * 0.0005, ay + 100.0 * 0.0005, hand_height_m],
+        [ax - 100.0 * 0.0005, ay - 100.0 * 0.0005, hand_height_m],
+    ]
+    return calibration_from_points(image_points, arm_points, hand_height_m=hand_height_m)
+
+
 def palm_target(calibration: dict | None, palm_px, height_m: float):
     if not calibration or not palm_px or not calibration.get("homography"):
         return None
@@ -78,13 +105,15 @@ def target_pixel(calibration: dict | None, palm_px, height_m: float):
 
 def calibration_from_points(image_points, arm_points, hand_height_m: float = 0.18) -> dict:
     homography = fit_homography(image_points, arm_points)
-    error = reprojection_error_m(homography, image_points, arm_points)
+    max_err = reprojection_error_m(homography, image_points, arm_points)
+    rms_err = rms_error_m(homography, image_points, arm_points)
     return {
         "image_points": [[float(p[0]), float(p[1])] for p in image_points],
         "arm_points": [[float(p[0]), float(p[1]), float(p[2]) if len(p) > 2 else 0.0] for p in arm_points],
         "hand_height_m": hand_height_m,
         "standoff_m": STANDOFF_M,
-        "max_error_m": error,
+        "max_error_m": max_err,
+        "rms_error_m": rms_err,
         "homography": homography.tolist(),
     }
 
@@ -185,6 +214,8 @@ def main(argv: list[str] | None = None) -> None:
 
     if args.pairs:
         image_points, arm_points, height = load_pairs(Path(args.pairs))
+        if any(abs(float(p[0])) > 20.0 or abs(float(p[1])) > 20.0 for p in arm_points):
+            arm_points = [[p[0] / 1000.0, p[1] / 1000.0, (p[2] / 1000.0 if len(p) > 2 else 0.0)] for p in arm_points]
     elif args.points:
         image_points, arm_points = parse_guided_lines(Path(args.points).read_text(encoding="utf-8").splitlines())
         height = args.hand_height
