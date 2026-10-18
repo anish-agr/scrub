@@ -37,6 +37,8 @@ Every part codes against these. Build against fake inputs that match them, and t
 | `GET /setting` | | the current setting file (optional, added Sat 2 PM) |
 | `POST /reset` | nothing, or `{"clear_count": true}` | `{"ok": true}`: clears a stop or error and rearms the arm (`resume()`). Homes; if it still holds an item it sets it at the safe spot, else opens the gripper. Keeps `out`, so a stop mid-case never makes the count say everything is back; `{"clear_count": true}` empties it (demo reset between runs). An item the arm held when it stopped counts as out. 409 if busy. After `stop` or `error`, `handover` and `return` are refused (`reason` "stopped: reset first") until a reset |
 | `GET /events/recent?n=50` | | the last n Events, oldest first (optional) |
+| `GET /vision` | | `{"tray": TrayState or null, "tray_age_s": number or null, "hand": Hand or null, "hand_age_s": number or null}`: the last posts as received (optional) |
+| `GET /nurse` | | the nurse console page (optional) |
 
 ## Command (voice, keyboard or dashboard to the controller)
 

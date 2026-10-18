@@ -1,0 +1,465 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Scrub Nurse Console</title>
+<meta name="description" content="Live nurse console on the controller: tray, requests, the step track, request-to-hand time per request, what's out, and the event log.">
+<!-- Live port of explore/prototypes/24-scrub-nurse.html. Reads GET /setting, /state, /vision, /events/recent and WS /events;
+     sends POST /command, /stop, /reset, /fake/pull, /fake/force. No mock mode: if the controller is down it says so. -->
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;600&family=IBM+Plex+Sans:wght@400;500;600;700&display=swap" rel="stylesheet">
+<style>
+:root{
+  --bg:#1c1f22; --panel:#25292c; --panel2:#2d3236; --line:#474d52; --teal:#4fd0e8; --teal2:#2f8da0;
+  --text:#e6e8ea; --mute:#9aa1a7; --warn:#ffd21f; --bad:#ff3b30; --ok:#3fdc7a;
+  --mono:'IBM Plex Mono',ui-monospace,Menlo,monospace; --head:'IBM Plex Sans',system-ui,sans-serif;
+}
+*{box-sizing:border-box}
+html,body{margin:0;background:var(--bg);color:var(--text);font-family:var(--head);font-size:16px;font-variant-numeric:tabular-nums}
+button,input{font-family:inherit;color:inherit}
+button{cursor:pointer;min-height:44px}
+button:disabled{opacity:.4;cursor:default}
+header{display:flex;flex-wrap:wrap;gap:10px 16px;align-items:center;padding:8px 16px;border-bottom:2px solid var(--line);background:#15181a;position:sticky;top:0;z-index:20}
+.logo{display:flex;align-items:center;gap:10px;font-weight:600;letter-spacing:.1em;font-size:20px;font-family:var(--mono)}
+.logo i{width:12px;height:12px;background:var(--mute);display:inline-block}
+.logo i.on{background:var(--ok)}
+.meta{flex:1;min-width:200px;font-family:var(--mono);font-size:12px;color:var(--mute);line-height:1.4}
+.meta b{color:var(--text);font-weight:600}
+.pill{font-family:var(--mono);font-size:13px;font-weight:600;padding:8px 12px;border:1px solid var(--teal);color:var(--teal);background:#15181a;white-space:nowrap;min-width:190px;text-align:center}
+.pill.stop{border-color:var(--bad);color:#fff;background:var(--bad)}
+.pill.wait{border-color:var(--warn);color:#15181a;background:var(--warn)}
+.stopbtn{min-width:120px;min-height:52px;border:2px solid #ffb3ad;background:var(--bad);color:#fff;font-weight:700;font-size:24px;letter-spacing:.14em}
+.stopbtn.latched{background:#5a1511;border-color:var(--bad);font-size:20px}
+.offline{display:none;background:#5a1511;color:#fff;font-family:var(--mono);font-size:13px;padding:8px 16px;border-bottom:1px solid var(--bad)}
+.offline.on{display:block}
+main{display:grid;grid-template-columns:minmax(0,1.45fr) minmax(0,1fr);gap:12px;padding:12px 16px;max-width:1500px;margin:auto}
+.card{background:var(--panel);border:1px solid var(--line);padding:10px;position:relative}
+.card h2{margin:-10px -10px 10px;padding:6px 10px;background:var(--panel2);border-bottom:1px solid var(--line);font-size:13px;font-weight:600;letter-spacing:.14em;text-transform:uppercase;display:flex;justify-content:space-between;align-items:center;gap:8px}
+.card h2 small{font-family:var(--mono);font-size:10px;color:var(--mute);letter-spacing:0;text-transform:none;text-align:right;font-weight:400}
+.col{display:flex;flex-direction:column;gap:12px;min-width:0}
+.wide{grid-column:1/-1}
+.sub{font-family:var(--mono);font-size:11.5px;color:var(--mute)}
+.cam{position:relative;background:#000;border:1px solid var(--line);aspect-ratio:16/9;display:none}
+.cam.on{display:block}
+.cam img{width:100%;height:100%;object-fit:contain;display:block}
+.slots{display:grid;grid-template-columns:repeat(auto-fill,minmax(150px,1fr));gap:8px;margin-top:10px}
+.slot{border:1px solid var(--line);background:#15181a;padding:8px;display:flex;flex-direction:column;gap:4px;min-height:96px}
+.slot b{font-size:16px;font-weight:600}
+.slot .st{font-family:var(--mono);font-size:11px;color:var(--mute)}
+.slot.tray{border-color:var(--teal2)}
+.slot.tray .st{color:var(--teal)}
+.slot.out{border-color:var(--warn);border-style:dashed}
+.slot.out .st{color:var(--warn)}
+.slot.held{border-color:var(--ok);background:#14281c}
+.slot.held .st{color:var(--ok)}
+.slot.gone .st{color:var(--bad)}
+.slot button{margin-top:auto}
+.tag{font-family:var(--mono);font-size:10px;padding:2px 6px;background:var(--warn);color:#101214;font-weight:600;margin-left:6px;vertical-align:middle}
+.cmd{display:flex;gap:8px;flex-wrap:wrap;align-items:center}
+.mic{width:56px;height:56px;border:1px solid var(--teal);background:#15181a;color:var(--teal);display:grid;place-items:center;flex:none}
+.mic.on{background:var(--teal);color:#101214;animation:pulse 1s infinite}
+@keyframes pulse{50%{opacity:.45}}
+.mic svg{width:26px;height:26px;fill:currentColor}
+.cmd input{flex:1;min-width:160px;min-height:44px;background:#15181a;border:1px solid var(--line);padding:0 12px;font-size:17px;font-family:var(--mono)}
+.btn{border:1px solid var(--teal2);background:#1d3238;padding:0 14px;font-weight:600;font-size:15px;min-height:44px}
+.btn:hover:not(:disabled){background:#27454d}
+.btn.sm{font-size:13px;padding:0 10px}
+.btn.alt{border-color:var(--line);background:#2a2e32}
+.btn.warn{border-color:var(--warn);color:var(--warn);background:#2a2610}
+.row{display:flex;flex-wrap:wrap;gap:6px;margin-top:10px}
+.heard{font-family:var(--mono);font-size:12px;color:var(--mute);margin-top:8px;min-height:18px}
+.heard b{color:var(--teal)}
+.heard .no{color:var(--warn)}
+.status{font-size:24px;font-weight:600;margin:2px 0 4px;font-family:var(--mono)}
+.say{font-family:var(--mono);font-size:14px;color:var(--teal);min-height:20px}
+.steps{display:flex;flex-wrap:wrap;gap:4px;margin-top:8px}
+.step{font-family:var(--mono);font-size:10.5px;padding:4px 8px;border:1px solid var(--line);color:var(--mute)}
+.step.done{border-color:var(--ok);color:var(--ok)}
+.step.cur{border-color:var(--warn);color:#15181a;background:var(--warn)}
+.step.bad{border-color:var(--bad);color:#fff;background:var(--bad)}
+.q{display:flex;flex-direction:column;gap:6px;margin-top:10px}
+.qi{display:flex;align-items:center;gap:8px;border:1px solid var(--line);padding:6px 8px;font-size:15px;font-weight:600;background:#2a2e32}
+.qi.active{border-color:var(--teal);background:#1d3238}
+.qi small{font-family:var(--mono);font-size:10.5px;color:var(--mute);font-weight:400;margin-left:auto}
+.interlock{display:flex;gap:8px;align-items:center;margin-top:6px;font-family:var(--mono);font-size:12px}
+.lamp{width:14px;height:14px;background:#3a4044;border:1px solid #5a6166;flex:none}
+.lamp.on{background:var(--ok);border-color:var(--ok)}
+.lamp.warn{background:var(--warn);border-color:var(--warn)}
+.lamp.bad{background:var(--bad);border-color:var(--bad)}
+.statrow{display:flex;gap:8px;margin-bottom:10px}
+.stat{flex:1;background:#15181a;border:1px solid var(--line);padding:6px 8px;min-width:0}
+.stat b{display:block;font-family:var(--mono);font-size:28px;font-weight:600;line-height:1.05}
+.stat span{font-family:var(--mono);font-size:10px;color:var(--mute)}
+.lat{display:flex;flex-direction:column;gap:5px;max-height:260px;overflow:auto}
+.latrow{display:grid;grid-template-columns:minmax(90px,140px) 1fr 64px;gap:8px;align-items:center;font-family:var(--mono);font-size:11.5px}
+.latrow small{display:block;color:var(--mute);font-size:10px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.bar{height:14px;background:#15181a;border:1px solid var(--line);position:relative}
+.bar i{display:block;height:100%;background:var(--ok)}
+.bar i.over{background:var(--warn)}
+.bar i.fail{background:var(--bad)}
+.bar::after{content:"";position:absolute;left:var(--tgt);top:-3px;bottom:-3px;width:2px;background:var(--warn)}
+.log{font-family:var(--mono);font-size:11.5px;max-height:260px;overflow:auto;display:flex;flex-direction:column;gap:2px}
+.log div{border-left:2px solid var(--line);padding-left:8px;color:var(--mute)}
+.log div.ok{border-color:var(--ok);color:var(--text)}
+.log div.warn{border-color:var(--warn);color:var(--warn)}
+.log div.bad{border-color:var(--bad);color:var(--bad)}
+.log q{color:var(--teal)}
+.fake{display:none}
+.fake.on{display:block}
+kbd{font-family:var(--mono);font-size:11px;border:1px solid var(--line);padding:0 4px}
+@media(max-width:1000px){main{grid-template-columns:1fr}}
+@media(max-width:480px){header{padding:8px 12px}main{padding:10px 12px}.logo{font-size:17px}.stopbtn{min-width:96px;font-size:20px}.pill{min-width:0}}
+</style>
+</head>
+<body>
+<header>
+  <div class="logo"><i id="link" title="WebSocket"></i>SCRUB</div>
+  <div class="meta" id="meta">Connecting to the controller...</div>
+  <div class="pill" id="pill">--</div>
+  <button class="stopbtn" id="stopBtn" aria-label="Stop">STOP</button>
+</header>
+<div class="offline" id="offline">Controller not answering. Start it with <code>.venv/bin/python -m controller</code> and this page reconnects.</div>
+
+<main>
+  <div class="col">
+    <section class="card">
+      <h2>Tray <small id="trayInfo">no TrayState yet</small></h2>
+      <div class="cam" id="cam"><img id="camImg" alt="Tray camera"></div>
+      <div class="slots" id="slots"></div>
+    </section>
+
+    <section class="card">
+      <h2>Request <small>sent as source "dashboard"</small></h2>
+      <div class="cmd">
+        <button class="mic" id="mic" aria-label="Speak a request" title="Speak a request"><svg viewBox="0 0 24 24"><path d="M12 15a3 3 0 0 0 3-3V6a3 3 0 0 0-6 0v6a3 3 0 0 0 3 3zm5-3a5 5 0 0 1-10 0H5a7 7 0 0 0 6 6.9V22h2v-3.1A7 7 0 0 0 19 12z"/></svg></button>
+        <input id="txt" placeholder='Type a request: "kelly", "return the scissors", "count"' aria-label="Typed request" autocomplete="off">
+        <button class="btn" id="send">Send</button>
+      </div>
+      <div class="row" id="chips"></div>
+      <div class="row">
+        <button class="btn alt" id="gotIt" title="G">Got it</button>
+        <button class="btn alt" id="ret">Return last</button>
+        <button class="btn alt" id="count">Count</button>
+      </div>
+      <div class="heard" id="heard">Keys: <kbd>Space</kbd> or <kbd>Esc</kbd> stop, <kbd>G</kbd> got it, <kbd>/</kbd> type.</div>
+    </section>
+
+    <section class="card fake" id="fakeCard">
+      <h2>Fake arm <small>testing only: POST /fake/*</small></h2>
+      <div class="row" style="margin-top:0">
+        <button class="btn sm alt" id="pull">Simulate pull</button>
+        <button class="btn sm warn" data-force="miss_grasp">Miss next grasp</button>
+        <button class="btn sm warn" data-force="no_pull">No pull</button>
+        <button class="btn sm warn" data-force="out_of_region">Out of reach</button>
+        <button class="btn sm warn" data-force="skill_fail">Skill fails</button>
+      </div>
+    </section>
+  </div>
+
+  <div class="col">
+    <section class="card">
+      <h2>Arm <small id="armInfo"></small></h2>
+      <div class="status" id="status">--</div>
+      <div class="say" id="say"></div>
+      <div class="steps" id="steps"></div>
+      <div class="q" id="queue"></div>
+    </section>
+
+    <section class="card">
+      <h2>Hand <small id="handInfo">no Hand posts</small></h2>
+      <div class="interlock"><span class="lamp" id="lSeen"></span><span id="tSeen">Seen: --</span></div>
+      <div class="interlock"><span class="lamp" id="lOpen"></span><span id="tOpen">Open: --</span></div>
+      <div class="interlock"><span class="lamp" id="lPath"></span><span id="tPath">Path: --</span></div>
+      <div class="sub" style="margin-top:6px">Without Hand posts the arm goes to the saved handoff spot.</div>
+    </section>
+
+    <section class="card">
+      <h2>Request to hand <small>target line <span id="tgtLbl"></span> s, <code>?target=</code></small></h2>
+      <div class="statrow">
+        <div class="stat"><b id="sLast">--</b><span>LAST (s)</span></div>
+        <div class="stat"><b id="sMed">--</b><span>MEDIAN (s)</span></div>
+        <div class="stat"><b id="sOk">--</b><span>CLEAN</span></div>
+      </div>
+      <div class="lat" id="lat"></div>
+    </section>
+  </div>
+
+  <section class="card wide">
+    <h2>Event log <small>WS /events, newest first</small></h2>
+    <div class="log" id="log"></div>
+  </section>
+</main>
+
+<script>
+(()=>{
+const $=id=>document.getElementById(id);
+const esc=s=>String(s??'').replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
+const TARGET=+(new URLSearchParams(location.search).get('target'))||10;
+const MOVING=['finding','picking','checking','moving_to_hand','waiting_for_pull','releasing','setting_down','returning','homing'];
+const TRACK={handover:['finding','picking','checking','moving_to_hand','waiting_for_pull','releasing','homing'],
+  sharp:['finding','picking','checking','setting_down','homing'],return:['returning','homing']};
+const LABEL={idle:'Ready',finding:'Finding',picking:'Picking',checking:'Checking grasp',moving_to_hand:'Moving to hand',
+  waiting_for_pull:'Waiting for pull',releasing:'Releasing',setting_down:'Setting down',homing:'Homing',
+  returning:'Returning to slot',stopped:'STOPPED',error:'ERROR'};
+
+let setting=null,state=null,vision=null,reqs=[],byCmd={},lastSay='',online=false;
+const item=id=>setting&&setting.items.find(i=>i.id===id);
+const nm=id=>(item(id)||{name:id||'?'}).name;
+
+/* ---------- controller calls ---------- */
+async function get(u){const r=await fetch(u,{cache:'no-store'});if(!r.ok)throw new Error(u+' '+r.status);return r.json()}
+async function post(u,b){
+  const r=await fetch(u,{method:'POST',headers:{'content-type':'application/json'},body:b?JSON.stringify(b):undefined});
+  let j=null;try{j=await r.json()}catch(e){}
+  if(!r.ok)throw new Error((j&&j.detail)||u+' '+r.status);
+  return j;
+}
+function cmd(action,itemId,heard){
+  return post('/command',{action,item:itemId||null,heard:heard||null,source:'dashboard',t:Date.now()/1000})
+    .then(r=>{if(r&&!r.accepted)note('Refused: '+(r.reason||'')+(r.say?' "'+r.say+'"':''),'no');return r})
+    .catch(e=>note(e.message,'no'));
+}
+function note(msg,cls){$('heard').innerHTML='<span class="'+(cls||'')+'">'+esc(msg)+'</span>'}
+
+/* ---------- parsing typed or spoken text ---------- */
+function words(t){return ' '+t.toLowerCase().replace(/[^a-z0-9 ]+/g,' ').replace(/\s+/g,' ').trim()+' '}
+function matchItem(t){
+  if(!setting)return null;
+  const w=words(t);let best=null,len=0;
+  for(const it of setting.items)for(const a of [it.name,it.id.replace(/_/g,' '),...(it.aliases||[])]){
+    const k=words(a);if(w.includes(k)&&k.length>len){best=it.id;len=k.length}}
+  return best;
+}
+function parse(t){
+  const w=words(t);
+  if(/ (stop|freeze|halt) /.test(w))return{action:'stop'};
+  if(/ (got it|i have it|got) /.test(w))return{action:'got_it'};
+  if(/ (count|what s out|whats out) /.test(w))return{action:'count'};
+  const id=matchItem(t);
+  if(/ (return|put back|back|take) /.test(w))return{action:'return',item:id};
+  return id?{action:'handover',item:id}:null;
+}
+function request(text,how){
+  const p=parse(text);
+  if(!p){note('Heard ('+how+'): "'+text+'", no item on this tray matched','no');return}
+  $('heard').innerHTML='Heard ('+esc(how)+'): "<b>'+esc(text)+'</b>" -> '+esc(p.action)+(p.item?' '+esc(nm(p.item)):'');
+  if(p.action==='stop')return doStop();
+  cmd(p.action,p.item,text);
+}
+
+/* ---------- stop / reset ---------- */
+const halted=()=>state&&(state.step==='stopped'||state.step==='error');
+function doStop(){post('/stop').catch(e=>note(e.message,'no'))}
+$('stopBtn').onclick=()=>{
+  if(halted())post('/reset').catch(e=>note(e.message,'no'));
+  else doStop();
+};
+addEventListener('keydown',e=>{
+  if(e.code==='Space'||e.key==='Escape'){if(e.target.tagName==='INPUT'&&e.key!=='Escape')return;e.preventDefault();doStop();return}
+  if(e.target.tagName==='INPUT')return;
+  if(e.key==='g'||e.key==='G')cmd('got_it');
+  if(e.key==='/'){e.preventDefault();$('txt').focus()}
+});
+
+/* ---------- per-request record from events ---------- */
+function track(ev){
+  if(ev.type==='command'){
+    if(!['handover','return'].includes(ev.action))return;
+    const r={id:ev.command_id,action:ev.action,item:ev.item,heard:ev.heard,source:ev.source,t0:ev.t,
+      accepted:ev.accepted,reason:ev.reason,steps:[],outcome:ev.accepted?'queued':'refused',secs:null,retries:null};
+    byCmd[r.id]=r;reqs.unshift(r);if(reqs.length>40)reqs.pop();return;
+  }
+  const r=byCmd[ev.command_id];if(!r)return;
+  if(ev.item&&!r.item)r.item=ev.item;
+  if(ev.type==='step'&&MOVING.includes(ev.step)){if(r.steps[r.steps.length-1]!==ev.step)r.steps.push(ev.step);if(r.outcome==='queued')r.outcome='running'}
+  if(ev.retries!=null)r.retries=ev.retries;
+  if(ev.type==='handed'||ev.type==='set_down'){
+    if(ev.request_to_hand_s!=null){r.secs=ev.request_to_hand_s;r.outcome=ev.type==='handed'?'handed':'set down'}
+    else r.outcome='set down (no pull)';
+  }
+  if(ev.type==='released')r.outcome='released';
+  if(ev.type==='returned'){r.outcome='returned';r.secs=+(ev.t-r.t0).toFixed(2)}
+  if(ev.type==='missed')r.outcome='missed';
+  if(ev.type==='stopped'||ev.type==='error')r.outcome=ev.type+(ev.reason?' ('+ev.reason+')':'');
+}
+
+/* ---------- rendering ---------- */
+function renderHeader(){
+  $('link').classList.toggle('on',online);
+  $('offline').classList.toggle('on',!online);
+  if(!state){$('pill').textContent='--';return}
+  const s=state.step;
+  $('meta').innerHTML='<b>'+esc(setting?setting.label:state.setting)+'</b> tray, lighting <b>'+esc(state.lighting)+'</b>, '+
+    (state.fake_arm?'<b>fake/sim arm</b>':'<b>real arm</b>')+', out <b>'+state.out.length+'</b>';
+  const p=$('pill');p.className='pill'+(halted()?' stop':s==='waiting_for_pull'?' wait':'');
+  p.textContent=halted()?(s==='error'?'ERROR: RESET':'STOPPED: RESET'):(LABEL[s]||s).toUpperCase()+(state.item?' '+nm(state.item).toUpperCase():'');
+  const b=$('stopBtn');b.textContent=halted()?'RESET':'STOP';b.classList.toggle('latched',halted());
+  $('fakeCard').classList.toggle('on',!!state.fake_arm);
+}
+function slotVision(id){
+  const t=vision&&vision.tray;if(!t||vision.tray_age_s>3||t.stale)return null;
+  return (t.slots||[]).find(s=>s.item===id)||null;
+}
+function renderSlots(){
+  if(!setting)return;
+  const out=state?state.out:[];
+  const busy=state&&MOVING.includes(state.step)&&state.step!=='homing';
+  $('slots').innerHTML=setting.items.map(it=>{
+    const v=slotVision(it.id);
+    let cls='tray',st='on tray',btn='<button class="btn sm" data-hand="'+it.id+'"'+(halted()?' disabled':'')+'>Hand over</button>';
+    if(busy&&state.item===it.id){cls='held';st=(LABEL[state.step]||state.step).toLowerCase()}
+    else if(out.includes(it.id)){cls='out';st='out with the clinician';btn='<button class="btn sm alt" data-back="'+it.id+'"'+(halted()?' disabled':'')+'>Return</button>'}
+    if(v)st+=' / camera: '+(v.present?'in slot':'slot empty')+' '+(v.confidence!=null?(+v.confidence).toFixed(2):'');
+    if(v&&!v.present&&cls==='tray')cls+=' gone';
+    return '<div class="slot '+cls+'"><b>'+esc(it.name)+(it.sharp?'<span class="tag">SHARP</span>':'')+'</b><span class="st">'+esc(st)+'</span>'+btn+'</div>';
+  }).join('');
+  const t=vision&&vision.tray;
+  $('trayInfo').textContent=!t?'no TrayState yet (vision not running)':(vision.tray_age_s>3||t.stale)?'TrayState stale ('+vision.tray_age_s.toFixed(0)+' s)':'TrayState '+vision.tray_age_s.toFixed(1)+' s ago';
+}
+$('slots').onclick=e=>{
+  const h=e.target.closest('[data-hand]');if(h)return cmd('handover',h.dataset.hand,'tap '+nm(h.dataset.hand));
+  const b=e.target.closest('[data-back]');if(b)return cmd('return',b.dataset.back,'tap return '+nm(b.dataset.back));
+};
+function renderChips(){
+  if(!setting)return;
+  $('chips').innerHTML=setting.items.map(i=>'<button class="btn sm alt" data-chip="'+i.id+'">'+esc(i.name)+'</button>').join('');
+}
+$('chips').onclick=e=>{const b=e.target.closest('[data-chip]');if(b)cmd('handover',b.dataset.chip,'chip '+nm(b.dataset.chip))};
+function renderArm(){
+  if(!state)return;
+  const s=state.step;
+  $('status').textContent=(LABEL[s]||s)+(state.item&&s!=='idle'?': '+nm(state.item):'');
+  $('say').textContent=lastSay?'"'+lastSay+'"':'';
+  const r=reqs.find(x=>x.outcome==='running'||x.outcome==='queued');
+  const live=reqs.find(x=>x.outcome==='running');
+  let h='';
+  const cur=live||(halted()?reqs.find(x=>x.steps.length):null);
+  if(cur){
+    const path=cur.action==='return'?TRACK.return:item(cur.item)&&item(cur.item).sharp?TRACK.sharp:TRACK.handover;
+    const seen=cur.steps,last=seen[seen.length-1];
+    const list=[...new Set([...seen,...path])].sort((a,b)=>{const ia=seen.indexOf(a),ib=seen.indexOf(b);
+      if(ia>=0&&ib>=0)return ia-ib;return path.indexOf(a)-path.indexOf(b)});
+    h=list.map(k=>{let c='';const i=seen.indexOf(k);
+      if(i>=0&&k!==last)c='done';else if(k===last)c=halted()&&cur===live?'bad':live?'cur':'done';
+      return '<span class="step '+c+'">'+esc(LABEL[k]||k)+'</span>'}).join('');
+  }
+  $('steps').innerHTML=h;
+  $('armInfo').textContent=live?((Date.now()/1000-live.t0).toFixed(1)+' s since request'):'';
+  const q=state.queue||[];
+  $('queue').innerHTML=(live?'<div class="qi active">'+esc(live.action==='return'?'Return '+nm(live.item):nm(live.item))+'<small>now, '+esc(live.source||'')+'</small></div>':'')+
+    q.map((id,i)=>'<div class="qi">'+esc(nm(id))+'<small>queued #'+(i+1)+'</small></div>').join('')||
+    '<div class="sub">Queue empty. Up to 3 handovers queue; stop clears them.</div>';
+}
+function lamp(id,cls,txt,tid){$(id).className='lamp'+(cls?' '+cls:'');$(tid).textContent=txt}
+function renderHand(){
+  const h=vision&&vision.hand,age=vision&&vision.hand_age_s;
+  if(!h){$('handInfo').textContent='no Hand posts (saved spot)';lamp('lSeen','','Seen: no tracking','tSeen');lamp('lOpen','','Open: --','tOpen');lamp('lPath','','Path: --','tPath');return}
+  const fresh=age<=0.5,tracking=age<=5;
+  $('handInfo').textContent=tracking?'last post '+age.toFixed(1)+' s ago':'tracking off ('+age.toFixed(0)+' s)';
+  const seen=fresh&&h.seen;
+  lamp('lSeen',seen?'on':tracking?'bad':'',  'Seen: '+(seen?'yes'+(h.palm_px?' at '+h.palm_px.join(', '):''):tracking?'lost':'tracking off'),'tSeen');
+  lamp('lOpen',seen&&h.open?'on':seen?'warn':'','Open: '+(seen?(h.open?'open palm':'closed'):'--'),'tOpen');
+  lamp('lPath',seen?(h.path_clear===false?'bad':'on'):'','Path: '+(seen?(h.path_clear===false?'blocked':'clear')+(h.target?', target ['+h.target.map(v=>(+v).toFixed(2)).join(', ')+'] m':', no target'):'--'),'tPath');
+}
+function renderLat(){
+  $('tgtLbl').textContent=TARGET;
+  const done=reqs.filter(r=>r.secs!=null||/missed|stopped|error|refused|no pull/.test(r.outcome));
+  const max=Math.max(TARGET*1.5,...done.map(r=>r.secs||0));
+  $('lat').innerHTML=done.map(r=>{
+    const fail=r.secs==null,s=r.secs||0,w=fail?100:Math.min(100,s/max*100);
+    const label=(r.action==='return'?'return ':'')+nm(r.item);
+    const meta=[r.outcome,r.retries?r.retries+' retry':'',r.heard?'"'+r.heard+'"':''].filter(Boolean).join(', ');
+    return '<div class="latrow"><span>'+esc(label)+'<small>'+esc(meta)+'</small></span><div class="bar" style="--tgt:'+(TARGET/max*100)+'%"><i class="'+(fail?'fail':s>TARGET?'over':'')+'" style="width:'+w+'%"></i></div><span style="color:'+(fail?'var(--bad)':s>TARGET?'var(--warn)':'var(--ok)')+'">'+(fail?'--':s.toFixed(2)+' s')+'</span></div>'}).join('')||'<div class="sub">No finished requests yet. Times come from the controller (command received to arm at the hand).</div>';
+  const hs=reqs.filter(r=>r.action==='handover'&&r.secs!=null).map(r=>r.secs);
+  const tries=reqs.filter(r=>r.action==='handover'&&r.accepted&&r.outcome!=='queued'&&r.outcome!=='running');
+  if(hs.length){
+    const srt=[...hs].sort((a,b)=>a-b),m=srt[Math.floor((srt.length-1)/2)];
+    $('sLast').textContent=hs[0].toFixed(2);$('sLast').style.color=hs[0]>TARGET?'var(--warn)':'var(--ok)';
+    $('sMed').textContent=m.toFixed(2);
+  }
+  if(tries.length){const clean=tries.filter(r=>r.secs!=null&&!r.retries).length;$('sOk').textContent=clean+'/'+tries.length}
+}
+function logEv(ev){
+  const d=document.createElement('div');
+  const bad=['stopped','error','missed'].includes(ev.type)||(ev.type==='command'&&ev.accepted===false);
+  const ok=['handed','released','returned','set_down','picked','count'].includes(ev.type)||(ev.type==='command'&&ev.accepted);
+  d.className=bad?'bad':ok?'ok':ev.say?'warn':'';
+  const time=new Date(ev.t*1000).toTimeString().slice(0,8);
+  let txt=ev.type==='command'?'command '+(ev.action||'')+(ev.item?' '+nm(ev.item):'')+' from '+(ev.source||'?')+(ev.heard?' "'+ev.heard+'"':'')+(ev.accepted===false?' REFUSED '+(ev.reason||''):'')
+    :ev.type==='step'?'step '+ev.step+(ev.item?' '+nm(ev.item):'')
+    :ev.type+(ev.item?' '+nm(ev.item):'')+(ev.request_to_hand_s!=null?' in '+ev.request_to_hand_s+' s':'')+(ev.retries?' retries '+ev.retries:'')+(ev.reason?' ('+ev.reason+')':'')+(ev.error?' '+ev.error:'');
+  d.innerHTML=esc(time+'  '+txt)+(ev.say?'  <q>'+esc(ev.say)+'</q>':'');
+  const L=$('log');L.prepend(d);while(L.children.length>150)L.lastChild.remove();
+}
+function render(){renderHeader();renderSlots();renderArm();renderHand();renderLat()}
+
+/* ---------- live data ---------- */
+let stTimer=null;
+function refreshState(){clearTimeout(stTimer);stTimer=setTimeout(async()=>{
+  try{state=await get('/state');online=true}catch(e){online=false}render()},60)}
+async function loadSetting(){try{setting=await get('/setting');renderChips()}catch(e){}}
+function onEvent(ev){
+  if(ev.say)lastSay=ev.say;
+  track(ev);logEv(ev);
+  if(state){state.step=ev.step||state.step;if(ev.out)state.out=ev.out;if(ev.type==='step')state.item=ev.item}
+  if(ev.type==='step'&&ev.step==='idle'&&ev.item===null&&setting&&ev.setting!==setting.id)loadSetting();
+  if(ev.setting&&setting&&ev.setting!==setting.id)loadSetting();
+  render();refreshState();
+}
+let ws=null,wsWait=500;
+function connect(){
+  ws=new WebSocket((location.protocol==='https:'?'wss://':'ws://')+location.host+'/events');
+  ws.onopen=()=>{wsWait=500;online=true;refreshState()};
+  ws.onmessage=m=>{try{onEvent(JSON.parse(m.data))}catch(e){console.error(e)}};
+  ws.onclose=()=>{online=false;render();setTimeout(connect,wsWait);wsWait=Math.min(5000,wsWait*2)};
+}
+async function pollVision(){
+  try{vision=await get('/vision')}catch(e){vision=null}
+  renderSlots();renderHand();
+}
+async function boot(){
+  await loadSetting();
+  try{state=await get('/state');online=true;
+    const recent=await get('/events/recent?n=150');
+    recent.forEach(ev=>{if(ev.say)lastSay=ev.say;track(ev);logEv(ev)});
+  }catch(e){online=false}
+  render();connect();
+  setInterval(pollVision,1000);pollVision();
+  setInterval(()=>{if(online)renderArm()},500);
+  setInterval(async()=>{if(!online){try{state=await get('/state');online=true;loadSetting();render()}catch(e){}}},3000);
+}
+
+/* ---------- inputs ---------- */
+$('send').onclick=()=>{const v=$('txt').value.trim();if(v){request(v,'typed');$('txt').value=''}};
+$('txt').addEventListener('keydown',e=>{if(e.key==='Enter')$('send').click()});
+$('gotIt').onclick=()=>cmd('got_it');
+$('ret').onclick=()=>cmd('return',null,'return last');
+$('count').onclick=()=>cmd('count');
+$('pull').onclick=()=>post('/fake/pull').catch(e=>note(e.message,'no'));
+document.querySelectorAll('[data-force]').forEach(b=>b.onclick=()=>post('/fake/force',{[b.dataset.force]:1})
+  .then(r=>note('Next fake-arm call forced: '+JSON.stringify(r.force))).catch(e=>note(e.message,'no')));
+const SR=window.SpeechRecognition||window.webkitSpeechRecognition;
+let rec=null,listening=false;
+$('mic').onclick=()=>{
+  if(!SR){note('Speech recognition is not in this browser. Type the request.','no');$('txt').focus();return}
+  if(listening){rec&&rec.stop();return}
+  try{
+    rec=new SR();rec.lang='en-US';rec.interimResults=false;rec.maxAlternatives=3;
+    rec.onstart=()=>{listening=true;$('mic').classList.add('on');note('Listening...')};
+    rec.onend=()=>{listening=false;$('mic').classList.remove('on')};
+    rec.onerror=e=>note('Mic error ('+e.error+'). Type the request instead.','no');
+    rec.onresult=e=>{const alts=[...e.results[0]].map(a=>a.transcript);request(alts.find(parse)||alts[0],'mic')};
+    rec.start();
+  }catch(err){note('Could not start the mic. Type the request.','no')}
+};
+const img=$('camImg');
+img.onload=()=>$('cam').classList.add('on');
+img.onerror=()=>$('cam').classList.remove('on');
+img.src=location.protocol+'//'+location.hostname+':8001/stream';
+
+boot();
+})();
+</script>
+</body>
+</html>
