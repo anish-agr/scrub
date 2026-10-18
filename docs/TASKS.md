@@ -15,7 +15,7 @@ Rules that keep us from colliding:
 | --- | --- | --- | --- |
 | Anish | `arm/`, the arm and training, `docs/ARM.md`, `docs/PERCEPTRON-ROBOTICS.md`, `docs/PLAN.md`, `docs/TASKS.md`, `docs/PITCH.md` | Claude Pro, Codex | Small. Most of his time is at the arm |
 | Caiden | `controller/`, `voice/`, `explore/`, `docs/SLIDES.md`, `docs/CONTRACTS.md`, `.env.example`, `.gitignore` | Claude Max, Cursor Pro, Codex | Largest. Takes overflow jobs |
-| Brandon | `vision/`, `docs/PERCEPTRON.md`, the Perceptron API key | Cursor Pro | Medium |
+| Brandon | `vision/`, `docs/PERCEPTRON-ROBOTICS.md` (Part 2), the Perceptron API key | Cursor Pro | Medium |
 | Evan | `dashboard/`, `ledger/`, `settings/`, `docs/DATA-LOG.md`, `docs/DEVPOST.md` | Cursor Pro | Medium |
 
 ## Priority
@@ -76,7 +76,7 @@ One process owns the overhead camera, so the hand tracker and tray perception sh
 | B1 | 12:30 to 2:00 | `vision/camera.py`: open the overhead camera with fixed exposure and white balance. One frame grabber both parts read from. `CAMERA_INDEX` from `.env` | A preview shows the tray, and brightness doesn't jump when a lamp turns on |
 | B2 | 2:00 to 3:30 | `vision/hand.py`: MediaPipe hand landmarker (Tasks API), palm center, the open-palm check (all five fingertips farther from the wrist than their middle joints). POST a Hand to `/vision/hand` about 10 times a second | Works with nitrile gloves on; `seen` and `open` are right |
 | B3 | by 3:30 | MJPEG stream on port 8001 (`/stream`) with item boxes and the palm dot | The dashboard shows it |
-| B4 | 3:30 to 5:30 | `vision/tray.py`: the Perceptron vision API about once a second. Map detections to slot boxes and the return spot, POST a TrayState to `/vision/tray`. If the API is slow or down, keep the last good state and mark it stale. Write what works into `docs/PERCEPTRON.md` | Lifting an item off the tray shows on the dashboard within about 2 seconds |
+| B4 | 3:30 to 5:30 | `vision/tray.py`: the Perceptron vision API about once a second. Map detections to slot boxes and the return spot, POST a TrayState to `/vision/tray`. If the API is slow or down, keep the last good state and mark it stale. Write what works into `docs/PERCEPTRON-ROBOTICS.md` (Part 2) | Lifting an item off the tray shows on the dashboard within about 2 seconds |
 | B5 | when the camera is mounted | `vision/mark_slots.py`: click to mark each slot and the return spot, print the boxes. Send them to Evan for `settings/` | All three trays have boxes |
 | B6 | 6:30 to 9:30 | `vision/calibrate.py` with Anish at the arm: 6 to 8 gripper points, pixel and arm positions, fit image to table (a homography), save `vision/calibration.json`. `target` is the point a few cm short of the palm at the saved hand height | The palm target is within about 2 cm of the gripper check |
 | B7 | 9:30 to midnight | `path_clear` (false if a hand or arm is between the gripper and the target). Saved hand height per clinician | Both tested by hand |

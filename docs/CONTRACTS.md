@@ -196,7 +196,7 @@ Read by the controller (`/tray_check`, `/snapshot`) and the dashboard (`/stream`
 | `GET /tray_check` | `{"ok", "ready", "setting", "missing": [ids], "wrong_slot": [{"item", "in_slot_of": id or null, "found_in"}], "extra": [], "correct", "slots", "return_spot", "stale", "summary", "t"}`. Reads the last tray read, never calls Perceptron. `stale` is true with no read yet, a failed read, or one older than `VISION_TRAY_STALE_S` (default 8 s) |
 | `POST /clinician` | `{"name", "hand_height_m"}` -> `{"ok", "clinician", "hand_height_m"}` |
 | `POST /gripper` | `{"px": [x, y] or null}` -> `{"ok", "px"}` |
-| `GET /clips?case_id=`, `POST /clips/record`, `POST /clips/label`, `GET /clips/{case_id}/{file}` | X4 event clips (`docs/PERCEPTRON.md`) |
+| `GET /clips?case_id=`, `POST /clips/record`, `POST /clips/label`, `GET /clips/{case_id}/{file}` | X4 event clips (`docs/PERCEPTRON-ROBOTICS.md`) |
 
 Vision reads the controller's `GET /state`, `GET /setting` and `GET /events/recent?n=20`, and posts `/vision/hand`, `/vision/tray` and `/lighting` (only when the tag changes, with `lux`).
 

@@ -97,7 +97,7 @@ Every number above was checked against its source on Oct 17, 2026. Say only thes
 | Nurses and techs get cut most often while passing sharps | American Nurse, citing data from 87 US hospitals: injuries to nurses and technicians "most often occurred when they passed or disassembled devices." https://www.myamericannurse.com/practical-strategies-to-prevent-surgical-sharps-injuries/ |
 | An item left inside about once in 5,500 operations, most with a correct count | Cima et al., J Am Coll Surg 2008 (Mayo Clinic, 191,168 operations): "approximately 1:5,500 operations", and 21 of 34 (62%) had a count reported as correct. https://pubmed.ncbi.nlm.nih.gov/18589366/ and https://psnet.ahrq.gov/issue/incidence-and-characteristics-potential-and-actual-retained-foreign-object-events-surgical |
 
-Also checked, used in `docs/QNA.md` and `docs/NEXT.md` only:
+Also checked, used in `docs/QNA.md` and `docs/NEXT-PASS-PROMPT.md` (section "Earlier next-steps notes") only:
 
 | What we say | Source |
 | --- | --- |

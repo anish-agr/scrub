@@ -1,6 +1,6 @@
 # Scrub: the whole project in one document
 
-Read this first. It explains every idea, decision and part of the project, and where everything lives. Other docs go deeper; this one ties them together. If another doc disagrees with this one on **what we're building**, this one wins. For **current status**, `docs/STATUS.md` and (once the comb pass writes it) `docs/STATE.md` win.
+Read this first. It explains every idea, decision and part of the project, and where everything lives. Other docs go deeper; this one ties them together. If another doc disagrees with this one on **what we're building**, this one wins. For **current status**, `docs/STATUS.md` wins.
 
 DubHacks '26, Oct 17 to 18, 2026. Team: Anish, Caiden, Brandon, Evan.
 
@@ -17,7 +17,7 @@ Scrub is a robot arm that works as a surgeon's second pair of hands. The surgeon
 - Counts are a safety step: an instrument or sponge left inside a patient (a "retained surgical item") is a serious, costly error, and manual counts miss things.
 - Sharps injuries happen during hand-to-hand passing, which is why operating rooms pass sharps hands-free.
 
-Sources and numbers: `docs/PROPOSAL.md` (sources section), `docs/NEXT.md`, `explore/research/SURGEON_RESEARCH.md`. **Any number used in the pitch, slides or Devpost must be checked against its source first.** `SURGEON_RESEARCH.md` section 6 lists risky claims to avoid on stage.
+Sources and numbers: `docs/PROPOSAL.md` (sources section), `docs/BUSINESS.md`, `explore/research/SURGEON_RESEARCH.md`. **Any number used in the pitch, slides or Devpost must be checked against its source first.** `SURGEON_RESEARCH.md` section 6 lists risky claims to avoid on stage.
 
 ## 3. What Scrub does (the user's view)
 
@@ -151,7 +151,7 @@ Only the controller moves the arm. Everything else sends it information. The mes
 
 The fine-tuned model picks; our code keeps it safe and carries it to the hand.
 
-Targets per item are in `docs/TRAINING.md`. The step-by-step operator walkthrough is `docs/TRAINING-HANDOFF-PROMPT.md` (written for Windows; translate to the Mac).
+Targets per item are in `docs/TRAINING.md`. The step-by-step operator walkthrough is in the same file.
 
 ## 7. Safety design
 
@@ -171,18 +171,18 @@ Targets per item are in `docs/TRAINING.md`. The step-by-step operator walkthroug
 | **Perceptron Robotics** | Isaac 0.5 fine-tuned on our own demos, one language-conditioned model for every item and both directions, success rates by item and lighting, the required arm video |
 | **Perceptron Perception** | Their vision API doing real work: tray state, grasp check, auto return, the count, tray check, labeled event clips |
 | **Photon** (+ best voice agent) | The whole case runs over a call to the Photon number; texts in (restock, what's out) and the summary out on the same thread |
-| DubHacks NEXT | The business case in `docs/NEXT.md`: surgery centers first, priced per operating room per month |
+| DubHacks NEXT | The business case in `docs/BUSINESS.md`: surgery centers first, priced per operating room per month |
 | MLH Gemini | Speech to command with structured output, the summary, texts |
 | MLH MongoDB Atlas | The ledger, case replay, success tables |
 | MLH Vultr + GoDaddy | The public judge page on a Vultr server at our domain |
 | MLH Commit Fellowship | Tick on Devpost + a form |
-| MLH DEV | A post after the event (draft in `docs/DEV-POST.md`) |
+| MLH DEV | A post after the event (draft at the end of `docs/DEVPOST.md`) |
 
 ## 9. What already exists (prior work) and what's different
 
 Robot scrub nurses are an active research area (Penelope, Gestonurse, RoboNurse-VLA and newer VLA scrub nurses). None is on the market. Scrub differs by: a cheap open-source arm, voice over a real phone call, handoff to the actual hand, put-back to the exact slot, the automatic count with a camera check, sharps handled hands-free, more than one setting on one model, and measured lighting robustness. Details: `docs/PROPOSAL.md` (team notes) and `explore/research/SURGEON_RESEARCH.md` section 3.
 
-## 10. The business (summary of `docs/NEXT.md`)
+## 10. The business (summary of `docs/BUSINESS.md`)
 
 Start with surgery centers and training labs. Sell per operating room per month, priced below the cost of covering unfilled scrub tech shifts. It assists scrub techs rather than replacing them. A medical-grade arm and FDA clearance come later; the software talks to the arm through one interface, so it can move to better hardware. All numbers there are planning estimates and are labeled that way.
 
@@ -207,13 +207,13 @@ Start with surgery centers and training labs. Sell per operating room per month,
 | --- | --- |
 | Rules for agents, who owns which files | `AGENTS.md` |
 | Message formats between parts | `docs/CONTRACTS.md` |
-| What's done and what's next | `docs/STATUS.md`, `docs/STATE.md` (after the comb), `docs/LEFT.md` |
+| What's done and what's next | `docs/STATUS.md`, `docs/LEFT.md` |
 | Hardware steps left | `docs/HARDWARE-TODO.md` (after the comb), `docs/BRINGUP.md` |
 | Accounts and keys left | `docs/ACCOUNTS-TODO.md` (after the comb), `docs/SETUP.md` |
-| Training | `docs/TRAINING.md`, `docs/TRAINING-HANDOFF-PROMPT.md`, `docs/PERCEPTRON-ROBOTICS.md` |
+| Training | `docs/TRAINING.md`, `docs/PERCEPTRON-ROBOTICS.md` |
 | Pitch and demo | `docs/PITCH.md`, `docs/DEMO.md`, `docs/QNA.md`, `docs/SLIDES.md` |
-| Devpost and posts | `docs/DEVPOST.md`, `docs/DEV-POST.md`, `docs/README-PUBLIC.md` |
-| Business case | `docs/NEXT.md` |
+| Devpost and posts | `docs/DEVPOST.md`, `docs/README-PUBLIC.md` |
+| Business case | `docs/BUSINESS.md` |
 | Original full proposal (some parts outdated: dental, three settings) | `docs/PROPOSAL.md` |
 | Bugs found | `docs/QA.md`, `docs/AUDIT.md`, `docs/REVIEW.md` |
 | The timeline | `docs/PLAN.md` |

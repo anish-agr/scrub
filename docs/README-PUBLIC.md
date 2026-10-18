@@ -91,7 +91,7 @@ cd voice && npm test
 | Perceptron Robotics | Isaac 0.5 fine-tuned on our own demonstrations, on the SO-101 |
 | Perceptron Perception | Their vision API: tray state, grasp check, automatic return, count check, tray check |
 | Photon (and best voice agent) | The whole case over a phone call, texts in, and the summary text on the same thread |
-| DubHacks NEXT | Business case: surgery centers first, a monthly fee per operating room (`docs/NEXT.md`) |
+| DubHacks NEXT | Business case: surgery centers first, a monthly fee per operating room (`docs/NEXT-PASS-PROMPT.md` (section "Earlier next-steps notes")) |
 | MLH Gemini API | Speech becomes one command from the current tray. Also the summary and texts |
 | MLH MongoDB Atlas | The event log, case replays and success tables |
 | MLH Tiger Data | Handoff times by minute on the series page |

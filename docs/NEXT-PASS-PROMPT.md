@@ -2,7 +2,7 @@
 
 Say to Claude Code on the arm Mac: "Pull, then follow docs/NEXT-PASS-PROMPT.md exactly. Use as many subagents as it needs and take as long as it needs."
 
-This is the only prompt to run. It replaces every older prompt file (`docs/PROMPTS.md`, `docs/COMB-PROMPT.md`, `docs/TRAINING-HANDOFF-PROMPT.md`, the first two versions of this file). Those move to `team/` in Phase 9.
+This is the only prompt to run. It replaces every older prompt file (`docs/PROMPTS.md`, `docs/COMB-PROMPT.md`, the first two versions of this file). Those move to `team/` in Phase 9.
 
 ---
 
@@ -27,7 +27,7 @@ Work exists outside `main` and you can't see it yet:
 
 ## Phase 1: understand what exists, then update the scope
 
-Read `docs/OVERVIEW.md`, `README.md`, `AGENTS.md`, `docs/CONTRACTS.md`, `docs/STATE.md`, `docs/AUDIT.md`, `docs/HARDWARE-TODO.md`, `docs/ACCOUNTS-TODO.md`, `docs/PERCEPTRON-ROBOTICS.md`, `docs/TRAINING.md`, `docs/VIDEO-TOOL.md`, `docs/DESIGN-SYSTEM.md`, `explore/research/overheating/README.md`, every folder's README, and `git log --since="16 hours ago" --stat`. Run every test suite and every `--help` / `--check` / `--dry-run` command the READMEs name, and record what passes.
+Read `docs/OVERVIEW.md`, `README.md`, `AGENTS.md`, `docs/CONTRACTS.md`, `docs/STATUS.md` (its "Current state" section), `docs/AUDIT.md`, `docs/HARDWARE-TODO.md`, `docs/ACCOUNTS-TODO.md`, `docs/PERCEPTRON-ROBOTICS.md`, `docs/TRAINING.md`, `docs/VIDEO-TOOL.md`, `docs/DESIGN-SYSTEM.md`, `explore/research/overheating/README.md`, every folder's README, and `git log --since="16 hours ago" --stat`. Run every test suite and every `--help` / `--check` / `--dry-run` command the READMEs name, and record what passes.
 
 Then rewrite the scope in `docs/OVERVIEW.md` (sections 3 to 6) to match what's built now. A lot was added after it was written: the thermal telemetry and cool-down guard, gripper torque by situation, rest and wake between commands, lift and pulled-out handoff detection, the recorder's page and controls, dataset QA, the video tool, the shared design system, the sim backup, the public page on Vultr. Say what's real, what's partly done and what was dropped, and keep dental dropped. This becomes the source of truth the rest of the pass works from.
 
@@ -142,3 +142,7 @@ Make `team/` and move into it everything about how we worked rather than what Sc
 11. Audit and comb items fixed and left.
 12. What moved to `team/`, and every path reference that was fixed.
 13. The exact list of what a person has to do next, in order, with who.
+
+---
+
+The DubHacks NEXT business case that was in `docs/NEXT.md` is now `docs/BUSINESS.md`.

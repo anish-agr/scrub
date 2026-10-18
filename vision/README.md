@@ -26,7 +26,7 @@ The controller does not have to be running. The first failed POST to `/vision/ha
 | `service.py` | The hand (10 Hz), tray (1 Hz), lighting (1 Hz) and clip-event (2 Hz) loops, and the posts to the controller |
 | `camera.py` | Opens the camera, turns off auto exposure and auto white balance, one grabber thread, `FakeCapture` |
 | `hand.py` | MediaPipe Tasks hand landmarker, palm center, open-palm check |
-| `tray.py` | `POST https://api.perceptron.inc/v1/detect`, maps boxes onto slots, `FakeDetector` for `--fake`. See `docs/PERCEPTRON.md` |
+| `tray.py` | `POST https://api.perceptron.inc/v1/detect`, maps boxes onto slots, `FakeDetector` for `--fake`. See `docs/PERCEPTRON-ROBOTICS.md` (Part 2) |
 | `tray_check.py` | Missing and wrong-slot items for `GET /tray_check` |
 | `clips.py` | Rolling frame buffer, one .mp4 and thumbnail per event under `vision/clips/<case_id>/` (git-ignored), labels |
 | `app.py` | HTTP routes (below) |
