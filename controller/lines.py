@@ -44,3 +44,19 @@ def count(names):
 def _the(names): return " and ".join(f"the {n}" for n in names)
 def camera_gone(names): return f"Camera also sees {_the(names)} gone."
 def camera_back(names): return f"Camera sees {_the(names)} back."
+
+
+# Tray check (X3): GET /tray_check. Names come from the current setting.
+CANT_CHECK_TRAY = "I can't check the tray right now."
+TRAY_NOT_READY = "The tray isn't ready."
+
+
+def _poss(name): return name + ("'" if name.endswith("s") else "'s")
+
+
+def tray_ready(names): return "Tray's ready: " + ", ".join(names) + "."
+def tray_missing(names): return f"Missing {_the(names)}."
+def tray_wrong_slot(name, slot_name): return f"The {name} is in the {_poss(slot_name)} slot."
+def tray_wrong_place(name): return f"The {name} is in the wrong slot."
+def tray_extra(names): return f"Extra on the tray: {', '.join(names)}."
+def tray_other_setting(seen, current): return f"The camera is checking the {seen} tray, not the {current} tray."

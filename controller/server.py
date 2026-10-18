@@ -10,7 +10,7 @@ from fastapi.responses import HTMLResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 
-from . import armview
+from . import armview, traycheck
 from .core import Controller
 
 DASHBOARD = Path(__file__).resolve().parent.parent / "dashboard"
@@ -122,6 +122,11 @@ def make_app(ctl: Controller, extra=None) -> FastAPI:
     @app.get("/events/recent")
     async def recent(n: int = 50):
         return list(ctl.history)[-n:]
+
+    @app.get("/tray_check")
+    async def tray_check():
+        """X3: vision's GET /tray_check for the current setting, plus the spoken `say`. In a thread: never blocks stop."""
+        return await asyncio.to_thread(traycheck.check, ctl.setting)
 
     @app.post("/fake/force")
     async def fake_force(body: Force):

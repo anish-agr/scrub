@@ -8,6 +8,9 @@ const ai = GEMINI_API_KEY ? new GoogleGenAI({ apiKey: GEMINI_API_KEY }) : null;
 
 export const isStop = (s: string) => /\b(stop|freeze|halt|hold it|abort)\b/i.test(s);
 export const isGotIt = (s: string) => /^\W*(got it|i('ve)? got it|thanks?( you)?|okay got it|release)\W*$/i.test(s.trim());
+// "check the tray", "is the tray ready", "tray check": GET /tray_check, not a Command (the action enum stays as is).
+export const isTrayCheck = (s: string) =>
+  /\b(check (the |my |your )?tray|tray check|(is|are) (the |my )?tray (ready|set( up)?|good|complete|okay|ok)|tray (is )?ready\s*\?)/i.test(s);
 export const isEndCase = (s: string) => /\b(end (of )?(the )?case|case (is )?(over|done|closed|complete)|close (out )?(the )?case|wrap (it )?up)\b/i.test(s);
 
 export interface Parsed { action: Action; item: string | null; via: "local" | "gemini" }

@@ -608,6 +608,85 @@ def rejects():
     ctl.stop()
 
 
+TRAY_OK = {"ok": True, "setting": "surgical", "missing": [], "wrong_slot": [], "extra": [], "stale": False, "t": 1760731200.1}
+
+
+@test
+def tray_check_ready_missing_wrong_slot():
+    from . import settings, traycheck
+    surgical = settings.load("surgical")
+    r = traycheck.check(surgical, fetch=lambda: dict(TRAY_OK))
+    names = [i["name"] for i in surgical["items"]]
+    assert r["ok"] and r["available"] and r["say"] == lines.tray_ready(names), r
+    assert r["label"] == surgical["label"] and r["items"] == names and r["t"] == 1760731200.1
+    r = traycheck.check(surgical, fetch=lambda: {**TRAY_OK, "ok": False, "missing": ["scalpel"]})
+    assert not r["ok"] and r["say"] == "Missing the scalpel.", r
+    slot = settings.item(surgical, "mayo_scissors")["name"]
+    r = traycheck.check(surgical, fetch=lambda: {**TRAY_OK, "ok": False,
+                        "wrong_slot": [{"item": "hemostat", "in_slot_of": "mayo_scissors"}]})
+    assert not r["ok"] and r["say"] == f"The hemostat is in the {slot}' slot.", r
+    # Vision says ok but lists a missing item: the list wins. Missing fields are tolerated.
+    r = traycheck.check(surgical, fetch=lambda: {"ok": True, "missing": ["scalpel", "hemostat"], "new_field": 1})
+    assert not r["ok"] and r["say"] == "Missing the scalpel and the hemostat." and r["new_field"] == 1, r
+    r = traycheck.check(surgical, fetch=lambda: {"missing": []})
+    assert r["ok"] and r["say"].startswith("Tray's ready"), r
+    r = traycheck.check(surgical, fetch=lambda: {**TRAY_OK, "stale": True})
+    assert not r["ok"] and r["say"] == lines.CANT_CHECK_TRAY, r
+    r = traycheck.check(surgical, fetch=lambda: {**TRAY_OK, "setting": "dental"})
+    assert not r["ok"] and "dental" in r["say"], r
+
+
+@test
+def tray_check_route_and_vision_down():
+    """GET /tray_check through the app against a tiny fake vision; then vision down, 404 and slow."""
+    import json
+    import os
+    from http.server import BaseHTTPRequestHandler, HTTPServer
+    from fastapi.testclient import TestClient
+    from . import server, traycheck
+    answer = {"code": 200, "body": {**TRAY_OK, "ok": False, "missing": ["scalpel"]}, "delay": 0.0}
+
+    class Vision(BaseHTTPRequestHandler):
+        def do_GET(self):
+            time.sleep(answer["delay"])
+            ok = self.path == "/tray_check" and answer["code"] == 200
+            self.send_response(200 if ok else 404)
+            self.send_header("content-type", "application/json")
+            self.end_headers()
+            self.wfile.write(json.dumps(answer["body"] if ok else {"detail": "Not Found"}).encode())
+
+        def log_message(self, *a):
+            pass
+
+    vision = HTTPServer(("127.0.0.1", 0), Vision)
+    threading.Thread(target=vision.serve_forever, daemon=True).start()
+    old, old_timeout = os.environ.get("VISION_URL"), traycheck.TIMEOUT_S
+    os.environ["VISION_URL"] = f"http://127.0.0.1:{vision.server_port}"
+    try:
+        ctl, arm = make()
+        client = TestClient(server.make_app(ctl))
+        r = client.get("/tray_check").json()
+        assert r["ok"] is False and r["available"] and r["say"] == "Missing the scalpel." and r["setting"] == "surgical", r
+        answer["code"] = 404
+        r = client.get("/tray_check").json()
+        assert r == {**r, "ok": False, "available": False, "say": lines.CANT_CHECK_TRAY}, r
+        traycheck.TIMEOUT_S, answer["code"], answer["delay"] = 0.3, 200, 1.0
+        t0 = time.time()
+        r = client.get("/tray_check").json()
+        assert r["say"] == lines.CANT_CHECK_TRAY and time.time() - t0 < 1.0, r
+        answer["delay"] = 0.0
+        vision.shutdown()
+        vision.server_close()
+        r = client.get("/tray_check").json()
+        assert not r["ok"] and not r["available"] and r["say"] == lines.CANT_CHECK_TRAY, r
+    finally:
+        traycheck.TIMEOUT_S = old_timeout
+        if old is None:
+            os.environ.pop("VISION_URL", None)
+        else:
+            os.environ["VISION_URL"] = old
+
+
 def main():
     failed = 0
     for fn in TESTS:

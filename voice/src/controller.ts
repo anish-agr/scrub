@@ -25,12 +25,12 @@ export function makeCommand(action: Action, item: string | null, heard: string):
   return { id: randomUUID(), action, item, heard, source: "voice", t: Date.now() / 1000 };
 }
 
-async function call(method: string, path: string, body?: unknown): Promise<any> {
+async function call(method: string, path: string, body?: unknown, ms = 3000): Promise<any> {
   const res = await fetch(CONTROLLER_URL + path, {
     method,
     headers: body === undefined ? {} : { "content-type": "application/json" },
     body: body === undefined ? undefined : JSON.stringify(body),
-    signal: AbortSignal.timeout(3000),
+    signal: AbortSignal.timeout(ms),
   });
   if (!res.ok) throw new Error(`${method} ${path} -> ${res.status}`);
   return res.json();
@@ -41,6 +41,12 @@ export const postStop = (): Promise<{ accepted: boolean }> => call("POST", "/sto
 export const getSetting = (): Promise<any> => call("GET", "/setting");
 export const getState = (): Promise<State> => call("GET", "/state");
 export const postRestock = (r: object): Promise<{ ok: boolean }> => call("POST", "/restock", r);
+// X3: the controller asks vision (up to 3 s) and words the answer in `say`.
+export interface TrayCheck {
+  ok: boolean; say?: string | null; available?: boolean; setting?: string; label?: string; items?: string[];
+  missing?: string[]; wrong_slot?: { item: string; in_slot_of?: string | null }[]; extra?: string[]; stale?: boolean | null;
+}
+export const getTrayCheck = (): Promise<TrayCheck> => call("GET", "/tray_check", undefined, 5000);
 export const getStats = (): Promise<unknown> => call("GET", "/stats");
 // For GET /health: is the controller up? Never throws.
 export const controllerUp = (): Promise<boolean> =>

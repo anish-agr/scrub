@@ -12,6 +12,7 @@ leader's action (LeRobot's default). Records into one local dataset (--root, app
 exists), never pushes to the Hub. Ports and ids match the calibration in ~/.cache/huggingface/lerobot.
 """
 import argparse
+import faulthandler
 import sys
 import time
 from pathlib import Path
@@ -97,6 +98,34 @@ def ease(follower_port: str, leader_port: str, seconds: float) -> None:
         l.disconnect(disable_torque=False)
 
 
+class Tee:
+    """Everything printed (and any crash traceback) also goes to a log file."""
+    def __init__(self, stream, log):
+        self.stream, self.log = stream, log
+
+    def write(self, s):
+        self.stream.write(s)
+        self.log.write(s)
+        self.log.flush()
+
+    def flush(self):
+        self.stream.flush()
+
+    def __getattr__(self, name):
+        return getattr(self.stream, name)
+
+
+def start_log() -> Path:
+    logs = Path.home() / "scrub-logs"
+    logs.mkdir(exist_ok=True)
+    path = logs / time.strftime("arm-%Y%m%d-%H%M%S.log")
+    log = open(path, "a", buffering=1)
+    sys.stdout, sys.stderr = Tee(sys.stdout, log), Tee(sys.stderr, log)
+    faulthandler.enable(log)  # hard crashes too
+    print(f"log: {path}", flush=True)
+    return path
+
+
 def main() -> None:
     p = argparse.ArgumentParser()
     p.add_argument("--side", type=int, help="side camera index (lerobot-find-cameras opencv)")
@@ -111,6 +140,7 @@ def main() -> None:
     p.add_argument("--follower", default=FOLLOWER)
     p.add_argument("--leader", default=LEADER)
     a = p.parse_args()
+    start_log()
 
     # keep holding on exit: LeRobot's default drops torque and a raised arm falls
     robot = [f"--robot.type=so101_follower", f"--robot.port={a.follower}", "--robot.id=scrub_follower",
