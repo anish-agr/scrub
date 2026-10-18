@@ -78,6 +78,11 @@ def parser():
     re.add_argument('--bindings',required=True,help='workspace JSON mapping slot names to source/in_s/treatment inputs')
     re.add_argument('--output',default='renders/final.mp4')
     re.add_argument('--demo',action='store_true',help='synthetic tests only: permanently labeled, may loop fixture footage')
+    pr=sub.add_parser('preview',help='same EDL/timing/honesty gates at 640x360/15 for a fast review')
+    pr.add_argument('--edl',required=True)
+    pr.add_argument('--bindings',required=True)
+    pr.add_argument('--output',default='renders/preview.mp4')
+    pr.add_argument('--demo',action='store_true')
     return p
 
 
@@ -131,6 +136,9 @@ def main(argv=None):
         elif args.command == 'render':
             from .edit import render
             result=render(ws,args.edl,args.bindings,args.output,args.demo)
+        elif args.command == 'preview':
+            from .edit import render
+            result=render(ws,args.edl,args.bindings,args.output,args.demo,preview=True)
         else:
             raise ValueError("Unknown command")
         print(json.dumps(result, indent=2, allow_nan=False))
