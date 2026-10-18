@@ -1,0 +1,50 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Scrub table card</title>
+  <link rel="stylesheet" href="style.css">
+  <style>
+    .card {
+      max-width: 420px;
+      margin: 24px auto;
+      text-align: center;
+      background: white;
+      border: 1px solid var(--line);
+      border-radius: 16px;
+      padding: 28px 20px;
+    }
+    .card img { width: 240px; height: 240px; }
+    .card h1 { margin: 8px 0 0; font-size: 40px; letter-spacing: -0.04em; }
+    .ask { font-size: 22px; line-height: 1.35; margin: 16px 0; }
+    .phone { font-size: 18px; margin: 0; }
+    .url { color: var(--muted); word-break: break-all; }
+    @media print {
+      body { background: white; padding: 0; }
+      .top, .banner { display: none; }
+      .card { border: 0; margin: 0 auto; }
+    }
+  </style>
+</head>
+<body>
+  <header class="top">
+    <span class="mark">Scrub</span>
+    <a href="/">Back</a>
+  </header>
+  <article class="card">
+    <p class="kicker">On the table</p>
+    <h1>Scrub</h1>
+    <p class="ask">Call Scrub and ask for an instrument.</p>
+    <img src="qr.png" alt="QR code for the Scrub page">
+    <p id="url" class="url"></p>
+    <p class="phone">Photon number: [the number goes here]</p>
+  </article>
+  <script>
+    fetch("/api/public", { cache: "no-store" })
+      .then((response) => response.json())
+      .then((body) => { document.getElementById("url").textContent = body.url || ""; })
+      .catch(() => {});
+  </script>
+</body>
+</html>

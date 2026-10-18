@@ -9,19 +9,50 @@
 <body>
   <header class="top">
     <span class="mark">Scrub</span>
-    <a href="cases.html">Cases</a>
-    <span class="pill">count</span>
+    <nav>
+      <a href="cases.html">Cases</a>
+      <a href="card.html">Table card</a>
+    </nav>
   </header>
+
   <p id="status" class="banner" hidden></p>
-  <p class="trays">Operating room and robotics bench.</p>
+
   <main>
     <section>
-      <p class="kicker">Out</p>
-      <ul id="out" class="out"></ul>
+      <p class="kicker">What it is</p>
+      <p class="lead">Scrub is a robot arm that passes instruments when you ask out loud.</p>
+      <p>It picks the tool from the tray and brings it to an open hand, handle first. A scalpel goes to a fixed safe spot instead of hand to hand.</p>
+      <p>This demo is the operating room tray first, then the robotics bench. Same code, a different tray file.</p>
     </section>
+
+    <section>
+      <p class="kicker">How it works</p>
+      <pre class="diagram">phone on speaker
+  -&gt; Photon number -&gt; ElevenLabs voice agent -&gt; voice/ (Gemini turns words into a command)
+                                                   |
+                                                   v
+vision/ (camera: tray state + hand position) -&gt; controller/ -&gt; arm/ -&gt; Isaac 0.5 (Perceptron) -&gt; SO-101
+                                                   |
+                                                   v
+                                    ledger/ (MongoDB) + dashboard/ (web page)</pre>
+      <ol class="stack">
+        <li>A phone on speaker calls the Photon number.</li>
+        <li>ElevenLabs hears the words. Gemini turns them into one command from the current tray.</li>
+        <li>The camera reports the tray and the open hand.</li>
+        <li>Only the controller moves the arm. The Perceptron model runs on the SO-101.</li>
+        <li>This page and the ledger keep the count and the tables.</li>
+      </ol>
+    </section>
+
+    <section>
+      <p class="kicker">Out right now</p>
+      <ul id="out" class="out"></ul>
+      <p id="median" class="median">Median handoff</p>
+    </section>
+
     <section>
       <p class="kicker">Results</p>
-      <p id="median" class="median">Median handoff —</p>
+      <p class="note">Each rate includes the tries and a 95% range.</p>
       <div class="table-wrap">
         <table id="by-item">
           <caption>By item</caption>
@@ -39,6 +70,31 @@
         </table>
       </div>
       <p id="tables-empty" class="empty-note">No measured trials yet.</p>
+    </section>
+
+    <section>
+      <p class="kicker">Cases</p>
+      <ul id="replays" class="cases"></ul>
+    </section>
+
+    <section>
+      <p class="kicker">Team</p>
+      <p>Anish, Caiden, Brandon, Evan. DubHacks '26.</p>
+    </section>
+
+    <section>
+      <p class="kicker">Tracks</p>
+      <ul class="tracks">
+        <li><b>Community Kitchen.</b> Passing instruments so a clinician does not leave the patient to search the tray.</li>
+        <li><b>Perceptron Robotics.</b> The SO-101 arm and the Isaac 0.5 model trained on our demonstrations.</li>
+        <li><b>Perceptron Perception.</b> The overhead camera says which slots are full and whether the return spot is occupied.</li>
+        <li><b>Photon.</b> The phone call, and the summary text on the same thread.</li>
+        <li><b>DubHacks NEXT.</b> Later, a monthly fee per dental chair. Those tools are not on the table this weekend.</li>
+        <li><b>MLH Gemini API.</b> Turns speech into one command from the current tray.</li>
+        <li><b>MLH MongoDB Atlas.</b> Stores every event and every measured trial.</li>
+        <li><b>MLH Vultr.</b> Hosts this page.</li>
+        <li><b>MLH GoDaddy Registry.</b> The domain on the table card.</li>
+      </ul>
     </section>
   </main>
   <script src="app.js"></script>
