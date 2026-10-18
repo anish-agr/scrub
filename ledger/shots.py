@@ -4,12 +4,16 @@ Run from the repo root:
 
     python -m ledger.shots
 
-Starts `python -m controller --fake-arm` and `python -m vision --fake` if those
-ports are free, runs one hemostat handover, and writes PNGs under docs/media/.
+Uses :8000 (controller), :8001 (vision) and :8080 (ledger page). Starts
+`python -m controller --fake-arm`, `python -m vision --fake` and `python -m ledger serve`
+on whichever of those ports are free, runs one hemostat handover on the controller
+at :8000 (refused if it is on the real arm), rewrites the PNGs under docs/media/
+(tracked), then stops what it started. Run it only with no live stack.
 """
 
 from __future__ import annotations
 
+import argparse
 import json
 import shutil
 import subprocess
@@ -111,8 +115,7 @@ def _wait(url: str, seconds: float = 20) -> None:
     raise SystemExit(f"never answered: {url}")
 
 
-def run_case() -> str:
-    started = []
+def run_case(started: list) -> str:
     if not _up("http://127.0.0.1:8000/state"):
         started.append(_start([PY, "-m", "controller", "--fake-arm"], "controller.log"))
         _wait("http://127.0.0.1:8000/state")
@@ -176,8 +179,28 @@ def run_case() -> str:
     return case_id
 
 
+def _stop(started: list) -> None:
+    for proc in started:
+        if proc.poll() is None:
+            proc.terminate()
+    for proc in started:
+        try:
+            proc.wait(10)
+        except subprocess.TimeoutExpired:
+            proc.kill()
+
+
 def main() -> None:
-    case_id = run_case()
+    argparse.ArgumentParser(prog="python -m ledger.shots", description=__doc__,
+                            formatter_class=argparse.RawDescriptionHelpFormatter).parse_args()
+    started: list = []
+    try:
+        _shots(run_case(started))
+    finally:
+        _stop(started)  # never leave a controller, vision or ledger page behind
+
+
+def _shots(case_id: str) -> None:
     chrome = _chrome()
     pages = [
         ("http://127.0.0.1:8000/", MEDIA / "dashboard.png", 1280, 1500),
