@@ -4,8 +4,8 @@ import { randomUUID } from "node:crypto";
 import { CONTROLLER_URL, JUDGE_TTL_MS } from "./config.js";
 
 // read_sheet, read_tray, read_pack (optional, the OCR pass): item is null; the answer comes as a `read` event.
-export type Action = "handover" | "return" | "count" | "stop" | "got_it" | "unknown" | "read_sheet" | "read_tray" | "read_pack";
-export const ACTIONS: Action[] = ["handover", "return", "count", "stop", "got_it", "unknown", "read_sheet", "read_tray", "read_pack"];
+export type Action = "handover" | "return" | "count" | "stop" | "got_it" | "let_go" | "unknown" | "read_sheet" | "read_tray" | "read_pack";
+export const ACTIONS: Action[] = ["handover", "return", "count", "stop", "got_it", "let_go", "unknown", "read_sheet", "read_tray", "read_pack"];
 
 export interface Command {
   id: string; action: Action; item: string | null; heard: string; source: "voice"; t: number;

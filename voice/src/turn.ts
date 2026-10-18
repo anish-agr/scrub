@@ -4,7 +4,7 @@
 import { HOLD_S } from "./config.js";
 import { SETTING_IDS, settingAsked, switchSetting } from "./cases.js";
 import { followEvents, getStats, JUDGE_LINE, judgeMode, makeCommand, noteJudge, postCommand, postStop, type ScrubEvent } from "./controller.js";
-import { countTurn, isEndCase, isStop, isTrayCheck, parse, parseAlias } from "./parse.js";
+import { countTurn, isEndCase, isLetGo, isStop, isTrayCheck, parse, parseAlias } from "./parse.js";
 import { currentSetting, forgetSetting, teach } from "./settings.js";
 import { canText, endCase, recordEvent } from "./summary.js";
 import { voiceTrayCheck } from "./tray.js";
@@ -28,6 +28,7 @@ let lastLine: { text: string; t: number; cmd?: string | null } = { text: "", t: 
 const DONE: Record<string, string[]> = {
   handover: ["handed", "released", "set_down", "missed", "stopped", "error", "clarify"],
   got_it: ["released", "stopped", "error"],
+  let_go: ["released", "stopped", "error"],
   return: ["returned", "missed", "stopped", "error", "clarify"],
   count: ["count", "error"],
   stop: ["stopped"],
@@ -147,6 +148,18 @@ async function stopNow(hold: Hold, clock: Clock) {
   hold(DONE.stop, 1.5);
 }
 
+async function letGoNow(heard: string, hold: Hold, clock: Clock) {
+  dialogue.clear(undefined, "let_go");
+  const cmd = makeCommand("let_go", null, heard);
+  console.log("[command] let_go");
+  const sent = posting(clock);
+  const reply = await io.postCommand(cmd);
+  clock.tm.controller_ms = Date.now() - sent;
+  speak(reply.say, true, cmd.id);
+  if (!reply.accepted) console.log(`[command] rejected: ${reply.reason}`);
+  hold(reply.accepted ? DONE.let_go : [], reply.accepted ? HOLD_S : 1, cmd.id);
+}
+
 // The turn's timings and when its request arrived.
 type Clock = { tm: TurnTiming; t0: number };
 const posting = ({ tm, t0 }: Clock) => { const now = Date.now(); tm.heard_to_command_ms = now - t0; return now; };
@@ -155,6 +168,7 @@ async function run(heard: string, clock: Clock, hold: Hold, context: string, sig
   const say = (line: string) => speak(line, false, undefined, context);
   // Stop first, before Gemini or anything else that takes time.
   if (isStop(heard)) { clock.tm.parser = "local"; return stopNow(hold, clock); }
+  if (isLetGo(heard)) { clock.tm.parser = "local"; return letGoNow(heard, hold, clock); }
   dialogue.bind(context, (line) => speak(line, false, undefined, context));
   const version = dialogue.version();
   const stale = () => signal?.aborted || dialogue.version() !== version;

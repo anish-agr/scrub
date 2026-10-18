@@ -91,6 +91,7 @@ class Runtime:
     hand_period: float = 0.1
     tray_period: float = 1.0
     include_extra_categories: bool = True
+    fake: bool = False
     calibration: dict | None = None
     heights: dict = field(default_factory=dict)
     heights_path: Path | None = None
@@ -465,6 +466,7 @@ def build_runtime(
     calibration_path: Path | None = None,
     heights_path: Path | None = None,
     fake_calibration: bool = False,
+    fake: bool = False,
 ) -> Runtime:
     repo = repo or ROOT
     controller_url = controller_url or os.environ.get("CONTROLLER_URL", "http://localhost:8000")
@@ -501,6 +503,7 @@ def build_runtime(
         controls=controls or {},
         include_extra_categories=os.environ.get("VISION_EXTRA_CATEGORIES", "1") != "0",
         local_detector=_local_detector(),
+        fake=fake,
     )
 
 

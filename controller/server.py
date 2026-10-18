@@ -284,7 +284,7 @@ const cmd=(action,item)=>post('/command',{action,item,source:'dashboard',t:Date.
 async function refresh(){const s=await (await fetch('/state')).json();document.getElementById('state').textContent=JSON.stringify(s)}
 async function init(){const s=await (await fetch('/setting')).json();
  const b=document.getElementById('btns');(s?s.items:[]).forEach(i=>{const e=document.createElement('button');e.textContent=i.name;e.onclick=()=>cmd('handover',i.id);b.append(e)});
- [['return',null],['count',null],['got_it',null]].forEach(([a])=>{const e=document.createElement('button');e.textContent=a;e.onclick=()=>cmd(a,null);b.append(e)})}
+ [['return',null],['count',null],['got_it',null],['let_go',null]].forEach(([a])=>{const e=document.createElement('button');e.textContent=a;e.onclick=()=>cmd(a,null);b.append(e)})}
 const ws=new WebSocket(`ws://${location.host}/events`);ws.onmessage=m=>{const e=JSON.parse(m.data);const l=document.getElementById('log');
  l.textContent=`${new Date(e.t*1000).toLocaleTimeString()} ${e.type} ${e.step||''} ${e.item||''} ${e.say?'"'+e.say+'"':''}\\n`+l.textContent;refresh()};
 document.onkeydown=e=>{if(e.code==='Space'){e.preventDefault();post('/stop')}};init();refresh();

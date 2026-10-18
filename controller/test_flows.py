@@ -326,6 +326,29 @@ def got_it_releases():
 
 
 @test
+def let_go_opens_the_clasp_at_the_hand():
+    ctl, arm = make(pull_s=None)
+    threading.Thread(target=lambda: ctl.submit(dict(HANDOVER)), daemon=True).start()
+    assert wait_for(lambda: ctl.step == "waiting_for_pull")
+    reply = ctl.submit({"action": "let_go", "heard": "let go", "source": "voice"})
+    assert reply["accepted"] and reply["say"] == lines.LET_GO
+    assert wait_for(lambda: ctl.step == "idle" and arm._gripper == 0.0 and ctl.out == ["hemostat"])
+
+
+@test
+def let_go_opens_while_carrying_and_does_nothing_when_empty():
+    ctl, arm = make(pull_s=30)
+    threading.Thread(target=lambda: ctl.submit(dict(HANDOVER)), daemon=True).start()
+    assert wait_for(lambda: ctl.step == "moving_to_hand" and ctl.held == "hemostat")
+    reply = ctl.submit({"action": "let_go", "heard": "let go", "source": "voice"})
+    assert reply["accepted"] and reply["say"] == lines.LET_GO
+    assert wait_for(lambda: arm._gripper == 0.0 and ctl.held is None and "hemostat" in ctl.out)
+    assert wait_for(lambda: ctl.step == "idle" and ctl.cmd is None)
+    empty = ctl.submit({"action": "let_go", "source": "voice"})
+    assert not empty["accepted"] and empty["say"] == lines.NOT_HOLDING and empty["reason"] == "not holding"
+
+
+@test
 def sharp_goes_to_safe_spot_with_timer():
     ctl, arm = make()
     _, evs = run(ctl, {"action": "handover", "item": "scalpel"})
@@ -341,6 +364,34 @@ def sharp_acknowledged_as_safe_spot_not_coming():
     assert reply["accepted"] and reply["say"] == "Scalpel to the safe spot."
     cmd = next(e for e in evs if e["type"] == "command")
     assert cmd["say"] == "Scalpel to the safe spot." and "coming" not in " ".join(says(evs))
+    assert lines.sharp_seen("scalpel") in says(evs)
+
+
+@test
+def camera_sharp_warns_before_the_arm_hands_it_out():
+    ctl, arm = make()
+    seen = []
+
+    def camera(item_id):
+        seen.append(item_id)
+        return item_id == "hemostat"
+
+    import controller.sharpness as sharpness
+    old = sharpness.camera_says_sharp
+    sharpness.camera_says_sharp = camera
+    # core imported the function directly, so patch that binding too.
+    old_core = core.camera_says_sharp
+    core.camera_says_sharp = camera
+    try:
+        _, evs = run(ctl, HANDOVER)
+    finally:
+        sharpness.camera_says_sharp = old
+        core.camera_says_sharp = old_core
+    assert seen == ["hemostat"]
+    warning = next(i for i, e in enumerate(evs) if e.get("say") == lines.sharp_seen("hemostat"))
+    move = next(i for i, e in enumerate(evs) if e.get("step") == "moving_to_hand")
+    assert warning < move, [e.get("type") for e in evs]
+    assert "handed" in types(evs)
 
 
 @test
