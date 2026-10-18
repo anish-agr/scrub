@@ -71,7 +71,7 @@ How to read this:
 2. **A checked grasp.** The gripper checks each pick before carrying.
 3. **Gentle motion.** Speed and joint limits on every move, and the arm slows as it nears the handoff point. It lets go only on a pull or "got it", then goes home.
 4. **Stop.** "Stop" freezes the arm until a person resets it.
-5. **Heat.** The thermal guard reads motor temperatures twice a second and rests the arm with torque off.
+5. **Heat.** The thermal guard reads motor temperatures every 2 s while it drives the arm and rests it with torque off.
 
 Success rates by item and lighting go here only once real tries are logged.
 

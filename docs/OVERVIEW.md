@@ -169,7 +169,7 @@ Targets per item are in `docs/TRAINING.md`. The step-by-step operator walkthroug
 - After a stop, a person must reset before Scrub moves again.
 - Speed and joint limits on every move, and the arm slows as it nears the handoff point.
 - A grasp check before carrying, and release only on a pull or "got it".
-- The thermal guard reads motor temperatures twice a second and rests the arm with torque off.
+- The thermal guard reads motor temperatures every 2 s while it drives the arm and rests it with torque off.
 - After each handoff the arm goes straight home.
 - A late or stale model move is never executed; the arm holds instead.
 - The gripper eases off before overloading; motor heat and stalls are watched.
