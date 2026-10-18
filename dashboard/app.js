@@ -24,6 +24,8 @@ const SETTINGS = {
       { id: "needle_nose_pliers", name: "needle-nose pliers", sharp: false },
       { id: "wire_cutters", name: "wire cutters", sharp: false },
       { id: "hex_key", name: "hex key", sharp: false },
+      { id: "flathead_screwdriver", name: "flathead screwdriver", sharp: false },
+      { id: "phillips_screwdriver", name: "Phillips screwdriver", sharp: false },
     ],
   },
 };
@@ -156,6 +158,21 @@ function render() {
   }
 
   const log = $("log");
+  const question = scrubWaitingQuestion(model.events);
+  const waiting = $("waiting-question");
+  waiting.hidden = !question;
+  waiting.replaceChildren();
+  if (question) {
+    const row = document.createElement("li");
+    const time = document.createElement("time");
+    time.textContent = clock(question.t);
+    const kind = document.createElement("span");
+    kind.textContent = "Waiting";
+    const line = document.createElement("span");
+    line.textContent = question.say;
+    row.append(time, kind, line);
+    waiting.appendChild(row);
+  }
   const atBottom = log.scrollHeight - log.scrollTop - log.clientHeight < 24;
   log.replaceChildren();
   if (!model.events.length) {
@@ -178,6 +195,10 @@ function render() {
     if (event.say) bits.push(event.say);
     else if (event.type === "read" && event.read && event.read.kind) {
       bits.push(String(event.read.kind).replaceAll("_", " ") + (event.read.ok === false ? " not read" : " read"));
+    }
+    if (event.type === "clarify_answer") {
+      if (event.answer) bits.push(event.answer);
+      if (event.answer_ms != null) bits.push(`${(Number(event.answer_ms) / 1000).toFixed(1)} s to answer`);
     }
     if (event.type === "count" && Array.isArray(event.sheet_mismatch) && event.sheet_mismatch.length) {
       bits.push("sheet mismatch: " + event.sheet_mismatch.map((m) => nameOf(m.item)).join(", "));
