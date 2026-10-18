@@ -97,7 +97,7 @@ def make_app(ctl: Controller, extra=None) -> FastAPI:
     @app.post("/setting")
     async def setting(body: Setting):
         try:
-            return ctl.set_setting(body.setting)
+            return await asyncio.to_thread(ctl.set_setting, body.setting)  # the sim arm rebuilds its scene: off the loop
         except KeyError:
             raise HTTPException(404, f"no setting {body.setting!r}")
         except RuntimeError:

@@ -14,7 +14,7 @@ Two plain HTML + JS pages (no build step) for the simulation track. Style: print
 
 ## layout.html
 
-Top-down designer. Drag the tray (moves its slots), each slot, return spot, safe spot, hand zone, overhead camera. Reach check for every element (pick and approach height) through `POST /reach/batch`, otherwise a local 2-link-plus-wrist estimate with link lengths read from the URDF, labeled "estimate". Kit builder: setting and procedure (basic dissection, suture removal, laceration repair, dental cleaning, filling, exam, solder a header, servo swap, frame assembly) list tray items, missing items, instruments without an arm skill yet, and spares and consumables; add and remove items and slots. Suggestions are **rule-based for now**, each with a reason and an Apply button. "Ask for suggestions" is a stub that only shows the request it would POST to the controller. Usage counts come from `GET /stats` on the controller when readable, else mock counts.
+Top-down designer. Drag the tray (moves its slots), each slot, return spot, safe spot, hand zone, overhead camera. Reach check for every element (pick and approach height) through `POST /reach/batch`, otherwise a local 2-link-plus-wrist estimate with link lengths read from the URDF, labeled "estimate". Kit builder: setting and procedure (surgical first: basic dissection, suture removal, laceration repair; then bench: solder a header, servo swap, frame assembly) list tray items, missing items, instruments without an arm skill yet, and spares and consumables; add and remove items and slots. Suggestions are **rule-based for now**, each with a reason and an Apply button. "Ask for suggestions" is a stub that only shows the request it would POST to the controller. Usage counts come from `GET /stats` on the controller when readable, else mock counts.
 
 Export: `layout.json` in the sim's own format (tray center/size, slots as `[x,y]`, `setting_items` in slot order, etc.; other keys of the sim file are kept untouched), PUT to `/layout` when the sim is up, else copy or download. Also `settings/<id>.json` per `docs/CONTRACTS.md` (slot and return_spot are `null` until the camera is mounted; item ids and order are filled). The layout autosaves to browser localStorage (`scrub.layout`) and the viewer picks it up.
 
@@ -25,5 +25,5 @@ Sim (8002): `GET /state`, `GET /reach`, `POST /reach/batch`, `GET/PUT /layout`, 
 ## Notes and unknowns
 
 - Axes: base frame, x forward, y left, z up, URDF base_link. Positive shoulder_pan swings toward negative y (to the arm's right) in this URDF.
-- Sharp flags in the item catalog (scalpel, Mayo scissors, explorer, wire cutters) are my guess; settings files are Evan's.
+- Sharp flags in the item catalog (scalpel, Mayo scissors, wire cutters) are my guess; settings files are Evan's.
 - Custom kit items are not sent to the sim (it has no skill for them).
