@@ -289,7 +289,10 @@ class TestChildren(unittest.TestCase):
         time.sleep(0.5)
         t0 = time.time()
         st.stop()
-        self.assertEqual(ch.proc.returncode, -signal.SIGTERM)
+        if os.name == "nt":  # Windows process groups receive CTRL_BREAK rather than POSIX SIGTERM.
+            self.assertNotEqual(ch.proc.returncode, 0)
+        else:
+            self.assertEqual(ch.proc.returncode, -signal.SIGTERM)
         self.assertLess(time.time() - t0, 8)
 
     def test_crash_names_the_child(self):
