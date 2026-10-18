@@ -1007,7 +1007,7 @@ class AutoPick:
 
 
 # ---- calibrate: the arm maps the side camera to the table by itself (no network, no person)
-CAL_XS = (0.16, 0.22, 0.28)        # 3 x 4 grid inside the arm's comfortable reach (not tied to any table):
+CAL_XS = (0.22, 0.31, 0.40)        # 3 x 4 grid over where the instruments lie (the arm reaches past 0.44):
 CAL_YS = (-0.12, -0.04, 0.04, 0.12)  # ~1.5 min and ~45% of the old 4 x 5 grid's jaw work
 CAL_Z = (0.08, 0.045)      # jaw tip heights (m), extrapolated down to the grasp height. The jaw tape hides magnets:
                            # at 0.0 (2.5 cm over the table) it pulled an instrument up, so stay ~6+ cm above
@@ -1015,6 +1015,12 @@ CAL_SETTLE_S = 0.6
 
 
 def tape_pair(high_bgr, low_bgr):
+    """Best candidate of tape_pairs, or None."""
+    c = tape_pairs(high_bgr, low_bgr)
+    return c[0] if c else None
+
+
+def tape_pairs(high_bgr, low_bgr, keep=6):
     """Jaw tip pixels (high, low) from two still frames of the same spot, jaw lowered between them; no claw
     movement needed. The black fingertip tape is a dark spot that appears in the low frame where the high
     frame was bright, and one that disappears from the high frame. A straight-down move puts the low spot
@@ -1034,16 +1040,16 @@ def tape_pair(high_bgr, low_bgr):
                 tip = ys >= np.percentile(ys, 70)  # bottom of the tape = the fingertip
                 out.append((float(xs[tip].mean()), float(ys[tip].mean()), len(xs)))
         return out
-    best = None
+    cand = []
     for uh, vh, ah in blobs(gh, gl):
         for ul, vl, al in blobs(gl, gh):
             dv, du = vl - vh, abs(ul - uh)
             if not (4 <= dv <= 120 and du <= 0.6 * dv + 12 and 0.33 <= al / ah <= 3):
                 continue
-            score = ah + al - 2 * du
-            if best is None or score > best[0]:
-                best = (score, (uh, vh), (ul, vl))
-    return None if best is None else best[1:]
+            # the arm's black servos move straight down too: keep several; the fit picks the consistent one
+            cand.append((4 * vl + 0.05 * (ah + al) - 2 * du, (uh, vh), (ul, vl)))
+    cand.sort(key=lambda c: -c[0])
+    return [c[1:] for c in cand[:keep]]
 
 
 def blue_tape(bgr):
@@ -1059,6 +1065,51 @@ def blue_tape(bgr):
     return float(cen[best][0]), float(cen[best][1])
 
 
+def fit_spots(spots, zg, tol=0.02, iters=3000, seed=0):
+    """Pixel -> table map at the grasp height from calibration spots, each with several tape candidates
+    (the arm's black servos look like tape too). RANSAC over spots *and* candidates: the map that the most
+    spots agree with (each through its best candidate) wins. None if fewer than 4 spots."""
+    import cv2
+    rows = []
+    for sp in spots:
+        th, tl = np.array(sp["tip_high"]), np.array(sp["tip_low"])
+        if abs(th[2] - tl[2]) < 0.01 or not sp["cands"]:
+            continue
+        k = (zg - tl[2]) / (th[2] - tl[2])  # straight-line extrapolation down to the grasp height
+        xy = tl[:2] + (th[:2] - tl[:2]) * k
+        px = [np.array(pl) + (np.array(ph) - np.array(pl)) * k for ph, pl in sp["cands"]]
+        rows.append((xy, px))
+    if len(rows) < 4:
+        return None
+
+    def apply(H, p):
+        q = H @ np.array([p[0], p[1], 1.0])
+        return q[:2] / q[2]
+    rng = np.random.default_rng(seed)
+    best = []
+    for _ in range(iters):
+        pick = rng.choice(len(rows), 4, replace=False)
+        src = np.array([rows[i][1][rng.integers(len(rows[i][1]))] for i in pick], float)
+        H, _ = cv2.findHomography(src, np.array([rows[i][0] for i in pick], float), 0)
+        if H is None:
+            continue
+        chosen = []
+        for xy, cands in rows:
+            e = [np.linalg.norm(apply(H, c) - xy) for c in cands]
+            j = int(np.argmin(e))
+            if e[j] < tol:
+                chosen.append((cands[j], xy))
+        if len(chosen) > len(best):
+            best = chosen
+    if len(best) < 4:
+        return {"agree": len(best)}
+    src, dst = np.array([c[0] for c in best]), np.array([c[1] for c in best])
+    H, _ = cv2.findHomography(src, dst, 0)
+    err = np.array([np.linalg.norm(apply(H, s_) - d_) for s_, d_ in zip(src, dst)])
+    return {"H": H.tolist(), "agree": len(best), "err_cm_median": float(np.median(err) * 100),
+            "err_cm_max": float(err.max() * 100)}
+
+
 class Calibrate:
     """Visit a grid over the tray at two heights with the jaw closed, find the tape at each stop, fit the
     pixel -> table homography at the grasp height, save it to autopick_calib.json (old one kept), go home."""
@@ -1066,6 +1117,7 @@ class Calibrate:
     def __init__(self, ap: AutoPick, st):
         self.ap, self.kin, self.cal = ap, ap.kin, ap.cal
         self.samples: list[dict] = []
+        self.spots: list[dict] = []
         self.phase, self.detail, self.progress = "calibrate", "", 0.0
         seed = list(self.cal["demos"][0]["grasp_deg"][:5])
         cur = {m: float(st.joints[m]) for m in JOINTS}
@@ -1134,7 +1186,8 @@ class Calibrate:
         if len(got) < 2 or any(g["frame"] is None for g in got):
             return
         hi, lo = sorted(got, key=lambda g: -g["z"])[:2]
-        pair = tape_pair(hi["frame"], lo["frame"])
+        cands = tape_pairs(hi["frame"], lo["frame"])
+        pair = cands[0] if cands else None
         try:  # keep every pair: lets the jaw finder be checked and tuned later
             import cv2
             d = FRAMES_DIR / f"calibrate-{self.stamp}"
@@ -1147,47 +1200,28 @@ class Calibrate:
                                     "joints_low": lo["joints"]}) + "\n")
         except Exception:  # noqa: BLE001
             pass
-        if pair is None:
+        if not cands:
             return
-        for g, px in ((hi, pair[0]), (lo, pair[1])):
-            q = np.array([g["joints"][m] for m in JOINTS])  # where the arm really was, not where it was told
-            tip = np.asarray(self.kin.forward(q), float)
-            self.samples.append({"grid": [key[0], key[1], g["z"]], "px": list(px), "tip": tip.round(4).tolist()})
+        th, tl = (np.asarray(self.kin.forward(np.array([g["joints"][m] for m in JOINTS])), float) for g in (hi, lo))
+        self.spots.append({"grid": list(key), "tip_high": th.round(4).tolist(), "tip_low": tl.round(4).tolist(),
+                           "cands": [[list(ph), list(pl)] for ph, pl in cands]})
 
     def _fit(self, st):
-        import cv2
-        zg = self.cal["grasp_z_m"]
-        by = {}
-        for smp in self.samples:
-            by.setdefault(tuple(smp["grid"][:2]), []).append(smp)
-        pix, xy = [], []
-        for pair in by.values():
-            if len(pair) < 2:
-                continue
-            a, b = sorted(pair, key=lambda s_: s_["tip"][2])[:2]  # low, high
-            dz = b["tip"][2] - a["tip"][2]
-            if abs(dz) < 0.01:
-                continue
-            k = (zg - a["tip"][2]) / dz  # straight-line extrapolation of the tape pixel and tip down to the grasp height
-            pix.append([a["px"][i] + (b["px"][i] - a["px"][i]) * k for i in range(2)])
-            xy.append([a["tip"][i] + (b["tip"][i] - a["tip"][i]) * k for i in range(2)])
-        out = {"t": time.time(), "samples": self.samples, "pairs": len(pix)}
-        if len(pix) < 6:
-            self.phase, self.detail = "calibrate failed", f"only {len(pix)} usable grid points (need 6): is the tape in view?"
+        res = fit_spots(self.spots, self.cal["grasp_z_m"])
+        out = {"t": time.time(), "spots": self.spots, **({k: v for k, v in res.items() if k != "H"} if res else {})}
+        if res is None or res["agree"] < 6:
+            n = 0 if res is None else res["agree"]
+            self.phase, self.detail = "calibrate failed", (f"only {n} of {len(self.spots)} grid spots agree (need 6): "
+                                                           "is the jaw in view at every spot? old map kept")
             st.note("autopick calibrate: " + self.detail)
         else:
-            Hm, inl = cv2.findHomography(np.array(pix), np.array(xy), cv2.RANSAC, 0.02)  # coarse map; the wrist camera refines
-            P = np.c_[np.array(pix), np.ones(len(pix))] @ Hm.T
-            err = np.linalg.norm(P[:, :2] / P[:, 2:] - np.array(xy), axis=1)
-            good = inl.ravel().astype(bool)
-            out.update({"H": Hm.tolist(), "err_cm_median": float(np.median(err[good]) * 100),
-                        "err_cm_max": float(err[good].max() * 100), "inliers": int(good.sum())})
+            out["H"] = res["H"]
             cal = load_calib()
             cal["table_H_prev"] = cal.get("table_H")
-            cal["table_H"] = Hm.tolist()
-            cal["table_H_from"] = (f"autopick calibrate {time.strftime('%Y-%m-%d %H:%M')}: {int(good.sum())}/{len(pix)} grid "
-                                   f"points, median {out['err_cm_median']:.1f} cm, max {out['err_cm_max']:.1f} cm")
-            cal["workspace_m"] = {"x": [min(CAL_XS) - 0.02, max(CAL_XS) + 0.02], "y": [min(CAL_YS) - 0.02, max(CAL_YS) + 0.02]}
+            cal["table_H"] = res["H"]
+            cal["table_H_from"] = (f"autopick calibrate {time.strftime('%Y-%m-%d %H:%M')}: {res['agree']}/{len(self.spots)} "
+                                   f"grid spots agree, median {res['err_cm_median']:.1f} cm, max {res['err_cm_max']:.1f} cm")
+            cal["workspace_m"] = {"x": [min(CAL_XS) - 0.03, max(CAL_XS) + 0.06], "y": [min(CAL_YS) - 0.04, max(CAL_YS) + 0.04]}
             (HERE / "autopick_calib.json").write_text(json.dumps(cal, indent=1) + "\n")
             self.ap.cal.update(cal)
             self.phase, self.detail = "calibrated", cal["table_H_from"]
