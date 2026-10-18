@@ -239,4 +239,7 @@ Everything planned is built and its tests pass (`team/STATE.md`). These are open
 
 | What | Who | Why it is still open |
 | --- | --- | --- |
+| Link the judges' data page: add `<a href="data.html">Data</a>` after the Memory link in each `ledger/public/*.html` nav, and add `data.html` to `PAGES` in `design/test_ui.py` | Evan | Chat D could only add `ledger/public/data.html` and `/api/data` |
+| Training data: drop and re-record the episodes listed in `team/NOTES-DATA.md` (regenerated every 30 min by `.venv/bin/python -m explore.analysis`) before a training job | Chat A (Anish) | the list changes as episodes arrive |
+| The 344 `fake_arm: false` events in Atlas from before 2:20 AM are leaked test runs (0.4 s handoffs), not the arm. `explore.analysis` leaves them out; filter them from any public table too (do not delete without the team) | Evan | read-only data chat |
 | `video/` test `test_every_command_on_markerless_synthetic_assets` fails in a fresh worktree because the Playwright browser is not installed under `data/video/browser`. Install it once: `PLAYWRIGHT_BROWSERS_PATH=$PWD/data/video/browser .venv/bin/python -m playwright install chromium` | Caiden | environment setup, only on a new checkout |
