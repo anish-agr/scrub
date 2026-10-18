@@ -3,10 +3,13 @@ function clock(t) {
 }
 
 function paint(report) {
-  const source = document.getElementById("source");
-  source.textContent = report.source === "tiger"
-    ? "These minutes are read from the Tiger Data hypertable."
-    : "Tiger Data is not connected, so these minutes are counted from the local ledger. Set TIGER_DATABASE_URL to store them there.";
+    const tiger = report.source === "tiger";
+  const word = document.getElementById("source-word");
+  word.textContent = tiger ? "Tiger Data hypertable" : "Local ledger";
+  word.className = tiger ? "status-word live" : "status-word wait";
+  document.getElementById("source-text").textContent = tiger
+    ? "These minutes are read from the scrub_handoff hypertable in Tiger Data."
+    : "Tiger Data is not connected, so these minutes are counted from the ledger. The page switches to the hypertable once the database is set.";
   const bars = document.getElementById("bars");
   const buckets = Array.isArray(report.buckets) ? report.buckets : [];
   bars.replaceChildren();
@@ -25,7 +28,7 @@ function paint(report) {
     track.appendChild(fill);
     const count = document.createElement("span");
     const median = row.median_s == null ? "" : `, ${Number(row.median_s).toFixed(1)} s`;
-    count.textContent = `${row.n} (${row.real} real${median})`;
+    count.textContent = `${row.n} ${Number(row.n) === 1 ? "handoff" : "handoffs"}, ${row.real} real${median}`;
     line.append(label, track, count);
     bars.appendChild(line);
   });

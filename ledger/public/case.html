@@ -6,16 +6,18 @@
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>Scrub case</title>
   <link rel="stylesheet" href="style.css">
-  <style>
-    #case-id{font-family:var(--m);letter-spacing:.04em}.summary{max-width:70ch;margin:20px 0 28px}
-    .timeline{max-width:1100px}.timeline li{padding:12px 0}.caption{font-size:.9em;opacity:.75;margin-top:4px}
-  </style>
+  <link rel="stylesheet" href="pages.css">
 </head>
 <body class="scrub-ui" data-page="case">
   <header class="top">
     <div><span class="mark">Scrub</span><span class="subtitle">Case replay</span></div>
-    <a href="cases.html">Cases</a>
-    <span class="pill">replay</span>
+    <nav>
+      <a href="/">Count</a>
+      <a href="cases.html" aria-current="page">Cases</a>
+      <a href="series.html">Series</a>
+      <a href="memory.html">Memory</a>
+      <a href="card.html">Table card</a>
+    </nav>
   </header>
   <p id="status" class="banner warning" role="status" hidden></p>
   <main>
@@ -23,10 +25,11 @@
       <p class="kicker" id="case-id">Case</p>
       <h1>Requests and count</h1>
       <p id="summary" class="summary"></p>
+      <button id="toggle-steps" class="toggle" type="button" hidden></button>
       <ol id="timeline" class="timeline"></ol>
     </section>
   </main>
-  <footer>Team Scrub · DubHacks '26 <a href="#">Terms</a><a href="#">Privacy</a></footer>
+  <footer>Team Scrub · DubHacks '26</footer>
   <script src="cases.js"></script>
 </body>
 </html>

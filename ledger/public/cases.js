@@ -16,7 +16,7 @@ function nameOf(itemId) {
 
 function clock(t) {
   if (t == null) return "";
-  return new Date(Number(t) * 1000).toLocaleString([], { hour12: false });
+  return new Date(Number(t) * 1000).toLocaleTimeString([], { hour12: false });
 }
 
 function showError(text) {
@@ -24,6 +24,8 @@ function showError(text) {
   status.hidden = false;
   status.textContent = text;
 }
+
+let shown = 25;
 
 async function loadCases() {
   const list = document.getElementById("cases");
@@ -39,13 +41,30 @@ async function loadCases() {
       list.appendChild(empty);
       return;
     }
-    rows.forEach((row) => {
+    const total = rows.length;
+    const more = document.getElementById("more");
+    if (more) {
+      more.hidden = total <= shown;
+      more.textContent = `Show more (${total - shown} older)`;
+      more.onclick = () => { shown += 50; loadCases(); };
+    }
+    const note = document.getElementById("cases-count");
+    if (note) note.textContent = `${total} ${total === 1 ? "case" : "cases"} in the ledger, newest first.`;
+    rows.slice(0, shown).forEach((row) => {
       const li = document.createElement("li");
       const link = document.createElement("a");
       link.href = `case.html?id=${encodeURIComponent(row.case_id)}`;
       const held = (row.out || []).map(nameOf).join(", ") || "nothing out";
       const count = Number(row.n) || 0;
-      link.textContent = `${row.case_id} · ${row.setting || "case"} · ${count} ${count === 1 ? "event" : "events"} · ${held}`;
+      const id = document.createElement("b");
+      id.textContent = row.case_id;
+      const setting = document.createElement("span");
+      setting.className = "meta";
+      setting.textContent = row.setting || "case";
+      const rest = document.createElement("span");
+      rest.className = "meta";
+      rest.textContent = `${count} ${count === 1 ? "event" : "events"} · ${held}`;
+      link.append(id, setting, rest);
       li.appendChild(link);
       list.appendChild(li);
     });
@@ -72,29 +91,56 @@ async function loadCase() {
     }
     events.forEach((event) => {
       const li = document.createElement("li");
-      const bits = [clock(event.t), event.type];
+      li.className = "ev" + (event.type === "step" ? " minor" : "");
+      const time = document.createElement("time");
+      time.textContent = clock(event.t);
+      const type = document.createElement("span");
+      type.className = "type " + String(event.type || "").replace(/[^a-z_]/g, "");
+      type.textContent = String(event.type || "").replaceAll("_", " ");
+      const what = document.createElement("span");
+      const bits = [];
       if (event.item) bits.push(nameOf(event.item));
+      if (event.step && event.type === "step") bits.push(String(event.step).replaceAll("_", " "));
       if (event.say) bits.push(event.say);
-      if (event.request_to_hand_s != null) bits.push(`${Number(event.request_to_hand_s).toFixed(1)} s`);
       if (event.skill_source) bits.push(event.skill_source === "taught" ? "taught skill" : "model");
-      if (Array.isArray(event.out)) bits.push("out: " + (event.out.map(nameOf).join(", ") || "nothing"));
       if (event.read_line) {
-        bits.length = 1;
+        bits.length = Math.min(bits.length, 1);
         bits.push(event.read_line);
         if (event.say) bits.push(event.say);
       }
       if (Array.isArray(event.sheet_mismatch) && event.sheet_mismatch.length) {
         bits.push("sheet mismatch: " + event.sheet_mismatch.map((m) => `${nameOf(m.item)} sheet ${m.sheet}, scrub ${m.scrub}`).join("; "));
       }
-      li.textContent = bits.join(" · ");
+      what.textContent = bits.join(" · ");
+      const secs = document.createElement("span");
+      secs.className = "secs";
+      secs.textContent = event.request_to_hand_s != null ? `${Number(event.request_to_hand_s).toFixed(1)} s` : "";
+      li.append(time, type, what, secs);
+      if (Array.isArray(event.out)) {
+        const held = document.createElement("span");
+        held.className = "out-line";
+        held.textContent = "out: " + (event.out.map(nameOf).join(", ") || "nothing");
+        li.appendChild(held);
+      }
       if (event.caption && event.caption.label) {
-        const note = document.createElement("div");
+        const note = document.createElement("span");
         note.className = "caption";
         note.textContent = `Camera: ${event.caption.label}` + (event.caption.disagrees ? " (camera disagrees)" : "");
         li.appendChild(note);
       }
       list.appendChild(li);
     });
+    const steps = list.querySelectorAll(".minor").length;
+    const toggle = document.getElementById("toggle-steps");
+    if (toggle && steps) {
+      toggle.hidden = false;
+      list.classList.add("compact");
+      toggle.textContent = `Show ${steps} step lines`;
+      toggle.onclick = () => {
+        const compact = list.classList.toggle("compact");
+        toggle.textContent = compact ? `Show ${steps} step lines` : "Hide step lines";
+      };
+    }
   } catch (error) {
     showError("That case is not in the ledger.");
   }

@@ -6,19 +6,17 @@
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>Scrub memory</title>
   <link rel="stylesheet" href="style.css">
-  <style>
-    main{display:grid;grid-template-columns:minmax(0,1.2fr) minmax(0,1fr);gap:32px}
-    label[for="q"]{display:block;margin-top:24px;font:700 12px var(--f);letter-spacing:.14em;text-transform:uppercase;color:var(--mute)}
-    #answer{border-top:1px solid var(--hair);padding-top:16px;min-height:2em}#mode{font-size:14px}
-    @media(max-width:800px){main{grid-template-columns:minmax(0,1fr);gap:12px}}
-  </style>
+  <link rel="stylesheet" href="pages.css">
 </head>
 <body class="scrub-ui" data-page="memory">
   <header class="top">
     <div><span class="mark">Scrub</span><span class="subtitle">Instrument request notes</span></div>
     <nav>
       <a href="/">Count</a>
+      <a href="cases.html">Cases</a>
       <a href="series.html">Series</a>
+      <a href="memory.html" aria-current="page">Memory</a>
+      <a href="card.html">Table card</a>
     </nav>
   </header>
   <p id="status" class="banner warning" role="status" hidden></p>
@@ -26,20 +24,20 @@
     <section>
       <p class="kicker">What comes next</p>
       <h1>Ask about past requests</h1>
-      <p id="mode" class="note"></p>
+      <p id="mode" class="source-line"><b id="mode-word">Checking</b><span id="mode-text" class="note"></span></p>
       <label for="q">Question</label>
       <form id="ask">
         <input id="q" name="q" placeholder="what usually follows hemostat" autocomplete="off">
         <button type="submit">Ask</button>
       </form>
-      <p id="answer" class="summary" aria-live="polite"></p>
+      <div id="answer" aria-live="polite"><p id="answer-from" class="answer-from" hidden></p><p id="answer-text" class="summary"></p></div>
     </section>
     <section>
       <p class="kicker">Notes</p>
       <ul id="notes" class="cases"></ul>
     </section>
   </main>
-  <footer>Team Scrub · DubHacks '26 <a href="#">Terms</a><a href="#">Privacy</a></footer>
+  <footer>Team Scrub · DubHacks '26</footer>
   <script src="memory.js"></script>
 </body>
 </html>

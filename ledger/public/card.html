@@ -6,45 +6,36 @@
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>Scrub table card</title>
   <link rel="stylesheet" href="style.css">
-  <style>
-    .card {
-      max-width: 520px;
-      margin: 32px auto;
-      border-top: 4px solid var(--ink);
-      border-bottom: 2px solid var(--ink);
-      padding: 16px 0 24px;
-    }
-    .card img { display:block; width:240px; height:240px; max-width:100%; margin:24px auto; image-rendering:pixelated; }
-    .card h1 { margin:8px 0 0; font-size:64px; text-transform:uppercase; }
-    .ask { font-size:26px; font-weight:700; line-height:1.25; margin:20px 0; }
-    .phone { font-size:16px; margin:0; }
-    .url { color:var(--mute); overflow-wrap:anywhere; font:13px var(--m); border-top:1px solid var(--hair); padding-top:12px; }
-    @media(max-width:600px){.card{margin:24px 16px}.card h1{font-size:52px}.ask{font-size:24px}}
-    @media print {
-      .scrub-ui { background:white; color:#14130f; padding:0; }
-      .top, .banner, footer { display:none !important; }
-      .card { margin:0 auto; break-inside:avoid; }
-    }
-  </style>
+  <link rel="stylesheet" href="pages.css">
 </head>
 <body class="scrub-ui" data-page="card">
   <header class="top">
     <div><span class="mark">Scrub</span><span class="subtitle">Table card · Research prototype</span></div>
-    <a href="/">Back</a>
+    <nav>
+      <a href="/">Count</a>
+      <a href="cases.html">Cases</a>
+      <a href="series.html">Series</a>
+      <a href="memory.html">Memory</a>
+      <a href="card.html" aria-current="page">Table card</a>
+    </nav>
   </header>
   <article class="card">
     <p class="kicker">On the table</p>
     <h1>Scrub</h1>
     <p class="ask">Ask for an instrument out loud. Scrub hands it to you.</p>
-    <img src="qr.png" alt="QR code for the Scrub page">
+    <div class="plate"><img id="qr" src="qr.png" alt="QR code for the Scrub page" width="260" height="260"></div>
     <p id="url" class="url"></p>
-    <p class="phone">Scan for the live count and results. Ask us for the number to call.</p>
+    <p class="phone">Scan for the live count and results.</p>
+    <p class="phone">Ask us for the number to call.</p>
   </article>
-  <footer>Team Scrub · DubHacks '26 <a href="#">Terms</a><a href="#">Privacy</a></footer>
+  <footer>Team Scrub · DubHacks '26</footer>
   <script>
     fetch("/api/public", { cache: "no-store" })
       .then((response) => response.json())
-      .then((body) => { document.getElementById("url").textContent = body.url || ""; })
+      .then((body) => {
+        document.getElementById("url").textContent = body.url || "";
+        document.getElementById("qr").src = "qr.png?u=" + encodeURIComponent(body.url || "");
+      })
       .catch(() => {});
   </script>
 </body>
