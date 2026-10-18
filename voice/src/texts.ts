@@ -8,9 +8,9 @@ import { getState, postRestock, type State } from "./controller.js";
 import { isEndCase, isTrayCheck, parseAlias } from "./parse.js";
 import { currentSetting, teach, type Setting } from "./settings.js";
 import type { AliasReply } from "./controller.js";
-import { closeCase, closeCaseWithLink, getPhoton, photonConfigured } from "./summary.js";
+import { closeCaseWithLink, getPhoton, photonConfigured, withTimeout } from "./summary.js";
 import { textTrayCheck } from "./tray.js";
-import { JUDGE, KNOWN_SETTINGS, SETTING_IDS, settingAsked, switchSetting } from "./cases.js";
+import { HIDDEN_SETTINGS, JUDGE, KNOWN_SETTINGS, notSetUp, SETTING_IDS, settingAsked, switchSetting } from "./cases.js";
 
 const ai = GEMINI_API_KEY ? new GoogleGenAI({ apiKey: GEMINI_API_KEY }) : null;
 
@@ -159,6 +159,7 @@ export async function handleText(text: string, from: string | null, deps: Partia
   if (p.kind === "restock") {
     if (!p.item) return `Which instrument? On this tray: ${setting.items.map((i) => i.name).join(", ")}.`;
     const tray = p.setting || setting.id;
+    if (HIDDEN_SETTINGS.includes(tray)) return notSetUp(tray);  // never log or echo the hidden tray
     await d.log({ type: "restock", item: p.item, qty: p.qty, setting: tray, from, heard: text, case_id: st?.case_id ?? null, t: Date.now() / 1000 });
     return `Logged: +${p.qty} ${name(p.item)} on the ${tray} tray.`;
   }
@@ -172,7 +173,8 @@ export interface InMessage { direction: string; content: { type: string; text?: 
 export async function runTexts(stream: AsyncIterable<[InSpace, InMessage]>, deps: Partial<TextDeps> = {}) {
   for await (const [space, msg] of stream) {
     if (msg.direction !== "inbound" || msg.content.type !== "text" || !msg.content.text?.trim()) continue;
-    try { await space.send(await handleText(msg.content.text.trim(), msg.sender?.id ?? null, deps)); }
+    // One text at a time: a reply that hangs (Photon, or a slow summary) must not hold up every text after it.
+    try { await withTimeout(handleText(msg.content.text.trim(), msg.sender?.id ?? null, deps).then((r) => space.send(r)), 30_000, "text reply"); }
     catch (e) { console.log(`[text] reply failed: ${(e as Error).message}`); }
   }
 }

@@ -5,7 +5,7 @@ import { SETTING_IDS, settingAsked, switchSetting } from "./cases.js";
 import { followEvents, JUDGE_LINE, judgeMode, makeCommand, noteJudge, postCommand, postStop, type ScrubEvent } from "./controller.js";
 import { isEndCase, isStop, isTrayCheck, parse, parseAlias } from "./parse.js";
 import { currentSetting, forgetSetting, teach } from "./settings.js";
-import { endCase, recordEvent } from "./summary.js";
+import { canText, endCase, recordEvent } from "./summary.js";
 import { voiceTrayCheck } from "./tray.js";
 
 type Say = (line: string) => void;
@@ -17,7 +17,7 @@ export const io = { parse, postStop, postCommand, currentSetting, judgeMode, swi
 let open: { say: Say; onEvent: (e: ScrubEvent) => void } | null = null;
 let pending: string[] = [];
 let settingId = "surgical";
-let lastLine = { text: "", t: 0 };
+let lastLine: { text: string; t: number; cmd?: string | null } = { text: "", t: 0 };
 
 // Ends the hold for an action once one of these arrives.
 const DONE: Record<string, string[]> = {
@@ -29,13 +29,14 @@ const DONE: Record<string, string[]> = {
   unknown: [],
 };
 
-// fromEvent: skip an event line said in the last 3 s (the controller repeating itself). Our own replies
-// (judge mode, busy, a tray switch) are always said: asking twice used to get silence the second time.
-function speak(line: string | null | undefined, fromEvent = false) {
+// fromEvent: skip an event line said in the last 3 s for the same command (the controller repeating itself).
+// A new command that gets the same answer ("I'm stopped. Reset me first." twice) is said again: keyed on the
+// text alone, the second ask got silence. Our own replies (judge mode, busy, a tray switch) are always said.
+function speak(line: string | null | undefined, fromEvent = false, cmd?: string | null) {
   if (!line) return;
   const now = Date.now();
-  if (fromEvent && line === lastLine.text && now - lastLine.t < 3000) return;
-  lastLine = { text: line, t: now };
+  if (fromEvent && line === lastLine.text && now - lastLine.t < 3000 && (cmd ?? null) === (lastLine.cmd ?? null)) return;
+  lastLine = { text: line, t: now, cmd };
   if (open) open.say(line); else pending.push(line);
 }
 
@@ -52,7 +53,7 @@ export function startEvents() {
     // "Scalpel down" call-out, if the controller didn't word one.
     if (!line && e.type === "set_down" && e.item) line = `${e.item.replace(/_/g, " ")} down`;
     if (line) console.log(`[say] ${line}  (${e.type})`);
-    speak(line, true);
+    speak(line, true, e.command_id);
     open?.onEvent(e);
   });
 }
@@ -71,6 +72,9 @@ export async function handleTurn(heard: string, say: Say, signal?: AbortSignal):
     const ends = (e: ScrubEvent) => {
       if (!waitFor.includes(e.type)) return false;
       if (e.type === "stopped") return true;
+      // "got it" releases the handover's item: that released event names the handover's command, not this one.
+      // Matched on the id, the reply stayed open the full hold.
+      if (e.type === "released" && !waitFor.includes("handed")) return true;
       if (e.type === "error") return e.step === "error" || (!!cmdId && e.command_id === cmdId);
       return !cmdId || !e.command_id || e.command_id === cmdId;
     };
@@ -93,7 +97,7 @@ export async function handleTurn(heard: string, say: Say, signal?: AbortSignal):
 
 // POST /stop: skips the controller's queue and is always accepted. Nothing awaits Gemini, settings or state first.
 async function stopNow(hold: Hold) {
-  await io.postStop();
+  await io.postStop().catch(() => io.postStop());  // one retry: a dropped connection must not lose a stop
   console.log("[command] stop (POST /stop)");
   flushPending();
   hold(DONE.stop, 1.5);
@@ -104,7 +108,8 @@ async function run(heard: string, hold: Hold) {
   if (isStop(heard)) return stopNow(hold);
   flushPending();
   if (isEndCase(heard)) {
-    speak("Closing the case. The summary is on its way to your phone.");
+    // Only promise a text that can be sent; with no Photon keys or no number the summary is just logged.
+    speak(canText() ? "Closing the case. The summary is on its way to your phone." : "Closing the case.");
     hold([], 0.5);
     endCase().catch((e) => console.log(`[summary] ${(e as Error).message}`));
     return;
