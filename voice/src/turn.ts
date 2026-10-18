@@ -28,7 +28,7 @@ let lastLine: { text: string; t: number; cmd?: string | null } = { text: "", t: 
 const DONE: Record<string, string[]> = {
   handover: ["handed", "released", "set_down", "missed", "stopped", "error", "clarify"],
   got_it: ["released", "stopped", "error"],
-  return: ["returned", "missed", "stopped", "error"],
+  return: ["returned", "missed", "stopped", "error", "clarify"],
   count: ["count", "error"],
   stop: ["stopped"],
   unknown: [],

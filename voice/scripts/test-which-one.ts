@@ -35,7 +35,7 @@ let now = 100;
 const telemetry: ClarifyLog[] = [];
 const d = new Dialogue(() => now, async (row) => { telemetry.push(row); });
 const question = parsed.clarify!;
-for (const [answer, item] of [["curved", "mayo_curved"], ["curved Mayo scissors", "mayo_curved"], ["straight", "mayo_straight"],
+for (const [answer, item] of [["curved", "mayo_curved"], ["the curved one", "mayo_curved"], ["curved Mayo scissors", "mayo_curved"], ["straight", "mayo_straight"],
   ["first", "mayo_straight"], ["second", "mayo_curved"], ["either", "mayo_straight"], ["any", "mayo_straight"], ["you pick", "mayo_straight"]]) {
   d.ask("call:a", question, setting);
   now += 50;
@@ -71,6 +71,37 @@ assert.ok(d.pending("confirm"));
 assert.match((d.answer("confirm", "no", setting) as { say: string }).say, /Cancelled/);
 d.askParsed("confirm", { action: "handover", item: "hemostat", confirm: true }, setting);
 assert.equal((d.answer("confirm", "yes", setting) as { parsed: { item: string } }).parsed.item, "hemostat");
+for (const confusing of ["straight or curved", "first or second", "left or right"]) {
+  d.ask("confusing", question, setting);
+  assert.ok("say" in d.answer("confusing", confusing, setting)!, confusing);
+}
+
+// Follow-ups use handed events from this person only, not the controller's global last-out list.
+const handover: Command = { id: "handed-a", action: "handover", item: "mayo_curved", source: "voice", heard: "curved", t: 1, instance: { variant: "curved", slot: 3 } };
+d.track("person:a", handover, setting);
+d.event({ type: "handed", t: 1, command_id: handover.id, item: handover.item });
+for (const phrase of ["another", "another one", "same again", "one more", "give me another one please"]) {
+  const r = d.answer("person:a", phrase, setting);
+  assert.ok(r && "parsed" in r, phrase);
+  assert.equal(r.parsed.item, "mayo_curved");
+  assert.deepEqual(r.parsed.instance, { variant: "curved" }); // another isn't the already-out physical slot
+}
+for (const phrase of ["put it back", "take it back", "return that"]) {
+  const r = d.answer("person:a", phrase, setting);
+  assert.ok(r && "parsed" in r, phrase);
+  assert.equal(r.parsed.action, "return");
+  assert.equal(r.parsed.item, "mayo_curved");
+  assert.deepEqual(r.parsed.instance, { variant: "curved", slot: 3 });
+}
+assert.ok("say" in d.answer("person:b", "take it back", setting)!);
+assert.ok("say" in d.answer("person:b", "same again", setting)!);
+d.ask("other", question, setting);
+d.answer("other", "curved", setting);
+assert.equal((d.answer("other", "the other one", setting) as any).parsed.item, "mayo_straight");
+d.event({ type: "returned", t: 2, command_id: handover.id, item: handover.item });
+assert.ok("say" in d.answer("person:a", "take it back", setting)!);
+assert.equal(localParse("put the curved scissors back", setting).item, "mayo_curved");
+assert.equal(localParse("take back scissors", setting).clarify?.candidates.length, 2);
 
 // Actual turn machinery and text handler, with isolated fake I/O.
 dialogue.clear();
@@ -112,6 +143,49 @@ try {
   io.postCommand = command;
   assert.match(await turn("right", "call:origin"), /Test request received/);
   assert.deepEqual(posted.at(-1)?.instance, { side: "right", slot: 1 });
+
+  // Same sender in separate Photon spaces is still independent.
+  await handleText("scissors", "+same", td, "space-a");
+  await handleText("scissors", "+same", td, "space-b");
+  await handleText("curved", "+same", td, "space-a");
+  assert.ok(dialogue.pending("text:space-b"));
+  assert.ok(!dialogue.pending("text:space-a"));
+
+  // Controller events establish conversational memory, never merely requesting an instrument.
+  const handed = posted.at(-1)!;
+  receiveEvent({ type: "released", t: Date.now() / 1000, command_id: handed.id, item: handed.item });
+  await handleText("same again", "+same", td, "space-a");
+  assert.equal(posted.at(-1)?.item, "mayo_curved");
+  await handleText("take it back", "+same", td, "space-a");
+  assert.equal(posted.at(-1)?.action, "return");
+  assert.equal(posted.at(-1)?.item, "mayo_curved");
+  const beforeUnknown = posted.length;
+  assert.match(await handleText("take it back", "+same", td, "space-c"), /haven't handed you/);
+  assert.equal(posted.length, beforeUnknown);
+  await turn("scissors", "call:other-test");
+  await turn("curved", "call:other-test");
+  await turn("the other one", "call:other-test");
+  assert.equal(posted.at(-1)?.item, "mayo_straight");
+
+  // Model uncertainty prompts before POST /command. Neither a name nor 'another' bypasses yes.
+  const confirmed = { action: "handover" as const, item: "hemostat", confirm: true, via: "gemini" as const };
+  io.parse = async () => confirmed;
+  const beforeConfirmation = posted.length;
+  assert.match(await turn("bring me the uncertain thing", "call:confirm"), /Say yes or no/);
+  assert.match(await turn("hemostat", "call:confirm"), /Say yes or no/);
+  assert.equal(posted.length, beforeConfirmation);
+  assert.match(await turn("no", "call:confirm"), /Cancelled/);
+  assert.equal(posted.length, beforeConfirmation);
+  await turn("bring me the uncertain thing", "call:confirm");
+  await turn("yes", "call:confirm");
+  assert.equal(posted.length, beforeConfirmation + 1);
+  assert.equal(posted.at(-1)?.item, "hemostat");
+  const uncertainText = { ...td, parseCommand: async () => confirmed };
+  const textBefore = posted.length;
+  assert.match(await handleText("bring me the uncertain thing", "+confirm", uncertainText), /Say yes or no/);
+  assert.equal(posted.length, textBefore);
+  await handleText("yes", "+confirm", uncertainText);
+  assert.equal(posted.length, textBefore + 1);
 } finally { Object.assign(io, saved); dialogue.clear(); }
 
 // Real HTTP routes + websocket controller: /heard and ElevenLabs both preserve context across turns.
