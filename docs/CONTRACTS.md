@@ -73,6 +73,7 @@ Every part codes against these. Build against fake inputs that match them, and t
 - `item` is an item id from the current setting, or `null` for `count`, `stop`, `got_it` and `unknown`. For `return` it is the item id when one was named ("put the hemostat back"; auto returns always name it), or `null`: the controller then takes the item in the return spot from a fresh TrayState, else the last item out. Events of a return flow carry the item id either way.
 - `source` is one of `voice`, `keyboard`, `dashboard`, or `auto` (the controller's own return when an item sits in the return spot, F1; it appears only on `command` events, never in a POST).
 - `got_it` means release now (the voice fallback for release on pull).
+- `method` (optional, `handover` and `return`): `"model"`, `"taught_adjusted"`, `"ik"` or `"taught"` forces the first grasp method under `--skills smart` (`controller/trials.py` uses it for N tries per method). Ignored in judge mode and in other `--skills` modes. A method the item can't use now (no deployment, no taught skill) gets `accepted: false`, `reason` "method unavailable". The `command` event repeats it.
 - The voice server never sends an item that isn't in the current setting. Gemini's schema only allows those ids.
 
 ## State (`GET /state`)
@@ -98,8 +99,10 @@ Every part codes against these. Build against fake inputs that match them, and t
 - `packs` (optional): pack labels read this case, `[{"item", "lot", "expires", "expired"}]`. `expires` is `YYYY-MM-DD` or `null`.
 - `case_id` (optional): the current case, `<setting>-<unix start seconds>`. A new case starts when the controller starts, when the setting changes and on `POST /reset` with `clear_count`.
 - `judge` (optional): `true` in judge mode (`POST /judge`).
-- `arm` (optional): which arm the controller runs, `"fake"`, `"sim"` or `"real"`. `sim` (optional, bool): `true` on the sim arm. `fake_arm` stays `true` on the fake arm and the sim (anything but the real arm), so pages that only read `fake_arm` keep sim runs out of real numbers; read `arm` to tell the sim from the fake arm. Events carry the same two fields.
-- `skills` (optional): `{"mode": "model" | "taught" | "auto", "items": {"<item id>": "model" | "taught" | null}}`. `mode` is the controller's `--skills`; each item has the source its next pick would use (`null`: `--skills taught` and no taught skill for that item, so a handover is refused).
+- `arm` (optional): which arm the controller runs, `"fake"`, `"sim"` or `"real"`. `sim` (optional, bool): `true` on the sim arm. `fake_arm` stays `true` on the fake arm and the sim (anything but the real arm), so pages that only read `fake_arm` keep sim runs out of real numbers; read `arm` to tell the sim from the fake arm. Events carry the same two fields, and `test: true` when written by a test run (`SCRUB_TEST`).
+- `skills` (optional): `{"mode": "model" | "taught" | "auto" | "smart", "items": {"<item id>": "model" | "taught" | "taught_adjusted" | "ik" | null}}`. `mode` is the controller's `--skills`; each item has the source its next pick would use (`null`: `--skills taught` and no taught skill for that item, so a handover is refused). With `--skills smart` also `policy`: `{"<item id>": {"method", "confidence" (0..1, the Wilson lower bound; 0 with too few real tries), "why", "order": [methods, first is tried first, the next on a miss]}}` from `controller/picker.py` (`data/skill_policy.json`).
+- `safe_zone` (optional): `{"center": [x, y, z] or null, "size": [sx, sy] or null, "problems": [str]}` in meters, arm base frame, from the arm's `safe_zone()`. `problems` (real arm only; `[]` for fake and sim) is why a sharp can't be picked: not taught, closer than 15 cm to the handoff box, or overlapping it.
+- `last_zone_check` (optional): `{"zone_check", "zone_confirm", "t"}` of the last sharp set-down (see Event), or `null`.
 - `latency_ms` (optional): `{"skill": ms, "skill_p50": ms, "skill_n": int, "hand_age": ms, "tray_age": ms}`. `skill` is the last `run_skill` call, `skill_p50` the median of the last 50; `hand_age` and `tray_age` are how long ago vision last posted a Hand and a TrayState. Each can be `null` (nothing yet).
 - `arm_telemetry` (optional, only when the arm has `telemetry()`): the last `{"temps": {motor: C}, "loads": {motor: raw}, "hottest": C, "cooling": bool, "t": unix}`, read about once a second off the event loop, or `null` when the last read failed.
 
@@ -187,7 +190,10 @@ Every part codes against these. Build against fake inputs that match them, and t
 - `out_camera` (optional) on `count` events: the same value as in State at that moment. The voice server uses it to group the end-of-case text.
 - The voice server speaks Event `say` lines only. The `say` in the `/command` reply repeats the same line, for keyboard and curl use.
 - Optional extra fields on `command` events: `action`, `heard`, `source`, `accepted`, `reason`. Every event carries `out` (the State's list at that moment), so pages don't need to re-read `/state`. On `error` events: `error`, and for the robot model's API errors (Perceptron) `code` (the HTTP status as an int, or `null` when it didn't answer) and `reason` (a short message with no keys, e.g. "Perceptron HTTP 503"). An `error` event from pre-opening sessions after a setting change has `command_id: null` and leaves `step` as it was (the arm is not held); one from a skill run holds the arm (`step: "error"`) like any error. Every event also carries `judge` (bool). On `stopped` events from the hand watcher: `reason` (`hand_lost`, `hand_blocked`, or `hand_closed` when the hand stayed closed on the fast leg of the approach); the arm holds the item until a reset.
-- `skill_source` (optional): `"model"` or `"taught"` on every event of a pick or return flow (its `step` events, `picked`, `missed`, `handed`, `released`, `set_down`, `returned`, and a `stopped` or `error` that lands during it). Never on `command` or `count` events. Taught skills are a labeled backup; pages and voice show the source.
+- `skill_source` (optional): `"model"`, `"taught"`, `"taught_adjusted"` (taught waypoints shifted by the located offset) or `"ik"` (top-down grasp from the located pose) on every event of a pick or return flow (its `step` events, `picked`, `missed`, `handed`, `released`, `set_down`, `returned`, and a `stopped` or `error` that lands during it). Never on `command` or `count` events. Taught skills are a labeled backup; pages and voice show the source.
+- `arm` (optional, every event): `"real"`, `"sim"` or `"fake"`. `test` (optional): `true` on events from a test run (`SCRUB_TEST`). The picker counts only `arm: "real"` rows without `test`.
+- Smart pick fields (optional, on `picked`, `missed`, `handed`, `set_down`, `returned` of a `--skills smart` handover): `locate_method` (`"local"`, `"perceptron"`, `"gemini"`, `"slot"`, `"none"` or `null` when vision didn't answer), `locate_confidence` (0..1 or `null`), `grasp_check` (`"gripper"`, `"gripper+wrist"`, `"wrist"` or `"none"`: what judged the grip), `retry` (0 for the first method, 1 for the next one after a miss), `wrist_disagrees` (`true` when the jaw says held and the wrist camera says no; still a pick). The first miss is a `missed` with `retries: 1` and the retry line; two misses end with the "couldn't pick" `missed`.
+- Sharps (`sharp: true` items) never go to a hand in any mode. `set_down` of a sharp carries `zone_check` (`"clear"`, `"cleared_after_wait"` after "Clear the safe spot.", or `"no_camera"`) and `zone_confirm` (`true`/`false`: the overhead camera sees it in the zone; `null`: no camera). A zone that stays blocked puts it back in its slot: a `missed` with `zone_check: "timeout_to_slot"`. On the real arm a sharp with no valid safe zone is refused before moving: a `missed` with `reason` "safe zone: ...". A hand inside 20 cm of the tip or the zone while a sharp is held: "Hand back, I'm holding a sharp.", then a `stopped` with `reason` `hand_keepout` if it stays during a move.
 - `release` (optional) on `released` events: why the gripper opened: `"pull"` (load change over `PULL_LOAD_DELTA`), `"collapse"` (grip load fell toward zero) or `"got_it"`.
 - An `error` event from an arm thermal stop (`ArmFault`, below) has the arm's message as `say`, e.g. "Too hot: shoulder_lift 71 C. Cooling down.", and holds the arm like any error.
 
@@ -205,6 +211,8 @@ Read by the controller (`/tray_check`, `/snapshot`) and the dashboard (`/stream`
 | `POST /clinician` | `{"name", "hand_height_m"}` -> `{"ok", "clinician", "hand_height_m"}` |
 | `POST /gripper` | `{"px": [x, y] or null}` -> `{"ok", "px"}` |
 | `GET /clips?case_id=`, `POST /clips/record`, `POST /clips/label`, `GET /clips/{case_id}/{file}` | X4 event clips (`docs/PERCEPTRON-ROBOTICS.md`) |
+| `GET /locate?item=<id>` | `{"item", "found", "center_px", "slot_center_px", "offset_px", "offset_mm", "yaw_deg", "arm_xy", "arm_offset", "confidence", "method": "local" \| "perceptron" \| "gemini" \| "slot" \| "none", "agree", "tray", "setting_ok", "t"}` (`vision/locate.py`). Never an error: unknown or missing is `found: false`, `method: "none"`. The controller waits at most 2.5 s; `found: false` with confidence 0.6 or more from local, perceptron or gemini is "not on the tray" |
+| `GET /safe_zone` | `{"clear": bool or null, "blocked_by": ["hand" or item id], "item_in_zone": id or null, "method", "confidence", "t"}`. `clear: null` with no zone pixels (no calibration and no `safe_zone_px` in the setting) |
 
 Vision reads the controller's `GET /state`, `GET /setting` and `GET /events/recent?n=20`, and posts `/vision/hand`, `/vision/tray` and `/lighting` (only when the tag changes, with `lux`).
 
@@ -258,6 +266,13 @@ class Arm:
     def resume(self) -> None: ...              # rearm after a freeze; the controller calls it only on reset
     def prepare(self, instructions: list[str]) -> list: ...  # pre-open robot model sessions; blocking, raises APIError
     def telemetry(self) -> dict | None: ...    # {"temps", "loads", "hottest", "cooling", "t"}; the controller polls it on its own thread
+    # optional, smart pick and sharps (arm/grasp.py):
+    #   run_skill(..., source="model" | "taught" | "taught_adjusted" | "ik", located=<GET /locate answer or None>)
+    def sharp_mode(self, on: bool) -> None: ...      # speed scale grasp.SHARP_SPEED while a sharp is in the flow
+    def hover_safe_spot(self) -> bool: ...           # hold above the safe zone
+    def wrist_jpeg(self) -> bytes | None: ...        # latest wrist camera frame
+    def safe_zone(self) -> dict | None: ...          # rig.json safe_zone {"center", "size", "yaw_deg"}
+    def tip(self) -> list | None: ...                # gripper tip [x, y, z], arm base frame
 ```
 
 A thermal trip during a skill or move raises `arm.hardware.ArmFault` (a `RuntimeError`) after the arm goes safe; the controller turns it into an `error` event with the message as `say` and holds until a reset.

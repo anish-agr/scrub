@@ -7,12 +7,20 @@ import threading
 import time
 from pathlib import Path
 
-from . import core, lines, settings
-from .core import Controller
-from .fake_arm import FakeArm
+# Test runs never reach MongoDB, Backboard or the repo's ledger buffer and policy file; their events say test: true.
+_SCRATCH = Path(tempfile.mkdtemp(prefix="scrub-test-flows-"))
+os.environ.update(MONGODB_URI="", BACKBOARD_API_KEY="", SCRUB_TEST="1", LEDGER_BUFFER=str(_SCRATCH / "buffer.jsonl"),
+                  SKILL_POLICY_FILE=str(_SCRATCH / "skill_policy.json"))
+
+from . import core, lines, picker, settings  # noqa: E402
+from .core import Controller  # noqa: E402
+from .fake_arm import FakeArm  # noqa: E402
 
 core.ledger = None  # never write the shared ledger (MongoDB): see conftest.py
-
+core.LOCATE_URL = ""  # no vision: /locate and /safe_zone answer None (no network)
+core.KEEPOUT_WAIT_S = 1.0
+core.ZONE_WAIT_S = 1.0
+core.ZONE_POLL_S = 0.05
 core.HAND_WAIT_S = 1.0
 core.PULL_WAIT_S = 1.0
 core.TRAY_LAG_S = 0.05
@@ -1763,6 +1771,330 @@ def read_events_and_captions_go_to_the_ledger():
         assert len(ctl.history) == n  # not an Event
     finally:
         core.ledger = saved
+
+
+# ---------- --skills smart and the sharps rules ----------
+class StubLocator:
+    """Stands in for picker.Locator: locate() gives `loc`; safe_zone() gives `zones` in turn (the last one repeats)."""
+    def __init__(self, loc=None, zones=None):
+        self.loc, self.zones, self.calls = loc, list(zones or [None]), []
+
+    def locate(self, item_id, timeout_s=2.0):
+        self.calls.append(("locate", item_id))
+        return self.loc
+
+    def safe_zone(self, timeout_s=2.0):
+        self.calls.append(("safe_zone",))
+        return self.zones.pop(0) if len(self.zones) > 1 else self.zones[0]
+
+
+FOUND = {"item": "hemostat", "found": True, "confidence": 0.9, "method": "local", "arm_offset": [0.01, 0.0]}
+ROWS = [[]]  # what picker.load_rows() gives the controller's background refresh
+picker.load_rows = lambda: ROWS[0]
+
+
+def smart(locator=None, deployment=True, **kw):
+    picker._CACHE.clear()
+    Path(os.environ["SKILL_POLICY_FILE"]).unlink(missing_ok=True)
+    arm = RecordingArm(motion_s=0.1, auto_pull_s=0.2)
+    return Controller(arm, fake_arm=True, skills="smart", deployment=deployment,
+                      locator=locator or StubLocator(FOUND), **kw), arm
+
+
+def pick_ev(evs, type_="picked"):
+    return next(e for e in evs if e["type"] == type_)
+
+
+@test
+def smart_picks_with_the_default_order():
+    with Taught({"hemostat": {"pick", "return"}}):
+        ctl, arm = smart()
+        _, evs = run(ctl, HANDOVER)
+        assert types(evs) == ["command", "picked", "handed", "released"], types(evs)
+        p = pick_ev(evs)
+        assert (p["skill_source"], p["locate_method"], p["locate_confidence"], p["grasp_check"], p["retry"]) == \
+            ("model", "local", 0.9, "gripper", 0), p
+        assert pick_ev(evs, "handed")["skill_source"] == "model" and arm.last_located == FOUND
+        assert p["arm"] == "fake" and p["test"] is True
+        pol = ctl.state()["skills"]
+        assert pol["mode"] == "smart" and pol["items"]["hemostat"] == "model", pol
+        assert pol["policy"]["hemostat"]["order"] == ["model", "taught_adjusted", "ik"], pol["policy"]
+        assert pol["policy"]["mayo_scissors"]["order"] == ["model", "ik"]  # nothing taught for it
+        assert pol["policy"]["hemostat"]["why"] == "no real tries yet: default order"
+
+
+@test
+def smart_miss_retries_with_the_next_method():
+    with Taught({"hemostat": {"pick", "return"}}):
+        ctl, arm = smart(deployment=False)
+        arm.fail_sources = {"taught_adjusted"}
+        _, evs = run(ctl, HANDOVER)
+        assert types(evs) == ["command", "missed", "picked", "handed", "released"], types(evs)
+        m, p = pick_ev(evs, "missed"), pick_ev(evs)
+        assert (m["skill_source"], m["retry"], m["say"]) == ("taught_adjusted", 0, lines.retry("hemostat")), m
+        assert (p["skill_source"], p["retry"], p["retries"]) == ("ik", 1, 1), p
+        assert pick_ev(evs, "handed")["skill_source"] == "ik" and ctl.out == ["hemostat"]
+
+
+@test
+def smart_two_misses_say_so_and_log_missed():
+    with Taught({"hemostat": {"pick", "return"}}):
+        ctl, arm = smart(deployment=False)
+        arm.fail_sources = {"taught_adjusted", "ik"}
+        _, evs = run(ctl, HANDOVER)
+        assert types(evs) == ["command", "missed", "missed"], types(evs)
+        last = [e for e in evs if e["type"] == "missed"][-1]
+        assert last["say"] == lines.couldnt_pick("hemostat") and last["skill_source"] == "ik" and last["retry"] == 1
+        assert ctl.out == [] and ctl.step == "idle" and arm.pose == "home"
+
+
+class wrist_says:
+    """picker.ask_in_gripper answers `answer` (no network)."""
+    def __init__(self, answer):
+        self.answer, self.saved = answer, None
+
+    def __enter__(self):
+        self.saved, picker.ask_in_gripper = picker.ask_in_gripper, lambda jpeg, name, timeout_s=3.0: self.answer
+        return self
+
+    def __exit__(self, *_):
+        picker.ask_in_gripper = self.saved
+
+
+@test
+def smart_jaw_unknown_and_wrist_no_is_a_miss():
+    ctl, arm = smart()
+    arm.wrist = b"\xff\xd8jpeg"
+    arm.gripper_position = lambda: 0.1  # never closed far enough to say
+    with wrist_says(False):
+        _, evs = run(ctl, HANDOVER)
+    assert types(evs) == ["command", "missed", "missed"], types(evs)
+    assert pick_ev(evs, "missed")["grasp_check"] == "wrist"
+
+
+@test
+def smart_jaw_held_and_wrist_no_still_picks_but_says_so():
+    ctl, arm = smart()
+    arm.wrist = b"\xff\xd8jpeg"
+    with wrist_says(False):
+        _, evs = run(ctl, HANDOVER)
+    p = pick_ev(evs)
+    assert "released" in types(evs) and p["wrist_disagrees"] is True and p["grasp_check"] == "gripper+wrist", p
+    ctl, arm = smart()
+    arm.wrist = b"\xff\xd8jpeg"
+    with wrist_says(True):
+        _, evs = run(ctl, HANDOVER)
+    assert "wrist_disagrees" not in pick_ev(evs) and pick_ev(evs)["grasp_check"] == "gripper+wrist"
+
+
+@test
+def smart_vision_sure_it_is_gone_says_not_on_tray():
+    ctl, arm = smart(StubLocator({"item": "hemostat", "found": False, "confidence": 0.8, "method": "perceptron"}))
+    _, evs = run(ctl, HANDOVER)
+    assert types(evs) == ["command", "missed"] and says(evs)[-1] == lines.not_on_tray("hemostat"), types(evs)
+    assert "skill_source" not in pick_ev(evs, "missed") and not hasattr(arm, "last_source")
+    ctl, arm = smart(StubLocator(None))  # vision down: pick without a located pose
+    _, evs = run(ctl, HANDOVER)
+    assert "released" in types(evs) and pick_ev(evs)["locate_method"] is None and arm.last_located is None
+
+
+def real_rows(src, item, oks, secs=5.0):
+    rows = []
+    for i, ok in enumerate(oks):
+        base = {"item": item, "command_id": f"{src}-{i}", "skill_source": src, "setting": "surgical", "arm": "real",
+                "fake_arm": False, "lighting": "normal", "t": float(i)}
+        rows += [dict(base, type="picked"), dict(base, type="handed", request_to_hand_s=secs)] if ok \
+            else [dict(base, type="missed")]
+    return rows
+
+
+@test
+def smart_policy_from_fixed_ledger_rows():
+    try:
+        ROWS[0] = real_rows("model", "hemostat", [True] * 10) + real_rows("ik", "hemostat", [True] * 9 + [False])
+        ctl, arm = smart()
+        assert wait_for(lambda: ctl.state()["skills"]["policy"]["hemostat"]["confidence"] > 0), ctl.state()["skills"]
+        pol = ctl.state()["skills"]["policy"]["hemostat"]
+        assert pol["method"] == "model" and pol["order"][0] == "model" and pol["why"].startswith("model 10/10"), pol
+        run(ctl, HANDOVER)
+        assert arm.last_source == "model"
+        ROWS[0] = real_rows("model", "hemostat", [True] * 4 + [False] * 6) + real_rows("ik", "hemostat", [True] * 10)
+        ctl, arm = smart()
+        assert wait_for(lambda: ctl.state()["skills"]["policy"]["hemostat"]["method"] == "ik"), ctl.state()["skills"]
+        fake = [dict(r, arm="fake") for r in real_rows("model", "mayo_scissors", [False] * 10)]
+        ROWS[0] = ROWS[0] + fake  # fake-arm rows never count
+        ctl, arm = smart()
+        assert wait_for(lambda: ctl.state()["skills"]["policy"]["hemostat"]["method"] == "ik")
+        assert ctl.state()["skills"]["policy"]["mayo_scissors"]["method"] == "model"
+    finally:
+        ROWS[0] = []
+
+
+@test
+def smart_command_method_forces_the_first_try():
+    with Taught({"hemostat": {"pick", "return"}}):
+        ctl, arm = smart(deployment=False)
+        _, evs = run(ctl, dict(HANDOVER, method="ik"))
+        assert pick_ev(evs)["skill_source"] == "ik" and pick_ev(evs, "command")["method"] == "ik", evs
+        _, evs = run(ctl, {"action": "return", "item": "hemostat", "method": "taught"})
+        assert pick_ev(evs, "returned")["skill_source"] == "taught" and arm.last_source == "taught", types(evs)
+        reply = ctl.submit(dict(HANDOVER, method="model"))  # no deployment
+        assert not reply["accepted"] and reply["reason"] == "method unavailable", reply
+        assert not ctl.submit({"action": "handover", "item": "mayo_scissors", "method": "taught"})["accepted"]
+        judge, arm = smart(deployment=False, judge=True)
+        reply, evs = run(judge, dict(HANDOVER, method="model"))  # a judge never forces a method: ignored
+        assert reply["accepted"] and pick_ev(evs)["skill_source"] == "taught_adjusted", reply
+
+
+SCALPEL = {"action": "handover", "item": "scalpel", "source": "voice", "heard": "hand me the scalpel"}
+
+
+@test
+def scalpel_by_voice_never_goes_to_a_hand():
+    ctl, arm = make()
+    stop = threading.Event()
+    hand_feed(ctl, stop)  # an open hand, ready for it
+    try:
+        reply, evs = run(ctl, SCALPEL)
+    finally:
+        stop.set()
+    assert reply["accepted"] and reply["say"] == "Scalpel to the safe spot.", reply
+    assert arm.moves == [] and "moving_to_hand" not in steps(evs) and "handed" not in types(evs)
+    sd = pick_ev(evs, "set_down")
+    assert (sd["zone_check"], sd["zone_confirm"]) == ("no_camera", None) and ctl.out == ["scalpel"], sd
+    assert ctl.state()["last_zone_check"]["zone_check"] == "no_camera"
+    for mode in ("taught", "smart"):  # every mode, the model included above
+        with Taught({"scalpel": {"pick", "return"}}):
+            c = Controller(RecordingArm(motion_s=0.1), fake_arm=True, skills=mode, locator=StubLocator())
+            _, evs = run(c, SCALPEL)
+            assert c.arm.moves == [] and pick_ev(evs, "set_down")["zone_check"] == "no_camera", (mode, types(evs))
+
+
+@test
+def reach_hand_refuses_a_held_sharp():
+    ctl, arm = make()
+    ctl.held = "scalpel"
+    assert ctl._reach_hand(ctl.gen, settings.item(ctl.setting, "scalpel")) is False
+    assert arm.moves == [] and ctl.held is None and ctl.out == ["scalpel"]
+    assert any(e["type"] == "set_down" for e in ctl.history)
+
+
+@test
+def sharp_zone_blocked_then_clears():
+    zones = [{"clear": False, "blocked_by": ["hand"], "method": "local"}, {"clear": False, "method": "local"},
+             {"clear": True, "method": "local"}, {"clear": True, "item_in_zone": "scalpel", "method": "local"}]
+    ctl, arm = make()
+    ctl.locator = StubLocator(zones=zones)
+    _, evs = run(ctl, SCALPEL)
+    sd = pick_ev(evs, "set_down")
+    assert lines.CLEAR_ZONE in says(evs) and arm.pose == "home", says(evs)
+    assert (sd["zone_check"], sd["zone_confirm"]) == ("cleared_after_wait", True), sd
+    ctl.locator = StubLocator(zones=[{"clear": True, "method": "local"}, {"clear": True, "item_in_zone": None, "method": "local"}])
+    _, evs = run(ctl, SCALPEL)
+    sd = pick_ev(evs, "set_down")
+    assert (sd["zone_check"], sd["zone_confirm"]) == ("clear", False), sd
+
+
+@test
+def sharp_zone_blocked_to_timeout_goes_back_to_its_slot():
+    ctl, arm = make()
+    ctl.locator = StubLocator(zones=[{"clear": False, "blocked_by": ["hemostat"], "method": "local"}])
+    _, evs = run(ctl, SCALPEL, timeout=10)
+    assert "set_down" not in types(evs) and types(evs)[-1] == "missed", types(evs)
+    m = [e for e in evs if e["type"] == "missed"][-1]
+    assert m["zone_check"] == "timeout_to_slot" and m["say"] == lines.zone_blocked_back("scalpel"), m
+    assert ctl.out == [] and ctl.held is None and ctl.step == "idle" and arm.pose == "home"
+    assert ctl.state()["last_zone_check"]["zone_check"] == "timeout_to_slot"
+
+
+def target_feed(ctl, stop_evt, target):
+    """Hand posts whose target comes from target() (arm frame, m)."""
+    def loop():
+        while not stop_evt.is_set():
+            ctl.post_hand({"seen": True, "open": True, "palm_px": [300, 200], "target": target(), "path_clear": True,
+                           "t": time.time()})
+            time.sleep(0.05)
+    threading.Thread(target=loop, daemon=True).start()
+
+
+NEAR_ZONE, FAR = [0.17, -0.18, 0.05], [0.30, 0.20, 0.25]
+
+
+@test
+def sharp_hand_in_keepout_waits_then_sets_down():
+    ctl, arm = make()
+    stop, said = threading.Event(), []
+
+    def target():  # near the zone until 0.3 s after Scrub says "Hand back", then away
+        if not said and any(e.get("say") == lines.HAND_BACK for e in list(ctl.history)):
+            said.append(time.time())
+        return NEAR_ZONE if not said or time.time() - said[0] < 0.3 else FAR
+    target_feed(ctl, stop, target)
+    try:
+        _, evs = run(ctl, SCALPEL)
+    finally:
+        stop.set()
+    assert lines.HAND_BACK in says(evs) and "set_down" in types(evs), says(evs)
+    assert arm.sharp_log == [True, False] and arm.sharp is False, arm.sharp_log
+
+
+@test
+def sharp_hand_staying_in_keepout_freezes_the_move():
+    ctl, arm = make()
+    stop = threading.Event()
+    target_feed(ctl, stop, lambda: NEAR_ZONE)
+    try:
+        _, evs = run(ctl, SCALPEL)
+    finally:
+        stop.set()
+    assert ctl.step == "stopped" and pick_ev(evs, "stopped")["reason"] == "hand_keepout", types(evs)
+    assert says(evs)[-1] == lines.HAND_BACK and ctl.out == ["scalpel"] and arm.sharp is False
+    assert "set_down" not in types(evs)
+
+
+@test
+def sharp_mode_on_only_while_a_sharp_is_in_the_flow():
+    ctl, arm = make()
+    run(ctl, HANDOVER)
+    assert arm.sharp_log == []
+    seen = []
+    orig = arm.set_down_safe_spot
+    arm.set_down_safe_spot = lambda: seen.append(arm.sharp) or orig()
+    run(ctl, SCALPEL)
+    assert seen == [True] and arm.sharp_log == [True, False]
+
+
+class RealishArm(RecordingArm):
+    """A fake arm the controller treats as the real one (fake_arm=False), with its own rig."""
+    rig = {"handoff_region": {"min": [0.05, -0.25, 0.08], "max": [0.35, 0.25, 0.35]}, "safe_zone": None}
+
+
+@test
+def real_arm_refuses_a_sharp_without_a_good_safe_zone():
+    tmp = Path(tempfile.mkdtemp())
+    try:
+        arm = RealishArm(motion_s=0.1)
+        arm.zone = None
+        ctl = Controller(arm, fake_arm=False, tries_file=tmp / "t.json", locator=StubLocator())
+        assert ctl.state()["safe_zone"]["problems"], ctl.state()["safe_zone"]
+        reply, evs = run(ctl, SCALPEL)
+        m = pick_ev(evs, "missed")
+        assert m["say"] == lines.zone_not_taught("scalpel") and m["reason"].startswith("safe zone"), m
+        assert not hasattr(arm, "last_source") and arm.pose == "home" and arm.sharp_log == [] and m["arm"] == "real"
+        arm.rig = dict(RealishArm.rig, safe_zone={"center": [0.2, 0.0, 0.0], "size": [0.08, 0.08]})  # in the handoff box
+        arm.zone = arm.rig["safe_zone"]
+        _, evs = run(ctl, SCALPEL)
+        assert pick_ev(evs, "missed")["say"] == lines.zone_too_close("scalpel") and not hasattr(arm, "last_source")
+        arm.rig = dict(RealishArm.rig, safe_zone={"center": [0.0, -0.5, 0.0], "size": [0.08, 0.08]})
+        arm.zone = arm.rig["safe_zone"]
+        assert ctl.state()["safe_zone"] == {"center": [0.0, -0.5, 0.0], "size": [0.08, 0.08], "problems": []}
+        _, evs = run(ctl, SCALPEL)
+        assert "set_down" in types(evs), types(evs)
+        sim_like = Controller(RecordingArm(motion_s=0.1), fake_arm=True, locator=StubLocator())
+        sim_like.arm.zone = None
+        assert sim_like.state()["safe_zone"]["problems"] == []  # fake and sim: no zone rules
+    finally:
+        shutil.rmtree(tmp)
 
 
 def main():

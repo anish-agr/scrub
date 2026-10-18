@@ -64,8 +64,9 @@ def parse(argv: list[str] | None = None) -> argparse.Namespace:
     p.add_argument("--real-arm", dest="arm", action="store_const", const="real", help="same as --arm real")
     p.add_argument("--real", action="store_true",
                    help="judging preset: --arm real --vision real --ledger --judge --skills auto (each can still be overridden)")
-    p.add_argument("--skills", choices=["model", "taught", "auto"], default=None,
-                   help="passed to the controller: model (default), taught, or auto (model where trained, taught for the rest)")
+    p.add_argument("--skills", choices=["model", "taught", "auto", "smart"], default=None,
+                   help="passed to the controller: model (default), taught, auto (model where trained, taught for the rest) "
+                        "or smart (vision-located picks, method per item from real-arm data; backup's default)")
     p.add_argument("--vision", choices=["real", "fake", "none"], default=None,
                    help="fake (default), none with --arm sim (sim_vision posts the tray in-process)")
     p.add_argument("--no-voice", action="store_true", help="don't start voice/ (skipped anyway without node_modules)")
@@ -104,6 +105,8 @@ def parse(argv: list[str] | None = None) -> argparse.Namespace:
         a.base_port = 8100 if cmd == "check" and not a.url else 8000
     if a.arm is None:
         a.arm = "sim" if cmd == "backup" else "fake"
+    if cmd == "backup":
+        a.skills = a.skills or "smart"  # the sim backup exercises the picker
     if a.vision is None:
         a.vision = "none" if a.arm == "sim" or cmd == "backup" else "fake"
     if cmd == "check" and not a.url:  # a private fake stack: fast motions, no voice, nothing opened
