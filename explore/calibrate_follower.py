@@ -46,7 +46,15 @@ def read_motors() -> dict:
     return out
 
 
-def main() -> None:
+def main(argv=None) -> None:
+    import argparse
+    argparse.ArgumentParser(description=f"Recalibrate the SO-101 follower on {PORT} (id {ROBOT_ID}): checks the "
+                            "motors, backs up the old calibration, runs lerobot-calibrate, checks the new ranges. "
+                            "Stop the recorder, teleop and controller first.").parse_args(argv)
+    sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+    from arm.backends import port_holders
+    if busy := port_holders(PORT):  # macOS opens a held port anyway; two programs on one bus collide
+        sys.exit(f"{PORT} is in use by pid {', '.join(map(str, busy))}: stop the recorder, teleop or controller first")
     if subprocess.run(["pgrep", "-f", "arm_session.py|lerobot-(record|teleoperate)"], capture_output=True).stdout:
         sys.exit("stop the recorder / teleop first (Ctrl-C in its terminal): it holds the arm's port")
 

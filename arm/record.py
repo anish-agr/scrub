@@ -138,19 +138,6 @@ def cadence_note(root: Path, first_index: int) -> str:
 
 # ---------- commands ----------
 
-def use_degrees_default() -> bool | None:
-    """LeRobot's SO-101 follower and leader default for use_degrees, None if LeRobot is missing."""
-    try:
-        import dataclasses
-        from lerobot.robots.so_follower.config_so_follower import SO101FollowerConfig
-        from lerobot.teleoperators.so_leader.config_so_leader import SO101LeaderConfig
-        vals = [f.default for c in (SO101FollowerConfig, SO101LeaderConfig)
-                for f in dataclasses.fields(c) if f.name == "use_degrees"]
-        return bool(vals) and all(v is True for v in vals)
-    except Exception:  # noqa: BLE001
-        return None
-
-
 def arm_session_cmd(a, task: str, repo: str, python: str = sys.executable) -> list[str]:
     """explore/arm_session.py with our settings. It always records at 30 fps and appends
     --resume=true itself when <root>/meta/info.json exists."""
@@ -285,17 +272,13 @@ def plan(a, whoami=None) -> dict:
 
 def describe(a, pl: dict) -> None:
     i = pl["info"]
-    deg = use_degrees_default()
-    deg_txt = ("passed as --robot.use_degrees=true --teleop.use_degrees=true" if a.lerobot else
-               "LeRobot default " + {True: "true", False: "FALSE", None: "unknown (LeRobot not importable)"}[deg]
-               + " (arm_session has no flag for it)")
     print(f"task        {i['task']!r}  ({i['setting']} / {i['item']} / {i['direction']}, {a.lighting} light)")
     print(f"repo        {pl['repo']}" + ("" if pl["user"] else "  (set HF_USER, --hf-user, or HF_TOKEN in .env)"))
     print(f"root        {a.root}  ({pl['state']}: "
           + {"new": "will be created", "resume": f"{pl['before']} episodes, --resume=true",
              "bad": "exists but has no meta/info.json"}[pl["state"]] + ")")
     print(f"episodes    {a.episodes} more, {a.episode_s} s each, {a.reset_s} s reset, {FPS} fps")
-    print(f"use_degrees {deg_txt}")
+    print("use_degrees true (both backends pass --robot.use_degrees=true --teleop.use_degrees=true)")
     print(f"cameras     side={a.side} wrist={a.wrist} at 640x480 at {FPS} fps")
     print(f"backend     {pl['backend']}" + ("" if a.lerobot else
                                             f"  (follower {a.follower or 'arm_session default'}, "
@@ -329,8 +312,6 @@ def main(argv=None) -> int:
         raise SystemExit(f"{a.root} exists but is not a LeRobot dataset; move it aside or pass another --root")
     if a.lerobot and not (a.follower and a.leader):
         raise SystemExit("--lerobot needs --follower and --leader (see python -m arm.check_setup)")
-    if not a.lerobot and use_degrees_default() is False:
-        raise SystemExit("this LeRobot defaults to use_degrees=false and arm_session cannot set it: use --lerobot")
     busy = busy_ports(a)
     if busy:  # two programs on one motor bus fight; the controller may be holding a raised arm
         raise SystemExit("arm port in use: " + "; ".join(f"{p} (pid {', '.join(map(str, pids))})" for p, pids in busy.items())

@@ -24,6 +24,10 @@ class ThermalAnalyzeTests(unittest.TestCase):
         rows = samples(duration=30) + samples(start=31, duration=30, phase="resetting")
         self.assertIn("Insufficient continuous coverage", A.analyze(rows))
 
+    def test_half_written_jsonl_line_is_skipped(self):
+        rows = A.parse_jsonl('{"kind": "sample", "t": 1}\n\n{"kind": "sam')
+        self.assertEqual(rows, [{"kind": "sample", "t": 1}])
+
     def test_gap_is_not_a_window(self):
         rows = samples(duration=30) + samples(start=40, duration=30)
         self.assertIn("Insufficient continuous coverage", A.analyze(rows))

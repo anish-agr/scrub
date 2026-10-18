@@ -50,6 +50,8 @@ def _read_all(pattern):
             frames.append(pd.read_parquet(f))
         except Exception as e:  # noqa: BLE001
             print(f"skipping {os.path.relpath(f)} ({type(e).__name__}: still being written?)")
+    if not frames:
+        sys.exit(f"no readable parquet files at {pattern}: no saved episodes yet?")
     return pd.concat(frames)
 
 

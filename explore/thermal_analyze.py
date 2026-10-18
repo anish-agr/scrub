@@ -3,7 +3,7 @@
   .venv/bin/python explore/thermal_analyze.py                    # latest recorder session, from MongoDB
   .venv/bin/python explore/thermal_analyze.py --hours 6          # every session in the last 6 hours
   .venv/bin/python explore/thermal_analyze.py --session <id>     # one session
-  .venv/bin/python explore/thermal_analyze.py --local            # read ~/scrub-logs/thermal instead of MongoDB
+  .venv/bin/python explore/thermal_analyze.py --local            # every session in ~/scrub-logs/thermal, no MongoDB
   ... --out report.md
 
 Per motor: start/end/peak temperature, heating rate (deg C per minute, from 60 s windows) and what
@@ -31,9 +31,20 @@ MAX_GAP_S = 5.0      # never fit across a telemetry outage
 STILL_DEG = 1.0  # a joint that moved less than this in a window was holding still
 
 
+def parse_jsonl(text: str) -> list[dict]:
+    """Rows of a JSONL file; a line the live recorder is still writing is skipped."""
+    rows = []
+    for line in text.splitlines():
+        try:
+            rows.append(json.loads(line)) if line.strip() else None
+        except ValueError:
+            pass
+    return rows
+
+
 def load_rows(a) -> list[dict]:
     if a.local:
-        rows = [json.loads(line) for p in sorted(T.DIR.glob("*.jsonl")) for line in p.read_text().splitlines() if line]
+        rows = [r for p in sorted(T.DIR.glob("*.jsonl")) for r in parse_jsonl(p.read_text())]
     else:
         coll = T._collection()
         q: dict = {}

@@ -45,7 +45,8 @@ def load_episodes(root_path):
 
     # Load all episodes
     episodes = []
-    for ep_idx, row in episodes_df.iterrows():
+    for _, row in episodes_df.iterrows():
+        ep_idx = int(row['episode_index'])  # the row position is not the episode index across files
         chunk_idx = int(row['data/chunk_index'])
         file_idx = int(row['data/file_index'])
         key = (chunk_idx, file_idx)
@@ -755,6 +756,9 @@ def main():
     parser.add_argument('--root', required=True, help='Path to dataset root')
     parser.add_argument('--out', required=True, help='Output HTML file path')
     args = parser.parse_args()
+    root = Path(args.root).resolve()
+    if root == Path(args.out).resolve().parent or root in Path(args.out).resolve().parents:
+        sys.exit("--out must not be inside the dataset")
 
     print(f"Loading episodes from {args.root}...")
     episodes, task_idx_to_name = load_episodes(args.root)

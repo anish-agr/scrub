@@ -79,7 +79,7 @@ class CommandTests(unittest.TestCase):
         self.assertEqual(self.real_busy_ports(a, holders=lambda p: [7] if p.endswith("A") else []),
                          {"/dev/tty.usbmodemA": [7]})
         with mock.patch.object(record, "busy_ports", return_value={"/dev/tty.usbmodemA": [7]}), \
-                mock.patch.object(record, "load_env"), mock.patch.object(record, "use_degrees_default", return_value=True), \
+                mock.patch.object(record, "load_env"), \
                 mock.patch.object(record.subprocess, "Popen") as popen, contextlib.redirect_stdout(io.StringIO()), \
                 mock.patch.dict(os.environ, {"HF_USER": "me"}):
             with self.assertRaisesRegex(SystemExit, "in use"):
@@ -179,8 +179,7 @@ class CommandTests(unittest.TestCase):
             make_dataset(self.root, 5)
             return SimpleNamespace(wait=lambda: 0)
         with mock.patch.object(record.subprocess, "Popen", side_effect=fake_popen) as popen, \
-                mock.patch.object(record, "load_env"), mock.patch.object(record, "use_degrees_default",
-                                                                         return_value=True), \
+                mock.patch.object(record, "load_env"), \
                 contextlib.redirect_stdout(io.StringIO()), mock.patch.dict(os.environ, {"HF_USER": "me"}):
             rc = record.main(["--task", "pick the hex key", "--lighting", "normal", "--episodes", "3",
                               "--root", str(self.root), "--log", str(log), "--notes", "tray A"])
@@ -195,8 +194,7 @@ class CommandTests(unittest.TestCase):
     def test_nothing_saved_no_row(self):
         log = Path(self.tmp.name) / "DATA-LOG.md"
         with mock.patch.object(record.subprocess, "Popen", return_value=SimpleNamespace(wait=lambda: 1)), \
-                mock.patch.object(record, "load_env"), mock.patch.object(record, "use_degrees_default",
-                                                                         return_value=True), \
+                mock.patch.object(record, "load_env"), \
                 contextlib.redirect_stdout(io.StringIO()), mock.patch.dict(os.environ, {"HF_USER": "me"}):
             rc = record.main(["--task", "pick the hex key", "--lighting", "normal", "--root", str(self.root),
                               "--log", str(log)])

@@ -5,6 +5,8 @@
   .venv/bin/python explore/arm_session.py --side C920 --wrist icspring --task "pick the hemostat" --episodes 5
 
 Cameras are picked by name (OpenCV's numbers change when a camera is replugged).
+Refuses to start while another program has an arm port open (macOS doesn't lock serial ports), naming
+its pid and command; a supervisor that finds a port taken later waits until it is free.
 
 Keeps going through disconnects: a supervisor runs each session as a child process and waits for
 missing arms/cameras (the page says what it is waiting for). If a session dies from a disconnect it
@@ -728,8 +730,8 @@ def ease(follower_port: str, leader_port: str, seconds: float) -> None:
     from lerobot.teleoperators.so_leader import SOLeader
     from lerobot.teleoperators.so_leader.config_so_leader import SO101LeaderConfig
 
-    f = SOFollower(SO101FollowerConfig(port=follower_port, id="scrub_follower")).bus
-    l = SOLeader(SO101LeaderConfig(port=leader_port, id="scrub_leader")).bus
+    f = SOFollower(SO101FollowerConfig(port=follower_port, id="scrub_follower", use_degrees=True)).bus
+    l = SOLeader(SO101LeaderConfig(port=leader_port, id="scrub_leader", use_degrees=True)).bus
     f.connect()
     l.connect()
     try:
@@ -805,6 +807,45 @@ def find_camera(spec: str) -> int | None:
     return hits[0] if len(hits) == 1 else None
 
 
+BUSY_HINT = "stop it first (the controller with --real-arm, another arm_session, arm.teach or home_pose.py)"
+
+
+def _ps(pid: int):
+    """(parent pid, command) of a process; (None, "") if it is gone."""
+    import subprocess
+    try:
+        line = subprocess.run(["ps", "-o", "ppid=,command=", "-p", str(pid)],
+                              capture_output=True, text=True, timeout=3).stdout.strip()
+        ppid, _, cmd = line.partition(" ")
+        return int(ppid), " ".join(Path(x).name if x.startswith("/") else x for x in cmd.split())[:80]
+    except Exception:  # noqa: BLE001
+        return None, ""
+
+
+def port_users(port: str, holders=None, ps=_ps) -> list[str]:
+    """"pid N (command)" for each other process with this arm port open. macOS doesn't lock serial
+    ports, so a second program would write the same motor bus (arm.backends.port_holders). A session
+    child of ours, and in a session child the supervisor that started it, don't count."""
+    if holders is None:
+        from arm.backends import port_holders as holders
+    parent = os.getppid() if os.environ.get("SCRUB_CHILD") else None
+    out = []
+    for pid in holders(port):
+        ppid, cmd = ps(pid)
+        if pid != parent and ppid != os.getpid():
+            out.append(f"pid {pid} ({cmd or 'exited'})")
+    return out
+
+
+def busy_ports(a, users=port_users) -> dict:
+    """{"follower arm"/"leader arm": "<name> port <node> in use by pid N (command)"} for held ports."""
+    out = {}
+    for name, port in (("follower arm", a.follower), ("leader arm", a.leader)):
+        if held := users(port):
+            out[name] = f"{name} port {Path(port).name} in use by {', '.join(held)}"
+    return out
+
+
 def bus_ok(port: str) -> bool:
     return not silent_motors(port)
 
@@ -837,9 +878,12 @@ def silent_motors(port: str) -> list[int]:
 
 def missing_devices(a) -> list[str]:
     out = []
+    busy = busy_ports(a)
     for name, port in (("follower arm", a.follower), ("leader arm", a.leader)):
         if not os.path.exists(port):
             out.append(f"{name} USB ({Path(port).name})")
+        elif name in busy:
+            out.append(busy[name])  # never ping a bus another program is driving
         elif name == "follower arm" and (stuck := stuck_motors(port)):
             out.extend(stuck)
         elif silent := silent_motors(port):
@@ -937,6 +981,8 @@ def supervise(a, argv: list) -> None:
                 except Exception:  # noqa: BLE001 - between sessions: nothing to advance
                     pass
         threading.Thread(target=enter_key, daemon=True).start()
+    if busy := busy_ports(a):  # before cool_down or missing_devices open the port
+        sys.exit("; ".join(busy.values()) + ": " + BUSY_HINT)
     if COOLDOWN.exists():  # left from a cool-down that was interrupted: finish it first
         cool_down(a, arm_ui)
     try:
@@ -1159,6 +1205,10 @@ def main() -> None:
     else:
         cmd = ["lerobot-teleoperate", *robot, *teleop, "--fps=30"]
 
+    if busy := busy_ports(a):  # ease() is the first thing that opens the ports
+        msg = "; ".join(busy.values())
+        LAST_ERROR.write_text(msg[:160])
+        sys.exit(f"{msg}: {BUSY_HINT}")
     lenient_motor_check()
     retry_bus_reads()
     ease(a.follower, a.leader, a.ease_s)
