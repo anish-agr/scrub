@@ -28,4 +28,6 @@ Name each file `V<slot>-take<n>.mp4` and drop it in `/Users/caide_1/Documents/du
 - [ ] **Caiden:** the four Gemini lines are in `.env` on this Mac (checked 07:30). Add them on any other machine that runs voice: `GEMINI_MODEL=gemini-3.8-flash`, `GEMINI_TIMEOUT_MS=8000`, `GEMINI_THINKING_LEVEL=low`, `GEMINI_MAX_OUTPUT_TOKENS=1024`.
 - [ ] **Caiden:** upload the video to YouTube, unlisted, by 9:00. Send the link to Evan.
 - [ ] **Anish, at 9:00:** run `team/HIDE.md` and make the repo public. Agents don't run it.
+- [ ] **Whoever ran the arm 06:32 to 06:59 (voice, dim light, hemostat and scalpel):** say in the chat whether it was the real SO-101. Those 66 events have no `fake_arm` tag, so `docs/DATA.md` keeps them apart as "possibly the real arm, unproven" and the pitch has no real handoff numbers. Confirmed real gives the first real rows.
+- [ ] **Evan, before the Devpost:** every `[measured]` number comes from the Pitch and Devpost table in `docs/DATA.md` (read 08:17). Where it says "no real data yet" (real handoff rate and time), don't write a number.
 - [ ] **Evan, by 9:30:** submit the final Devpost (text in `team/DEVPOST.md`, video link, public repo link).

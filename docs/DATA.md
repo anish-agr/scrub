@@ -1,30 +1,30 @@
 # Data: what MongoDB says
 
-Read 2026-10-18 07:19 from `MongoDB Atlas, database scrub`. Regenerate with `.venv/bin/python -m explore.analysis`. Machine-readable copy: `data/analysis.json` (committed snapshot `docs/media/data/analysis.json`). Read-only: nothing here edits MongoDB.
+Read 2026-10-18 08:17 from `MongoDB Atlas, database scrub`. Regenerate with `.venv/bin/python -m explore.analysis`. Machine-readable copy: `data/analysis.json` (committed snapshot `docs/media/data/analysis.json`). Read-only: nothing here edits MongoDB.
 
-- 70975 events, 29 episodes (0.15 h recorded), 17797 thermal rows
+- 70975 events, 29 episodes (0.15 h recorded), 20403 thermal rows
 - Events by arm: fake 52021, pretag 17561, real 422, sim 971. Tags (`fake_arm`) started 2026-10-17 22:02; earlier rows are test data (`pretag`).
 
 ## Pitch and Devpost numbers
 
 | Number | Value | Query | Read |
 | --- | --- | --- | --- |
-| Episodes recorded (MongoDB) | 29 | `db.episodes.countDocuments({})` | 2026-10-18 07:19 |
-| Hours of demonstrations recorded | 0.15 | `db.episodes.aggregate([{$group:{_id:null,s:{$sum:"$duration_s"}}}])` | 2026-10-18 07:19 |
-| Episodes usable for training | 24 of 29 | `db.episodes.find({}, {episode_index:1, task:1, duration_s:1, handoff:1})` | 2026-10-18 07:19 |
-| Episodes with a handoff outcome | 7 | `db.episodes.countDocuments({handoff: {$ne: null}})` | 2026-10-18 07:19 |
-| Real handoff success rate | no real data yet | `db.events.countDocuments({type:"handed", fake_arm:false})` | 2026-10-18 07:19 |
-| Real median request-to-hand (s) | no real data yet | `db.events.find({type:"handed", fake_arm:false}, {request_to_hand_s:1})` | 2026-10-18 07:19 |
-| Simulated handoff tries | 4511 | `db.events.countDocuments({type:"command", action:"handover", accepted:true, fake_arm:true})` | 2026-10-18 07:19 |
-| Hottest motor and peak | gripper 57 C | `db.thermal.aggregate([{$match:{kind:'sample'}},{$project:{m:{$objectToArray:'$motors'}}},{$unwind:'$m'},{$group:{_id:'$m.k',peak:{$max:'$m.v.temp'}}},{$sort:{peak:-1}},{$limit:1}])` | 2026-10-18 07:19 |
-| Thermal samples | 14756 | `db.thermal.countDocuments({kind:'sample'})` | 2026-10-18 07:19 |
-| Max safe hold time | 264 s | `db.thermal.find({kind:'experiment',phase:'torque_on_hold'},{t:1,session:1,elapsed_s:1,temps:1}).sort({session:1,elapsed_s:1})` | 2026-10-18 07:19 |
-| Reads logged | 177 | `db.events.countDocuments({type:"read"})` | 2026-10-18 07:19 |
-| count_sheet OCR accuracy | 0/32 correct (0%), 32 unscored, item fields 33% of 96 | `db.events.find({type:"read","read.kind":"count_sheet"})` | 2026-10-18 07:19 |
-| tray_tag OCR accuracy | 36/63 correct (57%), 0 unscored | `db.events.find({type:"read","read.kind":"tray_tag"})` | 2026-10-18 07:19 |
-| pack_label OCR accuracy | no real data yet | `db.events.find({type:"read","read.kind":"pack_label"})` | 2026-10-18 07:19 |
-| Median read latency | 1800 ms | `db.events.find({type:"read"},{"read.latency_ms":1})` | 2026-10-18 07:19 |
-| Perceptron vs Gemini | Perceptron 82/89 answered, median 1800 ms; Gemini 10/17 answered, median 770 ms; 0 rescues | `db.events.find({type:"read","read.attempts":{$exists:true}},{"read.attempts":1})` | 2026-10-18 07:19 |
+| Episodes recorded (MongoDB) | 29 | `db.episodes.countDocuments({})` | 2026-10-18 08:17 |
+| Hours of demonstrations recorded | 0.15 | `db.episodes.aggregate([{$group:{_id:null,s:{$sum:"$duration_s"}}}])` | 2026-10-18 08:17 |
+| Episodes usable for training | 24 of 29 | `db.episodes.find({}, {episode_index:1, task:1, duration_s:1, handoff:1})` | 2026-10-18 08:17 |
+| Episodes with a handoff outcome | 7 | `db.episodes.countDocuments({handoff: {$ne: null}})` | 2026-10-18 08:17 |
+| Real handoff success rate | no real data yet | `db.events.countDocuments({type:"handed", fake_arm:false})` | 2026-10-18 08:17 |
+| Real median request-to-hand (s) | no real data yet | `db.events.find({type:"handed", fake_arm:false}, {request_to_hand_s:1})` | 2026-10-18 08:17 |
+| Simulated handoff tries | 4511 | `db.events.countDocuments({type:"command", action:"handover", accepted:true, fake_arm:true})` | 2026-10-18 08:17 |
+| Hottest motor and peak | gripper 57 C | `db.thermal.aggregate([{$match:{kind:'sample'}},{$project:{m:{$objectToArray:'$motors'}}},{$unwind:'$m'},{$group:{_id:'$m.k',peak:{$max:'$m.v.temp'}}},{$sort:{peak:-1}},{$limit:1}])` | 2026-10-18 08:17 |
+| Thermal samples | 16722 | `db.thermal.countDocuments({kind:'sample'})` | 2026-10-18 08:17 |
+| Max safe hold time | 264 s | `db.thermal.find({kind:'experiment',phase:'torque_on_hold'},{t:1,session:1,elapsed_s:1,temps:1}).sort({session:1,elapsed_s:1})` | 2026-10-18 08:17 |
+| Reads logged | 177 | `db.events.countDocuments({type:"read"})` | 2026-10-18 08:17 |
+| count_sheet OCR accuracy | 0/32 correct (0%), 32 unscored, item fields 33% of 96 | `db.events.find({type:"read","read.kind":"count_sheet"})` | 2026-10-18 08:17 |
+| tray_tag OCR accuracy | 36/63 correct (57%), 0 unscored | `db.events.find({type:"read","read.kind":"tray_tag"})` | 2026-10-18 08:17 |
+| pack_label OCR accuracy | no real data yet | `db.events.find({type:"read","read.kind":"pack_label"})` | 2026-10-18 08:17 |
+| Median read latency | 1800 ms | `db.events.find({type:"read"},{"read.latency_ms":1})` | 2026-10-18 08:17 |
+| Perceptron vs Gemini | Perceptron 82/89 answered, median 1800 ms; Gemini 10/17 answered, median 770 ms; 0 rescues | `db.events.find({type:"read","read.attempts":{$exists:true}},{"read.attempts":1})` | 2026-10-18 08:17 |
 
 ## Training data: episodes
 
@@ -336,18 +336,18 @@ Phase grouping: idle = parked, off, preview, killed and the idle monitor (arm no
 
 | Motor | Idle C | Moving C | Holding C | Peak C | Hold rise C/min | Min from idle to guard (hold) | Cool C/min |
 | --- | --- | --- | --- | --- | --- | --- | --- |
-| shoulder_pan | 47.0 | 48.0 | 50.0 | 51 | 1.03 | 12.7 | 0.83 |
-| shoulder_lift | 48.0 | 50.0 | 52.5 | 54 | 1.07 | 11.2 | 0.78 |
-| elbow_flex | 47.0 | 49.0 | 50.0 | 53 | 0.84 | 15.4 | 0.78 |
-| wrist_flex | 49.0 | 50.0 | 52.0 | 54 | 0.95 | 11.6 | 0.63 |
-| wrist_roll | 48.0 | 50.0 | 52.0 | 53 | 0.98 | 12.2 | 0.61 |
-| gripper | 50.0 | 52.0 | 54.0 | 57 | 1.13 | 8.8 | 0.78 |
+| shoulder_pan | 47.0 | 48.0 | 50.0 | 51 | 1.03 | 12.7 | 0.80 |
+| shoulder_lift | 48.0 | 50.0 | 52.5 | 54 | 1.07 | 11.2 | 0.74 |
+| elbow_flex | 47.0 | 49.0 | 50.0 | 53 | 0.84 | 15.4 | 0.73 |
+| wrist_flex | 49.0 | 50.0 | 52.0 | 54 | 0.95 | 11.6 | 0.61 |
+| wrist_roll | 48.0 | 50.0 | 52.0 | 53 | 0.98 | 12.2 | 0.59 |
+| gripper | 50.0 | 52.0 | 54.0 | 57 | 1.13 | 8.8 | 0.77 |
 
 Medians per phase group; the hold rate is a least-squares fit over the hold experiment (stretches of 60 s or more), the cool rate over the first 5 min of idle stretches that began at 49 C or more and fell at least 1 C. `n/a` means no usable stretch.
 
 ### Cooling
 
-Median fall 0.78 C/min over 225 motor-stretches; 60 C to 50 C would take about 13 min at that rate (linear extrapolation: the data never went above 55 C, and real cooling slows near the ambient floor).
+Median fall 0.73 C/min over 282 motor-stretches; 60 C to 50 C would take about 14 min at that rate (linear extrapolation: the data never went above 55 C, and real cooling slows near the ambient floor).
 
 ### Sessions
 
@@ -356,7 +356,7 @@ Median fall 0.78 C/min over 225 motor-stretches; 60 C to 50 C would take about 1
 | 20261018-021820-bb73 | station | station | 39.3 | 3.7 | 49 | 53 (gripper) | 50.0 |
 | 20261018-013938-6072 | station | station | 36.4 | 2.5 | 49 | 53 (gripper) | 51.0 |
 | 20261018-061835-bafc | station | station | 31.6 | 2.6 | 52 | 54 (gripper) | 52.0 |
-| 20261018-065735-1cab | station | station | 22.1 | 0.9 | 49 | 51 (gripper) | 49.0 |
+| 20261018-065735-1cab | station | station | 26.4 | 0.9 | 49 | 51 (gripper) | 49.0 |
 | 20261018-055609-fc7a | station | station | 15.3 | 3.6 | 51 | 56 (gripper) | 53.0 |
 | 20261018-051102-59a8 | station | station | 13.3 | 2.3 | 52 | 55 (gripper) | 53.0 |
 | 20261018-025804-b097 | station | station | 12.8 | 0.9 | 50 | 50 (gripper) | 49.0 |
@@ -368,7 +368,7 @@ Gripper temperature at grasp start, by gripper `torque_limit`:
 
 | torque_limit | Grasps | Median C | Max C | Median |load| |
 | --- | --- | --- | --- | --- |
-| 350 | 435 | 53.0 | 57 | 322 |
+| 350 | 512 | 52.0 | 57 | 322 |
 
 Session settings that were the same in every session (so they cannot explain any difference): COOL_RESUME=50, COOL_TRIP=60, DEADBAND_DEG=0.4, EASE_DEG_S=45.0, GAP_DEG=25.0, GENTLE_ACCEL=40, GENTLE_SPEED=1200, GRIP_SQUEEZE=1.5, JOINT_LOAD_MAX=250. None of them varied.
 Register snapshot: acceleration [40, 254], torque_limit [500, 1000], goal_velocity [0, 1200], max_temperature_limit [70], overload_torque [25, 80].
@@ -378,7 +378,7 @@ Register snapshot: acceleration [40, 254], torque_limit [500, 1000], goal_veloci
 - gripper is the hottest motor: peak 57 C against a 60 C guard and a 70 C firmware limit. Nothing in the data reached the guard (hot events: 0).
 - With torque on and no motion, gripper warms fastest: 1.13 C/min. Holding is not free; every motor warms with torque on.
 - Plan for at most 264 s of continuous hold per pass (half of the 529 s the gripper needs from idle to the 60 C guard); then torque off or park.
-- Park or torque off between passes: motors fall about 0.78 C/min (median), so 60 C to 50 C takes about 13 min.
+- Park or torque off between passes: motors fall about 0.73 C/min (median), so 60 C to 50 C takes about 14 min.
 - gripper and wrist_flex idle warmest (50 and 49 C against 47 C for elbow_flex): their idle temperature is not a fault, only their rise is.
 - No guard trips were recorded, so the guard values are untested on this data; keep COOL_TRIP at 60.
 
