@@ -1,5 +1,6 @@
 // Offline checks for parsing, the case summary and the custom-LLM endpoint: `npm test`.
 // No keys (VOICE_NO_KEYS=1 ignores .env), no real controller: the server runs against a fake one here.
+// Run it with `npm test` (sets CONTROLLER_URL to a dead port for the in-process checks).
 import assert from "node:assert/strict";
 import { mkdtempSync, readFileSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -14,7 +15,10 @@ import { isStop, isTrayCheck, localParse, parseAlias } from "../src/parse.js";
 import { caseFacts, caseLink, clock, closeCaseWithLink, endCase, newCase, recordEvent, setCaller, templateSummary, textCaller } from "../src/summary.js";
 import type { Setting } from "../src/settings.js";
 import { CANT_CHECK, textTrayCheck, trayReadyText, voiceTrayCheck } from "../src/tray.js";
-import { BUSY, settingAsked, switchSetting } from "../src/cases.js";
+import { BUSY, JUDGE, notSetUp, settingAsked, switchSetting } from "../src/cases.js";
+import { forgetJudge, judgeMode, noteJudge } from "../src/controller.js";
+import { teach } from "../src/settings.js";
+import { handleTurn, io } from "../src/turn.js";
 import { HELP, countReply, handleText, localText, logRestock, runTexts, type InMessage, type InSpace, type Restock } from "../src/texts.js";
 
 const bench: Setting = { id: "bench", label: "Robotics bench", items: [
@@ -24,6 +28,9 @@ const bench: Setting = { id: "bench", label: "Robotics bench", items: [
 assert.deepEqual(localParse("hand me the needle-nose pliers", bench), { action: "handover", item: "needle_nose_pliers" });
 assert.deepEqual(localParse("needle nose pliers please", bench), { action: "handover", item: "needle_nose_pliers" });
 assert.deepEqual(localParse("snips", bench), { action: "handover", item: "wire_cutters" });
+// Bug: an empty alias (a taught word that was all punctuation) matched any " s " through the plural test.
+const blank: Setting = { id: "bench", label: "Robotics bench", items: [{ id: "hex_key", name: "hex key", aliases: [""], sharp: false }] };
+assert.deepEqual(localParse("let's go", blank), { action: "unknown", item: null });
 
 let t = 0;
 const ev = (type: string, extra: Record<string, unknown> = {}) => recordEvent({ type, t: ++t, ...extra } as any);
@@ -54,6 +61,12 @@ assert.deepEqual(f.still_out, ["hemostat", "mayo_scissors", "scalpel"]);
 assert.match(templateSummary(f).split("\n")[0], /^Still out: hemostat, mayo scissors, scalpel/);
 ev("handed", { command_id: "e", item: "hemostat", request_to_hand_s: 7 });
 assert.equal(caseFacts().median_request_to_hand_s, 6.5);  // even count: mean of the middle two
+// Errors from the arm's robot model (401/409/503 with a say line) are not failed requests.
+ev("error", { command_id: "h", item: "hemostat", code: 409, say: "The arm's model is busy.", error: "409" });
+ev("error", { command_id: null, code: 503, say: "The arm's model is offline." });
+ev("error", { command_id: "e", code: 401, say: "The arm's model key was refused." });
+assert.equal(caseFacts().failed_requests, 1);
+assert.equal(caseFacts().stops, 1);
 
 // Texts in (F3): fake message stream, fake controller state, local parse only (never Gemini or Photon).
 const surgical: Setting = { id: "surgical", label: "Operating room", items: [
@@ -132,28 +145,92 @@ await logRestock(restocks[0], tmp, async () => ({ ok: true }));  // the ledger t
 assert.equal(readFileSync(tmp, "utf8").trim().split("\n").length, 1);
 
 // Switching trays by text (X5): local match, fake POST /setting (ok, 409 busy, 404 unknown, down).
-assert.deepEqual(localText("start a dental case", surgical), { kind: "setting", item: null, qty: 1, setting: "dental" });
+assert.deepEqual(localText("start a bench case", surgical), { kind: "setting", item: null, qty: 1, setting: "bench" });
 assert.equal(localText("Switch to the bench tray", surgical).setting, "bench");
+assert.equal(settingAsked("start a robotics case"), "bench");
+assert.equal(settingAsked("switch to the operating room tray"), "surgical");
+assert.equal(settingAsked("start a dental case"), "dental");  // recognised, only to say it isn't set up
+assert.ok(!HELP.includes("dental") && HELP.includes("bench"));
 assert.equal(localText("surgical case", surgical).kind, "setting");
 assert.equal(localText("add a second hemostat to the surgical tray", surgical).kind, "restock");  // not a switch
 assert.equal(settingAsked("grab me the kelly"), null);
 assert.equal(settingAsked("the dental mirror"), null);
-const dentalFile = { id: "dental", label: "Dental office", items: [{ id: "mouth_mirror", name: "mouth mirror" },
-  { id: "explorer", name: "explorer" }, { id: "cotton_pliers", name: "cotton pliers" }] };
+const benchFile = { id: "bench", label: "Robotics bench", items: [{ id: "needle_nose_pliers", name: "needle-nose pliers" },
+  { id: "wire_cutters", name: "wire cutters" }, { id: "hex_key", name: "hex key" }] };
+const BENCH_LINE = "Bench case started: needle-nose pliers, wire cutters, hex key.";
 const posted: string[] = [];
-const fakePost = (status: number) => async (id: string) => { posted.push(id); return { status, setting: status === 200 ? dentalFile : null }; };
-assert.equal(await switchSetting("dental", fakePost(200)), "Dental case started: mouth mirror, explorer, cotton pliers.");
-assert.equal(await switchSetting("dental", fakePost(409)), BUSY);
-assert.equal(await switchSetting("dental", fakePost(404)), "I don't have a dental tray.");
-assert.equal(await switchSetting("dental", async () => { throw new Error("down"); }), "I can't reach the arm controller.");
-assert.deepEqual(posted, ["dental", "dental", "dental"]);
+const fakePost = (status: number) => async (id: string) => { posted.push(id); return { status, setting: status === 200 ? benchFile : null }; };
+assert.equal(await switchSetting("bench", fakePost(200)), BENCH_LINE);
+assert.equal(await switchSetting("bench", fakePost(409)), BUSY);
+assert.equal(await switchSetting("bench", fakePost(404)), "I don't have a bench tray.");
+assert.equal(await switchSetting("bench", fakePost(403)), JUDGE);  // the controller refused it in judge mode
+assert.equal(await switchSetting("bench", async () => { throw new Error("down"); }), "I can't reach the arm controller.");
+assert.equal(await switchSetting("dental", fakePost(200)), "The dental tray isn't set up for this demo.");  // never posted
+assert.equal(notSetUp("dental"), "The dental tray isn't set up for this demo.");
+assert.deepEqual(posted, ["bench", "bench", "bench", "bench"]);
 const switched: string[] = [];
 const switchDeps = { ...deps, switchTo: async (id: string) => { switched.push(id); return switchSetting(id, fakePost(200)); } };
 summaries = 0;
-assert.equal(await handleText("start a dental case", "+15555550123", switchDeps), "Dental case started: mouth mirror, explorer, cotton pliers.");
-assert.deepEqual(switched, ["dental"]);
+assert.equal(await handleText("start a bench case", "+15555550123", switchDeps), BENCH_LINE);
+assert.equal(await handleText("start a dental case", "+15555550123", switchDeps), notSetUp("dental"));
+assert.deepEqual(switched, ["bench", "dental"]);
+assert.equal(posted.length, 5);  // dental never reached POST /setting
 assert.equal(summaries, 0);  // the previous case's summary is not sent on a switch
+assert.equal(await handleText("which tray", null, { ...deps, parse: async () => ({ kind: "setting" as const, item: null, qty: 1, setting: null }) }),
+  "Which tray? surgical, bench.");
+
+// Judge mode by text: state.judge true -> no POST /setting, /alias or /restock; count still works.
+const judgeState = async (): Promise<State> => ({ step: "idle", out: ["hemostat"], setting: "surgical", judge: true, t: 1 });
+const judged: string[] = [];
+const judgeDeps = { ...deps, state: judgeState, switchTo: async (id: string) => { judged.push(`setting ${id}`); return "x"; },
+  teach: async (i: string, a: string) => { judged.push(`alias ${a}`); return { ok: true, say: "x" }; },
+  log: (r: Restock) => { judged.push(`restock ${r.item}`); } };
+assert.equal(await handleText("switch to the bench tray", null, judgeDeps), JUDGE);
+assert.equal(await handleText("call the hemostat a snap", null, judgeDeps), JUDGE);
+assert.equal(await handleText("added 2 kellys", null, judgeDeps), JUDGE);
+assert.equal(await handleText("what's out?", null, judgeDeps), "Out (1): hemostat.");
+assert.deepEqual(judged, []);
+assert.equal(JUDGE, "In judge mode I can hand you an instrument, read the count, or stop.");
+// The judge flag is cached for a short while (a fake clock and a fake GET /state).
+let stateGets = 0, now = 1000;
+const getJ = (on: boolean) => async (): Promise<State> => { stateGets++; return { step: "idle", out: [], setting: "surgical", judge: on, t: 1 }; };
+forgetJudge();
+assert.equal(await judgeMode(getJ(true), 3000, () => now), true);
+now += 2000;
+assert.equal(await judgeMode(getJ(false), 3000, () => now), true);  // cached
+assert.equal(stateGets, 1);
+now += 1500;
+assert.equal(await judgeMode(getJ(false), 3000, () => now), false);  // expired: asked again
+assert.equal(stateGets, 2);
+forgetJudge();
+assert.equal(await judgeMode(async () => { throw new Error("down"); }, 3000, () => now), false);  // controller down: not judge
+noteJudge(true, () => now);  // an event said judge: true, no GET /state needed
+assert.equal(await judgeMode(getJ(false), 3000, () => now), true);
+assert.equal(stateGets, 2);
+forgetJudge();
+// POST /alias refused with a 403 (judge mode turned on since the cache): the judge line, not "can't reach".
+assert.equal((await teach("hemostat", "snap", async () => { throw new Error("POST /alias -> 403"); })).say, JUDGE);
+await assert.rejects(teach("hemostat", "snap", async () => { throw new Error("POST /alias -> 500"); }));
 assert.equal(await handleText("switch to the bench tray", null, { ...deps, switchTo: (id: string) => switchSetting(id, fakePost(409)) }), BUSY);
+
+// The stop path never waits on Gemini, the setting or judge mode (in-process, every call faked; never the real controller).
+const never = () => new Promise<never>(() => {});
+const calls: string[] = [];
+Object.assign(io, {
+  parse: () => { calls.push("parse"); return never(); }, currentSetting: () => { calls.push("setting"); return never(); },
+  judgeMode: () => { calls.push("judge"); return never(); },
+  postStop: async () => { calls.push("stop"); return { accepted: true }; },
+  postCommand: async () => { calls.push("command"); return { accepted: true, reason: null, say: null }; },
+});
+let t0 = Date.now();
+await handleTurn("stop", () => {});
+assert.deepEqual(calls, ["stop"]);
+assert.ok(Date.now() - t0 < 2500);
+// Gemini hearing a stop the local words missed goes to POST /stop, not the /command queue.
+calls.length = 0;
+Object.assign(io, { currentSetting: async () => surgical, parse: async () => ({ action: "stop" as const, item: null, via: "gemini" as const }) });
+await handleTurn("hang on a second", () => {});
+assert.deepEqual(calls, ["stop"]);
 
 // Call-to-text memory (F4): events grouped by case_id, the text names the case, goes to the caller. Fake sender, no Gemini.
 const start = Math.floor(Date.now() / 1000) - 600;
@@ -245,7 +322,8 @@ const ctl = http.createServer((req, res) => {
   req.on("data", (d) => (raw += d));
   req.on("end", () => {
     res.setHeader("content-type", "application/json");
-    if (req.method === "POST" && req.url === "/setting") return res.end(JSON.stringify(dentalFile));
+    if (req.method === "POST" && req.url === "/setting") return res.end(JSON.stringify(benchFile));
+    if (req.url === "/state") return res.end(JSON.stringify({ step: "idle", out: [], setting: "surgical", judge: judgeOn, t: 1 }));
     if (req.url === "/setting") return res.end(JSON.stringify({ id: "surgical", label: "Operating room",
       items: [{ id: "hemostat", name: "hemostat", aliases: ["kelly", ...clinic] }, { id: "scalpel", name: "scalpel", aliases: ["knife"], sharp: true }] }));
     if (req.url === "/tray_check") return res.end(JSON.stringify(trayAnswer));
@@ -258,6 +336,19 @@ const ctl = http.createServer((req, res) => {
     if (req.url === "/stop") { emit({ type: "stopped", say: "Stopped." }); return res.end('{"accepted":true}'); }
     if (req.url === "/command") {
       const c = JSON.parse(raw);
+      const reply = () => res.end(JSON.stringify({ accepted: true, reason: null, say: null }));
+      // Like the controller: count (and an early robot-model error) are emitted while it answers the POST.
+      if (c.action === "count") { emit({ type: "count", command_id: c.id, say: "Out: hemostat." }); return setTimeout(reply, 50); }
+      if (c.item === "scalpel") {
+        emit({ type: "error", command_id: c.id, item: c.item, code: 409, say: "The arm's model is busy. Try again.", error: "409" });
+        return setTimeout(reply, 50);
+      }
+      if (preopenError) {  // a pre-open session error mid-handover: spoken, but the handover goes on
+        setTimeout(() => emit({ type: "error", command_id: null, step: "idle", code: 503, say: "The robot model is down right now." }), 30);
+        setTimeout(() => emit({ type: "handed", command_id: c.id, item: c.item, say: "Hemostat in your hand." }), 400);
+        return reply();
+      }
+      if (errorLater) { setTimeout(() => emit({ type: "error", command_id: c.id, code: 503, say: "The arm's model is offline. Reset the arm." }), 100); return reply(); }
       if (c.action === "handover") setTimeout(() => {
         emit({ type: "command", command_id: c.id, item: c.item, say: "Hemostat coming." });
         emit({ type: "handed", command_id: c.id, item: c.item });
@@ -268,14 +359,18 @@ const ctl = http.createServer((req, res) => {
   });
 });
 let trayAnswer: object = READY;
+let judgeOn = false, errorLater = false, preopenError = false;
 const wss = new WebSocketServer({ server: ctl });
 const emit = (e: object) => wss.clients.forEach((c) => c.send(JSON.stringify({ t: Date.now() / 1000, ...e })));
-await new Promise<void>((r) => ctl.listen(0, r));
+// Test ports 8260-8268 and 3260-3268 (the live controller and voice server stay on 8000 and 3000). npm test points
+// in-process code at 8269, where nothing listens, so a call a test forgot to fake never reaches the real arm.
+const offset = Math.floor(Math.random() * 9);
+await new Promise<void>((r) => ctl.listen(8260 + offset, r));
 const ctlPort = (ctl.address() as AddressInfo).port;
-const voicePort = 3900 + Math.floor(Math.random() * 90);
+const voicePort = 3260 + offset;
 const out: string[] = [];
 const child = spawn(process.execPath, ["--import", "tsx", "src/server.ts"], { cwd: path.resolve(import.meta.dirname, ".."),
-  env: { ...process.env, VOICE_NO_KEYS: "1", CONTROLLER_URL: `http://localhost:${ctlPort}`, VOICE_PORT: String(voicePort), VOICE_HOLD_S: "2" } });
+  env: { ...process.env, VOICE_NO_KEYS: "1", CONTROLLER_URL: `http://localhost:${ctlPort}`, VOICE_PORT: String(voicePort), VOICE_HOLD_S: "2", VOICE_JUDGE_TTL_MS: "0" } });
 child.stdout.on("data", (d) => out.push(String(d)));
 child.stderr.on("data", (d) => out.push(String(d)));
 const base = `http://localhost:${voicePort}`;
@@ -309,8 +404,27 @@ try {
   assert.deepEqual(hits, ["POST /stop"]);  // no GET /setting, no Gemini, no /command
   assert.ok(!out.join("").includes("[gemini]"));
   hits.length = 0;
-  assert.equal(await turn("start a dental case"), "Dental case started: mouth mirror, explorer, cotton pliers.");
-  assert.deepEqual(hits, ["POST /setting"]);  // a phrase match: no Gemini, no /command
+  assert.equal(await turn("start a bench case"), BENCH_LINE);
+  assert.deepEqual(hits, ["GET /state", "POST /setting"]);  // a phrase match (judge mode checked): no Gemini, no /command
+  hits.length = 0;
+  assert.equal(await turn("start a dental case"), "The dental tray isn't set up for this demo.");
+  assert.equal(hits.length, 0, hits.join());  // dental is never posted
+
+  // Bug: count (and stop) events arrive while the controller answers the POST, before the hold starts:
+  // the reply used to stay open the full VOICE_HOLD_S (2 s here). Now it ends right after the line.
+  let t1 = Date.now();
+  assert.equal(await turn("what's out"), "Out: hemostat.");
+  assert.ok(Date.now() - t1 < 1200, `count turn took ${Date.now() - t1} ms`);
+  // Robot-model errors (code 401/409/503 with a say line) are spoken: during the POST, and in the hold window.
+  t1 = Date.now();
+  assert.equal(await turn("knife please"), "The arm's model is busy. Try again.");
+  assert.ok(Date.now() - t1 < 1200, `error turn took ${Date.now() - t1} ms`);
+  errorLater = true;
+  assert.equal(await turn("grab me the kelly"), "The arm's model is offline. Reset the arm.");
+  errorLater = false;
+  preopenError = true;
+  assert.equal(await turn("grab me the kelly"), "The robot model is down right now. Hemostat in your hand.");
+  preopenError = false;
 
   hits.length = 0;
   assert.equal(await turn("check the tray"), READY.say);
@@ -332,6 +446,22 @@ try {
   assert.equal(await turn("grab me the crile"), "Hemostat coming.");
   assert.equal(hits[0], "GET /setting");
   assert.match(out.join("").slice(before), /\[command\] handover hemostat/);
+
+  // Judge mode (GET /state judge: true): no POST /setting or /alias by voice; stop still goes straight to POST /stop.
+  judgeOn = true;
+  hits.length = 0;
+  assert.equal(await turn("switch to the bench tray"), JUDGE);
+  assert.deepEqual(hits, ["GET /state"]);
+  hits.length = 0;
+  assert.equal(await turn("call the hemostat a snap"), JUDGE);  // bug: the same line twice in 3 s was dropped
+  assert.ok(!hits.includes("POST /alias"), hits.join());
+  hits.length = 0;
+  assert.equal(await turn("stop"), "Stopped.");
+  assert.deepEqual(hits, ["POST /stop"]);  // no GET /state before a stop
+  hits.length = 0;
+  assert.equal(await turn("what's out"), "Out: hemostat.");  // count still goes to the controller
+  assert.ok(hits.includes("POST /command"), hits.join());
+  judgeOn = false;
 
   const health = await (await fetch(`${base}/health`)).json();
   assert.deepEqual(health, { ok: true, keys: { gemini: false, photon: false, llm_secret: false }, controller: true });

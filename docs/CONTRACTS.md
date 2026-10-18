@@ -8,7 +8,7 @@ Every part codes against these. Build against fake inputs that match them, and t
 
 - JSON everywhere. Times are Unix seconds as floats (`time.time()` in Python, `Date.now() / 1000` in TypeScript), field name `t`.
 - Item ids are lowercase with underscores: `scalpel`, `hemostat`, `mayo_scissors`, `mouth_mirror`, `explorer`, `cotton_pliers`, `needle_nose_pliers`, `wire_cutters`, `hex_key`.
-- Setting ids: `surgical`, `dental`, `bench`.
+- Setting ids: `surgical`, `dental`, `bench`. Shown to users: `surgical` (first) and `bench`; `dental` is hidden but still loads.
 - Pixel boxes are `[x1, y1, x2, y2]` in the vision camera's image.
 - Arm points are meters in the arm's base frame: x forward, y left, z up. Anish confirms the axes against the SO-101 URDF.
 
@@ -43,6 +43,7 @@ Every part codes against these. Build against fake inputs that match them, and t
 | `GET /arm/camera/{side,wrist}`, `GET /arm/stream/{side,wrist}` | | a JPEG, or MJPEG; 404 until the arm has `camera_jpeg(name)` (optional) |
 | `GET /camera/overhead` | | vision's `/snapshot` proxied, 502 if vision is down (optional) |
 | `GET /calibration` | | `vision/calibration.json`, 404 if missing (optional) |
+| `POST /judge` | `{"on": true or false}` | `{"ok": true, "judge": bool}` (optional). Judge mode: `/command` accepts only `handover`, `count`, `stop` and `got_it`; anything else gets `accepted: false`, `reason` "judge mode" and a spoken `say`. `POST /alias` answers `ok: false`, `reason` "judge mode". `/setting`, `/reset`, `/lighting`, `/stop` and the operator endpoints still work. Also `python -m controller --judge` |
 
 ## Command (voice, keyboard or dashboard to the controller)
 
@@ -83,6 +84,7 @@ Every part codes against these. Build against fake inputs that match them, and t
 
 - `out_camera` (optional): what the camera says is out, from the latest fresh TrayState: items whose slot is empty, minus anything sitting in the return spot. `null` when there's no fresh TrayState. `count` compares it with `out` and says if they disagree.
 - `case_id` (optional): the current case, `<setting>-<unix start seconds>`. A new case starts when the controller starts, when the setting changes and on `POST /reset` with `clear_count`.
+- `judge` (optional): `true` in judge mode (`POST /judge`).
 
 `step` is one of `idle`, `finding`, `picking`, `checking`, `moving_to_hand`, `setting_down`, `waiting_for_pull`, `releasing`, `homing`, `returning`, `stopped`, `error`.
 
@@ -138,7 +140,7 @@ Every part codes against these. Build against fake inputs that match them, and t
 - Every field except `type` and `t` can be `null`.
 - `case_id` (optional): the case this event belongs to, same value as in State. The voice server uses it to group the end-of-case text.
 - The voice server speaks Event `say` lines only. The `say` in the `/command` reply repeats the same line, for keyboard and curl use.
-- Optional extra fields on `command` events: `action`, `heard`, `source`, `accepted`, `reason`. Every event carries `out` (the State's list at that moment), so pages don't need to re-read `/state`. On `error` events: `error`. On `stopped` events from the hand watcher: `reason` (`hand_lost` or `hand_blocked`); the arm holds the item until a reset.
+- Optional extra fields on `command` events: `action`, `heard`, `source`, `accepted`, `reason`. Every event carries `out` (the State's list at that moment), so pages don't need to re-read `/state`. On `error` events: `error`, and for the robot model's API errors (Perceptron) `code` (the HTTP status as an int, or `null` when it didn't answer) and `reason` (a short message with no keys, e.g. "Perceptron HTTP 503"). An `error` event from pre-opening sessions after a setting change has `command_id: null` and leaves `step` as it was (the arm is not held); one from a skill run holds the arm (`step: "error"`) like any error. Every event also carries `judge` (bool). On `stopped` events from the hand watcher: `reason` (`hand_lost` or `hand_blocked`); the arm holds the item until a reset.
 
 ## Setting file (`settings/<id>.json`)
 
@@ -182,7 +184,12 @@ class Arm:
     def gripper_load(self) -> float: ...       # raw load, used for release on pull
     def freeze(self) -> None: ...              # hold position now; must work from any thread
     def disconnect(self) -> None: ...
+    # optional:
+    def resume(self) -> None: ...              # rearm after a freeze; the controller calls it only on reset
+    def prepare(self, instructions: list[str]) -> list: ...  # pre-open robot model sessions; blocking, raises APIError
 ```
+
+The controller calls `prepare` with every item's `pick_instruction` and `return_instruction` at start, on each setting change and after a reset if the last one didn't finish, on its own thread (never the event loop, never under its lock). Perceptron failures raise `APIError` (`arm/perceptron.py`, message "Perceptron HTTP <status>"); the controller turns them into `error` events with `code`.
 
 The fake arm sleeps about 1 second per motion and returns `True`. `freeze()` interrupts a running call.
 

@@ -10,7 +10,7 @@ import tempfile
 from pathlib import Path
 
 SETTINGS_DIR = Path(__file__).resolve().parent.parent / "settings"
-SETTING_IDS = ("surgical", "dental", "bench")
+SETTING_IDS = ("surgical", "bench", "dental")  # surgical first, bench second; dental is hidden from pages but still loads
 
 _DEFAULTS = {
     "surgical": ("Operating room", [

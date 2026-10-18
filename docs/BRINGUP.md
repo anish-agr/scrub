@@ -15,7 +15,7 @@ The shipped rig disables real operation. Do not mark it verified to bypass error
 
 ```powershell
 git pull --rebase
-python -m unittest arm.test_perceptron arm.test_kinematics arm.test_streaming arm.test_real_arm arm.test_sessions arm.test_pipeline arm.test_teach arm.test_prepare -v
+python -m unittest arm.test_perceptron arm.test_kinematics arm.test_streaming arm.test_real_arm arm.test_sessions arm.test_pipeline arm.test_teach arm.test_prepare arm.test_record -v
 python -m arm --dry-run --self-test
 python -m controller --fake-arm --motion-s 0.2
 ```
@@ -37,6 +37,18 @@ says `fake_arm: true`; the fake request releases and homes. Open
 of learned grasping or physical safety. Stop the fake controller before real setup.
 
 ## 2. Identify ports and all three cameras
+
+```powershell
+python -m arm.check_setup --side 0 --wrist 1
+```
+
+On the Mac, pass camera names instead of indexes (`--side C920 --wrist icspring`);
+OpenCV's indexes change when a camera is replugged. It lists the serial ports
+(never opens them, so the motors are not touched), opens each camera at 640x480
+at 30 fps, measures the real fps over 2 s, saves one test frame each under
+`~/scrub-setup-check/` (or `--out <folder>`) and ends with a PASS/FAIL line
+(`--json` for machine output). Close teleop, recording and vision first. Look
+at the saved frames to tell side from wrist. Fallback, plain LeRobot:
 
 ```powershell
 lerobot-find-port
@@ -126,13 +138,43 @@ change. There is no shipped one-command live-joint `--dry-run`: `python -m arm
 ## 6. Record the operating-room set into ONE dataset
 
 Keep one repo `$Repo`, one root `$DatasetRoot`, fixed calibration/cameras and
-exact task strings from settings. Example first batch (five picks):
+exact task strings from settings. `python -m arm.record` fixes all of that:
+`use_degrees=true`, 30 fps, 25 s episodes, 10 s reset, repo `<HF_USER>/scrub`
+(`HF_USER`, `--hf-user`, or the account of `HF_TOKEN` in `.env`), root
+`~/scrub-dataset`, `--resume=true` automatically once the root holds a dataset,
+and one `docs/DATA-LOG.md` row per batch with the episodes actually saved. The
+task must be an exact `pick_instruction`/`return_instruction` from
+`settings/surgical.json` or `settings/bench.json` (dental is not recorded).
+Always check with `--print-only` first; it prints the config and exact command
+and touches nothing.
+
+Windows laptop (plain `lerobot-record` underneath, `--lerobot`):
+
+```powershell
+python -m arm.record --lerobot --follower $Follower --leader $Leader --side $Side --wrist $Wrist --hf-user $HfUser --setting surgical --item hemostat --direction hand-out --lighting bright --episodes 5 --print-only
+python -m arm.record --lerobot --follower $Follower --leader $Leader --side $Side --wrist $Wrist --hf-user $HfUser --setting surgical --item hemostat --direction hand-out --lighting bright --episodes 5
+```
+
+Mac (default backend `explore/arm_session.py`: cameras by name, ease-in, gripper
+and joint guards, recorder page on http://localhost:8090, per-episode cadence
+in `~/scrub-dataset-cadence.json`):
+
+```powershell
+python -m arm.record --task "pick the hemostat" --lighting bright --episodes 5 --side C920 --wrist icspring
+```
+
+Later batches: the same command with the next exact instruction, for example
+`--task "return the hemostat" --lighting dim`. `--lerobot --push` also pushes
+to the Hub (publishes the data); without it the dataset stays local and goes up
+with `python -m arm.train upload`. `--no-log` skips the DATA-LOG row.
+
+Fallback, the raw command it builds (first batch, five picks):
 
 ```powershell
 lerobot-record --robot.type=so101_follower --robot.port=$Follower --robot.id=scrub_follower --robot.use_degrees=true --robot.cameras="$Cameras" --teleop.type=so101_leader --teleop.port=$Leader --teleop.id=scrub_leader --dataset.repo_id=$Repo --dataset.root=$DatasetRoot --dataset.single_task="pick the hemostat" --dataset.num_episodes=5 --dataset.fps=30 --dataset.episode_time_s=25 --dataset.reset_time_s=10 --dataset.push_to_hub=true
 ```
 
-For **every later batch**, use the same command with `--resume=true`, the same
+With the raw command, for **every later batch**, use the same command with `--resume=true`, the same
 root/repo and the next exact instruction/episode count. `num_episodes` counts
 additional episodes. Example changes: `return the hemostat`, `pick the mayo
 scissors` only if that is the exact `pick_instruction` in the current settings.
@@ -142,7 +184,8 @@ Read the actual setting strings; do not invent aliases for recording.
 bright/normal/dim after one setup is reliable. `n`/right arrow ends cleanly;
 `r`/left arrow re-records; `q`/Esc finishes and encodes. Pick demos end still at
 carry, not moving toward a person's hand. Evan logs instruction, lighting and
-episode counts in `docs/DATA-LOG.md`.
+episode counts in `docs/DATA-LOG.md` (`arm.record` appends the row; after a raw
+`lerobot-record` batch use `python -m ledger log`).
 **If not:** discard failed/camera-obscured demos. A cadence report must be about
 30 Hz; 25 Hz recordings can still claim 30 fps in metadata. Do not train on that.
 Fix laptop/camera load and re-record affected episodes. HF push publishes data:

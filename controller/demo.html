@@ -4,16 +4,17 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Judge Run Console</title>
-<meta name="description" content="Caiden's judging console for Scrub: 3:00 run clock with the PITCH.md beats as cue cards for Anish, Brandon, Evan and Caiden, one-key setting switches, reset, latched stop, lamp tagging, rehearsal log and a backup-video switch.">
+<meta name="description" content="Caiden's judging console for Scrub: 3:00 run clock with the PITCH.md beats as cue cards for Anish, Brandon, Evan and Caiden, one-key setting switches, judge mode, reset, latched stop, lamp tagging, rehearsal log and a backup-video switch.">
 <!--
 FEATURES:
 - Run clock (T+ m:ss.s, 3:00 limit) over a beat timeline built from docs/PITCH.md: 0:00 staffing, 0:30 "This is Scrub",
-  0:50 sharps, 1:05 "Try it", 1:20 return, 1:40 lighting, 2:00 three settings, 2:30 close. Short version (0:30, 1:05, 2:30)
+  0:50 sharps, 1:05 "Try it", 1:20 return, 1:40 lighting, 2:00 second setting (bench), 2:30 close. Short version (0:30, 1:05, 2:30)
   for a rushed judge with the K key.
 - Cue card per beat: Anish's line, Brandon's request, Evan's tray or lamp move, Caiden's key, the judge's part. Each arm beat
   has goals read from WS /events (released / set_down / returned / count, setting and lighting changes). When the goals
   are met and the arm is back to idle, the cue advances by itself. Speech-only beats advance on Enter.
-- P4 demo keys: 1 / 2 / 3 POST /setting surgical / dental / bench, R POST /reset {"clear_count": true} (homes, opens gripper, clears out),
+- P4 demo keys: 1 / 2 POST /setting surgical / bench (dental is hidden), J POST /judge {"on"} toggles judge mode (badge in the
+  header; /command then takes only handover, count, stop, got_it), R POST /reset {"clear_count": true} (homes, opens gripper, clears out),
   Space or Esc POST /stop (latched until a reset succeeds), L toggles bright / normal via POST /lighting, Shift+L dim.
   C sends the current cue request as a dashboard /command (rehearsing without the phone), G sends got_it.
 - Live arm panel: step, item, out list, request-to-hand seconds, last 8 events, plus a top view of the table in mm from
@@ -28,7 +29,7 @@ FEATURES:
 SPONSORS: Perceptron Robotics (the arm doing the judged run), Photon (the spoken requests the cues wait on), DubHacks NEXT
   (the pitch timing itself).
 BACKEND HOOKS: GET {api}/state (poll 2 s), WS {api}/events, POST {api}/setting {"setting"}, POST {api}/reset,
-  POST {api}/stop, POST {api}/lighting {"lighting","lux":null}, POST {api}/command {action,item,source:"dashboard",t}.
+  POST {api}/stop, POST {api}/lighting {"lighting","lux":null}, POST {api}/judge {"on"}, POST {api}/command {action,item,source:"dashboard",t}.
   Default api http://localhost:8000, override ?api=http://host:8000. ?video= sets the backup video URL.
 STYLE: Swiss Design on an OR wall display. Charcoal ground, strict 12-column grid, flush-left Archivo and Archivo Narrow,
   IBM Plex Mono tabular numbers, 1px rules, square corners. Red is reserved for STOP and overruns, amber for near overrun,
@@ -55,7 +56,7 @@ header h1{margin:0;font:800 18px/1 var(--sans);letter-spacing:-.01em}
 header h1 span{font-weight:400;color:var(--dim)}
 .conn{display:flex;gap:10px;align-items:center;justify-content:flex-end;flex-wrap:wrap}
 .pill{font:700 12px/1 var(--narrow);letter-spacing:.1em;text-transform:uppercase;padding:7px 9px;border:1px solid currentColor}
-.pill.live{color:var(--green)} .pill.mock{color:var(--amber)} .pill.backup{color:var(--cyan)}
+.pill.live{color:var(--green)} .pill.mock{color:var(--amber)} .pill.backup{color:var(--cyan)} .pill.judge{color:var(--amber);background:#2c2410}
 #api{background:var(--panel);border:1px solid var(--rule2);color:var(--ink);font:13px var(--mono);height:36px;padding:0 8px;width:230px;border-radius:2px}
 .mockbar{display:none;background:#2c2410;color:var(--amber);border-bottom:1px solid #5a4614;padding:8px 20px;font:600 13px var(--narrow);letter-spacing:.04em}
 body.mock .mockbar{display:block}
@@ -187,6 +188,7 @@ footer a{color:var(--dim)}
   <div class="conn">
     <span class="pill mock" id="connpill">checking :8000</span>
     <span class="pill backup" id="backpill" hidden>backup video</span>
+    <span class="pill judge" id="judgepill" hidden>judge mode</span>
     <input id="api" aria-label="controller URL" spellcheck="false">
   </div>
 </header>
@@ -217,8 +219,8 @@ footer a{color:var(--dim)}
     <div class="latchnote">Stopped and latched. Press R to reset: arm homes, gripper opens, count clears.</div>
     <div class="keys">
       <button data-set="surgical"><b><kbd>1</kbd> Operating room</b><span>surgical</span></button>
-      <button data-set="dental"><b><kbd>2</kbd> Dental office</b><span>dental</span></button>
-      <button data-set="bench"><b><kbd>3</kbd> Robotics bench</b><span>bench</span></button>
+      <button data-set="bench"><b><kbd>2</kbd> Robotics bench</b><span>bench</span></button>
+      <button id="bJudge"><b><kbd>J</kbd> Judge mode</b><span id="judgestate">off</span></button>
       <div class="row2">
         <button data-light="dim"><b><kbd>&#8679;L</kbd> dim</b><span>lighting</span></button>
         <button data-light="normal"><b><kbd>L</kbd> normal</b><span>lighting</span></button>
@@ -299,10 +301,10 @@ $("api").value=API; $("mockapi").textContent=API;
 /* ---------------- beats (docs/PITCH.md, docs/PLAN.md) ---------------- */
 const ITEM_NAMES={scalpel:"scalpel",hemostat:"hemostat",mayo_scissors:"Mayo scissors",mouth_mirror:"mouth mirror",explorer:"explorer",
   cotton_pliers:"cotton pliers",needle_nose_pliers:"needle-nose pliers",wire_cutters:"wire cutters",hex_key:"hex key"};
-const SETTING_ITEMS={surgical:["hemostat","scalpel","mayo_scissors"],dental:["mouth_mirror","explorer","cotton_pliers"],bench:["needle_nose_pliers","wire_cutters","hex_key"]};
+const SETTING_ITEMS={surgical:["hemostat","scalpel","mayo_scissors"],bench:["needle_nose_pliers","wire_cutters","hex_key"]};  // dental is hidden
 const FULL=[
  {at:0,end:30,title:"The staffing numbers",
-  anish:"“In a dental office or an operating room, the doctor works with an assistant who hands them instruments. Clinics can't hire enough of them. Two out of three dentists who are recruiting say finding one is very or extremely hard, and a surgical tech job stays open about four months. When nobody is there, the doctor turns away from the patient, puts down what they're holding, and searches the tray.”",
+  anish:"“In an operating room, surgeons work with a scrub tech who hands them instruments. Hospitals cannot hire enough of them. A surgical tech job stays open about four months. When nobody is there, the doctor turns away from the patient, puts down what they're holding, and searches the tray.”",
   brandon:"Stand as the clinician, hands busy.", evan:"OR tray on the blue towel. Lamp off. Hands clear.",
   caiden:"Dashboard faces the judge. Press Enter when Anish says “This is Scrub.”", goals:[]},
  {at:30,end:50,title:"“This is Scrub.”",
@@ -326,13 +328,13 @@ const FULL=[
   brandon:"Once the lamp is on, ask for any instrument on the tray.", evan:"Lamp on, aimed at the tray.",
   caiden:"Press L when the lamp is on (POST /lighting bright). Point at the lighting table.",
   goals:[{k:"light",value:"bright"},{k:"hand",item:"*"}]},
- {at:120,end:150,title:"Three settings",
-  anish:"“The same system works anywhere someone needs a second pair of hands. You've seen the operating room. Here's a dental office, and here's a robotics lab. Each one is a new tray and new demonstrations, with no new code.”",
-  brandon:"“Mirror.” Then “pliers.”", evan:"Lamp off. Swap to the dental tray, then the bench tray.",
-  caiden:"L back to normal. Key 2 once the dental tray is down, key 3 once the bench tray is down.",
-  goals:[{k:"setting",value:"dental"},{k:"hand",item:"mouth_mirror"},{k:"setting",value:"bench"},{k:"hand",item:"needle_nose_pliers"}]},
+ {at:120,end:150,title:"Second setting",
+  anish:"“Scrub is built for the operating room. The same system also works in a second setting: a robotics bench tray. Each setting uses its own demonstrations. Neither needed new code.”",
+  brandon:"Ask for the pliers.", evan:"Lamp off. Swap to the bench tray.",
+  caiden:"L back to normal. Key 2 once the bench tray is down.",
+  goals:[{k:"setting",value:"bench"},{k:"hand",item:"needle_nose_pliers"}]},
  {at:150,end:180,title:"The close",
-  anish:"“Scrub runs on an open-source arm that costs a few hundred dollars, and the software is ready for a medical-grade arm. We're starting with dental offices.”",
+  anish:"“Scrub runs on an open-source arm that costs a few hundred dollars, and the software is ready for a medical-grade arm. We're starting with surgery centers and operating rooms.”",
   brandon:"Say “count.”", evan:"Hold up the phone so the summary text shows.",
   caiden:"Press Enter when Anish finishes. That ends and logs the run.", goals:[{k:"count"}], manualEnd:true},
 ];
@@ -342,7 +344,7 @@ function buildShort(){let t=0;return SHORT_IDX.map(i=>{const b=FULL[i],d=b.end-b
 let shortMode=false, BEATS=FULL;
 
 /* ---------------- state ---------------- */
-const S={step:"idle",item:null,out:[],setting:"surgical",lighting:"normal",rth:null};
+const S={step:"idle",item:null,out:[],setting:"surgical",lighting:"normal",rth:null,judge:false};
 let mode="mock"; // live | mock
 let latched=false, backup=false;
 const run={on:false,t0:0,idx:0,beatStart:0,ends:[],goalState:[],awaitIdle:false,mockTimer:null};
@@ -386,10 +388,10 @@ $("api").addEventListener("change",e=>{API=e.target.value.trim().replace(/\/$/,"
 /* ---------------- mock controller (shapes from docs/CONTRACTS.md, timing like controller/fake_arm.py) ---------------- */
 const MOCK={
   st:null,timers:[],jobs:[],gen:0,
-  boot(){ if(!this.st) this.st={step:"idle",item:null,out:[],setting:"surgical",lighting:"normal"}; applyState(Object.assign({},this.st)); },
+  boot(){ if(!this.st) this.st={step:"idle",item:null,out:[],setting:"surgical",lighting:"normal",judge:false}; applyState(Object.assign({},this.st)); },
   halt(){ this.timers.forEach(clearTimeout); this.timers=[]; },
   emit(type,extra){const s=this.st;const ev=Object.assign({type,item:s.item,step:s.step,say:null,request_to_hand_s:null,retries:null,
-     setting:s.setting,lighting:s.lighting,command_id:null,out:s.out.slice(),t:Date.now()/1000},extra||{});
+     setting:s.setting,lighting:s.lighting,command_id:null,out:s.out.slice(),judge:s.judge,t:Date.now()/1000},extra||{});
      setTimeout(()=>onEvent(ev),0);},
   step(step,item){this.st.step=step; if(item!==undefined)this.st.item=item; this.emit("step");},
   busy(){return !["idle","stopped","error"].includes(this.st.step)||this.jobs.length>0},
@@ -407,6 +409,7 @@ const MOCK={
           if(!SETTING_ITEMS[body.setting])return fail(404,"no setting");
           s.setting=body.setting;s.out=[];s.step="idle";s.item=null;this.emit("step",{item:null});return res({id:body.setting})}
         if(path==="/lighting"){s.lighting=body.lighting;return res({ok:true})}
+        if(path==="/judge"){s.judge=!!body.on;this.emit("step",{command_id:null});return res({ok:true,judge:s.judge})}
         if(path==="/command") return res(this.command(body));
         if(path==="/state") return res(Object.assign({},s,{fake_arm:true,queue:[]}));
         fail(404,"not in mock");
@@ -416,6 +419,8 @@ const MOCK={
   command(c){
     const s=this.st, a=c.action, id=Math.random().toString(16).slice(2,10);
     const cmdEv=(ok,reason,say)=>this.emit("command",{item:c.item||null,command_id:id,action:a,heard:c.heard||null,source:c.source,accepted:ok,reason,say});
+    if(s.judge&&!["handover","count","stop","got_it"].includes(a)){const say="In judge mode I can hand you an instrument, read the count, or stop.";
+      cmdEv(false,"judge mode",say);return {accepted:false,reason:"judge mode",say}}
     if(a==="count"){const names=s.out.map(i=>ITEM_NAMES[i]);const say=names.length?"Out: "+names.join(", ")+".":"Everything's on the tray.";
       cmdEv(true,null,null);this.emit("count",{say,item:null});return {accepted:true,reason:null,say}}
     if(a==="got_it"){ if(s.step!=="waiting_for_pull"){cmdEv(false,"not holding anything out",null);return {accepted:false,reason:"not holding anything out",say:null}}
@@ -455,7 +460,7 @@ const MOCK={
 /* ---------------- state + events ---------------- */
 function applyState(s){
   if(!s)return;
-  ["step","item","setting","lighting"].forEach(k=>{if(k in s)S[k]=s[k]});
+  ["step","item","setting","lighting","judge"].forEach(k=>{if(k in s)S[k]=s[k]});
   if(Array.isArray(s.out))S.out=s.out.slice();
   if(S.step==="stopped")setLatched(true);
   paintArm(); paintKeys();
@@ -465,6 +470,7 @@ function onEvent(ev){
   if("item" in ev && ev.type==="step")S.item=ev.item;
   if(ev.setting)S.setting=ev.setting;
   if(ev.lighting)S.lighting=ev.lighting;
+  if(typeof ev.judge==="boolean")S.judge=ev.judge;
   if(Array.isArray(ev.out))S.out=ev.out.slice();
   if(ev.type==="handed"||ev.type==="set_down"){if(ev.request_to_hand_s!=null)S.rth=ev.request_to_hand_s}
   if(ev.type==="stopped")setLatched(true);
@@ -493,7 +499,7 @@ function goalMet(g,ev){
 function matchGoals(ev){
   if(!run.on||backup)return;
   const b=BEATS[run.idx]; if(!b)return;
-  // goals are met in order, so "mirror" before the dental tray switch does not count
+  // goals are met in order, so "pliers" before the bench tray switch does not count
   const i=run.goalState.indexOf(false);
   if(i>=0&&goalMet(b.goals[i],ev)){run.goalState[i]=true; checkSoftGoals();}
   checkBeatDone();
@@ -579,6 +585,11 @@ async function doSetting(id){
   try{await http("POST","/setting",{setting:id});S.setting=id;S.out=[];flash("POST /setting "+id+": tray loaded, out cleared");checkSoftGoals();paintKeys();paintArm()}
   catch(e){flash("setting "+id+" refused ("+(e.status||"")+"): "+e.message,true)}
 }
+async function doJudge(){
+  try{const r=await http("POST","/judge",{on:!S.judge});S.judge=r.judge;paintKeys();
+    flash("POST /judge: judge mode "+(S.judge?"on: only handover, count, stop, got it":"off"))}
+  catch(e){flash("judge mode failed ("+(e.status||"")+"): "+e.message,true)}
+}
 async function doLight(v){
   try{await http("POST","/lighting",{lighting:v,lux:null});S.lighting=v;flash("POST /lighting "+v+": later events tagged "+v);checkSoftGoals();paintKeys()}
   catch(e){flash("lighting refused: "+e.message,true)}
@@ -618,7 +629,8 @@ document.addEventListener("keydown",e=>{
   if(e.key===" "||e.code==="Space"){e.preventDefault();doStop();return}
   if(e.metaKey||e.ctrlKey||e.altKey)return;
   const k=e.key.toLowerCase();
-  if(k==="1")doSetting("surgical"); else if(k==="2")doSetting("dental"); else if(k==="3")doSetting("bench");
+  if(k==="1")doSetting("surgical"); else if(k==="2")doSetting("bench");
+  else if(k==="j")doJudge();
   else if(k==="r")doReset();
   else if(k==="l"){ if(e.shiftKey)doLight("dim"); else doLight(S.lighting==="bright"?"normal":"bright"); }
   else if(k==="enter"){e.preventDefault(); if(!run.on)startRun(); else advance();}
@@ -628,7 +640,7 @@ document.addEventListener("keydown",e=>{
   else if(k==="c")doCue();
   else if(k==="g")doGot();
 });
-$("stop").onclick=doStop; $("bReset").onclick=doReset;
+$("stop").onclick=doStop; $("bReset").onclick=doReset; $("bJudge").onclick=doJudge;
 document.querySelectorAll("[data-set]").forEach(b=>b.onclick=()=>doSetting(b.dataset.set));
 document.querySelectorAll("[data-light]").forEach(b=>b.onclick=()=>doLight(b.dataset.light));
 $("bStart").onclick=()=>{if(!run.on)startRun();else advance()};
@@ -642,6 +654,7 @@ if(Q.get("video")){$("bv").src=Q.get("video");$("bvwrap").classList.add("has")}
 function paintKeys(){
   document.querySelectorAll("[data-set]").forEach(b=>b.classList.toggle("on",b.dataset.set===S.setting));
   document.querySelectorAll("[data-light]").forEach(b=>b.classList.toggle("on",b.dataset.light===S.lighting));
+  $("bJudge").classList.toggle("on",!!S.judge); $("judgestate").textContent=S.judge?"on, judge asks":"off"; $("judgepill").hidden=!S.judge;
   const pf=[["tray surgical",S.setting==="surgical"],["lighting normal",S.lighting==="normal"],["nothing out",S.out.length===0],["arm idle",S.step==="idle"]];
   $("preflight").innerHTML=run.on?"":'<span class="lab" style="align-self:center">Preflight</span>'+pf.map(([l,ok])=>`<span class="${ok?"ok":"bad"}">${ok?"ok":"check"} ${l}</span>`).join("")+
     (pf.every(p=>p[1])?"":'<span style="color:var(--dim)">R resets, 1 loads surgical, L to normal</span>');

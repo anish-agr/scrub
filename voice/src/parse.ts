@@ -108,7 +108,8 @@ export function localParse(heard: string, setting: Setting): { action: Action; i
   for (const it of setting.items) {
     for (const phrase of [it.name, it.id.replace(/_/g, " "), ...it.aliases]) {
       const p = norm(phrase);
-      if (p && s.includes(` ${p} `) || s.includes(` ${p}s `)) {
+      // Grouped: an empty alias used to match any " s " ("let's go" -> "let s go") through the plural test.
+      if (p && (s.includes(` ${p} `) || s.includes(` ${p}s `))) {
         if (!best || p.length > best.len) best = { id: it.id, len: p.length };
       }
     }
