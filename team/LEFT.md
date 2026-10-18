@@ -46,6 +46,14 @@ Check without the arm: `.venv/bin/python -m arm.taught --check --setting surgica
 3. Pull release: close the gripper on a real hemostat and read the held load, then have a person pull and read it again (procedure 10.2). Set `PULL_COLLAPSE_FRAC` in `.env` to a share between the pulled and held loads (default 0.3; `0` turns it off). If the load does not change, leave it off and release on "got it".
 4. If the hand flickers open and closed in the vision preview and stops the approach, set `HAND_CLOSED_READS=0` in `.env` and restart the controller.
 
+### Smart pick on the real arm: safe zone, tries per method, policy (Anish teaches, Caiden runs tries, when the arm is free between Chat A's recordings, by 7:00)
+Built and tested on the fake and sim arms (`docs/PICKING.md`); no real try yet. On the real arm no method can pick until these are done: `model` needs a deployment, `taught_adjusted` a taught pick (above), `ik` `vision/calibration.json` (below).
+1. Safe zone (with the poses above): tape a 10 cm square at least 15 cm from the handoff box and off the path to the hand. `.venv/bin/python -m arm.teach --port /dev/tty.usbmodem5C821089781 --robot-id scrub_follower --supported-and-empty`, hold the scalpel's set-down pose (blade down, pointed away from the handoff side) over the square, `s`, `q`. It must print no "move it at least 15 cm away" line. Until `arm/rig.json` has `safe_zone`, the real arm refuses the scalpel.
+2. Controller in smart mode: `.venv/bin/python -m controller --real-arm --setting surgical --skills smart`, vision running. Check `curl -s localhost:8000/state | jq '.skills.policy, .safe_zone'` (problems `[]`).
+3. 10 tries per item per ready method, spotter on the stop: `.venv/bin/python -m controller.trials --settings surgical --actions handover --lighting normal --tries 10 --methods taught_adjusted,ik` (add `model` once Chat A has a deployment; drop a method that isn't ready). Each try asks you to confirm the physical result.
+4. Policy: `.venv/bin/python -m controller.picker --setting surgical` prints method, n, ok, Wilson lower bound and median time per item and writes `data/skill_policy.json`. Copy the table into `docs/PICKING.md` "Per item, measured" and the honest line into `team/PITCH.md`.
+5. Check on the arm once: "hand me the scalpel" ends at the safe zone, and a hand put in the zone before set-down gets "Clear the safe spot".
+
 ### Slot boxes and camera-to-arm calibration (Brandon with Anish, by 6:30)
 `slot` and `return_spot` are null in `settings/surgical.json` and `settings/bench.json`, and `vision/calibration.json` does not exist. Procedure 8 (B5 and B6). Brandon marks slot boxes on his own view while Anish records; calibration needs the arm still and the controller stopped.
 
