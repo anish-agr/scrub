@@ -16,6 +16,13 @@ import instances as I
 import station as S
 
 
+@pytest.fixture(autouse=True)
+def isolated_detection_logs(monkeypatch, tmp_path):
+    monkeypatch.setattr(AP, "FRAMES_DIR", tmp_path / "frames")
+    monkeypatch.setattr(AP, "ATTEMPTS_DIR", tmp_path / "attempts")
+    monkeypatch.setattr(AP, "SPEND_FILE", tmp_path / "spend.jsonl")
+
+
 def hit(u, v=300, variant=None):
     value = (u, v, 0.0, [u - 30, v - 3, u + 30, v + 3])
     return (*value, variant) if variant else value
