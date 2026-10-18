@@ -30,6 +30,10 @@ ln -sfn "$CONF" /etc/nginx/sites-enabled/scrub
 rm -f /etc/nginx/sites-enabled/default
 nginx -t
 systemctl reload nginx
+if command -v ufw >/dev/null 2>&1 && ufw status | grep -q 'Status: active'; then
+  ufw allow 80/tcp
+  ufw allow 443/tcp
+fi
 if [[ "$DOMAIN" != "_" && -n "$EMAIL" ]]; then
   certbot --nginx --non-interactive --agree-tos --redirect -m "$EMAIL" -d "$DOMAIN" -d "www.${DOMAIN}"
   echo "https://${DOMAIN}/ should show the count and the tables"

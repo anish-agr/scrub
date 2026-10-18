@@ -50,7 +50,9 @@ bash ledger/push_public.sh root@SERVER_IP
 
 On Windows: `powershell -File deploy/push_public.ps1 -Target root@SERVER_IP`.
 
-Either copies `ledger/` (without `buffer.jsonl`) and `deploy/` to `/opt/scrub`, writes a server `.env` that holds only `MONGODB_URI` and `SCRUB_PUBLIC_URL`, and runs `deploy/setup_public.sh`. This is the only server path (`ledger/install_public.sh` calls the same script). Open `http://SERVER_IP/`. The count and the two tables should match `python -m ledger serve` on the laptop.
+Either copies `ledger/` (without `buffer.jsonl`) and `deploy/` to `/opt/scrub`, writes a server `.env` that holds only `MONGODB_URI` and `SCRUB_PUBLIC_URL`, and runs `deploy/setup_public.sh`. Shell scripts are sent with Unix line endings. If `ufw` is on, the script opens ports 80 and 443 and leaves 8080 closed. This is the only server path (`ledger/install_public.sh` calls the same script). Open `http://SERVER_IP/`. The count and the two tables should match `python -m ledger serve` on the laptop.
+
+The server at `144.202.95.111` is already serving `http://144.202.95.111/` from MongoDB. HTTPS waits on the domain.
 
 ### GoDaddy (MLH offer)
 

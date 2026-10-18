@@ -85,12 +85,29 @@ Vision probe note: `deploy/check_env.py` sends a 1x1 gray JPEG to `/v1/detect` a
 - For: the public judge page on a server. Track: MLH Vultr.
 - Get it: https://mlh.link/vultr-discover (register, company = school name, job title Student, copy the promo code), then https://mlh.link/vultr-giftcode or https://my.vultr.com, apply the code under Billing, create a server, then follow `deploy/README.md`.
 - Needed in: no `.env` key; Evan or Brandon needs the login and the server IP.
-- Now: UNKNOWN from this Mac. `docs/SETUP.md` says to do (Evan, Saturday night). Confirm with Evan.
+- Now: DONE for the server. Hostname `vultr`, IPv4 `144.202.95.111`. `http://144.202.95.111/` returns the Scrub page (HTTP 200). `GET /api/stats` returns live Atlas data (median request-to-hand 0.44 s, instruments out). Ubuntu `ufw` was allowing only port 22; 80 and 443 are open now. `SCRUB_PUBLIC_URL` is not set until the domain exists. HTTPS is not on yet.
 
 ### GoDaddy
 - For: the domain on the QR code at the table. Track: MLH GoDaddy Registry.
-- Get it: the MLH GoDaddy Registry offer on the DubHacks sponsor page, sign in, buy one short domain. My Products, the domain, Manage DNS, type A, name `@`, value the Vultr server IP, TTL 600. Then `deploy/enable_https.ps1` per `deploy/README.md`.
-- Now: UNKNOWN from this Mac (Evan, Saturday night). Confirm.
+- Get it: the MLH GoDaddy Registry offer on the DubHacks sponsor page, sign in, buy one short domain. My Products, the domain, Manage DNS, type A, name `@`, value `144.202.95.111`, TTL 600. Type CNAME, name `www`, value `@`, TTL 600. Then `powershell -File deploy/enable_https.ps1 -Target root@144.202.95.111 -Domain the-domain.tld -Email you@school.edu`.
+- Now: NOT BOUGHT. No domain name is in the repo. The page is only on the IP above.
+
+## deploy results on Brandon's Windows PC (Oct 17, 11 PM)
+
+`python -m deploy` from this PC. MongoDB on this PC is set. The arm and voice keys are still only on the arm Mac (see the table above).
+
+| Service | Result | Exact fix |
+| --- | --- | --- |
+| Perceptron robotics | FAIL missing `PERCEPTRON_TEAM_API_KEY` | Paste the robotics team key into this PC's `.env` only if this PC will train. The arm Mac already has a key and it returns HTTP 401. Ask Perceptron staff for the team key, then `.venv/bin/python -m arm.train deployments` on the Mac must print JSON. |
+| Perceptron detect | FAIL missing `PERCEPTRON_API_KEY` | Put the vision key in this PC's `.env`. It is set on the arm Mac. Then `python -m vision.lighting --check-api`. |
+| Gemini | FAIL missing `GEMINI_API_KEY` | Copy the working key from the voice machine's `.env`. Check: `python -m deploy` shows Gemini PASS. |
+| ElevenLabs | FAIL missing `ELEVENLABS_API_KEY` | Copy the working API key from the voice machine. `ELEVENLABS_AGENT_ID` is still empty everywhere: create the agent (steps above) and paste the id. |
+| Photon | FAIL missing `PHOTON_API_KEY` | This PC has neither Photon nor Spectrum names. The Mac has `SPECTRUM_PROJECT_ID` and `SPECTRUM_PROJECT_SECRET`. Copy those, or set `PHOTON_API_KEY` and `PHOTON_PROJECT_ID`. The iMessage line is still not found. |
+| MongoDB Atlas | PASS ping ok | Done on this PC. |
+| Hugging Face | FAIL missing `HF_TOKEN` | https://huggingface.co/settings/tokens, New token, Write, name it scrub. Put `HF_TOKEN` and `HF_USER` in the arm Mac `.env`. |
+| controller :8000 | PASS HTTP 200 | Already running on this PC. |
+| vision :8001 | FAIL ConnectError | Nothing is listening. Start `python -m vision` (or `--fake` with no overhead camera). |
+| voice :3000 | FAIL ConnectError | Start `cd voice && npm run dev` on the voice machine. The keys above have to be in that `.env` first. |
 
 ### Devpost
 - For: the submission. Tracks it should have ticked (from `docs/DEVPOST.md`): Perceptron, Photon, MLH Gemini API, MLH MongoDB Atlas, MLH Tiger Data, MLH Backboard, MLH Vultr, MLH GoDaddy Registry, MLH Commit Fellowship, MLH DEV writing, plus the ElevenLabs voice prize if offered.
