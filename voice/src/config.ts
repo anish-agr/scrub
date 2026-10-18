@@ -11,6 +11,9 @@ const envFile = path.join(REPO_DIR, ".env");
 // VOICE_NO_KEYS=1 (npm test) ignores .env so nothing calls Gemini or Photon.
 const keys: Record<string, string | undefined> =
   !process.env.VOICE_NO_KEYS && existsSync(envFile) ? parse(readFileSync(envFile)) : {};
+// A key set to empty in the shell (PHOTON_API_KEY= npm run dev) is blanked, so a test copy can run with no Photon
+// or Gemini. The shell can only turn a key off, never supply one.
+for (const k of Object.keys(keys)) if (process.env[k] === "") keys[k] = "";
 const env: Record<string, string | undefined> = { ...keys, ...process.env };  // wiring: the shell wins
 export const CONTROLLER_URL = env.CONTROLLER_URL || "http://localhost:8000";
 export const VOICE_PORT = Number(env.VOICE_PORT || 3000);

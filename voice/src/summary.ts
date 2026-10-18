@@ -3,7 +3,7 @@ import { GoogleGenAI } from "@google/genai";
 import { Spectrum } from "spectrum-ts";
 import { imessage } from "spectrum-ts/providers/imessage";
 import { GEMINI_API_KEY, GEMINI_MODEL, PHOTON_PROJECT_ID, PHOTON_SECRET, PUBLIC_URL, SUMMARY_TO } from "./config.js";
-import { getStats, type ScrubEvent } from "./controller.js";
+import { getState, getStats, type ScrubEvent } from "./controller.js";
 
 const ai = GEMINI_API_KEY ? new GoogleGenAI({ apiKey: GEMINI_API_KEY }) : null;
 
@@ -12,6 +12,19 @@ let caseStart = Date.now() / 1000;
 let caseId: string | null = null;  // the controller's case_id ("<setting>-<unix start>"), when events carry one
 let closedAt = 0;                  // last time the voice side closed a case ("end of case")
 let caller = "";
+// The controller's `out` from the newest event, kept across "end of case". Bug: a second summary in the same
+// case (or one after a voice restart) had no events yet and said "everything is back" with items still out.
+let lastOut: string[] | null = null;
+
+// A Photon call that never answers fails after this, so a summary or a reply never hangs (ms).
+const SEND_MS = 15_000;
+export function withTimeout<T>(p: Promise<T>, ms: number, what: string): Promise<T> {
+  let timer: NodeJS.Timeout | undefined;
+  const late = new Promise<never>((_, reject) => { timer = setTimeout(() => reject(new Error(`${what} timed out`)), ms); });
+  return Promise.race([p, late]).finally(() => clearTimeout(timer));
+}
+// A day of step events stays well under this; past it the oldest go (the counts read `out` from the newest).
+const MAX_EVENTS = 5000;
 
 // Events with a new case_id start a new case. Without case_id: one case until "end of case" (newCase).
 export function recordEvent(e: ScrubEvent) {
@@ -23,6 +36,8 @@ export function recordEvent(e: ScrubEvent) {
     caseId = e.case_id;
   }
   caseEvents.push(e);
+  if (Array.isArray(e.out)) lastOut = e.out;
+  if (caseEvents.length > MAX_EVENTS) caseEvents.splice(0, caseEvents.length - MAX_EVENTS);
 }
 export const setCaller = (phone: string) => { if (phone && phone !== caller) { caller = phone; console.log(`[case] caller ${phone}`); } };
 
@@ -74,7 +89,7 @@ export function caseFacts() {
   const median = !times.length ? null : times.length % 2 ? times[mid] : (times[mid - 1] + times[mid]) / 2;
   return {
     case_id: caseId, setting, started: clock(caseStart), used,
-    minutes: Math.round((Date.now() / 1000 - caseStart) / 60), still_out: reported ?? derived, passed,
+    minutes: Math.round((Date.now() / 1000 - caseStart) / 60), still_out: reported ?? lastOut ?? derived, passed,
     set_down_at_safe_spot: setDown, returned, failed_requests: failed, picks_retried: retried, stops,
     median_request_to_hand_s: median,
   };
@@ -103,6 +118,10 @@ const readable = (f: ReturnType<typeof caseFacts>) =>
 
 export async function writeSummary(): Promise<string> {
   const facts = caseFacts();
+  // The count is the safety line: ask the controller now, so it is never older than the last event.
+  const st = await getState().catch(() => null);
+  if (st && Array.isArray(st.out)) facts.still_out = st.out;
+  if (st && !facts.setting) facts.setting = st.setting;  // no events yet (voice just restarted)
   if (!ai) return templateSummary(facts);
   const stats = await getStats().catch(() => null);
   try {
@@ -114,7 +133,7 @@ Then name the case: the setting and its start time (as given, e.g. "2:41 PM"). T
 Use only the numbers below. No greetings or sign-off.
 This case: ${JSON.stringify(readable(facts))}
 All-time ledger stats (may be null): ${JSON.stringify(stats)}`,
-      config: { temperature: 0.2 },
+      config: { temperature: 0.2, abortSignal: AbortSignal.timeout(8000) },  // past this, the template
     });
     const text = (res.text || "").trim();
     if (text) return text;
@@ -126,6 +145,8 @@ All-time ledger stats (may be null): ${JSON.stringify(stats)}`,
 
 let photon: ReturnType<typeof Spectrum> | null = null;
 export const photonConfigured = () => !!(PHOTON_PROJECT_ID && PHOTON_SECRET);
+// Whether an end-of-case text can go out at all (Photon keys and someone to send it to).
+export const canText = () => photonConfigured() && !!(caller || SUMMARY_TO);
 
 // One Spectrum instance for the summary text and the inbound texts (texts.ts), so both use the same thread.
 export async function getPhoton() {
@@ -138,8 +159,9 @@ export type Send = (to: string, text: string) => Promise<boolean>;
 
 async function sendText(to: string, text: string): Promise<boolean> {
   if (!photonConfigured()) { console.log("[photon] no PHOTON_PROJECT_ID / PHOTON_API_KEY, not sending"); return false; }
-  const space = await imessage(await getPhoton()).space.create(to);
-  await space.send(text);
+  const space = await withTimeout(getPhoton().then((app) => imessage(app).space.create(to)), SEND_MS, "Photon connect")
+    .catch((e) => { photon = null; throw e; });  // a connect that hung is not reused for the next text
+  await withTimeout(space.send(text), SEND_MS, "Photon send");
   return true;
 }
 

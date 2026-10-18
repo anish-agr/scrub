@@ -11,6 +11,8 @@ from vision.service import Runtime, controls_locked, remember_clinician
 from vision.tray import load_setting
 from vision.tray_check import check_tray
 
+TRAY_STALE_S = 3.0  # same as controller/core.py
+
 PREVIEW = """<!DOCTYPE html>
 <html>
 <head>
@@ -93,15 +95,17 @@ def create_app(runtime: Runtime) -> FastAPI:
             detections = list(runtime.detections)
             tray = runtime.tray
         result = check_tray(setting_doc, detections)
-        if isinstance(tray, dict):
-            result["stale"] = bool(tray.get("stale"))
+        # No read yet, a failed read, or a read older than the controller's TRAY_STALE_S: say stale, so the
+        # controller answers "I can't check the tray" instead of "missing everything".
+        fresh = isinstance(tray, dict) and not tray.get("stale") and time.time() - float(tray.get("t") or 0) <= TRAY_STALE_S
+        result["stale"] = not fresh
         return result
 
     @app.get("/clips")
     def list_clips(case_id: str | None = None):
         """List event clips for a case_id (or all cases) (X4)."""
         if not case_id:
-            return runtime.clips._case_clips
+            return runtime.clips.all_clips()
         return runtime.clips.get_clips(case_id)
 
     @app.post("/clips/record")
@@ -123,8 +127,8 @@ def create_app(runtime: Runtime) -> FastAPI:
     @app.get("/clips/{case_id}/{filename}")
     def get_clip_file(case_id: str, filename: str):
         """Serve a recorded video clip or thumbnail image (X4)."""
-        path = runtime.clips.clips_dir / case_id / filename
-        if not path.exists():
+        path = runtime.clips.file_path(case_id, filename)
+        if path is None or not path.is_file():
             return Response(status_code=404, content="Clip not found")
         media_type = "video/mp4" if filename.endswith(".mp4") else "image/jpeg"
         return Response(content=path.read_bytes(), media_type=media_type)

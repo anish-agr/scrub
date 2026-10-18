@@ -85,12 +85,21 @@ export function followEvents(onEvent: (e: ScrubEvent) => void): void {
   let warned = false;
   const connect = () => {
     const ws = new WebSocket(url);
-    ws.on("open", () => { warned = false; console.log(`[events] connected ${url}`); });
+    // A controller that vanished without closing (laptop asleep, cable pulled) leaves a socket that never errors:
+    // ping every 5 s and drop it after a missed pong, so the reconnect below runs and event lines come back.
+    let alive = true;
+    const beat = setInterval(() => {
+      if (!alive) return ws.terminate();
+      alive = false;
+      try { ws.ping(); } catch { /* still connecting: the next beat ends it */ }
+    }, 5000);
+    ws.on("pong", () => { alive = true; });
+    ws.on("open", () => { warned = false; alive = true; console.log(`[events] connected ${url}`); });
     ws.on("message", (data) => {
       try { onEvent(JSON.parse(data.toString())); } catch { /* not JSON, skip */ }
     });
     ws.on("error", () => { if (!warned) console.log(`[events] can't reach ${url}, retrying`); warned = true; });
-    ws.on("close", () => setTimeout(connect, 1000));
+    ws.on("close", () => { clearInterval(beat); setTimeout(connect, 1000); });
   };
   connect();
 }

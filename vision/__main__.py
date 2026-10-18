@@ -97,7 +97,6 @@ def main(argv: list[str] | None = None) -> None:
         if runtime.calibration is None:
             runtime.calibration = fake_calibration()
             logger.info("no calibration.json; using a fake handoff target")
-            logger.info("no calibration.json; using a fake handoff target")
         logger.info("fake camera, exposure locked=%s", controls)
     else:
         index = int(os.environ.get("CAMERA_INDEX", "0"))

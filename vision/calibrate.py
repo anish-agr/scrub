@@ -215,7 +215,10 @@ def main(argv: list[str] | None = None) -> None:
     if args.pairs:
         image_points, arm_points, height = load_pairs(Path(args.pairs))
         if any(abs(float(p[0])) > 20.0 or abs(float(p[1])) > 20.0 for p in arm_points):
-            arm_points = [[p[0] / 1000.0, p[1] / 1000.0, (p[2] / 1000.0 if len(p) > 2 else 0.0)] for p in arm_points]
+            # x, y came in millimeters. z may be millimeters too, or the hand height load_pairs filled in meters.
+            arm_points = [[p[0] / 1000.0, p[1] / 1000.0, (p[2] / 1000.0 if abs(p[2]) > 2.0 else p[2])] for p in arm_points]
+            if height > 2.0:
+                height = height / 1000.0
     elif args.points:
         image_points, arm_points = parse_guided_lines(Path(args.points).read_text(encoding="utf-8").splitlines())
         height = args.hand_height
