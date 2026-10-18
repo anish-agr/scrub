@@ -1,0 +1,791 @@
+<!doctype html>
+<!-- FEATURES:
+- Test-session runner for docs/PLAN.md "Testing": 3 settings x 3 items x 3 lighting levels (27 cells), plan counts from PLAN
+  (operating room 10 per item per setup in bright/normal/dim, dental and bench 5 per item in normal and bright, dim optional)
+- Each cell: trials done / planned, successes, Wilson 95% CI bar with the 70% line, median request-to-hand s
+- Pick a cell, enter measured lux, set the lamp (POST /lighting), switch tray if needed (POST /setting), run a trial
+  (POST /command handover), follow the trial on WS /events by command_id, auto verdict with cause, confirm or override by hand
+- Every confirmed trial becomes a ledger.log_test row (item, setting, lighting, success, seconds, retries); export JSON, CSV,
+  or a ready-to-run Python file of log_test calls
+- B8 strip: failure causes per lighting (perception, grasp, hand, path, reach, no pull) and hand_seen rate sampled from GET /state
+- GET /stats panel (ledger or controller memory), weakest cells highlighted, "run next" suggestion, items under 70% flagged
+- Latched STOP (button and Space), clear with POST /reset; fake-arm helpers POST /fake/pull and POST /fake/force
+- Mock mode when :8000 is down, labeled on every surface; mock rows kept apart from live rows; ?api= override
+-->
+<!-- SPONSORS: Perceptron Robotics (measured success of the fine-tuned policy), Perceptron Perception (tray and hand under three lights), MongoDB Atlas (ledger.log_test rows, GET /stats) -->
+<!-- BACKEND HOOKS: GET /state, GET /setting, POST /setting, POST /lighting {lighting, lux}, POST /command {action:"handover"}, POST /stop, POST /reset, GET /stats, WS /events, POST /fake/pull, POST /fake/force -->
+<!-- STYLE: Swiss Design (International Typographic Style): strict grid, Archivo / Archivo Narrow grotesk, flush left, black ink on warm paper, one red accent for STOP and weak cells, Kodak-style grey patches for the three light levels. Square corners, 1px and 2px rules, no shadows. -->
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Scrub Light Matrix</title>
+<meta name="description" content="Test-session runner for Scrub: 27 cells of setting, item and lighting, run handover trials on the SO-101, confirm verdicts and export ledger.log_test rows.">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Archivo:wght@400;500;600;700;800&family=Archivo+Narrow:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500&display=swap" rel="stylesheet">
+<style>
+:root{
+  --paper:#efece4; --paper2:#e6e2d7; --ink:#111; --ink2:#4a4a46; --ink3:#86847c; --rule:#bdb9ad;
+  --red:#d3201c; --ok:#1d7a3a; --fail:#c0261d; --amber:#b86e00; --cyan:#0f6f86;
+  --g-bright:#e9e7e1; --g-normal:#9a9890; --g-dim:#3a3936;
+}
+*{box-sizing:border-box}
+html,body{margin:0;background:var(--paper);color:var(--ink)}
+body{font:15px/1.4 Archivo,Arial,sans-serif;font-variant-numeric:tabular-nums;min-width:0}
+.mono{font-family:"IBM Plex Mono",monospace}
+.narrow{font-family:"Archivo Narrow",Archivo,sans-serif}
+button,input,select{font:inherit;color:inherit}
+button{min-height:44px;border:2px solid var(--ink);background:var(--paper);padding:0 14px;cursor:pointer;border-radius:0;font-weight:600}
+button:disabled{opacity:.35;cursor:not-allowed}
+button.solid{background:var(--ink);color:var(--paper)}
+input,select{min-height:44px;border:2px solid var(--ink);background:#f7f5ef;padding:0 10px;border-radius:0}
+.lbl{font:600 11px/1.2 "Archivo Narrow",sans-serif;letter-spacing:.08em;text-transform:uppercase;color:var(--ink2)}
+
+/* masthead */
+header{display:grid;grid-template-columns:1fr auto;gap:12px 24px;padding:16px 24px 12px;border-bottom:4px solid var(--ink);align-items:end}
+h1{font:800 34px/0.95 Archivo,sans-serif;margin:0;letter-spacing:-.02em}
+h1 small{display:block;font:500 13px/1.4 "Archivo Narrow",sans-serif;letter-spacing:.06em;text-transform:uppercase;color:var(--ink2);margin-top:6px}
+.mast-r{display:flex;gap:10px;align-items:stretch;flex-wrap:wrap;justify-content:flex-end}
+.conn{border:2px solid var(--ink);padding:4px 10px;min-height:44px;display:flex;flex-direction:column;justify-content:center}
+.conn b{font:700 14px/1.1 Archivo,sans-serif}
+.conn.mock{border-color:var(--amber);color:var(--amber)}
+.conn.live{border-color:var(--ok);color:var(--ok)}
+#stopBtn{background:var(--red);color:#fff;border-color:var(--red);font:800 20px/1 Archivo,sans-serif;min-width:150px;min-height:56px;letter-spacing:.04em}
+#stopBtn.latched{background:#fff;color:var(--red);outline:4px solid var(--red);outline-offset:-8px}
+.stopbar{display:none;background:var(--red);color:#fff;padding:10px 24px;font-weight:700;align-items:center;gap:16px;flex-wrap:wrap}
+.stopbar.on{display:flex}
+.stopbar button{border-color:#fff;color:#fff;background:transparent}
+.mockbar{background:repeating-linear-gradient(135deg,#f3d9a6 0 12px,#efe0bf 12px 24px);color:#5a3600;padding:6px 24px;font:600 13px "Archivo Narrow",sans-serif;letter-spacing:.04em;border-bottom:1px solid var(--amber);display:none}
+.mockbar.on{display:block}
+
+main{display:grid;grid-template-columns:minmax(0,1fr) 400px;gap:0;border-bottom:2px solid var(--ink)}
+section{padding:18px 24px;min-width:0}
+.col-l{border-right:2px solid var(--ink)}
+h2{font:800 13px/1 Archivo,sans-serif;letter-spacing:.1em;text-transform:uppercase;margin:0 0 12px;display:flex;gap:10px;align-items:baseline}
+h2 .n{color:var(--red)}
+h2 .aside{font:500 12px "Archivo Narrow",sans-serif;letter-spacing:.04em;text-transform:none;color:var(--ink2);margin-left:auto}
+
+/* matrix */
+.mx{display:grid;grid-template-columns:150px repeat(3,minmax(0,1fr));border-top:2px solid var(--ink)}
+.mx .hd{padding:8px 8px 8px 10px;border-bottom:2px solid var(--ink);display:flex;gap:8px;align-items:center}
+.patch{width:26px;height:26px;border:1px solid var(--ink);flex:none}
+.hd .t{font:700 15px/1 Archivo,sans-serif;text-transform:capitalize}
+.hd .s{font:400 11px/1.2 "Archivo Narrow",sans-serif;color:var(--ink2)}
+.rowlab{padding:8px 10px;border-bottom:1px solid var(--rule);display:flex;flex-direction:column;justify-content:center}
+.rowlab .it{font:700 15px/1.1 Archivo,sans-serif}
+.rowlab .st{font:500 11px "Archivo Narrow",sans-serif;color:var(--ink2);letter-spacing:.04em;text-transform:uppercase}
+.rowlab .sh{color:var(--red);font-weight:700}
+.grp{grid-column:1/-1;font:800 11px "Archivo Narrow",sans-serif;letter-spacing:.12em;text-transform:uppercase;padding:10px 10px 4px;border-bottom:1px solid var(--ink);display:flex;gap:12px}
+.grp span{color:var(--ink2);font-weight:500;letter-spacing:.04em;text-transform:none}
+.cell{all:unset;box-sizing:border-box;cursor:pointer;border-bottom:1px solid var(--rule);border-left:1px solid var(--rule);padding:8px 10px;min-height:78px;display:grid;grid-template-columns:1fr auto;grid-template-rows:auto auto auto;gap:2px 6px;position:relative}
+.cell:focus-visible{outline:3px solid var(--cyan);outline-offset:-3px}
+.cell .dn{font:800 22px/1 Archivo,sans-serif}
+.cell .dn i{font-style:normal;font-weight:400;color:var(--ink3);font-size:15px}
+.cell .rt{font:700 15px/1 Archivo,sans-serif;text-align:right;align-self:start}
+.cell .ci{grid-column:1/-1;height:10px;position:relative;background:var(--paper2);margin:4px 0 2px}
+.ci .rng{position:absolute;top:2px;bottom:2px;background:var(--ink)}
+.ci .pt{position:absolute;top:-2px;width:2px;height:14px;background:var(--ink)}
+.ci .th{position:absolute;left:70%;top:-3px;bottom:-3px;width:1px;background:var(--red)}
+.cell .meta{grid-column:1/-1;font:400 11.5px "IBM Plex Mono",monospace;color:var(--ink2);display:flex;justify-content:space-between;gap:4px}
+.cell.sel{background:#fff;box-shadow:inset 0 0 0 3px var(--ink)}
+.cell.weak::after{content:"WEAK";position:absolute;right:0;bottom:0;background:var(--red);color:#fff;font:700 9px/1 "Archivo Narrow",sans-serif;letter-spacing:.1em;padding:3px 5px}
+.cell.weak{box-shadow:inset 0 0 0 2px var(--red)}
+.cell.sel.weak{box-shadow:inset 0 0 0 3px var(--ink),inset 0 0 0 5px var(--red)}
+.cell.full .dn{color:var(--ok)}
+.cell.unpl{background:repeating-linear-gradient(135deg,transparent 0 6px,rgba(0,0,0,.05) 6px 7px)}
+.cell.next::before{content:"NEXT";position:absolute;right:0;top:0;background:var(--ink);color:var(--paper);font:700 9px/1 "Archivo Narrow",sans-serif;letter-spacing:.1em;padding:3px 5px}
+.cell.next .rt{margin-top:12px}
+.tot{grid-column:1/-1;display:grid;grid-template-columns:150px repeat(3,minmax(0,1fr));border-top:2px solid var(--ink)}
+.tot div{padding:8px 10px;font:600 13px Archivo,sans-serif}
+.tot div+div{border-left:1px solid var(--rule)}
+.tot .mono{font-size:12px;font-weight:400;color:var(--ink2);display:block}
+
+.advice{display:grid;grid-template-columns:1fr 1fr;gap:0;border:2px solid var(--ink);margin-top:18px}
+.advice>div{padding:12px 14px}
+.advice>div+div{border-left:1px solid var(--ink)}
+.advice ol{margin:6px 0 0;padding-left:20px}
+.advice li{margin:4px 0}
+.advice .big{font:700 18px/1.2 Archivo,sans-serif;margin:6px 0}
+.linkbtn{all:unset;cursor:pointer;text-decoration:underline;text-underline-offset:3px;font-weight:600;min-height:28px;display:inline-block}
+
+/* run panel */
+.run{background:#f7f5ef}
+.runhead{border:2px solid var(--ink);padding:10px 12px;margin-bottom:12px;background:var(--paper)}
+.runhead .big{font:800 24px/1.1 Archivo,sans-serif;text-transform:capitalize}
+.runhead .sub{font:500 13px "Archivo Narrow",sans-serif;color:var(--ink2)}
+.step-n{display:inline-flex;width:22px;height:22px;border:2px solid var(--ink);align-items:center;justify-content:center;font:800 12px Archivo,sans-serif;margin-right:8px;flex:none}
+.stepbox{border-top:1px solid var(--ink);padding:10px 0}
+.stepbox .row{display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin-top:8px}
+.stepbox .ttl{display:flex;align-items:center;font:700 14px Archivo,sans-serif}
+.stepbox .note{font:400 12.5px "Archivo Narrow",sans-serif;color:var(--ink2);margin-top:4px}
+.ok-t{color:var(--ok)} .fail-t{color:var(--fail)} .amb-t{color:var(--amber)}
+#luxIn{width:110px}
+.trace{font:400 12px/1.5 "IBM Plex Mono",monospace;border:1px solid var(--rule);background:var(--paper);height:150px;overflow:auto;padding:6px 8px;margin-top:8px}
+.trace .e{white-space:nowrap}
+.trace .e b{font-weight:500}
+.trace .e.bad b{color:var(--fail)} .trace .e.good b{color:var(--ok)}
+.steps{display:flex;gap:2px;margin-top:8px;flex-wrap:wrap}
+.steps span{font:600 10px "Archivo Narrow",sans-serif;letter-spacing:.04em;text-transform:uppercase;padding:3px 5px;border:1px solid var(--rule);color:var(--ink3)}
+.steps span.done{border-color:var(--ink);color:var(--ink)}
+.steps span.cur{background:var(--ink);color:var(--paper);border-color:var(--ink)}
+.verdict{border:2px solid var(--ink);padding:10px 12px;margin-top:10px;background:var(--paper)}
+.verdict .v{font:800 26px/1 Archivo,sans-serif}
+.verdict .grid{display:grid;grid-template-columns:repeat(3,1fr);gap:8px;margin-top:8px}
+.verdict .grid input{width:100%}
+.verdict .btns{display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-top:10px}
+.verdict .btns .wide{grid-column:1/-1}
+.pend{color:var(--ink3)}
+.chk{display:flex;gap:8px;align-items:center;min-height:44px;font:500 13px "Archivo Narrow",sans-serif}
+.chk input{min-height:0;width:20px;height:20px}
+
+/* lower */
+.lower{display:grid;grid-template-columns:minmax(0,1.3fr) minmax(0,1fr);border-bottom:2px solid var(--ink)}
+.lower>section+section{border-left:2px solid var(--ink)}
+table{border-collapse:collapse;width:100%}
+th{font:600 11px "Archivo Narrow",sans-serif;letter-spacing:.08em;text-transform:uppercase;text-align:left;color:var(--ink2);border-bottom:2px solid var(--ink);padding:6px 6px}
+td{border-bottom:1px solid var(--rule);padding:6px 6px;font-size:13.5px;vertical-align:top}
+td.num{text-align:right;font-family:"IBM Plex Mono",monospace;font-size:12.5px}
+.logwrap{max-height:340px;overflow:auto}
+.tag{font:700 10px "Archivo Narrow",sans-serif;letter-spacing:.08em;text-transform:uppercase;padding:2px 4px;border:1px solid currentColor}
+.b8{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));border-top:2px solid var(--ink)}
+.b8>div{padding:10px 10px 12px}
+.b8>div+div{border-left:1px solid var(--rule)}
+.b8 .hd{display:flex;gap:8px;align-items:center;margin-bottom:6px}
+.b8 .k{display:flex;justify-content:space-between;font:400 12.5px "IBM Plex Mono",monospace;border-bottom:1px dotted var(--rule);padding:2px 0}
+.b8 .hs{font:800 22px/1 Archivo,sans-serif;margin:4px 0}
+pre.stats{font:400 12px/1.45 "IBM Plex Mono",monospace;background:#f7f5ef;border:1px solid var(--rule);padding:8px;max-height:220px;overflow:auto;margin:8px 0 0;white-space:pre-wrap;word-break:break-word}
+.exp{display:flex;gap:8px;flex-wrap:wrap;margin:10px 0}
+footer{padding:14px 24px 28px;font:400 12px "Archivo Narrow",sans-serif;color:var(--ink2);display:flex;gap:18px;flex-wrap:wrap}
+footer a{color:var(--ink)}
+.toast{position:fixed;left:16px;bottom:16px;background:var(--ink);color:var(--paper);padding:10px 14px;font:600 13px Archivo,sans-serif;display:none;max-width:calc(100vw - 32px);z-index:9}
+.toast.on{display:block}
+
+@media (max-width:1100px){
+  main{grid-template-columns:1fr}
+  .col-l{border-right:0;border-bottom:2px solid var(--ink)}
+  .lower{grid-template-columns:1fr}
+  .lower>section+section{border-left:0;border-top:2px solid var(--ink)}
+}
+@media (max-width:640px){
+  header{grid-template-columns:1fr;padding:14px 16px 10px}
+  .mast-r{justify-content:flex-start}
+  h1{font-size:28px}
+  section{padding:16px}
+  .mockbar,.stopbar{padding-left:16px;padding-right:16px}
+  #stopBtn{min-width:0;flex:1}
+  .mx,.tot{grid-template-columns:84px repeat(3,minmax(0,1fr))}
+  .rowlab{padding:6px 6px}
+  .rowlab .it{font-size:12.5px}
+  .mx .hd{padding:6px;flex-direction:column;align-items:flex-start;gap:4px}
+  .hd .s{display:none}
+  .patch{width:18px;height:18px}
+  .cell{padding:6px 5px;min-height:70px}
+  .cell .dn{font-size:17px}.cell .dn i{font-size:12px}
+  .cell .rt{font-size:12px}
+  .cell .meta{font-size:10px;flex-direction:column;gap:0}
+  .rowlab .st .id{display:none}
+  .tot div{padding:6px 5px;font-size:11.5px}
+  .advice{grid-template-columns:1fr}
+  .advice>div+div{border-left:0;border-top:1px solid var(--ink)}
+  .b8{grid-template-columns:1fr}
+  .b8>div+div{border-left:0;border-top:1px solid var(--rule)}
+  td,th{padding:5px 3px}
+  .hide-m{display:none}
+  footer{padding:14px 16px 28px}
+}
+</style>
+</head>
+<body>
+<header>
+  <h1>Light Matrix<small>Form T-A11 · Scrub handover tests · 3 settings × 3 items × 3 light levels · SO-101</small></h1>
+  <div class="mast-r">
+    <div class="conn mock" id="conn"><span class="lbl" style="color:inherit">Controller</span><b id="connTxt">checking :8000</b></div>
+    <div class="conn"><span class="lbl">Arm step</span><b id="armStep" class="mono">...</b></div>
+    <div class="conn"><span class="lbl">Lamp</span><b id="armLight">...</b></div>
+    <button id="stopBtn" title="Space">STOP</button>
+  </div>
+</header>
+<div class="stopbar" id="stopbar"><span>STOP latched. The arm is frozen. Runs are blocked until you clear it.</span><button id="clearStop">Clear stop (POST /reset)</button></div>
+<div class="mockbar" id="mockbar">MOCK MODE. Controller at <span id="mockApi" class="mono"></span> did not answer. Trials, events and sample rows below are simulated and kept apart from live rows. Start it with <span class="mono">.venv/bin/python -m controller --fake-arm</span> or pass <span class="mono">?api=http://host:8000</span>.</div>
+
+<main>
+<section class="col-l">
+  <h2><span class="n">01</span>Matrix<span class="aside" id="mxAside">PLAN.md · Testing</span></h2>
+  <div class="mx" id="mx"></div>
+  <div class="advice">
+    <div><span class="lbl">Run next</span><div class="big" id="nextBig">...</div><div class="note narrow" id="nextWhy" style="color:var(--ink2);font-size:13px"></div><button id="nextGo" style="margin-top:8px">Select this cell</button></div>
+    <div><span class="lbl">Weakest cells (lowest CI floor, n ≥ 3)</span><ol id="weakList"></ol><div class="narrow" id="under70" style="font-size:13px;color:var(--fail);margin-top:6px"></div></div>
+  </div>
+</section>
+
+<section class="run">
+  <h2><span class="n">02</span>Run a trial</h2>
+  <div class="runhead"><span class="lbl">Selected cell</span><div class="big" id="selName">...</div><div class="sub" id="selSub"></div></div>
+
+  <div class="stepbox">
+    <div class="ttl"><span class="step-n">1</span>Tray</div>
+    <div class="row"><span id="trayState" class="narrow"></span><button id="setTray">Load tray</button></div>
+  </div>
+  <div class="stepbox">
+    <div class="ttl"><span class="step-n">2</span>Lamp</div>
+    <div class="note">Measure at the tray with a phone lux meter, then tag the controller. Suggested: bright ≥ 1000 lx, normal 300 to 500 lx, dim ≤ 100 lx.</div>
+    <div class="row"><input id="luxIn" type="number" min="0" step="10" placeholder="lux" inputmode="numeric"><span class="lbl">lx</span><button id="setLamp" class="solid">Set lamp</button><span id="lampState" class="narrow"></span></div>
+  </div>
+  <div class="stepbox">
+    <div class="ttl"><span class="step-n">3</span>Handover</div>
+    <div class="note">Item back in its slot, clinician hand open in the handoff zone (about 0.28 m out, 0.14 m right of the base). Pull to take it.</div>
+    <div class="row"><button id="runBtn" class="solid">Run trial</button><button id="pullBtn" disabled>Pull (got it)</button><button id="missBtn" title="POST /fake/force miss_grasp:1">Force a miss</button></div>
+    <label class="chk"><input type="checkbox" id="autoOk"> Auto-confirm clear verdicts (handed and released, no retry)</label>
+    <div class="steps" id="stepsBar"></div>
+    <div class="trace" id="trace"><div class="pend">Events for this trial show here, matched by command_id.</div></div>
+  </div>
+  <div class="verdict" id="verdict">
+    <span class="lbl">4 · Verdict</span>
+    <div class="v pend" id="vTxt">No trial yet</div>
+    <div class="narrow" id="vWhy" style="font-size:13px;color:var(--ink2)"></div>
+    <div class="grid">
+      <label><span class="lbl">Seconds</span><input id="vSec" type="number" step="0.1" min="0"></label>
+      <label><span class="lbl">Retries</span><input id="vRet" type="number" step="1" min="0" max="5"></label>
+      <label><span class="lbl">Cause</span><select id="vCause"><option value="">none</option><option>perception</option><option>grasp</option><option>hand</option><option>path</option><option>reach</option><option>no pull</option><option>stop</option><option>error</option><option>other</option></select></label>
+    </div>
+    <div class="btns">
+      <button id="vOk" disabled>Log success</button><button id="vFail" disabled>Log failure</button>
+      <button id="vDrop" class="wide" disabled>Discard this trial</button>
+    </div>
+  </div>
+</section>
+</main>
+
+<div class="lower">
+<section>
+  <h2><span class="n">03</span>log_test rows<span class="aside" id="logCount"></span></h2>
+  <div class="exp">
+    <button id="expJson">JSON</button><button id="expCsv">CSV</button><button id="expPy">log_test .py</button>
+    <button id="undoBtn">Undo last</button><button id="clrBtn">Clear rows</button>
+  </div>
+  <div class="logwrap"><table><thead><tr><th>#</th><th>Item</th><th class="hide-m">Setting</th><th>Light</th><th>Result</th><th class="num">s</th><th class="num">Retry</th><th class="hide-m">Cause</th></tr></thead><tbody id="logBody"></tbody></table></div>
+  <div class="narrow" style="font-size:12.5px;color:var(--ink2);margin-top:8px">ledger.log_test has no HTTP route, so rows live here (saved in this browser) until you export. Run the .py from the repo root: <span class="mono">.venv/bin/python scrub_tests.py</span></div>
+</section>
+<section>
+  <h2><span class="n">04</span>B8 · tracker and perception by light</h2>
+  <div class="b8" id="b8"></div>
+  <div class="exp"><button id="copyB8">Copy B8 summary for the chat</button></div>
+  <h2 style="margin-top:14px"><span class="n">05</span>GET /stats<span class="aside" id="statsAge"></span></h2>
+  <div id="statsBody" class="narrow" style="font-size:13px"></div>
+  <pre class="stats" id="statsRaw"></pre>
+</section>
+</div>
+
+<footer>
+  <span>Scrub · DubHacks 2026 · Tasks A11, B8, E6</span>
+  <span>Related: <a href="40-failure-drills.html">40 failure drills</a> · <a href="45-table-template.html">45 table template</a> · <a href="41-demo-coach.html">41 demo coach</a></span>
+  <span><a href="#">Terms</a> · <a href="#">Privacy</a></span>
+</footer>
+<div class="toast" id="toast"></div>
+
+<script>
+"use strict";
+const $ = id => document.getElementById(id);
+const qs = new URLSearchParams(location.search);
+const API = (qs.get("api") || "http://localhost:8000").replace(/\/$/, "");
+const WS_URL = API.replace(/^http/, "ws") + "/events";
+
+/* ground truth: controller/settings.py defaults, sim/layout.json setting_items */
+const SETTINGS = [
+  {id:"surgical", label:"Operating room", items:[["hemostat","hemostat",false],["scalpel","scalpel",true],["mayo_scissors","Mayo scissors",false]]},
+  {id:"dental", label:"Dental office", items:[["mouth_mirror","mouth mirror",false],["explorer","explorer",false],["cotton_pliers","cotton pliers",false]]},
+  {id:"bench", label:"Robotics bench", items:[["needle_nose_pliers","needle-nose pliers",false],["wire_cutters","wire cutters",false],["hex_key","hex key",false]]},
+];
+const LIGHTS = [
+  {id:"bright", patch:"var(--g-bright)", lux:"≥ 1000 lx", def:1200},
+  {id:"normal", patch:"var(--g-normal)", lux:"300 to 500 lx", def:400},
+  {id:"dim", patch:"var(--g-dim)", lux:"≤ 100 lx", def:80},
+];
+/* docs/PLAN.md Testing: OR 10 per item per setup (90); dental and bench 5 per item in normal and bright (60) */
+const PLAN = {surgical:{bright:10,normal:10,dim:10}, dental:{bright:5,normal:5,dim:0}, bench:{bright:5,normal:5,dim:0}};
+const STEPS = ["finding","picking","checking","moving_to_hand","waiting_for_pull","releasing","homing","idle"];
+const CAUSES = ["perception","grasp","hand","path","reach","no pull","stop","error","other"];
+const itemName = id => { for (const s of SETTINGS) for (const i of s.items) if (i[0] === id) return i[1]; return id; };
+const isSharp = id => SETTINGS.some(s => s.items.some(i => i[0] === id && i[2]));
+const cap = s => s ? s[0].toUpperCase() + s.slice(1) : s;
+
+let live = false, wsock = null, wsOpen = false;
+let ctl = {step:"idle", setting:"surgical", lighting:"normal", hand_seen:false, fake_arm:true};
+let lampLux = null, latched = false;
+let sel = {setting:"surgical", item:"hemostat", lighting:"normal"};
+let trial = null;          /* {id, cell, events:[], t0, outcome} */
+let stats = null, statsAt = 0;
+let rows = [], hand = {};  /* hand[lighting] = {seen,total} sampled from /state during trials */
+
+/* ---------- storage (mock and live kept apart) ---------- */
+const key = () => "scrub50-" + (live ? "live" : "mock");
+function load() {
+  try { const d = JSON.parse(localStorage.getItem(key()) || "null"); if (d) { rows = d.rows || []; hand = d.hand || {}; return true; } } catch (e) {}
+  rows = []; hand = {}; return false;
+}
+function save() { try { localStorage.setItem(key(), JSON.stringify({rows, hand})); } catch (e) {} }
+
+/* ---------- maths ---------- */
+function wilson(k, n) {
+  if (!n) return null;
+  const z = 1.96, p = k / n, z2 = z * z;
+  const d = 1 + z2 / n, c = (p + z2 / (2 * n)) / d;
+  const h = z * Math.sqrt(p * (1 - p) / n + z2 / (4 * n * n)) / d;
+  return [Math.max(0, c - h), Math.min(1, c + h)];
+}
+const median = a => { if (!a.length) return null; const s = [...a].sort((x, y) => x - y), m = s.length >> 1; return s.length % 2 ? s[m] : (s[m - 1] + s[m]) / 2; };
+function cellStats(setting, item, lighting) {
+  const r = rows.filter(x => x.setting === setting && x.item === item && x.lighting === lighting);
+  const k = r.filter(x => x.success).length;
+  const secs = r.filter(x => x.success && x.seconds != null).map(x => x.seconds);
+  return {n:r.length, k, ci:wilson(k, r.length), med:median(secs), planned:PLAN[setting][lighting], retries:r.reduce((a, x) => a + (x.retries || 0), 0)};
+}
+const pct = v => v == null ? "-" : Math.round(v * 100) + "%";
+
+/* ---------- network ---------- */
+async function api(method, path, body) {
+  const r = await fetch(API + path, {method, headers:body ? {"content-type":"application/json"} : {}, body:body ? JSON.stringify(body) : undefined, signal:AbortSignal.timeout(2500)});
+  const j = await r.json().catch(() => ({}));
+  if (!r.ok) throw Object.assign(new Error(j.detail || r.status), {status:r.status});
+  return j;
+}
+async function probe() {
+  try {
+    const s = await api("GET", "/state");
+    if (!live) { live = true; load(); toast("Controller found at " + API + ". Live rows."); openWs(); render(); }
+    ctl = s; if (s.step === "stopped") latch(true, false);
+  } catch (e) {
+    if (live) { live = false; load(); if (!rows.length) seedMock(); toast("Controller lost. Mock mode."); render(); }
+  }
+  paintConn();
+}
+function openWs() {
+  if (wsock) return;
+  try { wsock = new WebSocket(WS_URL); } catch (e) { wsock = null; return; }
+  wsock.onopen = () => { wsOpen = true; paintConn(); };
+  wsock.onclose = () => { wsOpen = false; wsock = null; paintConn(); if (live) setTimeout(openWs, 1500); };
+  wsock.onerror = () => {};
+  wsock.onmessage = m => { try { onEvent(JSON.parse(m.data)); } catch (e) {} };
+}
+async function pollStats() {
+  if (!live) { stats = mockStats(); statsAt = Date.now(); paintStats(); return; }
+  try { stats = await api("GET", "/stats"); statsAt = Date.now(); } catch (e) { stats = {error:"GET /stats failed: " + e.message}; statsAt = Date.now(); }
+  paintStats();
+}
+async function sampleHand() {
+  if (!trial || trial.done) return;
+  let seen;
+  if (live) { try { const s = await api("GET", "/state"); ctl = s; seen = !!s.hand_seen; } catch (e) { return; } }
+  else seen = Math.random() < ({bright:.97, normal:.95, dim:.78})[trial.cell.lighting];
+  const h = hand[trial.cell.lighting] || (hand[trial.cell.lighting] = {seen:0, total:0});
+  h.total++; if (seen) h.seen++;
+}
+
+/* ---------- events and verdict ---------- */
+function onEvent(ev) {
+  if (ev.step) ctl.step = ev.step;
+  if (ev.lighting) ctl.lighting = ev.lighting;
+  if (ev.setting) ctl.setting = ev.setting;
+  if (ev.type === "stopped") latch(true, false);
+  paintConn();
+  if (!trial || trial.done) return;
+  const mine = ev.command_id === trial.id || (ev.type === "stopped");
+  if (!mine) return;
+  trial.events.push(ev);
+  addTrace(ev);
+  paintSteps(ev.step);
+  if (ev.type === "command" && ev.accepted === false) { finish({success:false, cause:"other", why:"Command refused: " + (ev.reason || "?")}); return; }
+  if (ev.type === "handed") { trial.handed = true; trial.seconds = ev.request_to_hand_s; $("pullBtn").disabled = false; }
+  if (ev.type === "set_down" && ev.request_to_hand_s != null) { trial.handed = true; trial.sharpDown = true; trial.seconds = ev.request_to_hand_s; }
+  if (ev.type === "set_down" && ev.request_to_hand_s == null) trial.setDown = ev.say || "set down";
+  if (ev.type === "released") trial.released = true;
+  if (ev.retries != null) trial.retries = Math.max(trial.retries, ev.retries);
+  if (ev.type === "missed") trial.misses.push(ev.say || "missed");
+  if (ev.type === "stopped") { finish({success:false, cause:"stop", why:"STOP during the trial."}); return; }
+  if (ev.type === "error") { finish({success:false, cause:"error", why:ev.error || "controller error"}); return; }
+  if (ev.type === "step" && ev.step === "idle" && trial.events.length > 1) finish(judge());
+}
+function causeOf(say) {
+  const s = (say || "").toLowerCase();
+  if (s.includes("don't see")) return "perception";
+  if (s.includes("couldn't pick") || s.includes("missed the")) return "grasp";
+  if (s.includes("lost your hand") || s.includes("no hand") || s.includes("hand open")) return "hand";
+  if (s.includes("in the way")) return "path";
+  if (s.includes("reach")) return "reach";
+  return "other";
+}
+function judge() {
+  const t = trial, last = t.misses[t.misses.length - 1];
+  if (t.sharpDown) return {success:true, cause:"", why:"Sharp: set down at the safe spot, timed. Counts as delivered."};
+  if (t.handed && t.released) return {success:true, cause:"", why:"Handed and released on the pull.", clear:t.retries === 0};
+  if (t.handed && t.setDown) return {success:false, cause:"no pull", why:"Reached the hand, nobody pulled in 30 s, set down. Override if the hand was really there."};
+  if (last) return {success:false, cause:causeOf(last), why:"Last line: \"" + last + "\""};
+  if (t.setDown) return {success:false, cause:causeOf(t.setDown), why:"\"" + t.setDown + "\""};
+  return {success:false, cause:"other", why:"Ended without a handoff. Check the trace."};
+}
+function finish(v) {
+  if (!trial || trial.done) return;
+  trial.done = true; trial.verdict = v;
+  clearTimeout(trial.timer);
+  $("pullBtn").disabled = true;
+  $("vTxt").className = "v " + (v.success ? "ok-t" : "fail-t");
+  $("vTxt").textContent = (v.success ? "Success" : "Failure") + " (auto)";
+  $("vWhy").textContent = v.why + " Confirm or override.";
+  $("vSec").value = trial.seconds != null ? trial.seconds : "";
+  $("vRet").value = trial.retries;
+  $("vCause").value = v.cause || "";
+  ["vOk","vFail","vDrop"].forEach(b => $(b).disabled = false);
+  paintRun();
+  if ($("autoOk").checked && v.success && v.clear) commit(true);
+}
+function commit(success) {
+  if (!trial || !trial.done) return;
+  const sec = parseFloat($("vSec").value), ret = parseInt($("vRet").value, 10);
+  const row = {
+    n:rows.length + 1, t:Date.now() / 1000, item:trial.cell.item, setting:trial.cell.setting, lighting:trial.cell.lighting,
+    lux:trial.lux, success, seconds:isFinite(sec) ? sec : null, retries:isFinite(ret) ? ret : 0,
+    cause:success ? "" : ($("vCause").value || "other"), auto:trial.verdict.success, overridden:success !== trial.verdict.success,
+    command_id:trial.id, mode:live ? "live" : "mock",
+  };
+  rows.push(row); save();
+  toast("Row " + row.n + ": " + itemName(row.item) + ", " + row.lighting + ", " + (success ? "success" : "failure") + (row.overridden ? " (override)" : ""));
+  resetVerdict(); trial = null; render();
+}
+function resetVerdict() {
+  $("vTxt").className = "v pend"; $("vTxt").textContent = "No trial yet"; $("vWhy").textContent = "";
+  $("vSec").value = ""; $("vRet").value = ""; $("vCause").value = "";
+  ["vOk","vFail","vDrop"].forEach(b => $(b).disabled = true);
+}
+
+/* ---------- actions ---------- */
+async function setTray() {
+  if (latched) return toast("STOP is latched.");
+  if (live) {
+    try { await api("POST", "/setting", {setting:sel.setting}); ctl.setting = sel.setting; toast("Tray: " + sel.setting); }
+    catch (e) { toast(e.status === 409 ? "Arm busy. Wait for idle before switching trays." : "POST /setting failed: " + e.message); }
+  } else { ctl.setting = sel.setting; toast("Mock tray: " + sel.setting); }
+  paintRun(); paintConn();
+}
+async function setLamp() {
+  if (latched) return toast("STOP is latched.");
+  const v = $("luxIn").value.trim(), lux = v === "" ? null : Number(v);
+  const body = {lighting:sel.lighting, lux};
+  if (live) {
+    try { await api("POST", "/lighting", body); } catch (e) { return toast("POST /lighting failed: " + e.message); }
+  }
+  ctl.lighting = sel.lighting; lampLux = lux;
+  toast("Lamp tagged " + sel.lighting + (lux != null ? ", " + lux + " lx" : ", no lux entered"));
+  paintRun(); paintConn();
+}
+async function runTrial() {
+  if (latched) return toast("STOP is latched. Clear it first.");
+  if (trial && !trial.done) return toast("A trial is running.");
+  if (trial && trial.done) return toast("Log or discard the last verdict first.");
+  if (ctl.setting !== sel.setting) return toast("Tray is " + ctl.setting + ". Load " + sel.setting + " first (step 1).");
+  if (ctl.lighting !== sel.lighting) return toast("Lamp is tagged " + ctl.lighting + ". Set " + sel.lighting + " first (step 2).");
+  const id = (crypto.randomUUID ? crypto.randomUUID() : String(Math.random())).replace(/-/g, "");
+  trial = {id, cell:{...sel}, events:[], misses:[], retries:0, seconds:null, lux:lampLux, done:false, t0:Date.now()};
+  $("trace").innerHTML = ""; paintSteps(null); resetVerdict();
+  $("vTxt").textContent = "Running..."; paintRun();
+  trial.timer = setTimeout(() => finish({success:false, cause:"other", why:"No idle after 75 s. Check the arm."}), 75000);
+  const cmd = {id, action:"handover", item:sel.item, heard:"test " + sel.item, source:"dashboard", t:Date.now() / 1000};
+  if (live) {
+    if (!wsOpen) toast("WS /events not open. Verdict will rely on the trace timeout.");
+    try { const r = await api("POST", "/command", cmd); if (!r.accepted) finish({success:false, cause:"other", why:"Refused: " + (r.reason || "?")}); }
+    catch (e) { finish({success:false, cause:"error", why:"POST /command failed: " + e.message}); }
+  } else mockRun(cmd);
+}
+async function pull() {
+  if (live) {
+    try { await api("POST", ctl.fake_arm ? "/fake/pull" : "/command", ctl.fake_arm ? undefined : {action:"got_it", source:"dashboard", t:Date.now() / 1000}); }
+    catch (e) { toast("Pull failed: " + e.message); }
+  } else if (trial && trial.mockPull) trial.mockPull();
+}
+async function forceMiss() {
+  if (live) {
+    try { const r = await api("POST", "/fake/force", {miss_grasp:1}); toast("Next grasp will miss: " + JSON.stringify(r.force)); }
+    catch (e) { toast(e.status === 400 ? "Only on --fake-arm." : "POST /fake/force failed: " + e.message); }
+  } else { mockForce = true; toast("Mock: next grasp will miss."); }
+}
+async function latch(on, send = true) {
+  if (on) {
+    latched = true;
+    if (send) { if (live) api("POST", "/stop").catch(() => toast("POST /stop failed. Use the power switch.")); else onEvent({type:"stopped", step:"stopped", say:"Stopped.", t:Date.now() / 1000}); }
+    if (mockTimers.length) { mockTimers.forEach(clearTimeout); mockTimers = []; }
+    if (trial && !trial.done) finish({success:false, cause:"stop", why:"STOP during the trial."});
+  } else {
+    if (live) { try { await api("POST", "/reset"); } catch (e) { return toast(e.status === 409 ? "Arm busy. Try again in a second." : "POST /reset failed: " + e.message); } }
+    latched = false; ctl.step = "idle"; toast("Stop cleared. Arm homing.");
+  }
+  $("stopBtn").classList.toggle("latched", latched);
+  $("stopBtn").textContent = latched ? "STOPPED" : "STOP";
+  $("stopbar").classList.toggle("on", latched);
+  paintRun(); paintConn();
+}
+
+/* ---------- mock controller (same step order and lines as controller/core.py) ---------- */
+let mockTimers = [], mockForce = false;
+const BASE_P = {bright:.9, normal:.93, dim:.74};
+const ITEM_P = {hemostat:1, scalpel:.97, mayo_scissors:.88, mouth_mirror:.95, explorer:.84, cotton_pliers:.9, needle_nose_pliers:.96, wire_cutters:.92, hex_key:.8};
+function mockRun(cmd) {
+  const L = sel.lighting, it = cmd.item, name = itemName(it), t0 = Date.now() / 1000;
+  const p = BASE_P[L] * ITEM_P[it];
+  const ev = (type, step, extra = {}) => ({type, step, item:it, say:null, request_to_hand_s:null, retries:null, setting:sel.setting, lighting:L, command_id:cmd.id, t:Date.now() / 1000, ...extra});
+  const seq = []; let at = 150;
+  const push = (dt, e) => { at += dt; seq.push([at, e]); };
+  push(0, ev("command", "idle", {say:cap(name) + " coming.", accepted:true, action:"handover", source:"dashboard"}));
+  if (Math.random() < (L === "dim" ? .06 : .015)) {
+    push(400, ev("step", "finding")); push(500, ev("missed", "finding", {say:"I don't see the " + name + " on the tray."})); push(200, ev("step", "idle", {item:null}));
+  } else {
+    let retries = 0;
+    push(300, ev("step", "finding")); push(250, ev("step", "picking")); push(1300, ev("step", "checking"));
+    const miss1 = mockForce || Math.random() > p; mockForce = false;
+    if (miss1) {
+      retries = 1; push(400, ev("missed", "checking", {say:"Missed the " + name + ", trying again.", retries:1}));
+      push(900, ev("step", "picking")); push(1300, ev("step", "checking"));
+      if (Math.random() > p) { push(400, ev("missed", "checking", {say:"I couldn't pick the " + name + ".", retries:1})); push(800, ev("step", "homing")); push(900, ev("step", "idle", {item:null})); return play(seq); }
+    }
+    push(300, ev("picked", "checking", {retries}));
+    const secs = () => +((Date.now() / 1000 - t0) + (L === "dim" ? .6 : 0)).toFixed(2);
+    if (isSharp(it)) {
+      push(200, ev("step", "setting_down")); push(1200, {lazy:() => ev("set_down", "setting_down", {say:cap(name) + " down.", request_to_hand_s:secs(), retries})});
+      push(200, ev("step", "homing")); push(1000, ev("step", "idle", {item:null})); return play(seq);
+    }
+    push(200, ev("step", "moving_to_hand"));
+    const lost = Math.random() < ({bright:.03, normal:.03, dim:.12})[L];
+    if (lost) { push(1100, ev("missed", "moving_to_hand", {say:"Lost your hand. Holding."})); push(1200, ev("missed", "moving_to_hand", {say:"Lost your hand. Holding."})); push(300, ev("step", "setting_down")); push(1000, ev("set_down", "setting_down", {say:"Setting the " + name + " down."})); push(200, ev("step", "homing")); push(900, ev("step", "idle", {item:null})); return play(seq); }
+    push(1500, ev("step", "waiting_for_pull")); push(20, {lazy:() => ev("handed", "waiting_for_pull", {request_to_hand_s:secs(), retries})});
+    play(seq, () => {
+      const rest = () => play([[250, ev("step", "releasing")], [500, ev("released", "releasing")], [700, ev("step", "homing")], [1600, ev("step", "idle", {item:null})]]);
+      const auto = setTimeout(rest, 1800 + Math.random() * 1500); mockTimers.push(auto);
+      trial.mockPull = () => { clearTimeout(auto); trial.mockPull = null; rest(); };
+    });
+    return;
+  }
+  play(seq);
+}
+function play(seq, then) {
+  let last = 0;
+  seq.forEach(([at, e]) => { last = Math.max(last, at); mockTimers.push(setTimeout(() => onEvent(e.lazy ? e.lazy() : {...e, t:Date.now() / 1000}), at)); });
+  if (then) mockTimers.push(setTimeout(then, last + 10));
+}
+function seedMock() {
+  const rnd = (a, b) => a + Math.random() * (b - a);
+  rows = []; hand = {bright:{seen:118, total:122}, normal:{seen:131, total:136}, dim:{seen:84, total:109}};
+  const plan = [["surgical","hemostat","normal",10],["surgical","scalpel","normal",10],["surgical","mayo_scissors","normal",7],["surgical","hemostat","bright",6],["surgical","mayo_scissors","dim",6],["surgical","scalpel","dim",3],["dental","explorer","normal",5],["bench","hex_key","normal",4]];
+  plan.forEach(([s, i, l, n]) => {
+    for (let k = 0; k < n; k++) {
+      const ok = Math.random() < BASE_P[l] * ITEM_P[i] * (i === "mayo_scissors" && l === "dim" ? .65 : 1);
+      const r = ok ? (Math.random() < .15 ? 1 : 0) : 1;
+      rows.push({n:rows.length + 1, t:Date.now() / 1000 - 3600 + rows.length * 40, item:i, setting:s, lighting:l, lux:LIGHTS.find(x => x.id === l).def, success:ok,
+        seconds:ok ? +rnd(5.2, 8.4).toFixed(2) + (r ? 3.1 : 0) : null, retries:r, cause:ok ? "" : (l === "dim" && Math.random() < .5 ? "hand" : "grasp"), auto:ok, overridden:false, command_id:"mock", mode:"mock"});
+    }
+  });
+  save();
+}
+function mockStats() {
+  const by = {};
+  rows.forEach(r => { const b = by[r.item] || (by[r.item] = {ok:0, missed:0}); b[r.success ? "ok" : "missed"]++; });
+  return {source:"MOCK (built from the rows on this page)", by_item:by, median_request_to_hand_s:median(rows.filter(r => r.success && r.seconds).map(r => r.seconds))};
+}
+
+/* ---------- next / weak ---------- */
+function analyse() {
+  const cells = [];
+  SETTINGS.forEach((s, si) => s.items.forEach(([id]) => LIGHTS.forEach(L => cells.push({setting:s.id, item:id, lighting:L.id, si, ...cellStats(s.id, id, L.id)}))));
+  const weak = cells.filter(c => c.n >= 3).sort((a, b) => a.ci[0] - b.ci[0] || a.k / a.n - b.k / b.n).slice(0, 3);
+  const under = cells.filter(c => c.n >= 5 && c.k / c.n < .7);
+  /* next: surgical row first (PLAN), stay on the current lamp to save swaps, then the weakest-known, then fewest done */
+  const open = cells.filter(c => c.n < c.planned);
+  const curL = ctl.lighting, curS = ctl.setting;
+  open.sort((a, b) =>
+    (a.si === 0 ? 0 : 1) - (b.si === 0 ? 0 : 1) ||
+    (a.lighting === curL ? 0 : 1) - (b.lighting === curL ? 0 : 1) ||
+    (a.setting === curS ? 0 : 1) - (b.setting === curS ? 0 : 1) ||
+    (a.ci ? a.ci[0] : .5) - (b.ci ? b.ci[0] : .5) ||
+    a.n - b.n);
+  let next = open[0];
+  if (!next && weak[0]) next = weak[0];
+  return {cells, weak, under, next, open};
+}
+
+/* ---------- paint ---------- */
+function render() { paintMatrix(); paintRun(); paintLog(); paintB8(); paintConn(); }
+function paintConn() {
+  const c = $("conn");
+  c.className = "conn " + (live ? "live" : "mock");
+  $("connTxt").textContent = live ? "LIVE " + API.replace(/^https?:\/\//, "") + (wsOpen ? " · WS" : " · WS down") : "MOCK";
+  $("armStep").textContent = ctl.step;
+  $("armLight").textContent = cap(ctl.lighting) + (lampLux != null ? " · " + lampLux + " lx" : "");
+  $("mockbar").classList.toggle("on", !live);
+  $("mockApi").textContent = API;
+  $("missBtn").style.display = live && !ctl.fake_arm ? "none" : "";
+}
+function paintMatrix() {
+  const A = analyse(), weakKeys = new Set(A.weak.map(c => c.setting + c.item + c.lighting));
+  const nk = A.next ? A.next.setting + A.next.item + A.next.lighting : "";
+  let h = '<div class="hd" style="border-left:0"><span class="lbl">Item</span></div>';
+  LIGHTS.forEach(L => h += `<div class="hd"><span class="patch" style="background:${L.patch}"></span><div><div class="t">${L.id}</div><div class="s">${L.lux}</div></div></div>`);
+  SETTINGS.forEach(s => {
+    const pl = PLAN[s.id];
+    h += `<div class="grp">${s.label}<span>${s.id === "surgical" ? "10 per item per setup · run first" : "5 per item, normal and bright · dim optional"}</span></div>`;
+    s.items.forEach(([id, name, sharp]) => {
+      h += `<div class="rowlab"><span class="it">${cap(name)}</span><span class="st"><span class="id">${id}</span>${sharp ? ' <span class="sh">sharp</span>' : ""}</span></div>`;
+      LIGHTS.forEach(L => {
+        const c = cellStats(s.id, id, L.id), k = s.id + id + L.id;
+        const cls = ["cell"]; if (sel.setting === s.id && sel.item === id && sel.lighting === L.id) cls.push("sel");
+        if (weakKeys.has(k)) cls.push("weak"); if (k === nk) cls.push("next");
+        if (!c.planned) cls.push("unpl"); else if (c.n >= c.planned) cls.push("full");
+        const ci = c.ci ? `<span class="rng" style="left:${c.ci[0] * 100}%;width:${(c.ci[1] - c.ci[0]) * 100}%"></span><span class="pt" style="left:calc(${c.k / c.n * 100}% - 1px)"></span>` : "";
+        h += `<button class="${cls.join(" ")}" data-s="${s.id}" data-i="${id}" data-l="${L.id}" aria-label="${name} ${L.id}: ${c.n} of ${c.planned}, ${c.k} ok">
+          <span class="dn">${c.n}<i>/${c.planned || "opt"}</i></span><span class="rt">${c.n ? pct(c.k / c.n) : ""}</span>
+          <span class="ci"><span class="th"></span>${ci}</span>
+          <span class="meta"><span>${c.k} ok${c.ci ? " · " + pct(c.ci[0]) + "-" + pct(c.ci[1]) : ""}</span><span>${c.med != null ? "med " + c.med.toFixed(1) + " s" : "med -"}</span></span></button>`;
+      });
+    });
+  });
+  $("mx").innerHTML = h + totals();
+  $("mx").querySelectorAll(".cell").forEach(b => b.onclick = () => { sel = {setting:b.dataset.s, item:b.dataset.i, lighting:b.dataset.l}; render(); });
+  /* advice */
+  const n = A.next;
+  if (n) {
+    const left = n.planned - n.n;
+    $("nextBig").textContent = `${cap(itemName(n.item))}, ${n.lighting}`;
+    const why = [];
+    if (left > 0) why.push(`${left} of ${n.planned} left in this cell.`); else why.push("Plan met. Weakest cell, more tries tighten the CI.");
+    if (n.si === 0 && left > 0) why.push("Operating room row first (PLAN: the one the pitch points at).");
+    why.push(n.lighting === ctl.lighting ? "Lamp is already " + n.lighting + "." : "Needs a lamp change to " + n.lighting + ".");
+    if (n.setting !== ctl.setting) why.push("Needs the " + n.setting + " tray.");
+    $("nextWhy").textContent = why.join(" ");
+    $("nextGo").disabled = false; $("nextGo").onclick = () => { sel = {setting:n.setting, item:n.item, lighting:n.lighting}; render(); };
+  } else { $("nextBig").textContent = "Plan complete"; $("nextWhy").textContent = "150 planned trials logged. Export and run the .py."; $("nextGo").disabled = true; }
+  $("weakList").innerHTML = A.weak.length ? A.weak.map(c => `<li><button class="linkbtn" data-s="${c.setting}" data-i="${c.item}" data-l="${c.lighting}">${cap(itemName(c.item))}, ${c.lighting}</button> <span class="mono" style="font-size:12px">${c.k}/${c.n} · CI ${pct(c.ci[0])}-${pct(c.ci[1])}</span></li>`).join("") : '<li class="pend">Need 3 trials in a cell</li>';
+  $("weakList").querySelectorAll("button").forEach(b => b.onclick = () => { sel = {setting:b.dataset.s, item:b.dataset.i, lighting:b.dataset.l}; render(); });
+  $("under70").textContent = A.under.length ? "Under 70% (PLAN: 10 more demos for the item): " + A.under.map(c => itemName(c.item) + " " + c.lighting + " " + c.k + "/" + c.n).join(", ") : "";
+  const done = rows.length, planned = 150;
+  $("mxAside").textContent = `PLAN.md · ${done} of ${planned} planned trials · ${live ? "live" : "mock"} rows`;
+}
+function totals() {
+  let h = '<div class="tot"><div>All items</div>';
+  LIGHTS.forEach(L => {
+    const r = rows.filter(x => x.lighting === L.id), k = r.filter(x => x.success).length, ci = wilson(k, r.length);
+    const med = median(r.filter(x => x.success && x.seconds != null).map(x => x.seconds));
+    const pl = Object.values(PLAN).reduce((a, p) => a + p[L.id] * 3, 0);
+    h += `<div>${r.length ? pct(k / r.length) : "-"} <span class="mono">${r.length}/${pl} · ${ci ? pct(ci[0]) + "-" + pct(ci[1]) : "no CI"} · med ${med != null ? med.toFixed(1) + " s" : "-"}</span></div>`;
+  });
+  return h + "</div>";
+}
+function paintRun() {
+  const c = cellStats(sel.setting, sel.item, sel.lighting), sname = SETTINGS.find(s => s.id === sel.setting).label;
+  $("selName").textContent = `${itemName(sel.item)} · ${sel.lighting}`;
+  $("selSub").textContent = `${sname} (${sel.setting}) · ${c.n} of ${c.planned || "optional"} done · ${c.k} ok${c.ci ? " · 95% CI " + pct(c.ci[0]) + " to " + pct(c.ci[1]) : ""}${isSharp(sel.item) ? " · sharp: goes to the safe spot" : ""}`;
+  const trayOk = ctl.setting === sel.setting, lampOk = ctl.lighting === sel.lighting;
+  $("trayState").innerHTML = trayOk ? `<span class="ok-t">Loaded: ${sel.setting}</span>` : `<span class="amb-t">Controller has ${ctl.setting}. Swap the physical tray, then load.</span>`;
+  $("setTray").disabled = trayOk || latched;
+  $("lampState").innerHTML = lampOk ? `<span class="ok-t">Tagged ${sel.lighting}${lampLux != null ? ", " + lampLux + " lx" : ""}</span>` : `<span class="amb-t">Tagged ${ctl.lighting}</span>`;
+  $("setLamp").textContent = lampOk ? "Re-tag lamp" : "Set lamp to " + sel.lighting;
+  if (!$("luxIn").value && document.activeElement !== $("luxIn")) $("luxIn").placeholder = "e.g. " + LIGHTS.find(L => L.id === sel.lighting).def;
+  const running = trial && !trial.done, pending = trial && trial.done;
+  $("runBtn").disabled = latched || running || pending || !trayOk || !lampOk;
+  $("runBtn").textContent = running ? "Running..." : pending ? "Log the verdict first" : "Run trial: " + itemName(sel.item);
+  $("setLamp").disabled = latched || running;
+}
+function paintSteps(cur) {
+  const idx = STEPS.indexOf(cur);
+  $("stepsBar").innerHTML = STEPS.map((s, i) => `<span class="${i === idx ? "cur" : i < idx ? "done" : ""}">${s.replace(/_/g, " ")}</span>`).join("");
+}
+function addTrace(ev) {
+  const t = trial ? ((ev.t * 1000 - trial.t0) / 1000).toFixed(1) : "";
+  const bad = ["missed","stopped","error"].includes(ev.type), good = ["handed","released","set_down"].includes(ev.type) && !(ev.type === "set_down" && ev.request_to_hand_s == null);
+  const d = document.createElement("div"); d.className = "e" + (bad ? " bad" : good ? " good" : "");
+  const extra = [ev.step, ev.request_to_hand_s != null ? ev.request_to_hand_s + " s" : "", ev.retries ? "retries " + ev.retries : "", ev.say ? '"' + ev.say + '"' : ""].filter(Boolean).join("  ");
+  d.innerHTML = `+${t}s <b>${ev.type}</b>  ${extra.replace(/</g, "&lt;")}`;
+  $("trace").appendChild(d); $("trace").scrollTop = 1e6;
+}
+function paintLog() {
+  $("logCount").textContent = rows.length + " rows · " + (live ? "live" : "mock, not for the ledger");
+  $("logBody").innerHTML = rows.slice().reverse().slice(0, 200).map(r => `<tr>
+    <td class="num">${r.n}</td><td>${cap(itemName(r.item))}</td><td class="hide-m">${r.setting}</td><td>${r.lighting}${r.lux != null ? '<span class="mono" style="font-size:11px;color:var(--ink3)"> ' + r.lux + "</span>" : ""}</td>
+    <td><span class="tag ${r.success ? "ok-t" : "fail-t"}">${r.success ? "ok" : "fail"}</span>${r.overridden ? ' <span class="tag amb-t" title="Verdict overridden by hand">ovr</span>' : ""}</td>
+    <td class="num">${r.seconds != null ? r.seconds.toFixed(1) : "-"}</td><td class="num">${r.retries}</td><td class="hide-m">${r.cause || ""}</td></tr>`).join("") || '<tr><td colspan="8" class="pend">No rows yet. Run a trial and confirm the verdict.</td></tr>';
+}
+function b8Data() {
+  return LIGHTS.map(L => {
+    const r = rows.filter(x => x.lighting === L.id), fails = r.filter(x => !x.success);
+    const by = {}; CAUSES.forEach(c => by[c] = 0); fails.forEach(f => by[f.cause || "other"] = (by[f.cause || "other"] || 0) + 1);
+    const h = hand[L.id] || {seen:0, total:0};
+    return {L, n:r.length, ok:r.length - fails.length, by, h};
+  });
+}
+function paintB8() {
+  $("b8").innerHTML = b8Data().map(d => `<div><div class="hd"><span class="patch" style="background:${d.L.patch}"></span><b style="text-transform:capitalize">${d.L.id}</b></div>
+    <span class="lbl">hand_seen during trials</span><div class="hs">${d.h.total ? pct(d.h.seen / d.h.total) : "-"}</div><div class="mono" style="font-size:11px;color:var(--ink3)">${d.h.seen}/${d.h.total} samples of GET /state, 1 Hz</div>
+    <div style="margin-top:8px"><span class="lbl">failures by cause (${d.n - d.ok} of ${d.n})</span></div>
+    ${["perception","grasp","hand","path","reach","no pull"].map(c => `<div class="k"><span>${c}</span><span>${d.by[c]}</span></div>`).join("")}</div>`).join("");
+}
+function paintStats() {
+  $("statsAge").textContent = statsAt ? (live ? "live" : "MOCK") + " · " + new Date(statsAt).toLocaleTimeString() : "";
+  if (!stats) return;
+  let h = "";
+  if (stats.error) h = `<span class="fail-t">${stats.error}. The endpoint may not exist on this build yet.</span>`;
+  else {
+    h = `<div><span class="lbl">Source</span> ${stats.source || "ledger.stats()"}</div>`;
+    if (stats.median_request_to_hand_s != null) h += `<div><span class="lbl">Median request-to-hand</span> <b>${(+stats.median_request_to_hand_s).toFixed(2)} s</b></div>`;
+    if (stats.by_item) h += `<table style="margin-top:6px"><thead><tr><th>Item</th><th class="num">ok</th><th class="num">missed</th></tr></thead><tbody>${Object.entries(stats.by_item).map(([k, v]) => `<tr><td>${cap(itemName(k))}</td><td class="num">${v.ok ?? "-"}</td><td class="num">${v.missed ?? "-"}</td></tr>`).join("")}</tbody></table>`;
+    h += '<div style="font-size:12px;color:var(--ink2);margin-top:4px">Controller memory counts every handed, set_down and missed event, so a retry shows as a miss. Rows on this page are per trial.</div>';
+  }
+  $("statsBody").innerHTML = h;
+  $("statsRaw").textContent = JSON.stringify(stats, null, 2);
+}
+
+/* ---------- export ---------- */
+function download(name, text, type) {
+  const a = document.createElement("a"); a.href = URL.createObjectURL(new Blob([text], {type})); a.download = name; document.body.appendChild(a); a.click(); a.remove();
+}
+const stamp = () => new Date().toISOString().slice(0, 16).replace(/[:T]/g, "-");
+function exportJson() { download(`scrub-tests-${live ? "live" : "MOCK"}-${stamp()}.json`, JSON.stringify(rows, null, 2), "application/json"); }
+function exportCsv() {
+  const cols = ["n","t","item","setting","lighting","lux","success","seconds","retries","cause","auto","overridden","command_id","mode"];
+  const esc = v => v == null ? "" : /[",\n]/.test(String(v)) ? '"' + String(v).replace(/"/g, '""') + '"' : String(v);
+  download(`scrub-tests-${live ? "live" : "MOCK"}-${stamp()}.csv`, [cols.join(","), ...rows.map(r => cols.map(c => esc(r[c])).join(","))].join("\n"), "text/csv");
+}
+function exportPy() {
+  const py = v => v == null ? "None" : v === true ? "True" : v === false ? "False" : typeof v === "string" ? JSON.stringify(v) : String(v);
+  const lines = rows.map(r => `log_test(${py(r.item)}, ${py(r.setting)}, ${py(r.lighting)}, ${py(r.success)}, ${py(r.seconds)}, ${py(r.retries)})  # #${r.n} lux=${r.lux ?? "?"}${r.overridden ? " override" : ""}${r.cause ? " cause=" + r.cause : ""}`);
+  const head = `"""Scrub test rows from 50-light-matrix.html, ${new Date().toISOString()}. ${rows.length} trials.${live ? "" : "\nMOCK DATA. Do not run against the real ledger."}"""\n` +
+    (live ? "" : "raise SystemExit('mock rows: not logging')\n") + "from ledger import log_test\n\n";
+  download(`scrub_tests${live ? "" : "_MOCK"}.py`, head + lines.join("\n") + "\nprint('logged', " + rows.length + ")\n", "text/x-python");
+}
+function copyB8() {
+  const txt = "B8 lighting results (" + (live ? "live" : "MOCK") + ", " + rows.length + " trials)\n" + b8Data().map(d =>
+    `${d.L.id}: ${d.ok}/${d.n} ok${d.n ? " (" + pct(d.ok / d.n) + ")" : ""}, hand seen ${d.h.total ? pct(d.h.seen / d.h.total) : "-"}, fails: ` +
+    (Object.entries(d.by).filter(([, v]) => v).map(([k, v]) => k + " " + v).join(", ") || "none")).join("\n");
+  (navigator.clipboard ? navigator.clipboard.writeText(txt) : Promise.reject()).then(() => toast("B8 summary copied"), () => { download("b8.txt", txt, "text/plain"); });
+}
+
+let toastT;
+function toast(m) { const t = $("toast"); t.textContent = m; t.classList.add("on"); clearTimeout(toastT); toastT = setTimeout(() => t.classList.remove("on"), 3200); }
+
+/* ---------- wire up ---------- */
+$("stopBtn").onclick = () => latch(true);
+$("clearStop").onclick = () => latch(false);
+$("setTray").onclick = setTray; $("setLamp").onclick = setLamp; $("runBtn").onclick = runTrial;
+$("pullBtn").onclick = pull; $("missBtn").onclick = forceMiss;
+$("vOk").onclick = () => commit(true); $("vFail").onclick = () => commit(false);
+$("vDrop").onclick = () => { trial = null; resetVerdict(); toast("Trial discarded, not logged."); render(); };
+$("expJson").onclick = exportJson; $("expCsv").onclick = exportCsv; $("expPy").onclick = exportPy; $("copyB8").onclick = copyB8;
+$("undoBtn").onclick = () => { const r = rows.pop(); save(); render(); if (r) toast("Removed row " + r.n); };
+$("clrBtn").onclick = () => { if (confirm("Clear all " + rows.length + " " + (live ? "live" : "mock") + " rows on this page? Export first.")) { rows = []; hand = {}; save(); render(); } };
+document.addEventListener("keydown", e => {
+  if (e.code === "Space" && !/INPUT|SELECT|TEXTAREA/.test(document.activeElement.tagName)) { e.preventDefault(); latch(true); }
+});
+
+if (!load()) seedMock();
+paintSteps(null); resetVerdict(); render();
+probe(); setInterval(probe, 3000);
+pollStats(); setInterval(pollStats, 10000);
+setInterval(sampleHand, 1000);
+setInterval(() => { if (!live) paintConn(); }, 1000);
+</script>
+</body>
+</html>

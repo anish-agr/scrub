@@ -1,0 +1,577 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Train Tracker</title>
+<meta name="description" content="Sterile processing style load record for Scrub's fine-tuning: the 225-demo quota grid from docs/DATA-LOG.md, which cells to record next, the dataset to job to deployment pipeline driven by pasted python -m arm.train output, the 2-job quota, ETA, and a run 1 vs run 2 pick check on the SO-101.">
+<!--
+FEATURES:
+- Load contents grid: 3 settings x 3 items x pick/return x bright/normal/dim, counts vs target (pick 15 = 5/5/5,
+  return 10 = 4/3/3), per setting x/75 and total x/225. Counts come from DATA-LOG rows typed here or pasted from
+  docs/DATA-LOG.md; every new row is printed as a markdown line to paste back into the log (E4).
+- Reconcile (E4): paste meta/info.json and/or meta/episodes.jsonl from the local dataset root; compares total
+  episodes and episodes per instruction string against the log and flags any mismatch.
+- Record next: the four biggest gaps in recording order (OR first, never cut), plus +10 corrective "pick the X" demos
+  for any item that failed run 1 (TASKS A9), with the exact lerobot-record command (--resume=true, same root).
+- Pipeline per run (run 1 = OR set probe, run 2 = all 9 items): capabilities, register-hf, dataset ready, validation,
+  replay + cadence sign-off, train, follow, deployment, contract. Each step shows the exact `python -m arm.train`
+  command with ids filled in and a paste box; the page parses the JSON stream train.py prints and stamps the step.
+- Quota box: 2 successful jobs, 2 queued, 6 h timeout, 120 req/min (workshop defaults) replaced by values found in a
+  pasted capabilities reply. Train command is held until the dataset is ready, validated, signed off and quota remains.
+- ETA: deck projection (9.4 min startup, 1.7 s/update, 3.3 min checkpoint, plus export) or live step from metrics,
+  and a one-line chat message for A5 ("ETA posted in the chat").
+- Run 1 vs run 2 bench check: 5 "pick the X" trials per item per deployment, tap to mark pass/fail.
+SPONSORS: Perceptron Robotics (Isaac 0.5 fine-tune: datasets, jobs, checkpoints, deployments), Hugging Face dataset route.
+BACKEND HOOKS: none to Perceptron from the browser (the team key never leaves the terminal). The page reads pasted stdout of
+  `python -m arm.train capabilities | register-hf | status | validation | train | follow | deployments | contract`
+  (arm/train.py, routes /v1/capabilities, /v1/datasets, /v1/datasets/{id}/validation, /v1/jobs, /v1/jobs/{id}/logs|metrics,
+  /v1/checkpoints/{id}, /v1/deployments, /v1/deployments/{id}/contract). Optional GET {controller}/setting
+  (default http://localhost:8000, ?api= override) only to mark the tray currently loaded. This page never moves the arm.
+  Helps Anish A4, A5, A9, A10 and Evan E4 (docs/TASKS.md). Per-demo coaching lives in 41-demo-coach.html.
+STYLE: Sterile processing load record. A pale green carbonless form (boxed fields, small-caps labels, form number,
+  initials column) with thermal cycle printouts taped in for each pasted reply, and autoclave indicator tape whose
+  stripes darken when a step is processed. Archivo Narrow labels, IBM Plex Mono numbers, Kalam for initials.
+-->
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Archivo+Narrow:wght@500;600;700&family=Archivo:wght@400;600&family=IBM+Plex+Mono:wght@400;500;600&family=Kalam:wght@400&display=swap" rel="stylesheet">
+<style>
+:root{--paper:#e6ece3;--form:#f1f4ee;--rule:#9fae9f;--rule2:#c5cfc3;--ink:#1c2a2a;--pen:#20406e;--pencil:#5d6a62;
+ --red:#a8322a;--amber:#94650b;--ok:#2b6a43;--cyan:#1d6475;--tape:#e4d6ae;--tapeInk:#3a2f1c;--thermal:#fbfaf6;
+ --mono:"IBM Plex Mono",ui-monospace,Menlo,monospace;--lab:"Archivo Narrow","Arial Narrow",sans-serif;--body:"Archivo",Arial,sans-serif;--hand:"Kalam",cursive}
+*{box-sizing:border-box}
+html,body{overflow-x:hidden}
+body{margin:0;background:var(--paper);color:var(--ink);font:15px/1.45 var(--body);font-variant-numeric:tabular-nums}
+.wrap{max-width:1240px;margin:0 auto;padding:16px 16px 40px}
+.form{background:var(--form);border:1px solid var(--rule);padding:0}
+.hdr{display:grid;grid-template-columns:1fr auto;border-bottom:2px solid var(--ink)}
+.hdr h1{margin:0;font:700 26px/1.1 var(--lab);letter-spacing:.02em;text-transform:uppercase;padding:12px 14px 4px}
+.hdr .sub{padding:0 14px 10px;color:var(--pencil);font:500 13px var(--lab);letter-spacing:.04em;text-transform:uppercase}
+.hdr .fno{border-left:1px solid var(--rule);padding:10px 14px;font:500 12px/1.5 var(--mono);text-align:right;min-width:170px}
+.fields{display:grid;grid-template-columns:repeat(6,1fr);border-bottom:1px solid var(--rule)}
+.fld{border-right:1px solid var(--rule2);padding:5px 10px 7px;min-width:0}
+.fld:last-child{border-right:0}
+.lbl{font:600 10.5px var(--lab);letter-spacing:.08em;text-transform:uppercase;color:var(--pencil);display:block}
+.val{font:500 14px var(--mono);overflow-wrap:anywhere}
+.val input{width:100%;font:500 14px var(--mono);border:0;border-bottom:1px dashed var(--rule);background:transparent;color:var(--pen);padding:2px 0}
+.mode{display:inline-block;font:700 11px var(--lab);letter-spacing:.1em;padding:2px 6px;border:1.5px solid currentColor}
+.mode.mock{color:var(--amber)} .mode.real{color:var(--ok)}
+section{border-bottom:1px solid var(--rule);padding:12px 14px 16px}
+section:last-of-type{border-bottom:0}
+h2{font:700 15px var(--lab);letter-spacing:.08em;text-transform:uppercase;margin:0 0 8px;display:flex;gap:10px;align-items:baseline;flex-wrap:wrap}
+h2 .no{font:600 12px var(--mono);border:1px solid var(--ink);padding:0 5px}
+h2 small{font:500 12px var(--lab);color:var(--pencil);letter-spacing:.04em;text-transform:none}
+p{margin:4px 0 8px} .sm{font-size:13px;color:var(--pencil)}
+.cols{display:grid;grid-template-columns:minmax(0,1.35fr) minmax(0,1fr);gap:16px}
+.scroll{overflow-x:auto;max-width:100%}
+table{border-collapse:collapse;width:100%}
+th,td{border:1px solid var(--rule2);padding:4px 6px;text-align:left;vertical-align:top}
+th{font:600 11px var(--lab);letter-spacing:.06em;text-transform:uppercase;color:var(--pencil);background:#e9eee6}
+td.n,th.n{text-align:right;font-family:var(--mono)}
+.grid td.c{font:500 13px var(--mono);text-align:center;cursor:pointer;min-width:52px;height:34px}
+.grid td.c:focus{outline:2px solid var(--pen)}
+.grid td.c.full{color:var(--ok)} .grid td.c.part{color:var(--amber)} .grid td.c.zero{color:var(--red)}
+.grid td.c.over{color:var(--cyan)}
+.grid tr.set th{background:var(--ink);color:var(--form);font-size:12px}
+.grid tr.set th .cur{color:#e7c56a;margin-left:6px}
+.bar{height:5px;background:var(--rule2);margin-top:3px;position:relative}
+.bar i{position:absolute;inset:0 auto 0 0;background:currentColor}
+.tot{font:600 13px var(--mono)}
+button,.btn{font:600 13px var(--lab);letter-spacing:.06em;text-transform:uppercase;min-height:44px;padding:0 14px;border:1.5px solid var(--ink);background:var(--form);color:var(--ink);cursor:pointer;border-radius:2px}
+button.pri{background:var(--ink);color:var(--form)}
+button:disabled{opacity:.45;cursor:not-allowed}
+button.sm2{min-height:36px;padding:0 10px;font-size:12px}
+.row{display:flex;gap:8px;flex-wrap:wrap;align-items:center}
+select,input[type=number],input[type=text]{font:500 14px var(--mono);min-height:40px;border:1px solid var(--rule);background:#fff;color:var(--pen);padding:0 6px;border-radius:2px;max-width:100%}
+textarea{width:100%;min-height:76px;font:12px/1.4 var(--mono);border:1px solid var(--rule);background:#fff;color:var(--ink);padding:6px;border-radius:2px;resize:vertical}
+pre.cmd{margin:6px 0;background:#1f2b2b;color:#e8efe6;font:12.5px/1.5 var(--mono);padding:8px 10px;white-space:pre-wrap;overflow-wrap:anywhere;border-radius:2px}
+pre.cmd .ph{color:#e7c56a}
+.copy{float:right;min-height:30px;padding:0 8px;font-size:11px;margin:-2px -4px 0 6px;background:#2d3c3c;color:#e8efe6;border-color:#6d7f7a}
+.hand{font-family:var(--hand);color:var(--pen);font-size:16px}
+.next li{margin:0 0 10px}
+.next ol{padding-left:20px;margin:6px 0}
+.tag{font:600 10.5px var(--lab);letter-spacing:.08em;text-transform:uppercase;padding:1px 5px;border:1px solid currentColor;display:inline-block}
+.tag.ok{color:var(--ok)} .tag.warn{color:var(--amber)} .tag.bad{color:var(--red)} .tag.info{color:var(--cyan)} .tag.mut{color:var(--pencil)}
+/* indicator tape */
+.tape{height:14px;background:var(--tape);border:1px solid #c9b88a;position:relative;overflow:hidden}
+.tape:before{content:"";position:absolute;inset:0;background:repeating-linear-gradient(135deg,transparent 0 9px,rgba(150,130,90,.35) 9px 13px)}
+.tape.done:before{background:repeating-linear-gradient(135deg,transparent 0 9px,#2a2318 9px 13px)}
+.tape.fail:before{background:repeating-linear-gradient(135deg,transparent 0 9px,var(--red) 9px 13px)}
+.tape.run:before{background:repeating-linear-gradient(135deg,transparent 0 9px,#7a6a45 9px 13px)}
+/* pipeline */
+.tabs{display:flex;gap:0;border-bottom:1.5px solid var(--ink);margin-bottom:10px}
+.tabs button{border-bottom:0;border-radius:0;margin-right:-1.5px;background:#e3e9e0}
+.tabs button[aria-selected=true]{background:var(--form);position:relative;top:1.5px}
+.step{display:grid;grid-template-columns:34px minmax(0,1fr) minmax(0,1fr);gap:0 12px;border-top:1px solid var(--rule2);padding:10px 0}
+.step .sn{font:600 13px var(--mono);border:1px solid var(--ink);height:26px;display:flex;align-items:center;justify-content:center}
+.step h3{margin:0 0 2px;font:700 13px var(--lab);letter-spacing:.06em;text-transform:uppercase}
+.step .st{margin:4px 0}
+.printout{background:var(--thermal);border:1px solid #ddd8c8;font:11.5px/1.45 var(--mono);padding:8px 10px;max-height:150px;overflow:auto;white-space:pre-wrap;overflow-wrap:anywhere;position:relative;margin-top:6px}
+.printout b{font-weight:600}
+.printout:before{content:"";position:absolute;left:30%;top:-7px;width:56px;height:14px;background:rgba(228,214,174,.75);border:1px solid #cdbd90}
+.quota{display:grid;grid-template-columns:repeat(4,1fr);border:1px solid var(--ink);margin:8px 0}
+.quota div{border-right:1px solid var(--rule);padding:6px 8px}
+.quota div:last-child{border-right:0}
+.big{font:600 24px var(--mono)}
+.slots{display:flex;gap:6px;margin-top:4px}
+.slots span{width:30px;height:30px;border:1.5px solid var(--ink);display:flex;align-items:center;justify-content:center;font:600 12px var(--mono)}
+.slots span.used{background:var(--ink);color:var(--form)}
+.slots span.q{background:repeating-linear-gradient(135deg,transparent 0 5px,#7a6a45 5px 7px)}
+.eta{border:1px solid var(--ink);padding:8px 10px;margin:8px 0}
+.prog{height:12px;border:1px solid var(--ink);position:relative;margin:6px 0}
+.prog i{position:absolute;inset:0 auto 0 0;background:var(--ink);transition:width .6s}
+/* trials */
+.trials td.t{padding:2px}
+.tb{display:inline-flex;gap:3px;flex-wrap:wrap}
+.tb button{min-height:34px;width:34px;padding:0;font:600 13px var(--mono);border:1px solid var(--rule)}
+.tb button.p{background:#dcebdf;color:var(--ok);border-color:var(--ok)}
+.tb button.f{background:#f2dcd8;color:var(--red);border-color:var(--red)}
+.verdict{font:600 12px var(--mono)}
+.sign{display:grid;grid-template-columns:repeat(3,1fr);border-top:2px solid var(--ink)}
+.sign div{border-right:1px solid var(--rule2);padding:6px 10px 14px}
+.sign div:last-child{border-right:0}
+footer{font:12px var(--lab);color:var(--pencil);padding:10px 2px;display:flex;justify-content:space-between;flex-wrap:wrap;gap:8px}
+footer a{color:var(--pencil)}
+.flash{animation:fl 1s}
+@keyframes fl{from{background:#f4e7b8}to{background:transparent}}
+.dlg{border:1px solid var(--ink);padding:10px;margin-top:10px;background:#fff}
+.dlg .row>label{display:flex;flex-direction:column;font:600 10.5px var(--lab);letter-spacing:.08em;text-transform:uppercase;color:var(--pencil);gap:2px}
+@media (max-width:900px){.cols{grid-template-columns:1fr}.fields{grid-template-columns:repeat(3,1fr)}.step{grid-template-columns:30px minmax(0,1fr)}.step .right{grid-column:2}}
+@media (max-width:520px){.hdr{grid-template-columns:1fr}.hdr .fno{border-left:0;border-top:1px solid var(--rule);text-align:left}
+ .fields{grid-template-columns:repeat(2,1fr)}.quota{grid-template-columns:repeat(2,1fr)}.quota div:nth-child(2){border-right:0}
+ .quota div:nth-child(-n+2){border-bottom:1px solid var(--rule)}.sign{grid-template-columns:1fr}.hdr h1{font-size:21px}
+ .grid td.c{min-width:40px}}
+</style>
+</head>
+<body>
+<div class="wrap">
+<div class="form" id="top">
+  <div class="hdr">
+    <div><h1>Fine-tune load record</h1><div class="sub">Scrub · SO-101 · Isaac 0.5 · demos to deployment</div></div>
+    <div class="fno">Form SPD-51 rev. 2<br><span id="clock">--:--:--</span><br><span id="modeTag" class="mode mock">MOCK SAMPLE</span></div>
+  </div>
+  <div class="fields">
+    <div class="fld"><span class="lbl">Dataset repo (one for all)</span><div class="val"><input id="repo" aria-label="Hugging Face repo id" value="<hf-user>/scrub"></div></div>
+    <div class="fld"><span class="lbl">Local root</span><div class="val"><input id="root" aria-label="dataset root" value="./scrub-data"></div></div>
+    <div class="fld"><span class="lbl">Demos logged</span><div class="val" id="fTot">0 / 225</div></div>
+    <div class="fld"><span class="lbl">Jobs succeeded</span><div class="val" id="fJobs">0 / 2</div></div>
+    <div class="fld"><span class="lbl">Tray on controller</span><div class="val" id="fTray">checking</div></div>
+    <div class="fld"><span class="lbl">Operator / logger</span><div class="val hand">A.K. / E.R.</div></div>
+  </div>
+
+  <section id="s1">
+    <h2><span class="no">1</span>Load contents: demo quota <small>A4, A9 · per item 15 "pick the X" (5/5/5) + 10 "return the X" (4/3/3) · bright / normal / dim</small></h2>
+    <div class="cols">
+      <div>
+        <div class="scroll"><table class="grid" id="grid"></table></div>
+        <p class="sm">Tap a cell to log a batch for it. Colors: <span class="tag ok">at target</span> <span class="tag warn">short</span> <span class="tag bad">none</span> <span class="tag info">over</span>. Lighting lives only in this log; the dataset stores the instruction string, not the lamp, so the log is the record (E4).</p>
+        <div class="dlg" id="dlg" hidden>
+          <div class="row">
+            <label>Setting<select id="dSet"></select></label>
+            <label>Item<select id="dItem"></select></label>
+            <label>Direction<select id="dDir"><option value="pick">pick</option><option value="return">return</option></select></label>
+            <label>Lighting<select id="dLight"><option>bright</option><option>normal</option><option>dim</option></select></label>
+            <label>Demos<input id="dN" type="number" min="1" max="50" value="5" style="width:70px"></label>
+            <label>Notes<input id="dNote" type="text" placeholder="r x1, cadence 29.9 Hz" style="width:190px"></label>
+          </div>
+          <div class="row" style="margin-top:8px"><button class="pri" id="dAdd">Add to log</button><button id="dCancel">Cancel</button></div>
+        </div>
+      </div>
+      <div>
+        <h2 style="font-size:13px">Record next <small>biggest gaps, OR set first (ARM.md: never cut it)</small></h2>
+        <div class="next" id="next"></div>
+      </div>
+    </div>
+  </section>
+
+  <section id="s2">
+    <h2><span class="no">2</span>Data log and reconcile <small>E4 · docs/DATA-LOG.md must match the dataset</small></h2>
+    <div class="cols">
+      <div>
+        <div class="scroll" style="max-height:260px;overflow-y:auto"><table id="logT"></table></div>
+        <div class="row" style="margin-top:8px">
+          <button id="cpLog">Copy new rows as markdown</button>
+          <button id="impLogBtn">Import DATA-LOG.md</button>
+          <button id="clearMock">Clear mock, start real log</button>
+        </div>
+        <textarea id="impLog" hidden placeholder="Paste the table from docs/DATA-LOG.md (| Time | Setting | Item | Direction | Lighting | Demos | Dataset name | Notes |)"></textarea>
+      </div>
+      <div>
+        <p class="sm">Paste <b>meta/info.json</b> and/or <b>meta/episodes.jsonl</b> from <span class="val" id="rootEcho"></span> (LeRobot v2.x; for v3.0 paste info.json only). Same files the validator reads.</p>
+        <pre class="cmd" id="recCmd"></pre>
+        <textarea id="recPaste" aria-label="paste info.json or episodes.jsonl"></textarea>
+        <div id="recOut"></div>
+      </div>
+    </div>
+  </section>
+
+  <section id="s3">
+    <h2><span class="no">3</span>Process cycle: dataset to deployment <small>A5, A10 · paste what <code>python -m arm.train</code> prints · the browser never calls Perceptron</small></h2>
+    <div class="quota" id="quota"></div>
+    <div class="tabs" role="tablist" id="tabs">
+      <button role="tab" data-run="r1" aria-selected="true">Run 1 · OR set probe</button>
+      <button role="tab" data-run="r2" aria-selected="false">Run 2 · all 9 items</button>
+    </div>
+    <div class="eta" id="eta"></div>
+    <div id="steps"></div>
+  </section>
+
+  <section id="s4">
+    <h2><span class="no">4</span>Bench check: which items pick on the arm <small>A10 done = all 9 pick on run 2 · 5 trials of "pick the X" per item per run, 4 of 5 = picks (our bar)</small></h2>
+    <div class="scroll"><table class="trials" id="trials"></table></div>
+    <p class="sm">Run each trial through the controller (controller/README.md, <code>python -m controller --real-arm</code>) with the STOP on the dashboard in reach. Tap a box: blank, pass, fail. A run 1 failure adds 10 corrective "pick the X" demos to Record next (TASKS A9).</p>
+  </section>
+
+  <div class="sign">
+    <div><span class="lbl">Processed by (initials)</span><span class="hand">A.K.</span></div>
+    <div><span class="lbl">Log checked by</span><span class="hand">E.R.</span></div>
+    <div><span class="lbl">Released to demo</span><span class="hand" id="released">not yet</span></div>
+  </div>
+</div>
+<footer><span>Scrub · DubHacks 2026 · mock values are labeled MOCK and never sent anywhere. Saved in this browser only.</span><span><a href="#">Terms</a> · <a href="#">Privacy</a></span></footer>
+</div>
+
+<script>
+"use strict";
+/* ---------- constants from the repo ---------- */
+const SETS=[
+ {id:"surgical",label:"Operating room",items:[["scalpel","scalpel"],["hemostat","hemostat"],["mayo_scissors","Mayo scissors"]]},
+ {id:"dental",label:"Dental office",items:[["mouth_mirror","mouth mirror"],["explorer","explorer"],["cotton_pliers","cotton pliers"]]},
+ {id:"bench",label:"Robotics bench",items:[["needle_nose_pliers","needle-nose pliers"],["wire_cutters","wire cutters"],["hex_key","hex key"]]}];
+const LIGHTS=["bright","normal","dim"];
+const TARGET={pick:{bright:5,normal:5,dim:5},return:{bright:4,normal:3,dim:3}};
+const WORKSHOP={succ:2,queued:2,timeout_h:6,rpm:120};
+// deck projections (isaac-workshop-notes.md section 2): minutes for 1000 updates, excluding export/queue
+const MODE_MIN={expert_only:45,backbone_lora:54,full:264};
+const EXPORT_MIN=15; // our allowance: ARM notes say plan about 1 h end to end for expert_only
+const instr=(dir,name)=>(dir==="pick"?"pick the ":"return the ")+name.toLowerCase();
+const LS="scrub51";
+const $=id=>document.getElementById(id);
+const esc=s=>String(s).replace(/[&<>"]/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c]));
+const API=new URLSearchParams(location.search).get("api")||"http://localhost:8000";
+
+/* ---------- mock sample ---------- */
+function mockState(){
+  const t0=Date.now();
+  const log=[];const add=(m,s,i,d,l,n,note)=>log.push({time:hhmm(t0-m*60000),set:s,item:i,dir:d,light:l,n,ds:"scrub",note:note||"",mock:true});
+  let m=420;
+  for(const [iid] of SETS[0].items){for(const l of LIGHTS){add(m-=6,"surgical",iid,"pick",l,5,l==="dim"&&iid==="mayo_scissors"?"r x2, glare":"");}
+    for(const l of LIGHTS){if(iid==="mayo_scissors"&&l==="dim")continue;add(m-=5,"surgical",iid,"return",l,TARGET.return[l]);}}
+  add(m-=8,"dental","mouth_mirror","pick","bright",5,"cadence 29.8 Hz");add(m-=6,"dental","mouth_mirror","pick","normal",5);
+  add(m-=6,"dental","explorer","pick","bright",4,"stopped early, battery");
+  const startedAgo=0;
+  return {mode:"mock",log,repo:"<hf-user>/scrub",root:"./scrub-data",
+    runs:{r1:{p:{
+      capabilities:JSON.stringify({backends:["standard","shared"],modes:["expert_only","backbone_lora","full"],action_horizons:[30],steps:[1000],quotas:{successful_jobs_per_team:2,queued_jobs_per_team:2,job_timeout_seconds:21600,requests_per_minute:120}},null,2),
+      register:JSON.stringify({id:"ds_mock_7f3a",name:"scrub-run1",source_kind:"huggingface",repo_id:"<hf-user>/scrub",revision:"main",state:"queued"},null,2),
+      dstatus:JSON.stringify({id:"ds_mock_7f3a",state:"ready",episodes:{train:66,validation:6}},null,2),
+      validation:JSON.stringify({dataset_id:"ds_mock_7f3a",stage:"ready",passed:true,errors:[],evidence:{fps:30,cameras:["side","wrist"],resolution:"640x480",episodes:72}},null,2),
+      train:JSON.stringify({validation:{passed:true},capabilities:{}},null,2)+"\n"+JSON.stringify({id:"job_mock_19c2",dataset_id:"ds_mock_7f3a",state:"queued",backend:"standard",mode:"expert_only",steps:1000},null,2),
+      follow:JSON.stringify({id:"job_mock_19c2",state:"running",mode:"expert_only",steps:1000,started_at:new Date(t0-150*60000).toISOString()},null,2)+"\n"+JSON.stringify({metrics:{items:[{step:480,loss:0.0412}],next_cursor:41}},null,2)+"\n"+JSON.stringify({id:"job_mock_19c2",state:"succeeded",mode:"expert_only",steps:1000,checkpoint_id:"artifact_mock_5d0e"},null,2)+"\n"+JSON.stringify({checkpoint:{id:"artifact_mock_5d0e",state:"inference_ready"}},null,2)+"\n"+JSON.stringify({deployments:[{id:"deployment_mock_a41",status:"ready",checkpoint_id:"artifact_mock_5d0e"}]},null,2),
+      deps:JSON.stringify({deployments:[{id:"deployment_mock_a41",status:"ready"}]},null,2),
+      contract:JSON.stringify({contract_id:"ctr_mock_0b7",cameras:["side","wrist"],action_horizon:30,control_hz:30},null,2)
+    },signed:true},r2:{p:{},signed:false}},
+    trials:{r1:{scalpel:"ppppf",hemostat:"ppfpf",mayo_scissors:"pfffp"},r2:{}},mockT0:t0,mockStartedAgo:startedAgo};
+}
+function hhmm(ms){const d=new Date(ms);return String(d.getHours()).padStart(2,"0")+":"+String(d.getMinutes()).padStart(2,"0")}
+let S;
+try{S=JSON.parse(localStorage.getItem(LS)||"null")}catch(e){S=null}
+if(!S||!S.runs)S=mockState();
+function save(){try{localStorage.setItem(LS,JSON.stringify(S))}catch(e){}}
+let RUN="r1";
+
+/* ---------- JSON stream parser for train.py stdout ---------- */
+function parseStream(text){
+  const out=[];let depth=0,start=-1,inStr=false,escp=false;
+  for(let i=0;i<text.length;i++){const c=text[i];
+    if(inStr){if(escp)escp=false;else if(c==="\\")escp=true;else if(c==='"')inStr=false;continue}
+    if(c==='"'){if(depth>0)inStr=true;continue}
+    if(c==="{"||c==="["){if(depth===0)start=i;depth++}
+    else if((c==="}"||c==="]")&&depth>0){depth--;if(depth===0&&start>=0){try{out.push(JSON.parse(text.slice(start,i+1)))}catch(e){}start=-1}}}
+  const err=text.split("\n").find(l=>/error|missing|must be|timed out|ended:/i.test(l)&&!/^\s*[\[{"]/.test(l));
+  return {objs:out,err};
+}
+function deep(o,test,depth=0){ // first [key,value] where test(key,value)
+  if(!o||typeof o!=="object"||depth>6)return null;
+  for(const k of Object.keys(o)){if(test(k,o[k]))return [k,o[k]]}
+  for(const k of Object.keys(o)){const r=deep(o[k],test,depth+1);if(r)return r}
+  return null;
+}
+const stateOf=o=>o&&(o.state||o.status||null);
+const idOf=o=>o&&(o.id||o.job_id||o.dataset_id||o.deployment_id||null);
+
+/* ---------- section 1: grid ---------- */
+function counts(){
+  const c={};for(const r of S.log){const k=r.set+"|"+r.item+"|"+r.dir+"|"+r.light;c[k]=(c[k]||0)+(+r.n||0)}return c;
+}
+function extraFor(itemId){ // +10 corrective picks if the item failed run 1
+  const t=(S.trials.r1||{})[itemId];if(!t||t.replace(/ /g,"").length<5)return 0;
+  return (t.match(/p/g)||[]).length<4?10:0;
+}
+function renderGrid(){
+  const c=counts();let total=0;let h=`<tr><th>Item</th><th>Instr.</th>${LIGHTS.map(l=>`<th class="n">${l}</th>`).join("")}<th class="n">Sum</th></tr>`;
+  for(const s of SETS){let st=0;
+    for(const [iid] of s.items)for(const d of ["pick","return"])for(const l of LIGHTS)st+=Math.min(c[s.id+"|"+iid+"|"+d+"|"+l]||0,TARGET[d][l]);
+    total+=st;
+    h+=`<tr class="set"><th colspan="6">${esc(s.label)} <span class="tot">${st} / 75</span>${trayNow===s.id?'<span class="cur">on tray now</span>':""}</th></tr>`;
+    for(const [iid,name] of s.items){
+      for(const d of ["pick","return"]){
+        let sum=0,tg=0;const cells=LIGHTS.map(l=>{const n=c[s.id+"|"+iid+"|"+d+"|"+l]||0,t=TARGET[d][l];sum+=n;tg+=t;
+          const cls=n===0?"zero":n<t?"part":n>t?"over":"full";
+          return `<td class="c ${cls}" tabindex="0" data-k="${s.id}|${iid}|${d}|${l}" aria-label="${esc(instr(d,name))} ${l}: ${n} of ${t}">${n}/${t}<div class="bar"><i style="width:${Math.min(100,n/t*100)}%"></i></div></td>`}).join("");
+        const ex=d==="pick"?extraFor(iid):0;
+        h+=`<tr><td>${d==="pick"?esc(name):""}</td><td class="sm">${d}${ex?` <span class="tag warn">+${ex}</span>`:""}</td>${cells}<td class="n">${sum}/${tg+ex}</td></tr>`;
+      }}
+  }
+  $("grid").innerHTML=h;$("fTot").textContent=total+" / 225";
+  $("grid").querySelectorAll("td.c").forEach(td=>{const go=()=>openDlg(td.dataset.k);td.onclick=go;td.onkeydown=e=>{if(e.key==="Enter"||e.key===" "){e.preventDefault();go()}}});
+}
+function gaps(){
+  const c=counts(),g=[];
+  SETS.forEach((s,si)=>s.items.forEach(([iid,name],ii)=>{
+    ["pick","return"].forEach((d,di)=>LIGHTS.forEach((l,li)=>{const n=c[s.id+"|"+iid+"|"+d+"|"+l]||0,t=TARGET[d][l];
+      if(n<t)g.push({s,iid,name,d,l,need:t-n,ord:si*100+di*10+li+ii*0.1})}));
+    const ex=extraFor(iid);if(ex){const done=S.log.filter(r=>r.item===iid&&/corrective/i.test(r.note)).reduce((a,r)=>a+(+r.n),0);
+      if(done<ex)g.push({s,iid,name,d:"pick",l:"normal",need:ex-done,ord:-1,corr:true})}
+  }));
+  return g.sort((a,b)=>a.ord-b.ord);
+}
+function recordCmd(g){
+  const resume=S.log.length>0;
+  return `lerobot-record \\
+  --robot.type=so101_follower --robot.port=<span class="ph">$FOLLOWER</span> --robot.id=scrub_follower \\
+  --robot.use_degrees=true --robot.cameras="{side: <span class="ph">$SIDE</span>, wrist: <span class="ph">$WRIST</span>}" \\
+  --teleop.type=so101_leader --teleop.port=<span class="ph">$LEADER</span> --teleop.id=scrub_leader \\
+  --dataset.repo_id=${esc(S.repo)} --dataset.root=${esc(S.root)} \\
+  --dataset.single_task="${esc(instr(g.d,g.name))}" --dataset.num_episodes=${g.need} \\
+  --dataset.fps=30 --dataset.episode_time_s=25 --dataset.reset_time_s=10 \\
+  --dataset.push_to_hub=true${resume?" --resume=true":""}`;
+}
+function renderNext(){
+  const g=gaps();
+  if(!g.length){$("next").innerHTML=`<p><span class="tag ok">all 225 at target</span> Register the dataset for run 2 (section 3).</p>`;return}
+  const top=g.slice(0,4);
+  $("next").innerHTML=`<ol>${top.map((x,i)=>`<li><b>${esc(x.s.label)}</b> · "${esc(instr(x.d,x.name))}" · <b>${x.l}</b> light · <span class="val">${x.need} demo${x.need>1?"s":""}</span>${x.corr?' <span class="tag warn">corrective, failed run 1</span>':""}${i===0?' <span class="tag info">now</span>':""}</li>`).join("")}</ol>
+  <pre class="cmd"><button class="copy" data-copy="rec">Copy</button>${recordCmd(top[0])}</pre>
+  <p class="sm">${g.length} cells short, ${g.reduce((a,x)=>a+x.need,0)} demos to go, about ${Math.round(g.reduce((a,x)=>a+x.need,0)*1)} min of arm time (ARM.md: about 1 h 15 min per 75). Keys: <b>n</b> ends an episode, <b>r</b> re-records, <b>q</b> stops. Check the cadence line (about 30 Hz) after each one. Then log the batch here (write <i>corrective</i> in the notes for the +10 batches). If arm time runs short, cut bench put-back, then dental put-back, then dim light for dental and bench.</p>`;
+  bindCopy($("next"));
+}
+/* log dialog */
+function fillSel(){
+  $("dSet").innerHTML=SETS.map(s=>`<option value="${s.id}">${esc(s.label)}</option>`).join("");
+  const upd=()=>{const s=SETS.find(x=>x.id===$("dSet").value);$("dItem").innerHTML=s.items.map(([i,n])=>`<option value="${i}">${esc(n)}</option>`).join("")};
+  $("dSet").onchange=upd;upd();
+}
+function openDlg(k){
+  const [s,i,d,l]=k.split("|");$("dSet").value=s;$("dSet").onchange();$("dItem").value=i;$("dDir").value=d;$("dLight").value=l;
+  const have=counts()[k]||0;$("dN").value=Math.max(1,TARGET[d][l]-have);$("dNote").value="";
+  $("dlg").hidden=false;$("dN").focus();$("dlg").scrollIntoView({block:"nearest"});
+}
+$("dCancel").onclick=()=>{$("dlg").hidden=true};
+$("dAdd").onclick=()=>{
+  const n=Math.max(1,Math.min(50,parseInt($("dN").value)||0));
+  S.log.push({time:hhmm(Date.now()),set:$("dSet").value,item:$("dItem").value,dir:$("dDir").value,light:$("dLight").value,n,ds:S.repo.split("/").pop(),note:$("dNote").value.trim(),fresh:true});
+  if(S.mode==="mock")S.log[S.log.length-1].mock=true;
+  $("dlg").hidden=true;save();renderAll();const t=$("logT").querySelector("tr:last-child");if(t)t.classList.add("flash");
+};
+
+/* ---------- section 2: log + reconcile ---------- */
+const nameOf=(sid,iid)=>{const s=SETS.find(x=>x.id===sid);const it=s&&s.items.find(x=>x[0]===iid);return it?it[1]:iid};
+const labelOf=sid=>(SETS.find(x=>x.id===sid)||{label:sid}).label;
+function mdRow(r){return `| ${r.time} | ${labelOf(r.set)} | ${nameOf(r.set,r.item)} | ${r.dir==="pick"?"hand-out":"put-back"} | ${r.light} | ${r.n} | ${r.ds} | ${r.note} |`}
+function renderLog(){
+  $("logT").innerHTML=`<tr><th>Time</th><th>Setting</th><th>Item</th><th>Dir.</th><th>Light</th><th class="n">Demos</th><th>Notes</th><th></th></tr>`+
+   S.log.map((r,i)=>`<tr><td class="n">${esc(r.time)}</td><td>${esc(labelOf(r.set))}</td><td>${esc(nameOf(r.set,r.item))}</td><td>${r.dir==="pick"?"hand-out":"put-back"}</td><td>${r.light}</td><td class="n">${r.n}</td><td class="hand" style="font-size:14px">${esc(r.note)}${r.mock?' <span class="tag warn">mock</span>':""}</td><td><button class="sm2" data-del="${i}" aria-label="delete row">x</button></td></tr>`).join("");
+  $("logT").querySelectorAll("[data-del]").forEach(b=>b.onclick=()=>{S.log.splice(+b.dataset.del,1);save();renderAll()});
+}
+$("cpLog").onclick=()=>{const rows=S.log.filter(r=>r.fresh);const txt=(rows.length?rows:S.log).map(mdRow).join("\n");copyText(txt,$("cpLog"));rows.forEach(r=>delete r.fresh);save()};
+$("impLogBtn").onclick=()=>{const t=$("impLog");if(t.hidden){t.hidden=false;t.focus();return}importLog(t.value);t.hidden=true;t.value=""};
+function importLog(txt){
+  const findSet=v=>SETS.find(s=>s.label.toLowerCase().startsWith(v.toLowerCase().slice(0,5))||s.id===v.toLowerCase());
+  let added=0;
+  for(const line of txt.split("\n")){const c=line.split("|").map(x=>x.trim());if(c.length<8||/^-+$/.test(c[1])||/time/i.test(c[1]))continue;
+    const s=findSet(c[2]||"");if(!s)continue;const it=s.items.find(([i,n])=>n.toLowerCase()===c[3].toLowerCase()||i===c[3]);if(!it)continue;
+    const dir=/put|return/i.test(c[4])?"return":"pick";const light=LIGHTS.find(l=>c[5].toLowerCase().includes(l))||"normal";
+    S.log.push({time:c[1],set:s.id,item:it[0],dir,light,n:parseInt(c[6])||0,ds:c[7]||"",note:c[8]||""});added++}
+  if(added&&S.mode==="mock"){S.log=S.log.filter(r=>!r.mock);S.mode="real"}
+  save();renderAll();
+}
+$("clearMock").onclick=()=>{if(!confirm("Clear the mock sample (log, pasted replies, trials) and start your real record?"))return;
+  S={mode:"real",log:[],repo:S.repo,root:S.root,runs:{r1:{p:{},signed:false},r2:{p:{},signed:false}},trials:{r1:{},r2:{}}};save();renderAll()};
+function reconcile(){
+  const txt=$("recPaste").value.trim();const logTot=S.log.reduce((a,r)=>a+(+r.n||0),0);
+  $("recCmd").innerHTML=`<button class="copy" data-copy="r">Copy</button>cat ${esc(S.root)}/meta/info.json
+cat ${esc(S.root)}/meta/episodes.jsonl`;bindCopy($("recCmd").parentNode);
+  if(!txt){$("recOut").innerHTML=`<p class="sm">Log says <b class="val">${logTot}</b> episodes. Nothing pasted yet, so no check.</p>`;return}
+  let info=null;const eps=[];
+  for(const line of txt.split("\n")){const l=line.trim();if(!l.startsWith("{"))continue;try{const o=JSON.parse(l);if("episode_index" in o)eps.push(o)}catch(e){}}
+  if(!eps.length){try{info=JSON.parse(txt)}catch(e){const objs=parseStream(txt).objs;info=objs.find(o=>"total_episodes" in o)||null}}
+  else{const objs=parseStream(txt).objs;info=objs.find(o=>"total_episodes" in o)||null}
+  let h="";
+  if(info){const te=info.total_episodes;const ok=te===logTot;
+    h+=`<p><span class="tag ${ok?"ok":"bad"}">${ok?"match":"mismatch"}</span> info.json total_episodes <b class="val">${te}</b> vs log <b class="val">${logTot}</b>${info.fps?` · fps <b class="val">${info.fps}</b>${info.fps!==30?' <span class="tag bad">must be 30</span>':""}`:""}${info.total_frames&&te?` · avg <b class="val">${(info.total_frames/te/(info.fps||30)).toFixed(1)} s</b> per episode`:""}</p>`}
+  if(eps.length){const by={};eps.forEach(e=>(e.tasks||[]).forEach(t=>by[t]=(by[t]||0)+1));
+    const logBy={};S.log.forEach(r=>{const k=instr(r.dir,nameOf(r.set,r.item));logBy[k]=(logBy[k]||0)+(+r.n||0)});
+    const keys=[...new Set([...Object.keys(by),...Object.keys(logBy)])].sort();
+    const bad=keys.filter(k=>(by[k]||0)!==(logBy[k]||0));
+    h+=`<p><span class="tag ${bad.length?"bad":"ok"}">${bad.length?bad.length+" instructions differ":"per instruction match"}</span> ${eps.length} episodes in episodes.jsonl</p>
+    <div class="scroll"><table><tr><th>Instruction (single_task)</th><th class="n">Dataset</th><th class="n">Log</th></tr>${keys.map(k=>`<tr><td class="val" style="font-size:12px">${esc(k)}</td><td class="n">${by[k]||0}</td><td class="n" style="color:${(by[k]||0)!==(logBy[k]||0)?"var(--red)":"inherit"}">${logBy[k]||0}</td></tr>`).join("")}</table></div>
+    <p class="sm">A task string not in the log usually means a typo in --dataset.single_task. That episode trains a different instruction than the controller sends.</p>`}
+  if(!info&&!eps.length)h=`<p><span class="tag warn">not recognised</span> Expected meta/info.json (has total_episodes) or episodes.jsonl lines (episode_index, tasks).</p>`;
+  $("recOut").innerHTML=h;
+}
+$("recPaste").oninput=reconcile;
+
+/* ---------- section 3: pipeline ---------- */
+function runDefaults(r){return r==="r1"?{name:"scrub-run1",key:"scrub-hf-run1",job:"scrub-job-run1"}:{name:"scrub-run2",key:"scrub-hf-run2",job:"scrub-job-run2"}}
+function parsedRun(r){
+  const p=S.runs[r].p,o={};
+  const get=k=>p[k]?parseStream(p[k]):{objs:[],err:null};
+  const cap=get("capabilities").objs[0];o.cap=cap;
+  const reg=get("register").objs[0];o.dsId=idOf(reg)||null;
+  const ds=get("dstatus").objs[0];if(ds){o.dsId=o.dsId||idOf(ds);o.dsState=stateOf(ds)}
+  const v=get("validation");const vo=v.objs[0];
+  if(vo){const errs=deep(vo,(k,x)=>/^errors?$/.test(k)&&Array.isArray(x));const pass=deep(vo,(k,x)=>/^(passed|valid|ok)$/.test(k)&&typeof x==="boolean");
+    o.valOk=pass?pass[1]:(errs?errs[1].length===0:/ready|pass/i.test(stateOf(vo)||vo.stage||""));o.valStage=vo.stage||stateOf(vo)||""}
+  const tr=get("train");const job=tr.objs.find(x=>x&&(x.id||x.job_id)&&!x.validation);if(job){o.jobId=idOf(job);o.jobState=stateOf(job);o.mode=job.mode;o.steps=job.steps}
+  o.trainErr=tr.err;
+  const f=get("follow");o.followErr=f.err;
+  for(const x of f.objs){
+    if(x.metrics){const st=deep(x.metrics,(k,v)=>k==="step"&&typeof v==="number");const items=deep(x.metrics,(k,v)=>Array.isArray(v)&&v.length&&v[v.length-1]&&typeof v[v.length-1].step==="number");
+      if(items){o.step=items[1][items[1].length-1].step}else if(st)o.step=st[1]}
+    else if(x.logs){}
+    else if(x.checkpoint){o.ckpt=idOf(x.checkpoint)||"seen";o.ckptState=stateOf(x.checkpoint)}
+    else if(x.deployments){o.deps=x.deployments}
+    else if(idOf(x)){o.jobId=idOf(x);o.jobState=stateOf(x);o.mode=x.mode||o.mode;o.steps=x.steps||o.steps;o.started=x.started_at||x.created_at||o.started}}
+  const d=get("deps").objs[0];if(d)o.deps=d.deployments||d;
+  if(o.deps){const list=Array.isArray(o.deps)?o.deps:(deep(o.deps,(k,v)=>Array.isArray(v))||[null,[]])[1];
+    const ready=list.filter(x=>/ready/i.test(stateOf(x)||""));o.depCount=list.length;o.depId=ready.length?idOf(ready[ready.length-1]):null;o.depAny=list.length?idOf(list[list.length-1]):null}
+  const c=get("contract").objs[0];if(c)o.contractId=c.contract_id||deep(c,k=>k==="contract_id")?.[1];
+  if(S.mode==="mock"&&r==="r1"&&o.jobState==="running"){o.started=new Date(S.mockT0-S.mockStartedAgo*1000).toISOString();o.step=Math.min(1000,Math.round(((Date.now()-S.mockT0)/1000+S.mockStartedAgo-564)/1.7))}
+  return o;
+}
+const SUCC=/succeeded|completed|success/i,FAIL=/failed|cancel/i;
+function quota(){
+  let caps=null;for(const r of ["r1","r2"]){const o=parsedRun(r);if(o.cap){caps=o.cap;break}}
+  const q={...WORKSHOP,src:"workshop notes (defaults)"};
+  if(caps){const f=re=>{const h=deep(caps,(k,v)=>re.test(k)&&typeof v==="number");return h?h[1]:null};
+    const s=f(/success/i),qu=f(/queue/i),to=f(/timeout/i),rp=f(/per_?min|rpm|rate/i);
+    if(s!=null){q.succ=s;q.src="pasted capabilities"}if(qu!=null)q.queued=qu;if(to!=null)q.timeout_h=to>100?to/3600:to;if(rp!=null)q.rpm=rp}
+  let used=0,live=0;for(const r of ["r1","r2"]){const o=parsedRun(r);if(SUCC.test(o.jobState||""))used++;else if(/queued|running|pending|starting/i.test(o.jobState||""))live++}
+  return {...q,used,live};
+}
+function renderQuota(){
+  const q=quota();const slots=[];for(let i=0;i<q.succ;i++)slots.push(`<span class="${i<q.used?"used":i<q.used+q.live?"q":""}">${i+1}</span>`);
+  $("quota").innerHTML=`<div><span class="lbl">Successful jobs</span><span class="big">${q.used} / ${q.succ}</span><div class="slots">${slots.join("")}</div></div>
+   <div><span class="lbl">Queued per team</span><span class="big">${q.queued}</span><div class="sm">in flight now: ${q.live}</div></div>
+   <div><span class="lbl">Job timeout</span><span class="big">${q.timeout_h} h</span><div class="sm">${q.rpm} API requests/min</div></div>
+   <div><span class="lbl">Source</span><div class="val" style="font-size:12px">${q.src}</div><div class="sm">No third fix-up run. A cancel holds quota until the GPUs exit.</div></div>`;
+  $("fJobs").textContent=q.used+" / "+q.succ;
+}
+function fmtMin(m){m=Math.max(0,Math.round(m));return m>=60?Math.floor(m/60)+" h "+String(m%60).padStart(2,"0")+" min":m+" min"}
+function renderEta(){
+  const o=parsedRun(RUN),mode=o.mode||"expert_only",steps=o.steps||1000;
+  const proj=(MODE_MIN[mode]||45)*steps/1000;let h="",pct=0,msg="";
+  const tag=S.mode==="mock"?' <span class="tag warn">mock job</span>':"";
+  if(SUCC.test(o.jobState||"")){pct=100;h=`<b>Job ${esc(o.jobId)} succeeded.</b> Deployment ${o.depId?`<span class="val">${esc(o.depId)}</span> ready`:"not ready yet: export and checks can lag training. Re-run deployments."}`;msg=`Run ${RUN.slice(1)} done. Deployment ${o.depId||"pending"}.`}
+  else if(FAIL.test(o.jobState||"")){h=`<span class="tag bad">${esc(o.jobState)}</span> Read the follow logs. A failed job probably does not use a successful slot (inferred, check capabilities).`}
+  else if(o.jobId){
+    const started=o.started?Date.parse(o.started):null;let remain;
+    if(o.step!=null){remain=(steps-o.step)*1.7/60+3.3+EXPORT_MIN;pct=o.step/steps*100}
+    else if(started){const el=(Date.now()-started)/60000;remain=proj-el+EXPORT_MIN;pct=Math.min(99,el/proj*100)}
+    else{remain=proj+EXPORT_MIN}
+    const done=new Date(Date.now()+remain*60000);
+    h=`<b>${esc(o.jobId)}</b> · ${esc(o.jobState||"submitted")} · ${esc(mode)} · ${steps} steps${tag}<br>
+      ${o.step!=null?`step <b class="val">${o.step}</b> / ${steps} · `:""}ETA deployment about <b class="val">${hhmm(done)}</b> (${fmtMin(remain)} left: training at 1.7 s/update, 3.3 min checkpoint, ${EXPORT_MIN} min export allowance)`;
+    msg=`Run ${RUN.slice(1)} (${mode}, ${steps} steps) is ${o.jobState||"submitted"}${o.step!=null?` at step ${o.step}/${steps}`:""}. Deployment ETA about ${hhmm(done)}. Job ${o.jobId}.`;
+  } else {h=`No job yet. Projection for ${mode} at ${steps} steps: ${fmtMin(proj)} training (9.4 min startup + ${(steps*1.7/60).toFixed(0)} min + 3.3 min checkpoint) + export, about ${fmtMin(proj+EXPORT_MIN)} end to end. Add queue time.`}
+  $("eta").innerHTML=`<span class="lbl">ETA · run ${RUN.slice(1)}</span>${h}<div class="prog"><i style="width:${pct}%"></i></div>${msg?`<div class="row"><span class="sm" style="flex:1;min-width:200px">Chat line (A5): <span class="val" style="font-size:12px">${esc(msg)}</span></span><button class="sm2" id="cpChat">Copy chat line</button></div>`:""}`;
+  if(msg)$("cpChat").onclick=()=>copyText(msg,$("cpChat"));
+}
+function renderSteps(){
+  const r=RUN,o=parsedRun(r),df=runDefaults(r),run=S.runs[r],q=quota();
+  const ph=s=>`<span class="ph">${esc(s)}</span>`;
+  const ds=o.dsId?esc(o.dsId):ph("<dataset_id>"),job=o.jobId?esc(o.jobId):ph("<job_id>"),dep=(o.depId||o.depAny)?esc(o.depId||o.depAny):ph("<deployment_id>");
+  const logTot=S.log.reduce((a,x)=>a+(+x.n||0),0);
+  const orTot=S.log.filter(x=>x.set==="surgical").reduce((a,x)=>a+(+x.n||0),0);
+  const r2block=r==="r2"&&!SUCC.test(parsedRun("r1").jobState||"")&&!/running|queued/i.test(parsedRun("r1").jobState||"");
+  const trainReady=o.dsState==="ready"&&o.valOk===true&&run.signed&&q.used<q.succ&&!o.jobId;
+  const steps=[
+   {k:"capabilities",t:"Capabilities",d:"Allowed backends, modes, horizons, steps and quotas. Write the result in docs/ARM.md (A2).",cmd:`python -m arm.train capabilities`,st:o.cap?["done","read"]:["","not pasted"]},
+   {k:"register",t:"Register dataset",d:r==="r1"?`One repo for everything. Push the OR set first (log: ${orTot} / 75 OR demos).`:`Same repo after dental and bench were appended (log: ${logTot} demos). New name and new key: the run 1 key with the same JSON returns the run 1 dataset.`,
+     cmd:`python -m arm.train register-hf ${esc(S.repo)} --name ${df.name} --idempotency-key ${df.key}`,st:o.dsId?["done",o.dsId]:["","no id yet"]},
+   {k:"dstatus",t:"Wait for ready",d:"States uploading, queued, ingesting, validating, ready (or failed). Train only on ready. Repeat every few seconds.",cmd:`python -m arm.train status dataset ${ds}`,st:o.dsState?[o.dsState==="ready"?"done":/fail/.test(o.dsState)?"fail":"run",o.dsState]:["","not pasted"]},
+   {k:"validation",t:"Validation",d:"Which stage failed and why (fps, camera names, 640x480, timestamps, too few episodes to split). A failed dataset needs a NEW dataset.",cmd:`python -m arm.train validation ${ds}`,st:o.valOk==null?["","not pasted"]:o.valOk?["done","passed "+(o.valStage||"")]:["fail","errors: "+(o.valStage||"")]},
+   {k:"_sign",t:"Replay and cadence sign-off",d:"The validator cannot see a slow loop or bad calibration. Replay episode 0 on the follower (it moves: clear the table, hand on power) and confirm every cadence line was about 30 Hz.",
+     cmd:`lerobot-replay --robot.type=so101_follower --robot.port=${ph("$FOLLOWER")} \\\n  --robot.id=scrub_follower --dataset.repo_id=${esc(S.repo)} \\\n  --dataset.root=${esc(S.root)} --dataset.episode=0`,st:run.signed?["done","signed"]:["","unsigned"]},
+   {k:"train",t:"Train (spends quota)",d:r2block?"Run 1 has not started. Run 2 is the last allowed job.":trainReady?`Ready. This uses successful slot ${q.used+1} of ${q.succ}. Prints validation and capabilities, then submits.`:o.jobId?"Submitted.":"Held: needs dataset ready, validation passed, sign-off ticked and a free slot.",
+     cmd:`python -m arm.train train ${ds} --idempotency-key ${df.job} \\\n  --backend standard --mode expert_only --steps 1000 \\\n  --confirmed-replay-and-cadence`,st:o.jobId?["done",o.jobId]:o.trainErr?["fail",o.trainErr.slice(0,60)]:trainReady?["","ready"]:["","held"],hold:!trainReady&&!o.jobId},
+   {k:"follow",t:"Follow job",d:"Prints the job, logs and metrics until it ends, then the checkpoint and deployments. Tee it to a file and paste the file.",cmd:`python -m arm.train follow ${job} --interval 15 | tee ${r}-follow.json`,st:o.jobState?[SUCC.test(o.jobState)?"done":FAIL.test(o.jobState)?"fail":"run",o.jobState+(o.step!=null?" · step "+o.step:"")]:["","not pasted"]},
+   {k:"deps",t:"Deployment",d:"Training complete is not export complete. Use only one in ready.",cmd:`python -m arm.train deployments`,st:o.depId?["done",o.depId]:o.depCount?["run",o.depCount+" listed, none ready"]:["","not pasted"]},
+   {k:"contract",t:"Contract",d:"contract_id and the exact observation and action format. Give the deployment id to arm/real_arm.py (A6).",cmd:`python -m arm.train contract ${dep}`,st:o.contractId?["done",o.contractId]:["","not pasted"]}];
+  $("steps").innerHTML=steps.map((s,i)=>`<div class="step" data-k="${s.k}">
+    <div class="sn">${i+1}</div>
+    <div><h3>${s.t}</h3><div class="tape ${s.st[0]}" title="${s.st[0]||"pending"}"></div>
+      <div class="st"><span class="tag ${s.st[0]==="done"?"ok":s.st[0]==="fail"?"bad":s.st[0]==="run"?"info":"mut"}">${esc(s.st[1])}</span></div>
+      <p class="sm">${s.d}</p>
+      <pre class="cmd" style="${s.hold?"opacity:.55":""}"><button class="copy" data-copy="s${i}" ${s.hold?"disabled":""}>Copy</button>${s.cmd}</pre></div>
+    <div class="right">${s.k==="_sign"?`<label class="row" style="min-height:44px"><input type="checkbox" id="sgn" ${run.signed?"checked":""} style="width:22px;height:22px"> Episode 0 replayed cleanly and every cadence line about 30 Hz <span class="hand">A.K.</span></label>`:
+      `<textarea data-paste="${s.k}" aria-label="paste output of step ${i+1}" placeholder="Paste stdout of step ${i+1}">${esc(run.p[s.k]||"")}</textarea>${run.p[s.k]?`<div class="printout">${printout(run.p[s.k])}</div>`:""}`}</div></div>`).join("");
+  $("steps").querySelectorAll("textarea[data-paste]").forEach(t=>t.onchange=()=>{run.p[t.dataset.paste]=t.value;save();renderAll()});
+  const sg=$("sgn");if(sg)sg.onchange=()=>{run.signed=sg.checked;save();renderAll()};
+  bindCopy($("steps"));
+}
+function printout(txt){
+  const {objs,err}=parseStream(txt);
+  const lines=[`<b>SCRUB SPD-51  ${RUN.toUpperCase()}  ${S.mode==="mock"?"MOCK":"PASTED"}</b>`,`${objs.length} JSON object${objs.length===1?"":"s"}`];
+  const flat=(o,p="",out=[])=>{if(out.length>14)return out;if(o&&typeof o==="object"&&!Array.isArray(o)){for(const k of Object.keys(o))flat(o[k],p?p+"."+k:k,out)}else out.push(`${p} = ${Array.isArray(o)?JSON.stringify(o).slice(0,60):String(o).slice(0,60)}`);return out};
+  objs.slice(-2).forEach(o=>flat(o).forEach(l=>lines.push(esc(l))));
+  if(err)lines.push(`<b style="color:var(--red)">STDERR ${esc(err)}</b>`);
+  if(!objs.length&&!err)lines.push("no JSON found");
+  return lines.join("\n");
+}
+$("tabs").querySelectorAll("button").forEach(b=>b.onclick=()=>{RUN=b.dataset.run;$("tabs").querySelectorAll("button").forEach(x=>x.setAttribute("aria-selected",x===b));renderSteps();renderEta()});
+
+/* ---------- section 4: trials ---------- */
+function renderTrials(){
+  const T=S.trials;let h=`<tr><th>Item</th><th>Run 1 (OR set only)</th><th>Run 2</th><th>Verdict</th></tr>`;let all=0,checked=0;
+  SETS.forEach(s=>{h+=`<tr><th colspan="4" style="background:#dfe6dc">${esc(s.label)}</th></tr>`;
+    s.items.forEach(([iid,name])=>{
+      const cell=r=>{if(r==="r1"&&s.id!=="surgical")return `<span class="sm">not in run 1</span>`;const t=((T[r]||{})[iid]||"     ").padEnd(5," ");
+        return `<div class="tb">${[...t].slice(0,5).map((c,i)=>`<button data-r="${r}" data-i="${iid}" data-n="${i}" class="${c==="p"?"p":c==="f"?"f":""}" aria-label="${r} ${esc(name)} trial ${i+1}">${c==="p"?"P":c==="f"?"F":i+1}</button>`).join("")}</div>`};
+      const score=r=>{const t=(T[r]||{})[iid]||"";return {p:(t.match(/p/g)||[]).length,n:(t.match(/[pf]/g)||[]).length}};
+      const a=score("r1"),b=score("r2");
+      let v;if(b.n>=5){v=b.p>=4?'<span class="tag ok">picks</span>':'<span class="tag bad">does not pick</span>';checked++;if(b.p>=4)all++}
+        else if(a.n>=5){v=a.p>=4?'<span class="tag ok">run 1 ok</span>':'<span class="tag warn">run 1 failed, +10 demos</span>'}else v='<span class="tag mut">untested</span>';
+      h+=`<tr><td>${esc(name)}<div class="sm val" style="font-size:11px">"pick the ${esc(name.toLowerCase())}"</div></td><td class="t">${cell("r1")} <span class="verdict">${a.n?a.p+"/"+a.n:""}</span></td><td class="t">${cell("r2")} <span class="verdict">${b.n?b.p+"/"+b.n:""}</span></td><td>${v}</td></tr>`})});
+  $("trials").innerHTML=h;
+  $("released").textContent=checked===9&&all===9?"all 9 pick (A10)":`${all} / 9 pick on run 2`;
+  $("trials").querySelectorAll(".tb button").forEach(b=>b.onclick=()=>{const r=b.dataset.r,i=b.dataset.i,n=+b.dataset.n;T[r]=T[r]||{};
+    const arr=[...((T[r][i]||"").padEnd(5," "))];arr[n]=arr[n]===" "?"p":arr[n]==="p"?"f":" ";T[r][i]=arr.join("");save();renderAll()});
+}
+
+/* ---------- utils ---------- */
+function copyText(t,btn){const done=()=>{const o=btn.textContent;btn.textContent="Copied";setTimeout(()=>btn.textContent=o,1200)};
+  if(navigator.clipboard)navigator.clipboard.writeText(t).then(done,()=>{fallback(t);done()});else{fallback(t);done()}}
+function fallback(t){const a=document.createElement("textarea");a.value=t;document.body.appendChild(a);a.select();try{document.execCommand("copy")}catch(e){}a.remove()}
+function bindCopy(root){root.querySelectorAll("button.copy").forEach(b=>b.onclick=()=>{const pre=b.parentNode.cloneNode(true);pre.querySelector("button").remove();copyText(pre.textContent.trim(),b)})}
+let trayNow=null;
+async function pollTray(){
+  try{const c=new AbortController();setTimeout(()=>c.abort(),1500);const r=await fetch(API+"/setting",{signal:c.signal});const j=await r.json();
+    trayNow=j.id;$("fTray").innerHTML=`${esc(j.label||j.id)} <span class="tag ok">live</span>`}
+  catch(e){trayNow=null;$("fTray").innerHTML=`offline <span class="tag mut">:8000</span>`}
+  renderGrid();
+}
+$("repo").oninput=()=>{S.repo=$("repo").value.trim()||"<hf-user>/scrub";save();renderNext();renderSteps()};
+$("root").oninput=()=>{S.root=$("root").value.trim()||"./scrub-data";save();renderNext();renderSteps();reconcile()};
+function renderAll(){
+  $("modeTag").className="mode "+(S.mode==="mock"?"mock":"real");$("modeTag").textContent=S.mode==="mock"?"MOCK SAMPLE":"YOUR RECORD";
+  $("repo").value=S.repo;$("root").value=S.root;$("rootEcho").textContent=S.root;
+  renderGrid();renderNext();renderLog();reconcile();renderQuota();renderSteps();renderEta();renderTrials();
+}
+fillSel();renderAll();pollTray();
+setInterval(()=>{const d=new Date();$("clock").textContent=d.toTimeString().slice(0,8)},1000);
+setInterval(()=>{if(S.mode==="mock"||parsedRun(RUN).jobId)renderEta()},3000);
+</script>
+</body>
+</html>
