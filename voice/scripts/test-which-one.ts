@@ -309,3 +309,5 @@ try {
   assert.equal(commands.length, n);
 } finally { child.kill(); wss.close(); fake.close(); }
 console.log("voice Which one tests passed");
+
+await import("./test-dialogue-lifecycle.js");
