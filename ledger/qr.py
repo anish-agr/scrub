@@ -21,13 +21,22 @@ def public_url() -> str:
     return url.rstrip("/") if url else FALLBACK
 
 
-def write_qr(url: str | None = None) -> str:
+def png_bytes(url: str | None = None) -> bytes:
+    """PNG bytes for the current public URL. The card always serves this."""
+    import io
+
     import qrcode
 
+    image = qrcode.make(url or public_url())
+    buffer = io.BytesIO()
+    image.save(buffer, format="PNG")
+    return buffer.getvalue()
+
+
+def write_qr(url: str | None = None) -> str:
     target = url or public_url()
-    image = qrcode.make(target)
     PNG.parent.mkdir(parents=True, exist_ok=True)
-    image.save(PNG)
+    PNG.write_bytes(png_bytes(target))
     return target
 
 

@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from ledger import _out, stored_rows
+from ledger import _median, _num, _out, stored_rows
 
 _FIELDS = (
     "t",
@@ -23,10 +23,11 @@ def _cid(event: dict) -> str:
 
 
 def _stamp(event: dict) -> float:
-    try:
-        return float(event.get("t") or 0)
-    except (TypeError, ValueError):
-        return 0.0
+    return _num(event.get("t")) or 0.0
+
+
+def _name(item: str) -> str:
+    return str(item).replace("_", " ")
 
 
 def list_cases(events: list[dict] | None = None) -> list[dict]:
@@ -49,7 +50,7 @@ def list_cases(events: list[dict] | None = None) -> list[dict]:
                 "out": _out(group),
             }
         )
-    rows.sort(key=lambda row: float(row["started"] or 0), reverse=True)
+    rows.sort(key=lambda row: _stamp({"t": row["started"]}), reverse=True)
     return rows
 
 
@@ -64,18 +65,20 @@ def _summary(group: list[dict]) -> str:
         kind = event.get("type")
         item = event.get("item")
         if kind == "command" and event.get("action") == "handover" and item and event.get("accepted") is not False:
-            asked.append(item)
+            asked.append(_name(item))
         if kind == "handed" and item:
             seconds = event.get("request_to_hand_s")
-            handed.append(item if seconds is None else f"{item} in {float(seconds):.1f}s")
-            if isinstance(seconds, (int, float)):
-                times.append(float(seconds))
+            label = _name(item)
+            number = _num(seconds)
+            handed.append(label if number is None else f"{label} in {number:.1f}s")
+            if number is not None:
+                times.append(number)
         elif kind == "set_down" and item:
-            handed.append(f"{item} at the safe spot")
+            handed.append(f"{_name(item)} at the safe spot")
         elif kind == "missed" and item:
-            missed.append(item)
+            missed.append(_name(item))
         elif kind == "returned" and item:
-            returned.append(item)
+            returned.append(_name(item))
     parts = [f"{setting} case, {len(group)} events."]
     if asked:
         parts.append("Asked: " + ", ".join(asked) + ".")
@@ -85,10 +88,10 @@ def _summary(group: list[dict]) -> str:
     if returned:
         parts.append("Back: " + ", ".join(returned) + ".")
     if times:
-        ordered = sorted(times)
-        mid = ordered[len(ordered) // 2]
-        parts.append(f"Median request to hand {mid:.1f}s.")
-    held = _out(group)
+        mid = _median(times)
+        if mid is not None:
+            parts.append(f"Median request to hand {mid:.1f}s.")
+    held = [_name(item) for item in _out(group)]
     parts.append("Out now: " + (", ".join(held) if held else "nothing") + ".")
     return " ".join(parts)
 

@@ -221,7 +221,11 @@ function pushEvent(event) {
   if (model.events.length > 80) model.events.shift();
   if (event.step) model.step = event.step;
   if (event.item) model.item = event.item;
-  if (event.request_to_hand_s != null) model.handoff = Number(event.request_to_hand_s);
+  else if (event.type === "step" && (event.step === "idle" || event.step === "homing")) model.item = null;
+  if (event.request_to_hand_s != null) {
+    const seconds = Number(event.request_to_hand_s);
+    if (!Number.isNaN(seconds)) model.handoff = seconds;
+  }
   if (Array.isArray(event.out)) {
     model.out = event.out.filter((item) => item);
   } else if (event.type === "handed" || event.type === "set_down") {
@@ -559,13 +563,17 @@ async function pullRecent() {
 }
 
 async function pullSetting() {
-  const response = await fetch("/setting", { cache: "no-store" });
-  if (!response.ok) return;
-  const document = await response.json();
-  if (!document || !document.id) return;
-  model.serverCatalog = catalogFrom(document);
-  model.catalog = model.serverCatalog;
-  model.setting = document.id;
+  try {
+    const response = await fetch("/setting", { cache: "no-store" });
+    if (!response.ok) return;
+    const document = await response.json();
+    if (!document || !document.id) return;
+    model.serverCatalog = catalogFrom(document);
+    model.catalog = model.serverCatalog;
+    model.setting = document.id;
+  } catch (error) {
+    /* the local tray list still draws the buttons */
+  }
 }
 
 async function changeSetting(settingId) {

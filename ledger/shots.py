@@ -15,6 +15,7 @@ import shutil
 import subprocess
 import sys
 import time
+import urllib.error
 import urllib.request
 from pathlib import Path
 
@@ -23,7 +24,7 @@ MEDIA = ROOT / "docs" / "media"
 PY = sys.executable
 
 
-def _get(url: str) -> dict:
+def _get(url: str):
     with urllib.request.urlopen(url, timeout=5) as response:
         return json.loads(response.read().decode())
 
@@ -32,9 +33,23 @@ def _post(url: str, body: dict | None = None) -> dict:
     data = json.dumps(body or {}).encode()
     request = urllib.request.Request(url, data=data, method="POST")
     request.add_header("Content-Type", "application/json")
-    with urllib.request.urlopen(request, timeout=8) as response:
-        raw = response.read().decode()
-        return json.loads(raw) if raw else {}
+    try:
+        with urllib.request.urlopen(request, timeout=8) as response:
+            raw = response.read().decode()
+            parsed = json.loads(raw) if raw else {}
+            return parsed if isinstance(parsed, dict) else {}
+    except urllib.error.HTTPError as error:
+        raw = error.read().decode()
+        try:
+            parsed = json.loads(raw)
+        except json.JSONDecodeError:
+            parsed = {"reason": raw or error.reason}
+        if not isinstance(parsed, dict):
+            parsed = {"reason": raw}
+        if "reason" not in parsed and parsed.get("detail"):
+            parsed["reason"] = parsed["detail"]
+        parsed.setdefault("accepted", False)
+        return parsed
 
 
 def _up(url: str) -> bool:
@@ -81,7 +96,10 @@ def _shot(chrome: str, url: str, dest: Path, width: int, height: int) -> None:
 def _start(args: list[str], log_name: str) -> subprocess.Popen:
     log = Path("/tmp") / f"scrub-{log_name}"
     handle = log.open("ab")
-    return subprocess.Popen(args, cwd=ROOT, stdout=handle, stderr=subprocess.STDOUT)
+    try:
+        return subprocess.Popen(args, cwd=ROOT, stdout=handle, stderr=subprocess.STDOUT)
+    finally:
+        handle.close()
 
 
 def _wait(url: str, seconds: float = 20) -> None:
@@ -97,30 +115,60 @@ def run_case() -> str:
     started = []
     if not _up("http://127.0.0.1:8000/state"):
         started.append(_start([PY, "-m", "controller", "--fake-arm"], "controller.log"))
+        _wait("http://127.0.0.1:8000/state")
+    state = _get("http://127.0.0.1:8000/state")
+    if not isinstance(state, dict) or state.get("fake_arm") is not True:
+        raise SystemExit("the controller is on the real arm; screenshots stay on --fake-arm")
     if not _up("http://127.0.0.1:8001/health"):
         started.append(_start([PY, "-m", "vision", "--fake"], "vision.log"))
     if not _up("http://127.0.0.1:8080/api/stats"):
         started.append(_start([PY, "-m", "ledger", "serve"], "ledger.log"))
-    _wait("http://127.0.0.1:8000/state")
     _wait("http://127.0.0.1:8001/health")
     _wait("http://127.0.0.1:8080/api/stats")
-    _post(
+    if state.get("step") in ("stopped", "error"):
+        _post("http://127.0.0.1:8000/reset", {})
+        deadline = time.time() + 20
+        while time.time() < deadline:
+            state = _get("http://127.0.0.1:8000/state")
+            if isinstance(state, dict) and state.get("step") == "idle":
+                break
+            time.sleep(0.25)
+    asked_at = time.time()
+    reply = _post(
         "http://127.0.0.1:8000/command",
         {
             "action": "handover",
             "item": "hemostat",
             "heard": "hemostat",
             "source": "dashboard",
-            "t": time.time(),
+            "t": asked_at,
         },
     )
+    if reply.get("accepted") is False:
+        print(f"handover refused: {reply.get('reason')}")
     deadline = time.time() + 50
     state = {}
     while time.time() < deadline:
         state = _get("http://127.0.0.1:8000/state")
-        if state.get("step") == "idle" and "hemostat" in (state.get("out") or []):
-            break
-        if state.get("step") in ("stopped", "error"):
+        if not isinstance(state, dict):
+            state = {}
+        recent = _get("http://127.0.0.1:8000/events/recent?n=30")
+        if not isinstance(recent, list):
+            recent = []
+        fresh = []
+        for event in recent:
+            if not isinstance(event, dict):
+                continue
+            try:
+                stamp = float(event.get("t") or 0)
+            except (TypeError, ValueError):
+                stamp = 0.0
+            if stamp >= asked_at - 0.5 and event.get("type") in (
+                "handed", "set_down", "released", "missed", "stopped", "error",
+            ):
+                fresh.append(event)
+        # Idle before the worker starts still has the previous count. Wait for this handover.
+        if fresh and state.get("step") in ("idle", "stopped", "error"):
             break
         time.sleep(0.25)
     case_id = state.get("case_id") or ""

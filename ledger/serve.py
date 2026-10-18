@@ -11,7 +11,7 @@ from urllib.parse import parse_qs, urlparse
 
 from ledger import stats
 from ledger.cases import case_view, list_cases
-from ledger.qr import public_url
+from ledger.qr import png_bytes, public_url
 
 _CASE_ID = re.compile(r"^[A-Za-z0-9._-]{1,80}$")
 
@@ -40,6 +40,15 @@ class Handler(BaseHTTPRequestHandler):
         self.wfile.write(body)
 
     def do_GET(self) -> None:
+        try:
+            self._route()
+        except Exception:
+            try:
+                self._json({"error": "ledger failed"}, 500)
+            except Exception:
+                return
+
+    def _route(self) -> None:
         parsed = urlparse(self.path)
         path = parsed.path
         if path == "/api/stats":
@@ -51,6 +60,19 @@ class Handler(BaseHTTPRequestHandler):
         if path == "/api/public":
             self._json({"url": public_url()})
             return
+        if path == "/qr.png":
+            try:
+                body = png_bytes()
+            except Exception:
+                body = b""
+            if body:
+                self.send_response(200)
+                self.send_header("Content-Type", "image/png")
+                self.send_header("Cache-Control", "no-store")
+                self.send_header("Content-Length", str(len(body)))
+                self.end_headers()
+                self.wfile.write(body)
+                return
         if path == "/api/case":
             case_id = (parse_qs(parsed.query).get("id") or [""])[0]
             if not _CASE_ID.fullmatch(case_id):
@@ -67,7 +89,11 @@ class Handler(BaseHTTPRequestHandler):
             self.send_error(404)
             return
         name, content_type = item
-        body = (PUBLIC / name).read_bytes()
+        try:
+            body = (PUBLIC / name).read_bytes()
+        except OSError:
+            self.send_error(404)
+            return
         self.send_response(200)
         self.send_header("Content-Type", content_type)
         self.send_header("Content-Length", str(len(body)))
