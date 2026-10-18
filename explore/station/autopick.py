@@ -170,16 +170,52 @@ def gemini_box(bgr, label="scalpel handle", timeout=15.0):
     return None
 
 
+FRAMES_DIR = Path.home() / "scrub-logs" / "autopick-frames"  # every detection: frame + box, for fine-tuning later
+
+
+def save_example(bgr, box, label, source) -> None:
+    try:
+        import cv2
+        FRAMES_DIR.mkdir(parents=True, exist_ok=True)
+        stem = time.strftime("%Y%m%d-%H%M%S")
+        cv2.imwrite(str(FRAMES_DIR / f"{stem}.jpg"), bgr)
+        with (FRAMES_DIR / "labels.jsonl").open("a") as f:
+            f.write(json.dumps({"file": f"{stem}.jpg", "label": label, "box": [round(t) for t in box],
+                                "source": source}) + "\n")
+    except Exception:  # noqa: BLE001 - never block a pick on logging
+        pass
+
+
+def _centre(b):
+    return ((b[0] + b[2]) / 2, (b[1] + b[3]) / 2)
+
+
+def gemini_vote(bgr, label="scalpel handle", agree_px=20.0, tries=3):
+    """Ask Gemini until two answers agree (centres within agree_px); a one-off wrong box (it once boxed
+    the scissors) is outvoted. None if no two agree."""
+    boxes = []
+    for _ in range(tries):
+        b = gemini_box(bgr, label)
+        if b is None:
+            continue
+        for o in boxes:
+            if math.dist(_centre(o), _centre(b)) <= agree_px:
+                return [(o[i] + b[i]) / 2 for i in range(4)]
+        boxes.append(b)
+    return None
+
+
 def detect_handle(bgr, detector=None, label="scalpel handle", in_reach=None, use_gemini=True):
     """(u, v, angle, box) of the handle's midpoint in the side frame, or None.
     The detector's labels flip with lighting (the handle comes back as "tweezers", "forceps" or "thin rod"),
     so every instrument box is a candidate and the handle is the one holding the darkest long thin shape.
     A box the detector itself calls the label gets a small bonus; in_reach(u, v) drops out-of-reach ones."""
     if use_gemini and detector is None:
-        box = gemini_box(bgr, label)
+        box = gemini_vote(bgr, label)
         r = _dark_rod(bgr, box) if box is not None else None
         # Gemini once boxed the steel scissors: only trust a box holding a dark rod
         if r is not None and r[4] >= HANDLE_DARK and (in_reach is None or in_reach(r[1], r[2])):
+            save_example(bgr, box, label, "gemini")
             return r[1], r[2], r[3], box
     if detector is None:
         from dotenv import dotenv_values
