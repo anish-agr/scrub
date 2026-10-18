@@ -96,6 +96,8 @@ class ThermalLog:
                 try:
                     coll = coll or _collection()
                     _insert(coll, batch)
+                    for _ in batch:
+                        self.q.task_done()
                     backoff = 5
                     break
                 except Exception:  # noqa: BLE001 - offline: retry; the local file keeps everything
@@ -120,6 +122,41 @@ def get(meta: dict | None = None) -> ThermalLog:
     if _LOG is None:
         _LOG = ThermalLog(meta)
     return _LOG
+
+
+# What the current episode has seen so far (reset by arm_ui at episode start, read at episode end).
+EP: dict = {"active": False, "grasps": 0, "empty_closes": 0, "peak_temps": {}}
+
+
+def event(kind: str, **fields) -> None:
+    """One `event` row from anywhere (arm_ui, arm_session). Cheap and never raises."""
+    try:
+        get().write({"kind": "event", "event": kind, **fields})
+    except Exception:  # noqa: BLE001 - telemetry must never stop the arm
+        pass
+
+
+def track_temps(temps: dict) -> None:
+    """Remember each motor's peak temperature during the active episode. Never raises."""
+    try:
+        if EP["active"]:
+            peaks = EP["peak_temps"]
+            for m, v in temps.items():
+                if isinstance(v, (int, float)) and v > peaks.get(m, -1):
+                    peaks[m] = v
+    except Exception:  # noqa: BLE001
+        pass
+
+
+def flush(timeout: float = 6.0) -> None:
+    """Wait (briefly) for queued rows to reach MongoDB, e.g. before the process exits. Never raises."""
+    try:
+        if _LOG is not None and _LOG.mongo:
+            end = time.time() + timeout
+            while _LOG.q.unfinished_tasks and time.time() < end:
+                time.sleep(0.1)
+    except Exception:  # noqa: BLE001
+        pass
 
 
 def read_registers(port: str) -> dict:

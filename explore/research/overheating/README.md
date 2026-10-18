@@ -77,9 +77,19 @@ Every recorder session (`explore/arm_session.py`) logs automatically. Rows go to
 
 | kind | when | fields |
 | --- | --- | --- |
-| `session` | session start | `source`, `pid`, `settings` (all thermal thresholds and gentle-mode values in force) |
+| `session` | session start | `source`, `pid`, `task`, `root` (dataset), `mode` (record, preview, teleop), `settings` (all thermal thresholds and gentle-mode values in force) |
 | `sample` | 2 Hz while the arm is driven | `phase` (preview, recording, resetting, teleop), `loop_hz`, `motors.<name>.{temp, load, pos, goal, current, volt, held, limp}` (temp, current, volt refresh every 2 s; current in 6.5 mA units; load is signed PWM duty about +-1000) |
-| `event` | guard actions | `event`: `cooldown_trip`, `joint_hold`, `gripper_overload`, `experiment_end`; plus motor, load, temp, pos, goal |
+| `event` | guard actions and lifecycle | `event`: `cooldown_trip`, `joint_hold`, `gripper_overload`, `experiment_end`; plus motor, load, temp, pos, goal |
+| `event` / `grasp_start` | claw closes on an object (guard's blocked detection) | `pos`, `goal`, `load`, `temp`, `torque_limit` (hold level applied), `n_in_episode` |
+| `event` / `grasp_end` | leader opens past the contact point | `duration_s`, `peak_load`, `pos`, `goal`, `load`, `temp` |
+| `event` / `claw_closed_empty` | claw fully closed on nothing (`pos` <= 6) | `pos`, `goal`, `load`, `temp` |
+| `event` / `episode_start` | LeRobot starts an episode | `episode`, `task`, `root` |
+| `event` / `episode_end` | recording window closed | `episode`, `reason` (done, rerecord, stop, camera_down, cooldown, timeout, or a guard text like "elbow_flex too hot"), `duration_s`, `frames` (control-loop observations), `grasps`, `empty_closes`, `peak_temps` by motor |
+| `event` / `episode_saved` | dataset episode written | `episode` (dataset index), `frames`, `duration_s`, `cadence` (the entry written to `<root>-cadence.json`), `session_done` |
+| `event` / `episode_discarded` | episode thrown away and re-recorded | `episode`, `reason` |
+| `event` / `phase` | every recorder phase change | `from`, `to` |
+| `event` / `control` | every page or Enter action | `action` (next, rerecord, stop, start, enter_start), `accepted`, `phase` |
+| `event` / `session_end` | process exit | `reason` (completed, interrupted, exit, error: Type, plus "(cooldown)"), `episodes_saved` |
 | `cooling` | every 10 s during a cool-down | `temps` by motor id |
 | `idle` | `thermal_log.py idle` | `temps`, `torque`, `voltage` |
 | `snapshot` | `thermal_log.py snapshot` | every heat-related register per motor, both arms |
