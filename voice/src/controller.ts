@@ -1,7 +1,7 @@
 // Talks to the controller (port 8000): POST /command, POST /stop, GET /state, GET /stats, WS /events.
 import WebSocket from "ws";
 import { randomUUID } from "node:crypto";
-import { CONTROLLER_URL } from "./config.js";
+import { CONTROLLER_URL, JUDGE_TTL_MS } from "./config.js";
 
 export type Action = "handover" | "return" | "count" | "stop" | "got_it" | "unknown";
 export const ACTIONS: Action[] = ["handover", "return", "count", "stop", "got_it", "unknown"];
@@ -15,10 +15,13 @@ export interface ScrubEvent {
   command_id?: string | null; setting?: string | null; lighting?: string | null;
   request_to_hand_s?: number | null; retries?: number | null; out?: string[] | null;
   case_id?: string | null;  // optional, "<setting>-<unix start seconds>"
+  error?: string | null; code?: number | null;  // on `error` events: the arm model's status (401, 409, 503), optional
+  reason?: string | null; judge?: boolean | null;  // every event carries judge (optional)
 }
 export interface State {
   step: string; out: string[]; setting: string; t: number;
   out_camera?: string[] | null; case_id?: string | null;
+  judge?: boolean | null;  // judge mode: the controller only takes handover, count, stop, got_it; refuses /alias
 }
 
 export function makeCommand(action: Action, item: string | null, heard: string): Command {
@@ -40,6 +43,21 @@ export const postCommand = (c: Command): Promise<CommandReply> => call("POST", "
 export const postStop = (): Promise<{ accepted: boolean }> => call("POST", "/stop");
 export const getSetting = (): Promise<any> => call("GET", "/setting");
 export const getState = (): Promise<State> => call("GET", "/state");
+// Judge mode from GET /state, cached for JUDGE_TTL_MS so a tray switch or a clinic word doesn't wait on it each time.
+// Only asked on those paths, never on stop or handover. Controller down: false (its POST fails on its own).
+export const JUDGE_LINE = "In judge mode I can hand you an instrument, read the count, or stop.";
+let judgeCache: { on: boolean; at: number } | null = null;
+export const forgetJudge = () => { judgeCache = null; };
+// Every controller event carries `judge`, so the flag is usually fresh without asking GET /state.
+export const noteJudge = (on: boolean, now = Date.now) => { judgeCache = { on, at: now() }; };
+export async function judgeMode(get: () => Promise<State> = () => call("GET", "/state", undefined, 1000),
+    ttlMs = JUDGE_TTL_MS, now = Date.now): Promise<boolean> {
+  if (judgeCache && now() - judgeCache.at < ttlMs) return judgeCache.on;
+  const st = await get().catch(() => null);
+  if (!st) return false;
+  judgeCache = { on: st.judge === true, at: now() };
+  return judgeCache.on;
+}
 export const postRestock = (r: object): Promise<{ ok: boolean }> => call("POST", "/restock", r);
 // X3: the controller asks vision (up to 3 s) and words the answer in `say`.
 export interface TrayCheck {
