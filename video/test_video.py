@@ -111,6 +111,18 @@ class VideoTests(unittest.TestCase):
         # The mandatory disclosure panel, including speed, survives encoding.
         self.assertGreater(float(image[:20].mean()),100)
 
+    def test_take_selection_excludes_failure_retries_and_wrong_order(self):
+        from video.takes import successful_trials
+        rows=[{'type':'command','action':'handover','t':1,'command_id':'a'},
+              {'type':'handed','retries':0,'t':2,'command_id':'a'},
+              {'type':'released','t':3,'command_id':'a'}]
+        self.assertEqual(len(successful_trials(rows)[0]),1)
+        for change in ({'retries':1},{'retries':None},{'t':4}):
+            copy=[dict(row) for row in rows]
+            copy[1].update(change)
+            self.assertEqual(len(successful_trials(copy)[0]),0)
+        self.assertEqual(len(successful_trials(rows+[{'type':'error','t':2.5,'command_id':'a'}])[0]),0)
+
 
 if __name__ == "__main__":
     unittest.main()
