@@ -19,7 +19,9 @@ Same thing: `python deploy/check_env.py` from the repo root.
 | arm | vision | `PERCEPTRON_API_KEY`, `CAMERA_INDEX` (default 0), `VISION_URL` (default `http://localhost:8001`) |
 | voice | voice | `GEMINI_API_KEY`, `ELEVENLABS_API_KEY`, `ELEVENLABS_AGENT_ID`, `PHOTON_API_KEY`, `PHOTON_PROJECT_ID`. Optional: `VOICE_LLM_SECRET`, `PHOTON_SUMMARY_TO`, `VOICE_PORT` (default 3000), `CONTROLLER_URL` |
 
-Live probes: Perceptron `GET https://robotics.perceptron.inc/v1/capabilities`, Perceptron `POST https://api.perceptron.inc/v1/detect`, Gemini model list, ElevenLabs `GET /v1/user` (and the agent when `ELEVENLABS_AGENT_ID` is set), Photon `GET /v1/projects/{id}`, MongoDB `ping`, Hugging Face `whoami-v2`, controller `GET /state`, vision `GET /health`, voice `GET /health`.
+Optional `SCRUB_PUBLIC_URL` or `SCRUB_SERVER_IP` (the Vultr page); the check reads `/api/stats` from it.
+
+Live probes: Perceptron `GET https://robotics.perceptron.inc/v1/capabilities`, Perceptron `GET /v1/deployments` (the id in `PERCEPTRON_DEPLOYMENT_ID` must be listed), the Vultr page `GET /api/stats`, Perceptron `POST https://api.perceptron.inc/v1/detect`, Gemini model list, ElevenLabs `GET /v1/user` (and the agent when `ELEVENLABS_AGENT_ID` is set), Photon `GET /v1/projects/{id}`, MongoDB `ping`, Hugging Face `whoami-v2`, controller `GET /state`, vision `GET /health`, voice `GET /health`.
 
 Offline check of the table formatting: `python -m unittest deploy.test_check_env`
 
