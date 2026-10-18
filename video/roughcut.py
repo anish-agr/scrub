@@ -19,17 +19,22 @@ PAPER, INK, MUTE, AMBER, RED = (236, 232, 221), (20, 19, 15), (98, 95, 85), (154
 
 # slot, seconds in the plan, sim stand-in, title on the card, what to film (team/VIDEO.md)
 BEATS = [
-    ("A0", 5, "S0-establishing.mp4", "Scrub", "Arm at rest over the operating room tray. Quiet room."),
-    ("A1", 23, "S1-hemostat-handoff.mp4", "Hemostat",
-     "Hands stay on the work. \"Hemostat.\" The pick, the handle into the open hand, the gripper letting go on the pull."),
-    ("A2", 14, "S2-scalpel-safe-spot.mp4", "Scalpel to the safe spot",
-     "\"Scalpel.\" It goes to the safe spot, never to the hand. \"Scalpel down.\""),
-    ("A3", 16, "S4-return.mp4", "Return", "Hemostat set in the return spot. The arm puts it back in its slot."),
-    ("A4", 14, None, "Bright, normal, dim", "Lamp on. Glare on the steel. A handoff still finishes. Cut to the lighting table."),
-    ("A5", 16, None, "Same code. Different tray", "Switch to the robotics bench. \"Needle-nose pliers.\" Same arm."),
-    ("A6", 16, None, "What is still out", "\"Count.\" The spoken count, then the summary text arriving on the phone."),
-    ("A7", 12, None, "The numbers", "Hold the dashboard: camera, what is out, success tables with ranges. Long enough to read."),
-    ("A8", 9, None, "Team", "The team and the arm."),
+    ("V0", 20, "S0-establishing.mp4", "Why we built it",
+     "Anish and Caiden tell the two stories in their own voices (phone voice memo), over the arm at rest and photos of the station."),
+    ("V1", 2, None, "\"Hemostat.\"", "The phone on speaker, the word \"hemostat\"."),
+    ("V2", 14, "S1-hemostat-handoff.mp4", "The pick and the handoff",
+     "The pick from the tray (captioned model or taught), the carry, handle first into an open gloved hand, the pull, the gripper opening."),
+    ("V3", 7, "S2-scalpel-safe-spot.mp4", "Scalpel to the safe spot", "\"Scalpel.\" Set on the safe spot, never the hand. \"Scalpel down.\""),
+    ("V4", 5, None, "Stop", "\"Stop\" mid-move, the red STOPPED banner on the dashboard, the reset."),
+    ("V5", 10, None, "The hand", "The hand tracker's view of the open hand, the arm slowing near it, the hand pulled away, the arm holding."),
+    ("V6", 12, None, "Bright light", "Lamp on, glare on the steel, a handoff still finishes."),
+    ("V7", 10, "S4-return.mp4", "Return", "A tool set in the return spot, the arm putting it back in its slot."),
+    ("V8", 12, None, "Count and the text",
+     "The dashboard count, the count sheet read with any mismatch, the summary text arriving on the phone."),
+    ("V9", 15, None, "The build", "The temperature graph from the thermal page, then the arm folding to rest."),
+    ("V10", 15, "S3-scissors-handoff.mp4", "How it works",
+     "Training montage (recorded demonstrations at 4x, labeled), the sim replay, what the wrist camera sees."),
+    ("V11", 8, None, "Scrub", "The arm at rest, then the end card: SCRUB, $250, open source."),
 ]
 
 
