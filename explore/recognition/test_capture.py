@@ -99,5 +99,37 @@ class FileTests(unittest.TestCase):
             capture.camera_index("top")
 
 
+class LiveLoopTests(unittest.TestCase):
+    """run_live with a fake camera (saved images) and scripted keys: no camera, no window."""
+
+    def test_fake_camera_and_keys(self):
+        with tempfile.TemporaryDirectory() as d:
+            src, folder = Path(d) / "frames", Path(d) / "out"
+            src.mkdir()
+            cv2.imwrite(str(src / "a.jpg"), frame(30))
+            cv2.imwrite(str(src / "b.png"), frame(200))
+            cap = capture.FolderCapture(src)
+            self.assertTrue(cap.isOpened())
+            script = iter([ord("1"), ord(" "), ord("l"), ord("2"), ord("x"), ord("]"), ord(" "), -1, ord("q")])
+            shown = []
+            capture.run_live(folder, capture.label_list(SETTING), IDS, "frames", "normal", cap=cap,
+                             show=shown.append, wait_key=lambda: next(script))
+            labels = json.loads((folder / "labels.json").read_text())
+            self.assertEqual(sorted(labels), ["full_1.jpg", "full_2.jpg", "no_hemostat_1.jpg", "no_scalpel_1.jpg"])
+            self.assertEqual(labels["full_2.jpg"]["light"], "normal")
+            self.assertEqual(labels["no_scalpel_1.jpg"]["light"], "dim")  # "l" cycles normal -> dim
+            self.assertEqual(labels["no_hemostat_1.jpg"]["items"], ["scalpel", "mayo_scissors"])
+            self.assertEqual(labels["full_1.jpg"]["camera"], "frames")
+            self.assertEqual(len(shown), 9)
+            self.assertTrue((folder / "no_hemostat_1.jpg").exists())
+
+    def test_empty_folder_is_not_a_camera(self):
+        with tempfile.TemporaryDirectory() as d:
+            self.assertFalse(capture.FolderCapture(Path(d)).isOpened())
+            with self.assertRaises(SystemExit):
+                capture.run_live(Path(d) / "o", ["full"], IDS, "frames", "normal", cap=capture.FolderCapture(Path(d)),
+                                 show=lambda v: None, wait_key=lambda: ord("q"))
+
+
 if __name__ == "__main__":
     unittest.main()

@@ -2,6 +2,8 @@
 
 Live:    .venv/bin/python -m explore.recognition.capture --set tray1 --camera overhead
 Import:  .venv/bin/python -m explore.recognition.capture --set tray1 --import ~/Downloads/phone --light normal
+Fake:    .venv/bin/python -m explore.recognition.capture --set try --frames explore/recognition/props --data /tmp/rec
+         (loops saved images as the camera; the same window and keys, no camera opened)
 
 Files land in data/recognition/<set>/<label>_<n>.jpg with a labels.json that
 explore/recognition/bench.py reads (`items` and `boxes`; the other keys are extra).
@@ -148,12 +150,45 @@ def print_keys(keys: dict[str, str]) -> None:
         print(f"  {k}  {lab}")
 
 
-def run_live(folder: Path, labels: list[str], ids: list[str], camera: str, light: str) -> None:
+class FolderCapture:
+    """A fake camera: saved images (jpg, jpeg, png) in name order, looped. For testing without a camera."""
+
+    def __init__(self, src: Path):
+        import cv2
+        self.frames = [f for f in (cv2.imread(str(p)) for p in sorted(Path(src).iterdir())
+                                   if p.suffix.lower() in IMPORT_EXTS) if f is not None]
+        self.i = 0
+
+    def isOpened(self) -> bool:  # noqa: N802 - same name as cv2.VideoCapture
+        return bool(self.frames)
+
+    def read(self):
+        if not self.frames:
+            return False, None
+        f = self.frames[self.i % len(self.frames)]
+        self.i += 1
+        return True, f.copy()
+
+    def set(self, *_):
+        return True
+
+    def release(self):
+        pass
+
+
+def run_live(folder: Path, labels: list[str], ids: list[str], camera: str, light: str,
+             cap=None, show=None, wait_key=None) -> None:
+    """The capture loop. cap, show(view) and wait_key() -> int default to the camera and an OpenCV window;
+    tests pass a FolderCapture and scripted keys."""
     import cv2
     keys = key_map(labels)
     by_label = {v: k for k, v in keys.items()}
     print_keys(keys)
-    cap = cv2.VideoCapture(camera_index(camera))
+    gui = show is None
+    show = show or (lambda view: cv2.imshow("scrub capture", view))
+    wait_key = wait_key or (lambda: cv2.waitKey(1))
+    if cap is None:
+        cap = cv2.VideoCapture(camera_index(camera))
     if not cap.isOpened():
         raise SystemExit(f"could not open camera {camera}")
     cap.set(cv2.CAP_PROP_FRAME_WIDTH, 1280)
@@ -178,8 +213,8 @@ def run_live(folder: Path, labels: list[str], ids: list[str], camera: str, light
                     x, y = 8, y + 16
                 cv2.putText(view, text, (x, y), font, 0.4, (255, 255, 0), 1)
                 x += w + 10
-            cv2.imshow("scrub capture", view)
-            k = cv2.waitKey(1) & 0xFF
+            show(view)
+            k = wait_key() & 0xFF
             ch = chr(k) if 0 < k < 128 else ""
             if k == 27 or ch == "q":
                 break
@@ -202,7 +237,8 @@ def run_live(folder: Path, labels: list[str], ids: list[str], camera: str, light
             print(msg)
     finally:
         cap.release()
-        cv2.destroyAllWindows()
+        if gui:
+            cv2.destroyAllWindows()
 
 
 def main(argv=None) -> None:
@@ -213,6 +249,7 @@ def main(argv=None) -> None:
     ap.add_argument("--light", default="normal", choices=LIGHTS)
     ap.add_argument("--import", dest="import_dir", help="folder of phone photos named <label>[_anything].jpg")
     ap.add_argument("--data", default=str(DATA), help="output root (default data/recognition)")
+    ap.add_argument("--frames", help="fake camera: loop the saved images in this folder (no camera opened)")
     a = ap.parse_args(argv)
     setting = load_setting(a.setting)
     labels, ids = label_list(setting), item_ids(setting)
@@ -225,7 +262,12 @@ def main(argv=None) -> None:
         if skipped:
             print("known labels: " + ", ".join(labels))
         return
-    run_live(folder, labels, ids, a.camera, a.light)
+    cap = None
+    if a.frames:
+        cap = FolderCapture(Path(a.frames).expanduser())
+        if not cap.isOpened():
+            raise SystemExit(f"no jpg or png images in {a.frames}")
+    run_live(folder, labels, ids, a.camera if not a.frames else "frames", a.light, cap=cap)
 
 
 if __name__ == "__main__":
