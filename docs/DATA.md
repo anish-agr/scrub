@@ -1,55 +1,65 @@
 # Data: what MongoDB says
 
-Read 2026-10-18 05:49 from `MongoDB Atlas, database scrub`. Regenerate with `.venv/bin/python -m explore.analysis`. Machine-readable copy: `data/analysis.json` (committed snapshot `docs/media/data/analysis.json`). Read-only: nothing here edits MongoDB.
+Read 2026-10-18 06:19 from `MongoDB Atlas, database scrub`. Regenerate with `.venv/bin/python -m explore.analysis`. Machine-readable copy: `data/analysis.json` (committed snapshot `docs/media/data/analysis.json`). Read-only: nothing here edits MongoDB.
 
-- 70909 events, 18 episodes (0.10 h recorded), 13455 thermal rows
+- 70909 events, 28 episodes (0.14 h recorded), 15590 thermal rows
 - Events by arm: fake 52021, pretag 17495, real 422, sim 971. Tags (`fake_arm`) started 2026-10-17 22:02; earlier rows are test data (`pretag`).
 
 ## Pitch and Devpost numbers
 
 | Number | Value | Query | Read |
 | --- | --- | --- | --- |
-| Episodes recorded (MongoDB) | 18 | `db.episodes.countDocuments({})` | 2026-10-18 05:49 |
-| Hours of demonstrations recorded | 0.10 | `db.episodes.aggregate([{$group:{_id:null,s:{$sum:"$duration_s"}}}])` | 2026-10-18 05:49 |
-| Episodes usable for training | 10 of 18 | `db.episodes.find({}, {episode_index:1, task:1, duration_s:1, handoff:1})` | 2026-10-18 05:49 |
-| Episodes with a handoff outcome | 7 | `db.episodes.countDocuments({handoff: {$ne: null}})` | 2026-10-18 05:49 |
-| Real handoff success rate | no real data yet | `db.events.countDocuments({type:"handed", fake_arm:false})` | 2026-10-18 05:49 |
-| Real median request-to-hand (s) | no real data yet | `db.events.find({type:"handed", fake_arm:false}, {request_to_hand_s:1})` | 2026-10-18 05:49 |
-| Simulated handoff tries | 4511 | `db.events.countDocuments({type:"command", action:"handover", accepted:true, fake_arm:true})` | 2026-10-18 05:49 |
-| Hottest motor and peak | gripper 57 C | `db.thermal.aggregate([{$match:{kind:'sample'}},{$project:{m:{$objectToArray:'$motors'}}},{$unwind:'$m'},{$group:{_id:'$m.k',peak:{$max:'$m.v.temp'}}},{$sort:{peak:-1}},{$limit:1}])` | 2026-10-18 05:49 |
-| Thermal samples | 11250 | `db.thermal.countDocuments({kind:'sample'})` | 2026-10-18 05:49 |
-| Max safe hold time | 264 s | `db.thermal.find({kind:'experiment',phase:'torque_on_hold'},{t:1,session:1,elapsed_s:1,temps:1}).sort({session:1,elapsed_s:1})` | 2026-10-18 05:49 |
-| Reads logged | 177 | `db.events.countDocuments({type:"read"})` | 2026-10-18 05:49 |
-| count_sheet OCR accuracy | 0/32 correct (0%), 32 unscored, item fields 33% of 96 | `db.events.find({type:"read","read.kind":"count_sheet"})` | 2026-10-18 05:49 |
-| tray_tag OCR accuracy | 36/63 correct (57%), 0 unscored | `db.events.find({type:"read","read.kind":"tray_tag"})` | 2026-10-18 05:49 |
-| pack_label OCR accuracy | no real data yet | `db.events.find({type:"read","read.kind":"pack_label"})` | 2026-10-18 05:49 |
-| Median read latency | 1800 ms | `db.events.find({type:"read"},{"read.latency_ms":1})` | 2026-10-18 05:49 |
-| Perceptron vs Gemini | Perceptron 82/89 answered, median 1800 ms; Gemini 10/17 answered, median 770 ms; 0 rescues | `db.events.find({type:"read","read.attempts":{$exists:true}},{"read.attempts":1})` | 2026-10-18 05:49 |
+| Episodes recorded (MongoDB) | 28 | `db.episodes.countDocuments({})` | 2026-10-18 06:19 |
+| Hours of demonstrations recorded | 0.14 | `db.episodes.aggregate([{$group:{_id:null,s:{$sum:"$duration_s"}}}])` | 2026-10-18 06:19 |
+| Episodes usable for training | 23 of 28 | `db.episodes.find({}, {episode_index:1, task:1, duration_s:1, handoff:1})` | 2026-10-18 06:19 |
+| Episodes with a handoff outcome | 7 | `db.episodes.countDocuments({handoff: {$ne: null}})` | 2026-10-18 06:19 |
+| Real handoff success rate | no real data yet | `db.events.countDocuments({type:"handed", fake_arm:false})` | 2026-10-18 06:19 |
+| Real median request-to-hand (s) | no real data yet | `db.events.find({type:"handed", fake_arm:false}, {request_to_hand_s:1})` | 2026-10-18 06:19 |
+| Simulated handoff tries | 4511 | `db.events.countDocuments({type:"command", action:"handover", accepted:true, fake_arm:true})` | 2026-10-18 06:19 |
+| Hottest motor and peak | gripper 57 C | `db.thermal.aggregate([{$match:{kind:'sample'}},{$project:{m:{$objectToArray:'$motors'}}},{$unwind:'$m'},{$group:{_id:'$m.k',peak:{$max:'$m.v.temp'}}},{$sort:{peak:-1}},{$limit:1}])` | 2026-10-18 06:19 |
+| Thermal samples | 12774 | `db.thermal.countDocuments({kind:'sample'})` | 2026-10-18 06:19 |
+| Max safe hold time | 264 s | `db.thermal.find({kind:'experiment',phase:'torque_on_hold'},{t:1,session:1,elapsed_s:1,temps:1}).sort({session:1,elapsed_s:1})` | 2026-10-18 06:19 |
+| Reads logged | 177 | `db.events.countDocuments({type:"read"})` | 2026-10-18 06:19 |
+| count_sheet OCR accuracy | 0/32 correct (0%), 32 unscored, item fields 33% of 96 | `db.events.find({type:"read","read.kind":"count_sheet"})` | 2026-10-18 06:19 |
+| tray_tag OCR accuracy | 36/63 correct (57%), 0 unscored | `db.events.find({type:"read","read.kind":"tray_tag"})` | 2026-10-18 06:19 |
+| pack_label OCR accuracy | no real data yet | `db.events.find({type:"read","read.kind":"pack_label"})` | 2026-10-18 06:19 |
+| Median read latency | 1800 ms | `db.events.find({type:"read"},{"read.latency_ms":1})` | 2026-10-18 06:19 |
+| Perceptron vs Gemini | Perceptron 82/89 answered, median 1800 ms; Gemini 10/17 answered, median 770 ms; 0 rescues | `db.events.find({type:"read","read.attempts":{$exists:true}},{"read.attempts":1})` | 2026-10-18 06:19 |
 
 ## Training data: episodes
 
-18 episodes in MongoDB (6.2 min recorded), 10 usable as they are.
+28 episodes in MongoDB (8.7 min recorded), 23 usable as they are.
 
 | Ep | Task | Length (frames) | Duration s | FPS | Idle start s | Idle end s | Gripper opens s | Gripper closes s | Verdict | Why |
 | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
 | 0 | pick the spatula | 450 | 15.0 | 30 | 15.0 | 15.0 | - | - | **drop** | the arm never moves |
-| 1 | pick the spatula | 450 | 15.0 | 30 | 0.1 | 0.0 | 10.0 | - | **re-record** | the gripper opens but never closes on the spatula |
+| 1 | pick the spatula | 450 | 15.0 | 30 | 0.1 | 0.0 | 10.0 | - | **re-record** | the gripper opens but never closes on the item |
 | 2 | pick the spatula | 180 | 6.0 | 30 | 0.3 | 0.1 | - | - | **drop** | the gripper never opens, so there is no grasp to learn |
 | 3 | pick the scalpel handle | 569 | 19.0 | 30 | 0.1 | 3.1 | 0.4 | 8.3 | **keep** | trim 3.1 s idle at the end |
 | 4 | pick the scalpel handle | 3143 | 104.8 | 30 | 3.0 | 0.2 | 6.0 | 8.3 | **re-record** | 105 s long with the arm moving only 19% of the time |
 | 5 | pick the scalpel handle | 585 | 19.5 | 30 | 6.2 | 0.0 | 8.4 | 11.2 | **keep** | trim 6.2 s idle at the start |
 | 6 | pick the scalpel handle | 233 | 7.8 | 30 | 0.1 | 7.6 | - | - | **drop** | the gripper never opens, so there is no grasp to learn |
 | 7 | pick the scalpel handle | 528 | 17.6 | 30 | 3.4 | 0.1 | 7.3 | 11.6 | **keep** | trim 3.4 s idle at the start |
-| 8 | pick the scalpel handle | 550 | 18.3 | 30 | 3.5 | 0.0 | 15.0 | - | **re-record** | the gripper opens but never closes on the spatula |
+| 8 | pick the scalpel handle | 550 | 18.3 | 30 | 3.5 | 0.0 | 0.0 | 9.6 | **keep** | trim 3.5 s idle at the start |
 | 9 | pick the scalpel handle | 493 | 16.4 | 30 | 0.8 | 0.0 | 6.4 | 10.5 | **keep** | 1 stall(s) over 1.5 s mid-episode |
 | 10 | pick the scalpel handle | 471 | 15.7 | 30 | 0.6 | 0.3 | 2.8 | 5.7 | **keep** | clean: gripper opens and closes, little idle time |
-| 11 | pick the scalpel handle | 377 | 12.6 | 30 | 0.5 | 0.0 | 10.3 | - | **re-record** | the gripper opens but never closes on the spatula |
+| 11 | pick the scalpel handle | 377 | 12.6 | 30 | 0.5 | 0.0 | 0.0 | 5.3 | **keep** | clean: gripper opens and closes, little idle time |
 | 12 | pick the scalpel handle | 349 | 11.6 | 30 | 1.1 | 0.0 | 2.8 | 5.0 | **keep** | clean: gripper opens and closes, little idle time |
-| 13 | pick the scalpel handle | 495 | 16.5 | 30 | 0.7 | 0.5 | - | - | **drop** | the gripper never opens, so there is no grasp to learn |
+| 13 | pick the scalpel handle | 495 | 16.5 | 30 | 0.7 | 0.5 | 0.0 | 6.5 | **keep** | clean: gripper opens and closes, little idle time |
 | 14 | pick the tweezers | 506 | 16.9 | 30 | 1.9 | 0.0 | 3.1 | 9.3 | **keep** | clean: gripper opens and closes, little idle time |
 | 15 | pick the tweezers | 459 | 15.3 | 30 | 1.8 | 0.0 | 2.5 | 8.4 | **keep** | clean: gripper opens and closes, little idle time |
-| 16 | pick the tweezers | 551 | 18.4 | 30 | 0.0 | 0.0 | 15.0 | 16.4 | **keep** | clean: gripper opens and closes, little idle time |
+| 16 | pick the tweezers | 551 | 18.4 | 30 | 0.0 | 0.0 | 0.0 | 9.1 | **keep** | clean: gripper opens and closes, little idle time |
 | 17 | pick the tweezers | 767 | 25.6 | 30 | 0.0 | 4.3 | 0.2 | 12.8 | **keep** | trim 4.3 s idle at the end |
+| 18 | pick the scalpel | 450 | 15.0 | 30 | 1.9 | 0.0 | 5.2 | 9.9 | **keep** | clean: gripper opens and closes, little idle time |
+| 19 | pick the scalpel | 417 | 13.9 | 30 | 1.3 | 0.7 | 0.0 | 0.3 | **keep** | clean: gripper opens and closes, little idle time |
+| 20 | pick the scalpel | 343 | 11.4 | 30 | 0.7 | 0.5 | 2.7 | 5.3 | **keep** | clean: gripper opens and closes, little idle time |
+| 21 | pick the scalpel | 458 | 15.3 | 30 | 0.6 | 0.9 | 0.0 | 7.4 | **keep** | clean: gripper opens and closes, little idle time |
+| 22 | pick the scalpel | 393 | 13.1 | 30 | 0.5 | 0.5 | 0.0 | 6.5 | **keep** | clean: gripper opens and closes, little idle time |
+| 23 | pick the hemostat | 531 | 17.7 | 30 | 3.3 | 0.0 | 0.0 | 8.8 | **keep** | trim 3.3 s idle at the start |
+| 24 | pick the hemostat | 414 | 13.8 | 30 | 0.0 | 0.1 | 0.0 | 5.9 | **keep** | clean: gripper opens and closes, little idle time |
+| 25 | pick the hemostat | 376 | 12.5 | 30 | 0.1 | 0.3 | 0.0 | 5.8 | **keep** | clean: gripper opens and closes, little idle time |
+| 26 | pick the hemostat | 438 | 14.6 | 30 | 0.7 | 0.0 | 0.0 | 6.5 | **keep** | clean: gripper opens and closes, little idle time |
+| 27 | pick the hemostat | 643 | 21.4 | 30 | 1.4 | 0.1 | 0.0 | 8.3 | **keep** | clean: gripper opens and closes, little idle time |
 
 ![Episode timeline](media/data/episodes.png)
 
@@ -165,6 +175,66 @@ Read 2026-10-18 05:49 from `MongoDB Atlas, database scrub`. Regenerate with `.ve
 | 17 | wrist_flex.pos | 73.0 | 71 | 7.3 |
 | 17 | wrist_roll.pos | 113.4 | 74 | 11.5 |
 | 17 | gripper.pos | 34.9 | 65 | 4.8 |
+| 18 | shoulder_pan.pos | 81.4 | 61 | 8.4 |
+| 18 | shoulder_lift.pos | 83.0 | 69 | 7.2 |
+| 18 | elbow_flex.pos | 101.4 | 53 | 10.6 |
+| 18 | wrist_flex.pos | 44.5 | 47 | 5.8 |
+| 18 | wrist_roll.pos | 84.6 | 74 | 8.7 |
+| 18 | gripper.pos | 52.3 | 67 | 6.1 |
+| 19 | shoulder_pan.pos | 59.1 | 71 | 8.3 |
+| 19 | shoulder_lift.pos | 111.5 | 71 | 10.5 |
+| 19 | elbow_flex.pos | 93.7 | 61 | 12.3 |
+| 19 | wrist_flex.pos | 25.6 | 39 | 2.9 |
+| 19 | wrist_roll.pos | 76.3 | 71 | 11.2 |
+| 19 | gripper.pos | 52.3 | 67 | 7.7 |
+| 20 | shoulder_pan.pos | 46.2 | 61 | 9.9 |
+| 20 | shoulder_lift.pos | 104.8 | 79 | 14.2 |
+| 20 | elbow_flex.pos | 97.2 | 58 | 11.8 |
+| 20 | wrist_flex.pos | 42.2 | 66 | 7.2 |
+| 20 | wrist_roll.pos | 61.5 | 63 | 11.6 |
+| 20 | gripper.pos | 25.2 | 61 | 3.6 |
+| 21 | shoulder_pan.pos | 39.6 | 66 | 5.8 |
+| 21 | shoulder_lift.pos | 128.8 | 69 | 15.2 |
+| 21 | elbow_flex.pos | 85.5 | 58 | 6.6 |
+| 21 | wrist_flex.pos | 48.7 | 69 | 10.4 |
+| 21 | wrist_roll.pos | 67.5 | 66 | 8.9 |
+| 21 | gripper.pos | 25.9 | 61 | 3.4 |
+| 22 | shoulder_pan.pos | 52.3 | 71 | 8.3 |
+| 22 | shoulder_lift.pos | 121.5 | 87 | 13.7 |
+| 22 | elbow_flex.pos | 101.5 | 69 | 13.8 |
+| 22 | wrist_flex.pos | 26.7 | 32 | 3.0 |
+| 22 | wrist_roll.pos | 75.1 | 71 | 11.6 |
+| 22 | gripper.pos | 31.7 | 83 | 4.8 |
+| 23 | shoulder_pan.pos | 52.8 | 74 | 6.8 |
+| 23 | shoulder_lift.pos | 126.0 | 82 | 11.2 |
+| 23 | elbow_flex.pos | 87.2 | 61 | 5.4 |
+| 23 | wrist_flex.pos | 53.6 | 55 | 7.4 |
+| 23 | wrist_roll.pos | 75.9 | 68 | 8.8 |
+| 23 | gripper.pos | 35.2 | 63 | 3.3 |
+| 24 | shoulder_pan.pos | 60.7 | 74 | 11.3 |
+| 24 | shoulder_lift.pos | 126.5 | 77 | 14.2 |
+| 24 | elbow_flex.pos | 84.8 | 61 | 6.9 |
+| 24 | wrist_flex.pos | 20.8 | 37 | 4.4 |
+| 24 | wrist_roll.pos | 74.6 | 58 | 11.5 |
+| 24 | gripper.pos | 31.8 | 63 | 4.6 |
+| 25 | shoulder_pan.pos | 68.9 | 71 | 11.4 |
+| 25 | shoulder_lift.pos | 125.4 | 61 | 14.1 |
+| 25 | elbow_flex.pos | 89.4 | 58 | 7.8 |
+| 25 | wrist_flex.pos | 52.0 | 74 | 12.8 |
+| 25 | wrist_roll.pos | 52.9 | 71 | 8.9 |
+| 25 | gripper.pos | 36.8 | 65 | 5.8 |
+| 26 | shoulder_pan.pos | 63.8 | 71 | 10.9 |
+| 26 | shoulder_lift.pos | 138.1 | 61 | 12.9 |
+| 26 | elbow_flex.pos | 102.1 | 61 | 7.7 |
+| 26 | wrist_flex.pos | 52.2 | 71 | 8.9 |
+| 26 | wrist_roll.pos | 52.3 | 58 | 7.3 |
+| 26 | gripper.pos | 33.3 | 65 | 4.7 |
+| 27 | shoulder_pan.pos | 94.0 | 71 | 11.6 |
+| 27 | shoulder_lift.pos | 115.3 | 82 | 10.2 |
+| 27 | elbow_flex.pos | 76.0 | 58 | 4.0 |
+| 27 | wrist_flex.pos | 79.4 | 74 | 15.3 |
+| 27 | wrist_roll.pos | 97.1 | 74 | 10.0 |
+| 27 | gripper.pos | 35.5 | 79 | 5.9 |
 
 ### Per task
 
@@ -173,19 +243,21 @@ Read 2026-10-18 05:49 from `MongoDB Atlas, database scrub`. Regenerate with `.ve
 | pick the spatula | 3 | 3.8 | not recorded (no lighting field) |
 | pick the scalpel handle | 11 | 16.8 | not recorded (no lighting field) |
 | pick the tweezers | 4 | 15.2 | not recorded (no lighting field) |
+| pick the scalpel | 5 | 7.9 | not recorded (no lighting field) |
+| pick the hemostat | 5 | 2.1 | not recorded (no lighting field) |
 
-Local dataset `~/scrub-dataset`: 18 episodes, 11156 frames. Camera fps: dataset says 30; git history: side and wrist 29-31 fps; wrist 18.7-22.6 fps on the spatula episodes.
+Local dataset `~/scrub-dataset`: 28 episodes, 15619 frames. Camera fps: dataset says 30; git history: side and wrist 29-31 fps; wrist 18.7-22.6 fps on the spatula episodes.
 
 ### Flags
 
-- Only 18 episodes (10 usable); ACT usually needs 50+ per task. A training job now will overfit.
-- Gripper never opens in episodes [0, 2, 6, 13].
-- Gripper opens but never closes in episodes [1, 8, 11].
-- Idle head or tail over 2 s in episodes [0, 3, 4, 5, 6, 7, 8, 17]; trim before training.
+- Only 28 episodes (23 usable); ACT usually needs 50+ per task. A training job now will overfit.
+- Gripper never opens in episodes [0, 2, 6].
+- Gripper opens but never closes in episodes [1].
+- Idle head or tail over 2 s in episodes [0, 3, 4, 5, 6, 7, 8, 17, 23]; trim before training.
 - Episodes [4] run over 60 s; a pick should take well under a minute.
 - No lighting field on any episode, so lighting variety cannot be checked.
 - Wrist camera frame rate is not stored per episode. git history: side and wrist 29-31 fps; wrist 18.7-22.6 fps on the spatula episodes; below 25 fps is a training concern.
-- 11 of 18 episodes have no handoff outcome attached.
+- 21 of 28 episodes have no handoff outcome attached.
 
 ## Handoffs: what the arm did, per item, lighting and skill source
 
@@ -242,18 +314,18 @@ Phase grouping: idle = parked, off, preview, killed and the idle monitor (arm no
 
 | Motor | Idle C | Moving C | Holding C | Peak C | Hold rise C/min | Min from idle to guard (hold) | Cool C/min |
 | --- | --- | --- | --- | --- | --- | --- | --- |
-| shoulder_pan | 46.0 | 48.0 | 50.0 | 51 | 1.03 | 13.6 | 0.99 |
-| shoulder_lift | 48.0 | 50.0 | 52.5 | 54 | 1.07 | 11.2 | 0.79 |
-| elbow_flex | 46.0 | 48.0 | 50.0 | 53 | 0.84 | 16.6 | 0.84 |
-| wrist_flex | 48.0 | 50.0 | 52.0 | 53 | 0.95 | 12.6 | 0.62 |
-| wrist_roll | 48.0 | 50.0 | 52.0 | 53 | 0.98 | 12.2 | 0.62 |
-| gripper | 50.0 | 52.0 | 54.0 | 57 | 1.13 | 8.8 | 0.78 |
+| shoulder_pan | 47.0 | 48.0 | 50.0 | 51 | 1.03 | 12.7 | 0.94 |
+| shoulder_lift | 48.0 | 50.0 | 52.5 | 54 | 1.07 | 11.2 | 0.85 |
+| elbow_flex | 47.0 | 49.0 | 50.0 | 53 | 0.84 | 15.4 | 0.85 |
+| wrist_flex | 48.0 | 50.0 | 52.0 | 54 | 0.95 | 12.6 | 0.67 |
+| wrist_roll | 48.0 | 50.0 | 52.0 | 53 | 0.98 | 12.2 | 0.66 |
+| gripper | 50.0 | 52.0 | 54.0 | 57 | 1.13 | 8.8 | 0.84 |
 
 Medians per phase group; the hold rate is a least-squares fit over the hold experiment (stretches of 60 s or more), the cool rate over the first 5 min of idle stretches that began at 49 C or more and fell at least 1 C. `n/a` means no usable stretch.
 
 ### Cooling
 
-Median fall 0.78 C/min over 152 motor-stretches; 60 C to 50 C would take about 13 min at that rate (linear extrapolation: the data never went above 55 C, and real cooling slows near the ambient floor).
+Median fall 0.84 C/min over 192 motor-stretches; 60 C to 50 C would take about 12 min at that rate (linear extrapolation: the data never went above 55 C, and real cooling slows near the ambient floor).
 
 ### Sessions
 
@@ -261,12 +333,12 @@ Median fall 0.78 C/min over 152 motor-stretches; 60 C to 50 C would take about 1
 | --- | --- | --- | --- | --- | --- | --- | --- |
 | 20261018-021820-bb73 | station | station | 39.3 | 3.7 | 49 | 53 (gripper) | 50.0 |
 | 20261018-013938-6072 | station | station | 36.4 | 2.5 | 49 | 53 (gripper) | 51.0 |
+| 20261018-055609-fc7a | station | station | 15.3 | 3.6 | 51 | 56 (gripper) | 53.0 |
 | 20261018-051102-59a8 | station | station | 13.3 | 2.3 | 52 | 55 (gripper) | 53.0 |
 | 20261018-025804-b097 | station | station | 12.8 | 0.9 | 50 | 50 (gripper) | 49.0 |
 | 20261018-034137-5acd | station | station | 12.8 | 0.3 | 51 | 52 (gripper) | 51.0 |
 | 20261018-040946-e7b6 | station | station | 12.2 | 3.2 | 52 | 56 (gripper) | 55.0 |
 | 20261018-000148-a7f0 | arm_session |  | 9.3 | 9.2 | 42 | 55 (gripper) | 53.0 |
-| 20261018-044924-a08a | station | station | 7.7 | 3.0 | 49 | 55 (gripper) | 53.0 |
 
 ### Settings: what kept it cool or hot
 
@@ -274,7 +346,7 @@ Gripper temperature at grasp start, by gripper `torque_limit`:
 
 | torque_limit | Grasps | Median C | Max C | Median |load| |
 | --- | --- | --- | --- | --- |
-| 350 | 333 | 52.0 | 57 | 322 |
+| 350 | 406 | 53.0 | 57 | 322 |
 
 Session settings that were the same in every session (so they cannot explain any difference): COOL_RESUME=50, COOL_TRIP=60, DEADBAND_DEG=0.4, EASE_DEG_S=45.0, GAP_DEG=25.0, GENTLE_ACCEL=40, GENTLE_SPEED=1200, GRIP_SQUEEZE=1.5, JOINT_LOAD_MAX=250. None of them varied.
 Register snapshot: acceleration [40, 254], torque_limit [500, 1000], goal_velocity [0, 1200], max_temperature_limit [70], overload_torque [25, 80].
@@ -284,8 +356,8 @@ Register snapshot: acceleration [40, 254], torque_limit [500, 1000], goal_veloci
 - gripper is the hottest motor: peak 57 C against a 60 C guard and a 70 C firmware limit. Nothing in the data reached the guard (hot events: 0).
 - With torque on and no motion, gripper warms fastest: 1.13 C/min. Holding is not free; every motor warms with torque on.
 - Plan for at most 264 s of continuous hold per pass (half of the 529 s the gripper needs from idle to the 60 C guard); then torque off or park.
-- Park or torque off between passes: motors fall about 0.78 C/min (median), so 60 C to 50 C takes about 13 min.
-- gripper and shoulder_lift idle warmest (50 and 48 C against 46 C for elbow_flex): their idle temperature is not a fault, only their rise is.
+- Park or torque off between passes: motors fall about 0.84 C/min (median), so 60 C to 50 C takes about 12 min.
+- gripper and shoulder_lift idle warmest (50 and 48 C against 47 C for elbow_flex): their idle temperature is not a fault, only their rise is.
 - No guard trips were recorded, so the guard values are untested on this data; keep COOL_TRIP at 60.
 
 ![heat_timeline](media/data/heat_timeline.png)
