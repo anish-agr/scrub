@@ -52,7 +52,15 @@ GRIP_LOAD_MAX = 300  # raw |Present_Load| (LeRobot caps the gripper near 500): a
 GRIP_LOAD_S = 1.0    # straining this long eases the claw open a unit per loop, before overload trips
 GRIP_TEMP_WARN = 55  # deg C: warn on the page
 GRIP_TEMP_EASE = 62  # deg C: open the claw until it cools (STS3215 shuts itself off near 70)
-GRIP_BACKOFF = 4.0   # on an overload reply, open this much per loop until the servo stops reporting it
+GRIP_BACKOFF = 4.0
+# Gripper torque by situation (Torque_Limit, 0-1000 = 0-100%; LeRobot's cap is 500). It drew ~100 mA all the
+# time while still, closed 86% of a session, and ran 3-8 C hotter than the other joints.
+GRIP_TORQUE_IDLE = 150   # closed on nothing and still: enough to stay shut
+GRIP_TORQUE_HOLD = 350   # holding an object: plenty for a spatula or an instrument
+GRIP_TORQUE_MOVE = 500   # moving / opening: LeRobot's limit
+GRIP_CLOSED_POS = 6.0    # at or below this the jaws are shut on nothing
+GRIP_IDLE_S = 1.5
+GRIP_DEAD_ZONE = 3       # encoder steps either side (factory 1): stop chasing sub-degree errors   # on an overload reply, open this much per loop until the servo stops reporting it
 
 
 DROP_TARGET = [None, False]  # camera index for the SCRUB_DROP_CAMERA drill, done flag
@@ -435,6 +443,9 @@ def guard_joints() -> None:
             for m in self.bus.motors:  # RAM registers: no torque cycling (a raised arm would drop)
                 self.bus.write("Acceleration", m, GENTLE_ACCEL)
                 self.bus.write("Goal_Velocity", m, GENTLE_SPEED)
+            with self.bus.torque_disabled("gripper"):  # EEPROM; only the claw relaxes for a moment
+                self.bus.write("CW_Dead_Zone", "gripper", GRIP_DEAD_ZONE)
+                self.bus.write("CCW_Dead_Zone", "gripper", GRIP_DEAD_ZONE)
             print(f"gentle mode: acceleration {GENTLE_ACCEL}, speed cap {GENTLE_SPEED} steps/s", flush=True)
         except Exception as e:  # noqa: BLE001 - LeRobot's defaults still work
             print(f"gentle mode not applied ({type(e).__name__})", flush=True)
@@ -556,9 +567,29 @@ def guard_gripper() -> None:
                 _guard_ui(True, round(st["hold"]))
         else:
             st["ref"] = None
+        _grip_torque(self.bus, st, pos, action["gripper.pos"], now)
         return send(self, action)
 
     SOFollower.send_action = guarded
+
+
+def _grip_torque(bus, st: dict, pos: float, goal: float, now: float) -> None:
+    """Idle shut -> 15%, holding something -> 35%, otherwise 50%. Writes only when the level changes."""
+    if st["hold"] is not None and pos > GRIP_CLOSED_POS:
+        want = GRIP_TORQUE_HOLD
+    elif pos <= GRIP_CLOSED_POS and goal <= pos + 1.0:
+        st["shut"] = st.get("shut") or now
+        want = GRIP_TORQUE_IDLE if now - st["shut"] > GRIP_IDLE_S else GRIP_TORQUE_MOVE
+    else:
+        st["shut"] = None
+        want = GRIP_TORQUE_MOVE
+    if want != st.get("torque"):
+        try:
+            bus.write("Torque_Limit", "gripper", want)
+            st["torque"] = want
+            _thermal_row({"kind": "event", "event": "gripper_torque", "torque_limit": want, "pos": round(pos, 1)})
+        except Exception:  # noqa: BLE001 - keep LeRobot's limit
+            pass
 
 
 def ease(follower_port: str, leader_port: str, seconds: float) -> None:
