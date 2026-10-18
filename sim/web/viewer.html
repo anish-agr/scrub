@@ -1,12 +1,13 @@
 <!doctype html>
 <!-- Scrub sim viewer. Style: technical drafting / printed shop layout sheet. Plain HTML + ES modules, no build step.
      Needs to be served (python -m sim, port 8002) because browsers block STL loading over file://. -->
-<html lang="en"><head>
+<html lang="en" data-theme="paper"><head>
 <meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
 <title>Scrub arm viewer</title>
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;600&family=IBM+Plex+Sans:wght@400;600&display=swap">
 <link rel="icon" href="data:,">
 <link rel="stylesheet" href="style.css">
+<link rel="stylesheet" href="page.css">
 <style>
 main{display:grid;grid-template-columns:minmax(0,1fr) 320px;gap:10px;padding:10px;align-items:start}
 #stage{position:relative;border:1px solid var(--rule);background:var(--sheet);height:min(72vh,640px);min-height:320px}
@@ -27,9 +28,9 @@ main{display:grid;grid-template-columns:minmax(0,1fr) 320px;gap:10px;padding:10p
  "three":"https://cdn.jsdelivr.net/npm/three@0.164.1/build/three.module.js",
  "three/examples/jsm/":"https://cdn.jsdelivr.net/npm/three@0.164.1/examples/jsm/",
  "urdf-loader":"https://unpkg.com/urdf-loader@0.12.3/src/URDFLoader.js"}}</script>
-</head><body>
+</head><body class="scrub-ui" data-page="sim-viewer">
 <header class="top">
-  <div class="title"><h1>Arm viewer</h1><div class="sub">SO-101 on the work table, base frame in mm</div></div>
+  <div class="title"><b class="wordmark">Scrub</b><h1>Arm viewer</h1><div class="sub">SO-101 on the work table, base frame in mm</div></div>
   <nav><a class="on" href="viewer.html">Viewer</a><a href="layout.html">Layout and kit</a></nav>
   <div class="block">SHEET SC-01 REV A<br>SCALE 1:1 (m)<br><span id="srcline">source: starting</span></div>
 </header>
@@ -53,12 +54,13 @@ main{display:grid;grid-template-columns:minmax(0,1fr) 320px;gap:10px;padding:10p
     <section class="panel"><h2>Joints</h2><div class="body" id="joints"></div></section>
     <section class="panel"><h2>Handover script</h2><div class="body">
       <div class="row"><select id="evItem" aria-label="Item"></select><button class="pri" id="runHandover">Run handover</button><button id="runPutBack">Put back</button></div>
-      <div class="row" style="margin-top:6px"><button id="stopBtn">Stop</button><span id="evStep" class="tag">idle</span></div>
+      <div class="row" style="margin-top:6px"><span id="evStep" class="tag">idle</span></div>
       <div id="log" style="margin-top:8px" aria-live="polite"></div>
     </div></section>
   </div>
 </main>
 <footer><span>Scrub sim viewer, DubHacks 2026</span><a href="#">Terms</a><a href="#">Privacy</a></footer>
+<div class="sim-stop-dock"><button id="stopBtn">Stop</button><p>Spacebar stops the simulation.</p></div>
 
 <script src="common.js"></script>
 <script type="module">

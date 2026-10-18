@@ -1,0 +1,31 @@
+/* Swiss technical sheet. Page-specific layout and legacy drawing aliases. */
+body.scrub-ui {
+  --sheet:var(--paper2); --ink2:var(--mute); --rule:var(--hair); --faint:var(--hair);
+  --accent:var(--cyan); --ok:var(--green); --warn:var(--amber); --bad:var(--red);
+  --sans:var(--f); --mono:var(--m);
+}
+.scrub-ui header.top { align-items:flex-end; }
+.top .title { flex:1 1 280px; }
+.top h1 { margin:8px 0 0; font-size:24px; }
+.top .sub { font:12px/1.5 var(--m); color:var(--mute); margin-top:8px; max-width:65ch; }
+.top nav a.on { text-decoration-thickness:3px; }
+.top .block { font:11px/1.5 var(--m); color:var(--mute); }
+.scrub-ui .panel { padding:10px 0 20px; border-top:2px solid var(--ink); background:transparent; }
+.panel h2 { margin:0 0 12px; font:700 12px/1.5 var(--f); letter-spacing:.14em; text-transform:uppercase; color:var(--mute); }
+.panel .body { padding:0; }
+.row { display:flex; flex-wrap:wrap; gap:8px; align-items:center; }
+.row :is(input,select) { min-width:0; }
+.tag { display:inline-block; font:600 12px var(--m); padding:4px 6px; border:1px solid currentColor; text-transform:uppercase; }
+.scrub-ui button.pri { background:var(--ink); color:var(--paper); }
+.scrub-ui label { font:12px var(--m); color:var(--mute); }
+.scrub-ui .ok { color:var(--green); }.scrub-ui .warn { color:var(--amber); }.scrub-ui .bad { color:var(--red); }
+.notice { padding:12px 24px; background:var(--paper2); border-block:1px solid var(--amber); color:var(--ink); }
+.notice code { font:12px var(--m); }
+.sim-stop-dock { position:sticky; bottom:0; z-index:10; background:var(--paper); padding:12px 24px; border-top:4px solid var(--ink); }
+.sim-stop-dock #stopBtn { font-size:28px; min-height:64px; }
+.sim-stop-dock p { font:12px var(--m); color:var(--mute); margin:8px 0 0; }
+@media(max-width:700px) {
+  .scrub-ui header.top nav { width:100%; }
+  .top .block { width:100%; }
+  .sim-stop-dock { padding:10px 16px; }
+}
