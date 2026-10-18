@@ -665,6 +665,8 @@ class Station:
 
     def _dispatch(self, action: str, task, payload=None):
         payload = payload or {}
+        if payload.get("heard"):  # from the page's voice control: say what triggered it
+            self.note(f"voice: {str(payload['heard'])[:80]!r} -> {action}")
         if action in ("kill", "home", "reconnect") and self.auto is not None:
             self._auto_abort(action)
         if action == "run":
@@ -1392,7 +1394,7 @@ def make_handler(st: Station):
             except ValueError:
                 body = {}
             out = st.control(str(body.get("action", "")), body.get("task"),
-                             payload={k: body[k] for k in ("driver", "args", "result", "question_id", "side") if k in body})
+                             payload={k: body[k] for k in ("driver", "args", "result", "question_id", "side", "heard") if k in body})
             self._send(200, json.dumps(out).encode(), "application/json")
 
         def _stream(self, name: str):
