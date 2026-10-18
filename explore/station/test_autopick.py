@@ -229,6 +229,11 @@ def test_calibrate_recovers_the_table_map(tmp_path, monkeypatch):
     import cv2
     real = AP.HERE / "autopick_calib.json"
     orig = real.read_text()
+    calibration = tmp_path / "autopick_calib.json"
+    calibration.write_text(orig)
+    read_calib = AP.load_calib
+    monkeypatch.setattr(AP, "HERE", tmp_path)
+    monkeypatch.setattr(AP, "load_calib", lambda path=calibration: read_calib(path))
     monkeypatch.setattr(AP, "FRAMES_DIR", tmp_path)
     st = St()
     d = AP.AutoPick({"mode": "calibrate"})
@@ -264,7 +269,7 @@ def test_calibrate_recovers_the_table_map(tmp_path, monkeypatch):
         p, q = hn @ np.array([530, 305, 1.0]), np.linalg.inv(h_true) @ np.array([530, 305, 1.0])
         assert np.linalg.norm(p[:2] / p[2] - q[:2] / q[2]) < 0.005
     finally:
-        real.write_text(orig)
+        assert real.read_text() == orig  # synthetic fitting must never overwrite the measured camera map
 
 
 def test_wrist_align_corrects_a_sideways_miss(monkeypatch):
