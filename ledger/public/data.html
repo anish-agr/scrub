@@ -1,0 +1,393 @@
+<!DOCTYPE html>
+<!-- STYLE: Swiss nurse-station data sheet. Read-only numbers from MongoDB Atlas. -->
+<html lang="en" data-theme="paper">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Scrub data</title>
+  <script>
+    (function () {
+      var q = new URLSearchParams(location.search).get("theme");
+      var dark = q ? q === "monitor" : (window.matchMedia && matchMedia("(prefers-color-scheme: dark)").matches);
+      if (dark) document.documentElement.setAttribute("data-theme", "monitor");
+    })();
+  </script>
+  <link rel="stylesheet" href="style.css">
+  <link rel="stylesheet" href="pages.css">
+  <style>
+    [data-page="data"] .read-line { display:flex; flex-wrap:wrap; gap:4px 16px; align-items:baseline; margin:0 0 8px; }
+    [data-page="data"] .read-line b { font:700 14px var(--m); text-transform:uppercase; letter-spacing:.04em; }
+    [data-page="data"] .truth { border:2px solid var(--ink); padding:12px 16px; margin:16px 0 0; max-width:80ch; }
+    [data-page="data"] .truth p:last-child { margin-bottom:0; }
+    [data-page="data"] .tiles { display:grid; grid-template-columns:repeat(auto-fit,minmax(160px,1fr)); gap:20px 24px; margin:0; }
+    [data-page="data"] .tiles .label { margin:0 0 4px; }
+    [data-page="data"] .tiles .readout { margin:0; font-size:clamp(32px,3.6vw,52px); }
+    [data-page="data"] .tiles .readout.none { font:600 16px/1.3 var(--m); color:var(--mute); padding-top:8px; }
+    [data-page="data"] .tiles .sub { font:12px var(--m); color:var(--mute); margin:4px 0 0; }
+    [data-page="data"] .scroll { overflow-x:auto; max-width:100%; -webkit-overflow-scrolling:touch; margin:0 0 16px; }
+    [data-page="data"] .scroll table { min-width:560px; }
+    [data-page="data"] .scroll th, [data-page="data"] .scroll td { white-space:nowrap; }
+    [data-page="data"] main, [data-page="data"] section, [data-page="data"] .page { min-width:0; max-width:100%; }
+    [data-page="data"] p, [data-page="data"] li { overflow-wrap:anywhere; }
+    [data-page="data"] h2 { font-size:22px; font-weight:800; letter-spacing:-.01em; margin:16px 0 8px; }
+    [data-page="data"] h2.sim { color:var(--amber); }
+    [data-page="data"] .chart { width:100%; height:auto; display:block; margin:8px 0; }
+    [data-page="data"] .chart text { font:11px var(--m); fill:var(--mute); }
+    [data-page="data"] .chart .grid { stroke:var(--hair); stroke-width:1; }
+    [data-page="data"] .chart .axis { stroke:var(--ink); stroke-width:1.5; }
+    [data-page="data"] .chart .hold { fill:var(--paper2); }
+    [data-page="data"] .key { display:flex; flex-wrap:wrap; gap:6px 18px; list-style:none; padding:0; margin:0 0 12px; font:12px var(--m); }
+    [data-page="data"] .key svg { vertical-align:middle; margin-right:6px; }
+    [data-page="data"] ul.plain { padding-left:20px; max-width:80ch; }
+    [data-page="data"] ul.plain li { padding:4px 0; }
+  </style>
+</head>
+<body class="scrub-ui" data-page="data">
+  <header class="top">
+    <div><span class="mark">Scrub</span><span class="subtitle">Data read from MongoDB Atlas</span></div>
+    <nav>
+      <a href="/">Count</a>
+      <a href="cases.html">Cases</a>
+      <a href="series.html">Series</a>
+      <a href="memory.html">Memory</a>
+      <a href="data.html" aria-current="page">Data</a>
+      <a href="card.html">Table card</a>
+    </nav>
+  </header>
+  <p id="status" class="banner warning" role="status" hidden></p>
+  <main>
+    <section>
+      <p class="kicker">What the database says</p>
+      <h1>Data</h1>
+      <p class="read-line"><b id="read-word">Checking</b><span id="read-text" class="note"></span></p>
+      <div class="truth" id="truth">
+        <p class="label">Real and simulation</p>
+        <p id="truth-arms">Loading counts.</p>
+        <p id="truth-trust"></p>
+        <p>Earlier rows before tags started are test data.</p>
+      </div>
+    </section>
+
+    <section>
+      <p class="kicker">Headline</p>
+      <div class="tiles" id="tiles"></div>
+    </section>
+
+    <section>
+      <p class="kicker">Handoffs</p>
+      <h2 id="real-title">Real arm</h2>
+      <p id="handoff-def" class="note"></p>
+      <div id="real-table"></div>
+      <h2 class="sim">Simulation</h2>
+      <p class="note">Fake-arm and simulated runs. Not counted in the real numbers above.</p>
+      <div id="sim-table"></div>
+      <div id="miss-table"></div>
+    </section>
+
+    <section>
+      <p class="kicker">Motor heat</p>
+      <h2 id="heat-title">Temperature over a session</h2>
+      <ul class="key" id="heat-key"></ul>
+      <div id="heat-chart"></div>
+      <div id="heat-table"></div>
+      <ul class="plain" id="heat-recs"></ul>
+    </section>
+
+    <section>
+      <p class="kicker">Training episodes</p>
+      <div id="ep-tasks"></div>
+      <div id="ep-table"></div>
+      <ul class="plain" id="ep-flags"></ul>
+    </section>
+
+    <section>
+      <p class="kicker">Reads</p>
+      <p id="reads-rule" class="note"></p>
+      <div id="reads-kind"></div>
+      <div id="reads-method"></div>
+      <p id="reads-captions" class="note"></p>
+    </section>
+
+    <section>
+      <p class="kicker">Numbers and queries</p>
+      <div id="numbers"></div>
+    </section>
+  </main>
+  <footer>Read-only. Numbers regenerate with python -m explore.analysis. Queries: docs/DATA.md</footer>
+  <script>
+    "use strict";
+    var NONE = "no real data yet";
+    var SVGNS = "http://www.w3.org/2000/svg";
+
+    function obj(v) { return v && typeof v === "object" && !Array.isArray(v) ? v : {}; }
+    function arr(v) { return Array.isArray(v) ? v : []; }
+    function num(v) { return typeof v === "number" && isFinite(v) ? v : null; }
+    function el(tag, cls, text) {
+      var n = document.createElement(tag);
+      if (cls) n.className = cls;
+      if (text != null) n.textContent = String(text);
+      return n;
+    }
+    function fmt(v, digits) {
+      if (v == null || v === "") return "";
+      if (typeof v === "boolean") return v ? "yes" : "no";
+      if (typeof v === "number") {
+        if (!isFinite(v)) return "";
+        if (digits != null) return v.toFixed(digits);
+        return Number.isInteger(v) ? String(v) : String(Math.round(v * 100) / 100);
+      }
+      if (typeof v === "object") return JSON.stringify(v);
+      return String(v);
+    }
+    function pct(v) { var n = num(v); return n == null ? "" : Math.round(n * 100) + "%"; }
+
+    // cols: [[header, key or function(row)]]
+    function table(target, rows, cols, caption) {
+      var box = document.getElementById(target);
+      box.replaceChildren();
+      rows = arr(rows);
+      if (caption) box.appendChild(el("p", "label", caption));
+      if (!rows.length) { box.appendChild(el("p", "empty", NONE)); return; }
+      var wrap = el("div", "scroll");
+      var t = el("table");
+      var head = el("tr");
+      cols.forEach(function (c) { head.appendChild(el("th", null, c[0])); });
+      var thead = el("thead"); thead.appendChild(head); t.appendChild(thead);
+      var body = el("tbody");
+      rows.forEach(function (r) {
+        r = obj(r);
+        var tr = el("tr");
+        cols.forEach(function (c) {
+          var v = typeof c[1] === "function" ? c[1](r) : fmt(r[c[1]]);
+          tr.appendChild(el("td", null, v));
+        });
+        body.appendChild(tr);
+      });
+      t.appendChild(body); wrap.appendChild(t); box.appendChild(wrap);
+    }
+
+    function tile(label, value, sub) {
+      var d = el("div");
+      d.appendChild(el("p", "label", label));
+      var none = value == null || value === "";
+      d.appendChild(el("p", none ? "readout none" : "readout", none ? NONE : value));
+      if (sub) d.appendChild(el("p", "sub", sub));
+      return d;
+    }
+
+    function paintTruth(r) {
+      var ov = obj(r.overview), arms = obj(ov.events_by_arm), h = obj(r.handoffs);
+      var keys = Object.keys(arms);
+      document.getElementById("truth-arms").textContent = keys.length
+        ? "Events by arm: " + ["real", "fake", "sim", "pretag"].filter(function (k) { return k in arms; })
+            .concat(keys.filter(function (k) { return ["real", "fake", "sim", "pretag"].indexOf(k) < 0; }))
+            .map(function (k) { return k + " " + fmt(arms[k]); }).join(", ") + ". Real is the physical SO-101; fake and sim are the fake arm and the simulator."
+        : "Events by arm: " + NONE + ".";
+      var trust = document.getElementById("truth-trust");
+      if (h.trusted === true) trust.textContent = "The real handoff rows look trustworthy. " + fmt(h.why);
+      else if (h.trusted === false) trust.textContent = "The rows tagged real are suspect. " + fmt(h.why);
+      else trust.textContent = fmt(h.why);
+    }
+
+    function paintTiles(r) {
+      var ov = obj(r.overview), h = obj(r.handoffs), reads = obj(r.reads), heat = obj(r.heat);
+      var peak = null, peakName = "";
+      arr(heat.motors).forEach(function (m) {
+        m = obj(m);
+        var v = num(m.max_c);
+        if (v != null && (peak == null || v > peak)) { peak = v; peakName = fmt(m.motor); }
+      });
+      var hours = num(ov.hours_recorded);
+      var real = num(h.real_rows);
+      var handed = (h.table || []).reduce(function (a, r) { return a + (num(r.successes) || 0); }, 0);
+      var tiles = document.getElementById("tiles");
+      tiles.replaceChildren(
+        tile("Episodes", num(ov.episodes) ? fmt(ov.episodes) : null, "LeRobot training recordings"),
+        tile("Hours recorded", hours ? hours.toFixed(2) : null, "episode duration, summed"),
+        tile("Real handoffs", h.trusted && handed ? fmt(handed) : null,
+          h.trusted === false && real ? fmt(real) + " rows tagged real are a test run" : "physical arm only"),
+        tile("Reads", num(reads.total) ? fmt(reads.total) : null, "camera and model reads"),
+        tile("Hottest motor", peak != null ? peak.toFixed(1) + " °C" : null, peak != null ? peakName + " peak" : "")
+      );
+    }
+
+    var HANDOFF_COLS = [
+      ["Item", "item"], ["Lighting", "lighting"], ["Skill", "skill_source"], ["Tries", "tries"],
+      ["OK", "successes"], ["Rate", function (r) { return pct(r.rate); }],
+      ["95% range", function (r) { return num(r.low) == null ? "" : pct(r.low) + " to " + pct(r.high); }],
+      ["Median s", function (r) { return fmt(num(r.median_s), 1); }], ["p90 s", function (r) { return fmt(num(r.p90_s), 1); }],
+      ["Retries", "retries"], ["Misses", "misses"], ["Stops", "stops"]
+    ];
+
+    function paintHandoffs(r) {
+      var h = obj(r.handoffs);
+      document.getElementById("real-title").textContent = h.trusted === false ? "Tagged real (suspect)" : "Real arm";
+      document.getElementById("handoff-def").textContent = fmt(h.definition);
+      table("real-table", h.table, HANDOFF_COLS);
+      table("sim-table", h.sim_table, HANDOFF_COLS);
+      table("miss-table", h.miss_reasons, [["Miss reason", "reason"], ["Count", "n"]], "Why handoffs missed");
+    }
+
+    var LINES = [
+      { c: "var(--ink)", d: "" }, { c: "var(--cyan)", d: "" }, { c: "var(--green)", d: "" },
+      { c: "var(--mute)", d: "" }, { c: "var(--ink)", d: "6 3" }, { c: "var(--cyan)", d: "6 3" },
+      { c: "var(--green)", d: "2 3" }, { c: "var(--mute)", d: "2 3" }
+    ];
+    function svg(tag, attrs) {
+      var n = document.createElementNS(SVGNS, tag);
+      Object.keys(attrs || {}).forEach(function (k) { n.setAttribute(k, attrs[k]); });
+      return n;
+    }
+    function swatch(color, dash) {
+      var s = svg("svg", { width: "24", height: "8", "aria-hidden": "true" });
+      s.appendChild(svg("line", { x1: "0", y1: "4", x2: "24", y2: "4", stroke: color, "stroke-width": "2.5", "stroke-dasharray": dash || "" }));
+      return s;
+    }
+    function ticks(lo, hi, n) {
+      var span = hi - lo || 1, raw = span / n, mag = Math.pow(10, Math.floor(Math.log10(raw)));
+      var step = [1, 2, 5, 10].map(function (m) { return m * mag; }).find(function (s) { return span / s <= n; }) || mag * 10;
+      var out = [];
+      for (var v = Math.ceil(lo / step) * step; v <= hi + 1e-9; v += step) out.push(Math.round(v * 1000) / 1000);
+      return out;
+    }
+
+    function paintHeat(r) {
+      var heat = obj(r.heat), s = obj(heat.series), temps = obj(s.temps), t = arr(s.t_min);
+      var chart = document.getElementById("heat-chart"), key = document.getElementById("heat-key");
+      chart.replaceChildren(); key.replaceChildren();
+      document.getElementById("heat-title").textContent = s.session ? "Temperature over session " + fmt(s.session) : "Temperature over a session";
+      var motors = Object.keys(temps).filter(function (m) { return arr(temps[m]).length; });
+      var limit = num(heat.limit_c), guard = num(heat.guard_c);
+      if (!t.length || !motors.length) { chart.appendChild(el("p", "empty", NONE)); }
+      else {
+        var W = 720, H = 300, L = 44, R = 12, T = 12, B = 36;
+        var all = [];
+        motors.forEach(function (m) { arr(temps[m]).forEach(function (v) { if (num(v) != null) all.push(v); }); });
+        if (limit != null) all.push(limit);
+        if (guard != null) all.push(guard);
+        var ylo = Math.floor(Math.min.apply(null, all) - 2), yhi = Math.ceil(Math.max.apply(null, all) + 2);
+        var xs = t.filter(function (v) { return num(v) != null; });
+        var xlo = Math.min.apply(null, xs), xhi = Math.max.apply(null, xs);
+        if (xhi === xlo) xhi = xlo + 1;
+        var X = function (v) { return L + (v - xlo) / (xhi - xlo) * (W - L - R); };
+        var Y = function (v) { return T + (yhi - v) / (yhi - ylo) * (H - T - B); };
+        var g = svg("svg", { viewBox: "0 0 " + W + " " + H, class: "chart", role: "img",
+          "aria-label": "Motor temperature in degrees C against minutes, one line per motor" });
+        var phase = arr(s.phase);
+        for (var i = 0; i < t.length - 1; i++) {
+          if (phase[i] === "holding" && num(t[i]) != null && num(t[i + 1]) != null)
+            g.appendChild(svg("rect", { class: "hold", x: X(t[i]), y: T, width: Math.max(0, X(t[i + 1]) - X(t[i])), height: H - T - B }));
+        }
+        ticks(ylo, yhi, 5).forEach(function (v) {
+          g.appendChild(svg("line", { class: "grid", x1: L, x2: W - R, y1: Y(v), y2: Y(v) }));
+          var lab = svg("text", { x: L - 6, y: Y(v) + 4, "text-anchor": "end" }); lab.textContent = String(v); g.appendChild(lab);
+        });
+        ticks(xlo, xhi, 6).forEach(function (v) {
+          var lab = svg("text", { x: X(v), y: H - B + 16, "text-anchor": "middle" }); lab.textContent = String(v); g.appendChild(lab);
+        });
+        g.appendChild(svg("line", { class: "axis", x1: L, x2: W - R, y1: H - B, y2: H - B }));
+        g.appendChild(svg("line", { class: "axis", x1: L, x2: L, y1: T, y2: H - B }));
+        var xl = svg("text", { x: (L + W - R) / 2, y: H - 4, "text-anchor": "middle" }); xl.textContent = "minutes"; g.appendChild(xl);
+        var yl = svg("text", { x: 4, y: T + 8 }); yl.textContent = "°C"; g.appendChild(yl);
+        [[guard, "var(--amber)", "guard"], [limit, "var(--red)", "limit"]].forEach(function (ref) {
+          if (ref[0] == null) return;
+          g.appendChild(svg("line", { x1: L, x2: W - R, y1: Y(ref[0]), y2: Y(ref[0]), stroke: ref[1], "stroke-width": "1.5", "stroke-dasharray": "5 4" }));
+          var lab = svg("text", { x: W - R - 4, y: Y(ref[0]) - 4, "text-anchor": "end" });
+          lab.textContent = ref[2] + " " + ref[0] + " °C"; g.appendChild(lab);
+        });
+        motors.forEach(function (m, k) {
+          var st = LINES[k % LINES.length], vals = arr(temps[m]), d = "", pen = false;
+          for (var j = 0; j < Math.min(vals.length, t.length); j++) {
+            if (num(vals[j]) == null || num(t[j]) == null) { pen = false; continue; }
+            d += (pen ? "L" : "M") + X(t[j]).toFixed(1) + " " + Y(vals[j]).toFixed(1);
+            pen = true;
+          }
+          g.appendChild(svg("path", { d: d, fill: "none", stroke: st.c, "stroke-width": "2", "stroke-dasharray": st.d, "stroke-linejoin": "round" }));
+          var li = el("li"); li.appendChild(swatch(st.c, st.d)); li.appendChild(document.createTextNode(m)); key.appendChild(li);
+        });
+        if (guard != null) { var gl = el("li"); gl.appendChild(swatch("var(--amber)", "5 4")); gl.appendChild(document.createTextNode("guard")); key.appendChild(gl); }
+        if (limit != null) { var ll = el("li"); ll.appendChild(swatch("var(--red)", "5 4")); ll.appendChild(document.createTextNode("limit")); key.appendChild(ll); }
+        if (phase.indexOf("holding") >= 0) {
+          var hl = el("li"), sw = svg("svg", { width: "24", height: "10", "aria-hidden": "true" });
+          sw.appendChild(svg("rect", { width: "24", height: "10", fill: "var(--paper2)", stroke: "var(--hair)" }));
+          hl.appendChild(sw); hl.appendChild(document.createTextNode("holding")); key.appendChild(hl);
+        }
+        chart.appendChild(g);
+      }
+      table("heat-table", heat.motors, [
+        ["Motor", "motor"], ["Idle °C", function (m) { return fmt(num(m.idle_c), 1); }],
+        ["Moving °C", function (m) { return fmt(num(m.moving_c), 1); }], ["Holding °C", function (m) { return fmt(num(m.holding_c), 1); }],
+        ["Max °C", function (m) { return fmt(num(m.max_c), 1); }], ["Rise °C/min holding", function (m) { return fmt(num(m.rise_c_per_min_holding), 2); }],
+        ["To limit s", function (m) { return fmt(num(m.time_to_limit_s), 0); }], ["Cool °C/min", function (m) { return fmt(num(m.cool_c_per_min), 2); }]
+      ], "Per motor" + (limit != null ? " (limit " + limit + " °C" + (guard != null ? ", guard " + guard + " °C" : "") + ")" : ""));
+      var recs = document.getElementById("heat-recs");
+      recs.replaceChildren.apply(recs, arr(heat.recommendations).map(function (x) { return el("li", null, fmt(x)); }));
+    }
+
+    function paintEpisodes(r) {
+      var e = obj(r.episodes), local = obj(e.local_dataset);
+      table("ep-tasks", e.tasks, [["Task", "task"], ["Episodes", "count"], ["Start spread °", function (x) { return fmt(num(x.start_spread_deg), 1); }]],
+        "Tasks" + (num(local.episodes) != null ? " (local dataset: " + local.episodes + " episodes, " + fmt(local.frames) + " frames)" : ""));
+      table("ep-table", e.episodes, [
+        ["#", "episode_index"], ["Task", "task"], ["Frames", "length"], ["Seconds", function (x) { return fmt(num(x.duration_s), 1); }],
+        ["fps", "fps"], ["Idle start s", function (x) { return fmt(num(x.idle_start_s), 1); }], ["Idle end s", function (x) { return fmt(num(x.idle_end_s), 1); }],
+        ["Grip close s", function (x) { return fmt(num(x.gripper_close_s), 1); }], ["Verdict", "verdict"], ["Reason", "reason"]
+      ], "Episodes and verdicts");
+      var flags = document.getElementById("ep-flags");
+      flags.replaceChildren.apply(flags, arr(e.flags).map(function (x) { return el("li", null, fmt(x)); }));
+    }
+
+    function paintReads(r) {
+      var rd = obj(r.reads), cap = obj(rd.captions);
+      document.getElementById("reads-rule").textContent = fmt(rd.rule);
+      table("reads-kind", rd.by_kind, [
+        ["Kind", "kind"], ["Reads", "n"], ["OK", "ok"], ["Correct", "correct"], ["Accuracy", function (x) { return pct(x.accuracy); }],
+        ["Median ms", function (x) { return fmt(num(x.median_ms), 0); }], ["p90 ms", function (x) { return fmt(num(x.p90_ms), 0); }]
+      ], "By kind" + (num(rd.total) != null ? " (" + rd.total + " total)" : ""));
+      table("reads-method", rd.by_method, [
+        ["Method", "method"], ["Answered", "answered"], ["Attempted", "attempted"], ["Failed", "failed"],
+        ["Median ms", function (x) { return fmt(num(x.median_ms), 0); }]
+      ], "By method" + (num(rd.fallback_rescues) != null ? " (fallback rescues: " + rd.fallback_rescues + ")" : ""));
+      document.getElementById("reads-captions").textContent = num(cap.n)
+        ? "Captions: " + cap.n + " read, " + fmt(cap.agrees) + " agree with the count" + (num(cap.median_ms) != null ? ", median " + Math.round(cap.median_ms) + " ms." : ".")
+        : "";
+    }
+
+    function paint(r) {
+      r = obj(r);
+      var word = document.getElementById("read-word");
+      var src = r.source === "mongo" || r.source == null ? "MongoDB Atlas" : fmt(r.source);
+      word.textContent = r.read_at_text ? src : "Not read yet";
+      word.className = r.read_at_text ? "status-word live" : "status-word wait";
+      document.getElementById("read-text").textContent = "read " + (r.read_at_text ? fmt(r.read_at_text) + " " : "") + "from " + src + ". The page checks again every minute.";
+      [paintTruth, paintTiles, paintHandoffs, paintHeat, paintEpisodes, paintReads].forEach(function (f) {
+        try { f(r); } catch (err) { /* one bad section must not blank the rest */ }
+      });
+      table("numbers", r.numbers, [["Number", "name"], ["Value", "value"], ["Query", "query"], ["Read", "read_at"]]);
+    }
+
+    function banner(text) {
+      var s = document.getElementById("status");
+      s.textContent = text || "";
+      s.hidden = !text;
+    }
+
+    var painted = false;
+    async function load() {
+      try {
+        var res = await fetch("/api/data", { cache: "no-store" });
+        var body = await res.json().catch(function () { return {}; });
+        if (!res.ok) { banner(res.status === 404 ? "No analysis yet. Run python -m explore.analysis." : "Data did not load. Retrying in a minute."); if (!painted) paint({}); return; }
+        banner("");
+        paint(body);
+        painted = true;
+      } catch (err) {
+        banner("Data did not load. Retrying in a minute.");
+      }
+    }
+
+    load();
+    setInterval(load, 60000);
+  </script>
+</body>
+</html>
