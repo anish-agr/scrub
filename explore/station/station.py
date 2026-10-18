@@ -635,6 +635,11 @@ class Station:
             if self.state != "running" or self.auto is None or not callable(getattr(self.auto, "answer", None)):
                 return False, "which one: no active question"
             return self.auto.answer(self, payload.get("question_id"), payload.get("side"))
+        if action == "release":  # "let go" (voice or the page): open at the offer
+            if self.state != "running" or self.auto is None or not callable(getattr(self.auto, "release", None)):
+                return False, "let go: nothing is being held out"
+            self.auto.release()
+            return True, "letting go"
         if action == "stop":
             if self.auto is None:
                 return False, "stop: nothing is running"

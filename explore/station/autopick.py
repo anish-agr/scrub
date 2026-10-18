@@ -419,6 +419,66 @@ def detect_handle(bgr, detector=None, label="scalpel handle", in_reach=None, use
     return None if best is None else best[1:]
 
 
+EPISODES_DIR = Path.home() / "scrub-logs" / "episodes"  # local copy of every saved demo (to_mongo.upload_episode)
+ALL_JOINTS = JOINTS + ["gripper"]
+
+
+def demo_keyposes(state, fps=30):
+    """Key poses of one demo from its joint trajectory (degrees, 6 columns incl gripper): approach (above the
+    item, jaw open), grasp (the moment the jaw closes on it), lift (highest point after the grasp, by shoulder
+    lift), handoff (where the jaw opens again, the release). None if no clear grasp."""
+    a = np.asarray(state, float)
+    if a.ndim != 2 or a.shape[1] < 6 or len(a) < fps:
+        return None
+    g = a[:, 5]
+    i_open = int(np.argmax(g[: max(2, int(len(g) * 0.8))]))
+    after = g[i_open:]
+    g_open, g_min = float(g[i_open]), float(after.min())
+    if g_open - g_min < 8:  # the jaw never really closed
+        return None
+    thr = g_open - 0.7 * (g_open - g_min)
+    i_grasp = i_open + int(np.argmax(after < thr))  # the arm's pose as the jaw closes (lifting starts right after)
+    i_closed = min(len(a) - 1, i_grasp + int(0.3 * fps))  # the jaw's own value once it has finished closing
+    i_app = max(0, i_grasp - int(1.2 * fps))
+    seg = a[i_grasp: i_grasp + int(4 * fps)]
+    i_lift = i_grasp + int(np.argmin(seg[:, 1])) if len(seg) else i_grasp  # shoulder_lift most negative = highest
+    rel = np.nonzero(g[i_closed:] > g[i_closed] + 0.6 * (g_open - g[i_closed]))[0]
+    i_hand = i_closed + int(rel[0]) - int(0.3 * fps) if len(rel) else None
+    pose = lambda i: {m: float(a[i, k]) for k, m in enumerate(ALL_JOINTS)}  # noqa: E731
+    out = {"approach": pose(i_app), "grasp": pose(i_grasp), "lift": pose(i_lift), "grip_closed": float(a[i_closed, 5]),
+           "open": g_open, "frames": {"approach": i_app, "grasp": i_grasp, "lift": i_lift, "handoff": i_hand}}
+    if i_hand is not None and i_hand > i_lift:
+        out["handoff"] = pose(i_hand)
+    return out
+
+
+def learn_demos(task, min_episode=0, folder=None):
+    """Median key poses over the saved demos of a task. {} if none usable."""
+    rows = []
+    for f in sorted(Path(folder or EPISODES_DIR).glob("ep-*.json")):
+        if "-start" in f.name:
+            continue
+        try:
+            d = json.loads(f.read_text())
+        except Exception:  # noqa: BLE001
+            continue
+        if d.get("task") != task or int(d.get("episode_index", -1)) < min_episode:
+            continue
+        k = demo_keyposes(d["state"], int(d.get("fps") or 30))
+        if k:
+            rows.append((d["episode_index"], k))
+    if not rows:
+        return {}
+    out = {"episodes": [r[0] for r in rows]}
+    for key in ("approach", "grasp", "lift", "handoff"):
+        got = [r[1][key] for r in rows if key in r[1]]
+        if got:
+            out[key] = {m: float(np.median([p[m] for p in got])) for m in ALL_JOINTS}
+    out["grip_closed"] = float(np.median([r[1]["grip_closed"] for r in rows]))
+    out["open"] = float(np.median([r[1]["open"] for r in rows]))
+    return out
+
+
 def min_jerk(s: float) -> float:
     s = min(1.0, max(0.0, s))
     return s * s * s * (10 - 15 * s + 6 * s * s)
@@ -430,7 +490,9 @@ class AutoPick:
     def __init__(self, args: dict | None = None, calib: dict | None = None, detector=None, kin=None):
         args = dict(args or {})
         self.mode = args.get("mode", "handoff")
-        if self.mode not in ("handoff", "hold", "offer", "calibrate", "look"):
+        self.task = args.get("task", "pick the scalpel")
+        self.min_episode = int(args.get("min_episode", 18))  # demos from the current setup (camera moved after 17)
+        if self.mode not in ("handoff", "hold", "offer", "calibrate", "look", "learned"):
             raise ValueError("mode must be 'handoff' (wait for a hand, release, go home) or 'hold' (bring it home)")
         self.align = bool(args.get("align", True))  # wrist-camera line-up before going down
         self.detector_kind = args.get("detector", "local")
@@ -483,6 +545,18 @@ class AutoPick:
         self._choice_st = st
         self.start_pose = {m: float(st.joints[m]) for m in JOINTS}
         self.start_pose["gripper"] = float(st.gripper if st.gripper is not None else JAW_OPEN)
+        if self.mode == "learned":  # replay what the demos taught: smooth, then offer and let go on command
+            demo = learn_demos(self.task, self.min_episode)
+            if "grasp" not in demo:
+                self._phase, self._detail = "failed", f"no usable demos for {self.task!r} (episode >= {self.min_episode})"
+                st.note("autopick: " + self._detail)
+                return
+            self.found = {"demos": demo["episodes"]}
+            self.plan = self._learned_plan(st, demo)
+            self.mode = "handoff"  # after the plan: offer, wait for "let go" or a hand, release, home
+            self._phase = self.plan[0]["name"]
+            st.note(f"autopick: learned from demos {demo['episodes']}; picking it up")
+            return
         if self.mode == "calibrate":
             self.cal_run = Calibrate(self, st)
             self._phase, self._detail = "calibrate", "mapping the camera to the table with the jaw tape"
@@ -701,6 +775,11 @@ class AutoPick:
                 self.h_jbase = here
             pulled = max(abs(here[m] - self.h_jbase[m]) for m in JOINTS) >= GRAB_JOINT_DEG
             moved = (jaw is not None and jb is not None and abs(jaw - jb) >= GRAB_JAW) or pulled
+            if getattr(self, "_release_req", False):
+                self._release_req = False
+                self._log(st, event="hand", source="let go command", frames=("side@hand", "wrist@hand"))
+                self._set(st, "release", now, "let go (command)")
+                return self._hold_action(pose)
             tugged = load is not None and l0 is not None and abs(load - l0) >= max(GRAB_LOAD, 4 * ln)
             if moved or tugged:
                 self.h_since = self.h_since or now
@@ -818,6 +897,30 @@ class AutoPick:
         self.plan = self.plan[: self.seg + 1] + rest
         self.seg += 1
         return None
+
+    def _learned_plan(self, st, demo) -> list[dict]:
+        temps = st.temps() if callable(getattr(st, "temps", None)) else (getattr(st, "temps", None) or {})
+        slow = WARM_SLOW if max([t for t in temps.values() if isinstance(t, (int, float))], default=0) >= WARM_C else 1.0
+        jaw_open = max(demo.get("open", JAW_OPEN), 20.0)
+        g, a = demo["grasp"], demo["approach"]
+        lift = demo.get("lift", a)
+        steps = [("approach", {**a, "gripper": jaw_open}, 0.3, "above it, jaw open (as in the demos)"),
+                 ("descend", {**g, "gripper": jaw_open}, 0.3, "jaw around it"),
+                 ("grip", {**g, "gripper": JAW_CLOSE}, 0.5, "squeezing"),
+                 ("lift", {**lift, "gripper": JAW_CLOSE}, 0.0, "lifting it")]
+        if "handoff" in demo:
+            steps.append(("present", {**demo["handoff"], "gripper": JAW_CLOSE}, 0.3, "to the hand-off spot (from the demos)"))
+        plan, cur = [], dict(self.start_pose)
+        for name, to, hold, detail in steps:
+            span = max(abs(to[m] - cur[m]) for m in JOINTS)
+            dur = max(MIN_MOVE_S, span * MJ_PEAK / MAX_DEG_S, abs(to["gripper"] - cur["gripper"]) * MJ_PEAK / 60.0) * slow
+            plan.append({"name": name, "from": dict(cur), "to": to, "dur": round(dur, 2), "hold": hold, "detail": detail})
+            cur = to
+        return plan
+
+    def release(self) -> None:
+        """'let go' (voice or the page): open at the offer right away."""
+        self._release_req = True
 
     def plan_names(self):
         return [p["name"] for p in self.plan]
