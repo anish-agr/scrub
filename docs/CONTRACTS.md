@@ -69,6 +69,7 @@ Every part codes against these. Build against fake inputs that match them, and t
 ```
 
 - `action` is one of `handover`, `return`, `count`, `stop`, `got_it`, `unknown`.
+- Optional actions (reading, from the OCR pass): `read_sheet` (read the count sheet in view), `read_tray` (read the tray tag and switch to that setting when idle), `read_pack` (read sterile pack labels and warn on an expired date). `item` is `null`. A controller that doesn't know them rejects them as `unknown`.
 - `item` is an item id from the current setting, or `null` for `count`, `stop`, `got_it` and `unknown`. For `return` it is the item id when one was named ("put the hemostat back"; auto returns always name it), or `null`: the controller then takes the item in the return spot from a fresh TrayState, else the last item out. Events of a return flow carry the item id either way.
 - `source` is one of `voice`, `keyboard`, `dashboard`, or `auto` (the controller's own return when an item sits in the return spot, F1; it appears only on `command` events, never in a POST).
 - `got_it` means release now (the voice fallback for release on pull).
@@ -93,6 +94,8 @@ Every part codes against these. Build against fake inputs that match them, and t
 ```
 
 - `out_camera` (optional): what the camera says is out, from the latest fresh TrayState: items whose slot is empty, minus anything sitting in the return spot. `null` when there's no fresh TrayState. `count` compares it with `out` and says if they disagree.
+- `sheet` (optional): the last count sheet read this case, `{"tray", "items": {"<item id>": {"expected", "initial", "closing"}}, "method", "t"}`, or `null`. Counts are integers or `null` when the box is empty or unreadable.
+- `packs` (optional): pack labels read this case, `[{"item", "lot", "expires", "expired"}]`. `expires` is `YYYY-MM-DD` or `null`.
 - `case_id` (optional): the current case, `<setting>-<unix start seconds>`. A new case starts when the controller starts, when the setting changes and on `POST /reset` with `clear_count`.
 - `judge` (optional): `true` in judge mode (`POST /judge`).
 - `skills` (optional): `{"mode": "model" | "taught" | "auto", "items": {"<item id>": "model" | "taught" | null}}`. `mode` is the controller's `--skills`; each item has the source its next pick would use (`null`: `--skills taught` and no taught skill for that item, so a handover is refused).
@@ -172,6 +175,8 @@ Every part codes against these. Build against fake inputs that match them, and t
 ```
 
 - `type` is one of `command`, `step`, `picked`, `handed`, `set_down`, `released`, `returned`, `missed`, `count`, `stopped`, `error`.
+- Optional `type` `read`: the result of a reading command, with a `read` object `{"kind": "count_sheet" | "tray_tag" | "pack_label", "ok", "method": "qr" | "perceptron" | "gemini" | null, "latency_ms", ...}` plus the reader's fields (vision `POST /read/*`). Its `say` is the spoken answer.
+- `sheet_mismatch` (optional) on `count` events, when a count sheet was read this case: `[{"item", "sheet", "scrub"}]`, where the sheet's count and Scrub's count of that item on the tray differ.
 - `say` is the line the voice server speaks, or `null`. Only the controller writes these lines, so wording lives in one place.
 - Every field except `type` and `t` can be `null`.
 - `case_id` (optional): the case this event belongs to, same value as in State.
