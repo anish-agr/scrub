@@ -243,9 +243,9 @@ Gemini (`gemini-3.8-flash`, thinking level low) turns what a person said into on
 
 ## Gemini Project Number
 
-Project ID: `gen-lang-client-0121141463` (the Google Cloud project behind the voice server's Gemini key).
+Project IDs: `gen-lang-client-0121141463` and `gen-lang-client-0653014659` (our two Google Cloud projects with Gemini keys).
 
-<!-- Safe to publish: a project ID names the project and grants no access; calling Gemini needs the API key, which stays in .env and is not in the repo. The form asks for the Project NUMBER, which Google shows separately as digits only. Paste the ID above if the field accepts it; if it wants digits, open https://console.cloud.google.com/home/dashboard?project=gen-lang-client-0121141463 (signed in as the key's owner) and copy "Project number" from the Project info card. -->
+<!-- Safe to publish: a project ID names the project and grants no access; calling Gemini needs the API key, which stays in .env and is not in the repo. The form asks for the Project NUMBER, which Google shows separately as digits only. The form has one field: enter the project whose key is GEMINI_API_KEY in .env (the voice server and the vision OCR fallback use it). To tell which, open https://aistudio.google.com/apikey, match the key by its last 4 characters (`grep '^GEMINI_API_KEY=' .env | tail -c 5`), and read its project. If the field wants digits, open https://console.cloud.google.com/home/dashboard?project=<that id> and copy "Project number" from the Project info card. If the form allows more, list both IDs. -->
 
 ## Final checklist
 
@@ -253,7 +253,7 @@ Project ID: `gen-lang-client-0121141463` (the Google Cloud project behind the vo
 2. Video: upload unlisted to YouTube, paste the URL in the Devpost video field, and open it once logged out to check it plays.
 3. Thumbnail: upload `media/scrub-logo.png`.
 4. Tracks: tick Community Kitchen, Perceptron Robotics, Perceptron Perception, DubHacks NEXT, MLH Gemini, MLH MongoDB Atlas, MLH Vultr, MLH Commit Fellowship. Third sponsored track: SideShift, or Photon in its place only if a call is confirmed in call history. No more than 3 sponsored tracks (see devpost/TRACKS.md).
-5. Gemini Project Number: paste `gen-lang-client-0121141463` (or the digits-only number, see the note above). Leave the domain field as "None".
+5. Gemini Project Number: the project of the key in `.env` (`gen-lang-client-0121141463` or `gen-lang-client-0653014659`; see the note above for how to tell, and for the digits-only number). Leave the domain field as "None".
 6. Tick the AI tools listed above.
 7. Add all four team members on Devpost (Anish, Caiden, Brandon, Evan) and have each accept the invite.
 8. Add the public GitHub repo link.
