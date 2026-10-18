@@ -64,6 +64,12 @@ def parser():
     fi.add_argument("--manifest", default="manifest.json")
     fi.add_argument("--cut", action="store_true")
     fi.add_argument("--gemini", action="store_true", help="report optional scorer availability; never uploads by default")
+    ov=sub.add_parser('overlay',help='burn ledger-backed request, timing, steps, lighting and count')
+    ov.add_argument('--input',required=True)
+    ov.add_argument('--events',required=True)
+    ov.add_argument('--output',required=True)
+    ov.add_argument('--case-id')
+    ov.add_argument('--allow-synthetic',action='store_true')
     return p
 
 
@@ -108,6 +114,9 @@ def main(argv=None):
         elif args.command == "find":
             from .takes import find
             result = find(ws,args.events,args.manifest,args.cut,args.gemini)
+        elif args.command == 'overlay':
+            from .overlay import overlay
+            result=overlay(ws,args.input,args.events,args.output,args.case_id,args.allow_synthetic)
         else:
             raise ValueError("Unknown command")
         print(json.dumps(result, indent=2, allow_nan=False))

@@ -123,6 +123,23 @@ class VideoTests(unittest.TestCase):
             self.assertEqual(len(successful_trials(copy)[0]),0)
         self.assertEqual(len(successful_trials(rows+[{'type':'error','t':2.5,'command_id':'a'}])[0]),0)
 
+    def test_overlay_never_shows_a_future_measurement_or_count(self):
+        from video.overlay import display_state
+        rows=[{'type':'command','action':'handover','heard':'kelly','command_id':'a','t':10,'out':[]},
+              {'type':'handed','command_id':'a','t':16.4,'request_to_hand_s':6.4,'out':['hemostat']}]
+        self.assertIsNone(display_state(rows,9)['out'])
+        self.assertIsNone(display_state(rows,12)['seconds'])
+        self.assertEqual(display_state(rows,12)['out'],[])
+        self.assertEqual(display_state(rows,17)['seconds'],6.4)
+        self.assertEqual(display_state(rows,17)['out'],['hemostat'])
+
+    def test_actual_ledger_buffer_envelopes_are_supported(self):
+        from video.common import events,ledger_rows
+        path=self.ws.out('buffer.jsonl')
+        path.write_text('{"kind":"event","doc":{"type":"count","t":2}}\n{"kind":"test","doc":{"success":false,"t":3}}\n')
+        self.assertEqual(len(events(path)),1)
+        self.assertEqual(len(ledger_rows(path)),2)
+
 
 if __name__ == "__main__":
     unittest.main()
