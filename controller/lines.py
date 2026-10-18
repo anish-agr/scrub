@@ -32,9 +32,15 @@ def set_down(name): return f"Setting the {name} down."
 def no_hand(name): return f"No hand. {cap(name)} is at the safe spot."
 def returned(name): return f"{cap(name)} back in its slot."
 def couldnt_return(name): return f"I couldn't put the {name} back."
+def auto_return(name): return f"Returning the {name}."
 
 
 def count(names):
     if not names:
         return "Everything's on the tray."
     return "Out: " + ", ".join(names) + "."
+
+
+def _the(names): return " and ".join(f"the {n}" for n in names)
+def camera_gone(names): return f"Camera also sees {_the(names)} gone."
+def camera_back(names): return f"Camera sees {_the(names)} back."

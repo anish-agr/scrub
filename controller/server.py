@@ -10,6 +10,7 @@ from fastapi.responses import HTMLResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 
+from . import armview
 from .core import Controller
 
 DASHBOARD = Path(__file__).resolve().parent.parent / "dashboard"
@@ -60,6 +61,11 @@ def make_app(ctl: Controller, extra=None) -> FastAPI:
     async def stop():
         ctl.stop()
         return {"accepted": True}
+
+    @app.post("/restock")
+    async def restock(body: dict):
+        """F3: a restock texted to the Photon thread (voice/). Logged to the ledger, not an Event."""
+        return {"ok": ctl.log_restock(body)}
 
     @app.post("/reset")
     async def reset(body: Optional[Reset] = None):
@@ -159,6 +165,7 @@ def make_app(ctl: Controller, extra=None) -> FastAPI:
         """Nurse console: tray, requests, step track, handoff time per request, what's out, event log."""
         return NURSE.read_text()
 
+    armview.routes(app, ctl)
     if extra:
         extra(app)
     if (DASHBOARD / "index.html").exists():

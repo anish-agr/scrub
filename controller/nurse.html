@@ -43,6 +43,16 @@ main{display:grid;grid-template-columns:minmax(0,1.45fr) minmax(0,1fr);gap:12px;
 .cam{position:relative;background:#000;border:1px solid var(--line);aspect-ratio:16/9;display:none}
 .cam.on{display:block}
 .cam img{width:100%;height:100%;object-fit:contain;display:block}
+.armcams{display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-top:8px}
+.armcam{background:#000;border:1px solid var(--line);position:relative;display:grid;place-items:center;min-height:44px}
+.armcam.on{aspect-ratio:16/10}
+.armcam img{width:100%;height:100%;object-fit:contain;display:none;position:absolute;inset:0}
+.armcam.on img{display:block}
+.armcam span{font-family:var(--mono);font-size:10.5px;color:var(--mute);padding:8px 8px 8px 52px;text-align:left;justify-self:start}
+.armcam.on span{display:none}
+.armcam b{position:absolute;top:4px;left:6px;font-family:var(--mono);font-size:10px;color:var(--text);background:rgba(0,0,0,.6);padding:1px 4px;z-index:1}
+.pose{font-family:var(--mono);font-size:11.5px;color:var(--mute);margin-top:8px}
+.pose b{color:var(--text);font-weight:600}
 .slots{display:grid;grid-template-columns:repeat(auto-fill,minmax(150px,1fr));gap:8px;margin-top:10px}
 .slot{border:1px solid var(--line);background:#15181a;padding:8px;display:flex;flex-direction:column;gap:4px;min-height:96px}
 .slot b{font-size:16px;font-weight:600}
@@ -126,6 +136,10 @@ kbd{font-family:var(--mono);font-size:11px;border:1px solid var(--line);padding:
     <section class="card">
       <h2>Tray <small id="trayInfo">no TrayState yet</small></h2>
       <div class="cam" id="cam"><img id="camImg" alt="Tray camera"></div>
+      <div class="armcams">
+        <div class="armcam" id="cam-side"><b>SIDE</b><img alt="Arm side camera"><span>checking...</span></div>
+        <div class="armcam" id="cam-wrist"><b>WRIST</b><img alt="Arm wrist camera"><span>checking...</span></div>
+      </div>
       <div class="slots" id="slots"></div>
     </section>
 
@@ -162,6 +176,7 @@ kbd{font-family:var(--mono);font-size:11px;border:1px solid var(--line);padding:
       <h2>Arm <small id="armInfo"></small></h2>
       <div class="status" id="status">--</div>
       <div class="say" id="say"></div>
+      <div class="pose" id="pose"></div>
       <div class="steps" id="steps"></div>
       <div class="q" id="queue"></div>
     </section>
@@ -311,6 +326,8 @@ function renderSlots(){
     if(busy&&state.item===it.id){cls='held';st=(LABEL[state.step]||state.step).toLowerCase()}
     else if(out.includes(it.id)){cls='out';st='out with the clinician';btn='<button class="btn sm alt" data-back="'+it.id+'"'+(halted()?' disabled':'')+'>Return</button>'}
     if(v)st+=' / camera: '+(v.present?'in slot':'slot empty')+' '+(v.confidence!=null?(+v.confidence).toFixed(2):'');
+    const oc=state&&state.out_camera;
+    if(oc&&oc.includes(it.id)!==out.includes(it.id))st+=oc.includes(it.id)?' / CAMERA SAYS OUT':' / CAMERA SEES IT BACK';
     if(v&&!v.present&&cls==='tray')cls+=' gone';
     return '<div class="slot '+cls+'"><b>'+esc(it.name)+(it.sharp?'<span class="tag">SHARP</span>':'')+'</b><span class="st">'+esc(st)+'</span>'+btn+'</div>';
   }).join('');
@@ -426,6 +443,8 @@ async function boot(){
   }catch(e){online=false}
   render();connect();
   setInterval(pollVision,1000);pollVision();
+  setInterval(pollPose,500);pollPose();
+  ['side','wrist'].forEach(armCam);
   setInterval(()=>{if(online)renderArm()},500);
   setInterval(async()=>{if(!online){try{state=await get('/state');online=true;loadSetting();render()}catch(e){}}},3000);
 }
@@ -453,6 +472,25 @@ $('mic').onclick=()=>{
     rec.start();
   }catch(err){note('Could not start the mic. Type the request.','no')}
 };
+/* ---------- arm pose and the arm's own cameras (controller/armview.py) ---------- */
+async function pollPose(){
+  let p=null;try{p=await get('/arm/pose')}catch(e){}
+  const el=$('pose');
+  if(!p){el.textContent='';return}
+  if(!p.available){el.textContent='Pose: '+(p.reason||'not available');return}
+  const f=v=>(+v).toFixed(3);
+  el.innerHTML='Tip <b>'+(p.tip_m?p.tip_m.map(f).join(', ')+' m':'--')+'</b>'+(p.tip_px?' at px <b>'+p.tip_px.map(v=>Math.round(v)).join(', ')+'</b>':p.calibrated?'':' (no calibration, B6)')+
+    ', gripper <b>'+(p.gripper==null?'--':(p.gripper*100).toFixed(0)+'% closed')+'</b>, joints <b>'+p.joints_deg.map(v=>Math.round(v)).join(' / ')+'</b> deg';
+}
+async function armCam(name){
+  const box=$('cam-'+name),im=box.querySelector('img'),msg=box.querySelector('span');
+  try{
+    const r=await fetch('/arm/camera/'+name,{cache:'no-store'});
+    if(!r.ok){let d='';try{d=(await r.json()).detail}catch(e){}msg.textContent=d||('HTTP '+r.status);box.classList.remove('on');setTimeout(()=>armCam(name),5000);return}
+    im.onerror=()=>{box.classList.remove('on');msg.textContent='stream dropped, retrying';setTimeout(()=>armCam(name),3000)};
+    im.src='/arm/stream/'+name;box.classList.add('on');
+  }catch(e){msg.textContent='controller not answering';setTimeout(()=>armCam(name),5000)}
+}
 const img=$('camImg');
 img.onload=()=>$('cam').classList.add('on');
 img.onerror=()=>$('cam').classList.remove('on');
