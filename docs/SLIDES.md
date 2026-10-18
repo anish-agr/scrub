@@ -4,6 +4,10 @@ Owner: Caiden. Five slides in Google Slides. Shown only if the arm fails at judg
 
 Fill `[measured]` from `GET /stats` and the dashboard tables on Sunday morning. If a number is not there yet, delete the line instead of leaving the bracket on a slide.
 
+## Which level
+
+These slides match level 1 of `docs/DEMO.md` (live real arm, model where it passed, taught for the rest). Level 2: change the "Perceptron Isaac" bullet on slide 3 to "taught skills, labeled; the fine-tuned model is in our video". Level 3: add "the arm shown is a simulation; the real-arm video is beside it" to slide 2. Never show a number that is still "to fill from the ledger".
+
 ## Slide text (paste into Google Slides)
 
 **1. Surgeons need a second pair of hands**
@@ -15,6 +19,7 @@ Fill `[measured]` from `GET /stats` and the dashboard tables on Sunday morning. 
 
 **2. Scrub**
 - Ask out loud. The instrument arrives handle first. The gripper lets go when you take it.
+- The fine-tuned model picks; our code keeps it safe and carries it to the hand.
 - Operating room tray: scalpel handle, hemostat, Mayo scissors.
 - Scalpels go to a safe spot, never hand to hand.
 - Set a tool in the return spot and it goes back to its slot.
@@ -23,7 +28,8 @@ Fill `[measured]` from `GET /stats` and the dashboard tables on Sunday morning. 
 **3. How it works**
 - Picture: `docs/media/system.png` (same as `docs/media/system.svg`).
 - A phone call to a Photon number. An ElevenLabs voice agent. Gemini turns the words into one command from the tray.
-- Perceptron Isaac 0.5, fine-tuned on our own demonstrations, does the pick and the return.
+- Perceptron Isaac 0.5, fine-tuned on our own demonstrations on this arm, does the pick for the items that passed their real tries. The others use a skill we taught by hand, labeled `taught` on the dashboard.
+- The fine-tuned model picks; our code keeps it safe and carries it to the hand: smoothing, speed and joint limits, a claw guard, a heat guard, a grasp check, and a planned move from carry to the hand.
 - One overhead camera: a hand tracker finds the open hand, Perceptron vision reads the tray.
 - Only the controller moves the arm. "Stop" skips Gemini and freezes the arm until a person resets it.
 - Every event goes to MongoDB Atlas.
@@ -31,7 +37,8 @@ Fill `[measured]` from `GET /stats` and the dashboard tables on Sunday morning. 
 **4. Results**
 - Success by item and by lighting (bright, normal, dim), with the tries and a 95% range: [measured].
 - Median request to hand: [measured] s over [measured] handoffs.
-- Second setting, the robotics bench tray (needle-nose pliers, wire cutters, hex key): new demonstrations and one settings file, no new code. [measured] minutes.
+- Real tries per item (10 each, model and taught shown separately): [to fill from the ledger].
+- Second setting, the robotics bench tray: include only if it ran on the real arm today. Otherwise delete this line.
 
 **5. Business**
 - Surgery centers first, starting in training labs. A monthly fee per operating room.

@@ -15,6 +15,7 @@ _FIELDS = (
     "lighting",
     "setting",
     "case_id",
+    "skill_source",
 )
 
 

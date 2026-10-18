@@ -76,6 +76,7 @@ async function loadCase() {
       if (event.item) bits.push(nameOf(event.item));
       if (event.say) bits.push(event.say);
       if (event.request_to_hand_s != null) bits.push(`${Number(event.request_to_hand_s).toFixed(1)} s`);
+      if (event.skill_source) bits.push(event.skill_source === "taught" ? "taught skill" : "model");
       if (Array.isArray(event.out)) bits.push("out: " + (event.out.map(nameOf).join(", ") || "nothing"));
       li.textContent = bits.join(" · ");
       list.appendChild(li);

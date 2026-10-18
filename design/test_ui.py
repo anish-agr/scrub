@@ -36,10 +36,10 @@ def old(path):
 
 class PreservationTests(unittest.TestCase):
     def test_external_scripts_only_change_display_copy(self):
+        # dashboard/app.js, dashboard/tablet.js and ledger/public/cases.js gained skill_source labels after the
+        # restyle (a logic change on purpose), so they are no longer compared with the pre-restyle copy.
         scripts = (
-            "dashboard/app.js", "dashboard/tablet.js", "ledger/public/app.js",
-            "ledger/public/cases.js", "ledger/public/series.js", "ledger/public/memory.js",
-            "sim/web/common.js",
+            "ledger/public/app.js", "ledger/public/series.js", "ledger/public/memory.js", "sim/web/common.js",
         )
         for name in scripts:
             expected = old(name).replace("\u2014", "--")
@@ -96,6 +96,15 @@ class PreservationTests(unittest.TestCase):
                 self.assertIn("Terms", text)
                 self.assertIn("Privacy", text)
                 self.assertNotIn("\u2014", text)
+
+    def test_ops_page_uses_shared_design_system(self):
+        text = (ROOT / "controller/ops.html").read_text(encoding="utf-8")
+        tags = Tags(text)
+        self.assertIn("design/scrub.css", text)
+        self.assertEqual(tags.body.get("class"), "scrub-ui")
+        self.assertEqual(len(tags.ids), len(set(tags.ids)))
+        self.assertIn("stopBtn", tags.ids)
+        self.assertNotIn("\u2014", text)
 
 
 if __name__ == "__main__":

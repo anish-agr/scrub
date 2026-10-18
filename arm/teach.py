@@ -143,8 +143,123 @@ def interact(teacher, *, read=input, write=print):
             write(str(error))
 
 
+PICK_NAMES = ("approach", "descend", "grip", "lift", "carry")
+RETURN_NAMES = ("carry", "descend", "release", "lift", "home")
+
+
+class SkillTeacher:
+    """Waypoints for one taught skill (arm/taught.py), saved to arm/skills/<setting>/<item>-<direction>.json."""
+
+    def __init__(self, backend, item, direction, setting="surgical", *, rig_path=DEFAULT_RIG, root=None, speed=0.3):
+        from .taught import skill_path
+
+        self.path = skill_path(setting, item, direction, root)
+        self.kin = Kinematics(rig_path)
+        self.backend = backend
+        self.item, self.direction, self.setting, self.speed = item, direction, setting, speed
+        self.waypoints = []
+
+    def add(self, gripper=None):
+        row = np.asarray(self.backend.read_joints(), dtype=float)
+        if row.shape != (6,) or not np.isfinite(row).all() or not self.kin.valid(row[:5]):
+            raise ValueError("Measured joint values violate configured units/limits; waypoint not saved")
+        names = PICK_NAMES if self.direction == "pick" else RETURN_NAMES
+        n = len(self.waypoints)
+        wp = {"name": names[n] if n < len(names) else f"wp{n + 1}",
+              "joints": {j: round(float(v), 2) for j, v in zip(JOINTS, row[:5])},
+              "gripper": gripper, "speed": self.speed}
+        self.waypoints.append(wp)
+        return wp
+
+    def undo(self):
+        return self.waypoints.pop() if self.waypoints else None
+
+    def save(self):
+        """Write the file (even with problems, so the work is kept) and return the validation problems."""
+        import time
+
+        from .taught import validate
+
+        skill = {"item": self.item, "direction": self.direction, "setting": self.setting,
+                 "taught_at": time.strftime("%Y-%m-%dT%H:%M:%S%z"), "waypoints": self.waypoints}
+        self.path.parent.mkdir(parents=True, exist_ok=True)
+        temporary = self.path.with_name(self.path.name + ".tmp")
+        temporary.write_text(json.dumps(skill, indent=2) + "\n")
+        os.replace(temporary, self.path)
+        return validate(skill, self.kin, self.kin.rig.get("grasp_closed_fraction", 0.3))
+
+
+def interact_skill(teacher, *, read=None, write=None):
+    read, write = read or input, write or print
+    write("Support the EMPTY arm throughout. Torque stays OFF, including on exit.")
+    write(f"Teaching {teacher.item} {teacher.direction}. Move by hand, then type:")
+    write("Enter save waypoint, g save with gripper closed, o save with gripper open, u undo, p read, q save file and quit.")
+    write("Pick: approach above the slot, descend, g, lift, carry. Return: carry, descend over the slot, o, lift, home.")
+    while True:
+        try:
+            key = read("skill> ").strip().lower()
+        except (EOFError, KeyboardInterrupt):
+            write("Quit without saving")
+            return None
+        try:
+            if key == "q":
+                problems = teacher.save()
+                write({"saved": str(teacher.path), "waypoints": len(teacher.waypoints)})
+                for problem in problems:
+                    write(f"Check failed: {problem}")
+                return teacher.path
+            if key in {"", "g", "o"}:
+                write({"waypoint": teacher.add({"": None, "g": 1.0, "o": 0.0}[key])})
+            elif key == "u":
+                write({"removed": teacher.undo()})
+            elif key == "p":
+                write({"joints": teacher.backend.read_joints().tolist()})
+            else:
+                write("Unknown key; nothing saved")
+        except (ValueError, RuntimeError, OSError) as error:
+            write(str(error))
+
+
+def skill_main(argv):
+    parser = argparse.ArgumentParser(prog="python -m arm.teach skill", description="Teach a pick or return skill.")
+    parser.add_argument("item")
+    parser.add_argument("direction", choices=("pick", "return"))
+    parser.add_argument("--setting", default="surgical")
+    parser.add_argument("--rig", type=Path, default=DEFAULT_RIG)
+    parser.add_argument("--port", default=os.getenv("SO101_PORT"))
+    parser.add_argument("--robot-id", default=os.getenv("SO101_ROBOT_ID", "scrub_follower"))
+    parser.add_argument("--speed", type=float, default=0.3, help="playback speed saved with each waypoint, 0..1")
+    parser.add_argument("--supported-and-empty", action="store_true")
+    parser.add_argument("--dry-run", action="store_true")
+    parser.add_argument("--skills-dir", type=Path, help="write here instead of arm/skills (required with --dry-run)")
+    parser.add_argument("--joints", nargs=6, type=float)
+    args = parser.parse_args(argv)
+    if not 0 < args.speed <= 1:
+        parser.error("--speed must be in (0, 1]")
+    if args.dry_run and not args.skills_dir:
+        parser.error("Dry-run must use --skills-dir pointing to a test folder")
+    if not args.dry_run and (not args.port or not args.supported_and_empty):
+        parser.error("Set --port and --supported-and-empty before disabling motor torque")
+    if not args.dry_run and args.joints:
+        parser.error("--joints is only for dry-run")
+    backend = FakeTeachBackend(args.joints) if args.dry_run else TeachBackend(args.port, args.robot_id)
+    teacher = SkillTeacher(backend, args.item, args.direction, args.setting,
+                           rig_path=args.rig, root=args.skills_dir, speed=args.speed)
+    try:
+        backend.connect()
+        interact_skill(teacher)
+    except (ValueError, RuntimeError, OSError) as error:
+        print(f"Teach stopped ({type(error).__name__}); support the arm and inspect setup", file=sys.stderr)
+        raise SystemExit(1) from None
+    finally:
+        backend.close()
+
+
 def main(argv=None):
     load_dotenv(Path(__file__).resolve().parents[1] / ".env")
+    argv = sys.argv[1:] if argv is None else argv
+    if argv[:1] == ["skill"]:
+        return skill_main(argv[1:])
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--rig", type=Path, default=DEFAULT_RIG)
     parser.add_argument("--port", default=os.getenv("SO101_PORT"))

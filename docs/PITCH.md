@@ -4,6 +4,16 @@ Three minutes, spoken over the live demo. The beats and times match the demo con
 
 Fill every `[measured]` from the dashboard tables (`GET /stats`) on Sunday morning. If a number is not on the dashboard yet, skip the sentence. Never guess a number.
 
+## Which level this script is for
+
+This script is level 1 of `docs/DEMO.md`: the live real arm, the fine-tuned model for the items that passed their real tries, taught skills for the rest, every pick labeled on the dashboard. One line goes in everywhere: "The fine-tuned model picks; our code keeps it safe and carries it to the hand."
+
+Every claim below must run at the table or be in the Perceptron video. Real-try success rates are "to fill from the ledger" until the ledger has them; skip the sentence if it is still empty.
+
+- Level 2 (taught only): say "In this run the pick is a skill we taught by hand, labeled on the screen. The fine-tuned model is shown in our video." Do not say the model is running.
+- Level 3 (sim next to the video): say "This arm is a simulation. The video beside it is the real arm running our fine-tuned model." Same safety and controller story.
+- In the 2:00 beat, "we fine-tuned Perceptron's Isaac model" holds only for the items that are `model` on the dashboard. For a `taught` item say "this one is a taught skill".
+
 ## Who does what
 
 | Person | Where they stand | Speaks | Also does |
@@ -29,7 +39,7 @@ Spoken words only. About 400 words, which is about 3 minutes at 130 words a minu
 
 Brandon: "Hemostat."
 
-> Scrub picks it from the tray. It brings it to Brandon's open hand, handle first, and lets go when he pulls. The dashboard times every handoff.
+> Scrub picks it from the tray with the fine-tuned model [if the dashboard says `model` for the hemostat; otherwise say "with a skill we taught"]. The fine-tuned model picks; our code keeps it safe and carries it to the hand, handle first, and lets go when he pulls. The dashboard times every handoff and labels the source.
 
 **0:50 Sharps and stop (Caiden).** Brandon: "Scalpel."
 
@@ -59,7 +69,7 @@ Brandon asks for any instrument. It arrives.
 
 **2:00 A second tray (Anish).** Evan turns the lamp off and swaps to the bench tray. Caiden presses `2`. Brandon: "Needle-nose pliers."
 
-> Scrub is built for the operating room. But this is a robotics bench tray. Same arm, same code. We fine-tuned Perceptron's Isaac model on our own demonstrations. For this tray we only recorded new ones and wrote one settings file. It took [measured] minutes.
+> Scrub is built for the operating room. But this is a robotics bench tray. Same arm, same code. The bench tray is not part of tonight's real-arm tries. Say this beat only if the bench tray ran on the real arm today; otherwise skip it and use the sim or the video. Time to add a tray: [to fill from the ledger].
 
 **2:30 The close (Brandon, Caiden, Anish).** Brandon: "Count." Then: "End of case."
 
