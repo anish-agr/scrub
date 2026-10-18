@@ -71,6 +71,7 @@ class Controller:
         self.history: deque = deque(maxlen=500)
         self.listeners: list = []       # (loop, asyncio.Queue)
         self.cmd = None                 # command being run
+        self.held = None                # item id picked and not yet released, set down or returned
         self._ledger_pool = ThreadPoolExecutor(1)
         self._flow_gen = 0              # gen of the job the worker is running
         self._worker_thread = threading.Thread(target=self._worker, daemon=True)
@@ -117,8 +118,10 @@ class Controller:
     # ---------- inputs ----------
     def submit(self, cmd: dict) -> dict:
         """Every spoken line goes out as an event; the reply's `say` repeats it for convenience."""
-        cmd.setdefault("id", uuid.uuid4().hex)
-        cmd.setdefault("t", time.time())
+        if not cmd.get("id"):  # also replaces an explicit null
+            cmd["id"] = uuid.uuid4().hex
+        if not cmd.get("t"):
+            cmd["t"] = time.time()
         cmd["received"] = time.time()
         action = cmd.get("action")
         if action == "stop":
@@ -174,17 +177,27 @@ class Controller:
         with self.lock:
             self.jobs.clear()
             self.step = "stopped"
+            self._held_out()
         self.emit("stopped", say=lines.STOPPED)
 
-    def reset(self) -> None:
-        """Clear a stop or error: home the arm and clear the count. Raises RuntimeError if busy."""
+    def _held_out(self) -> None:
+        """An item off the tray when the arm stops is out (in the gripper or a hand) until it comes back.
+        Called with the lock held."""
+        if self.held and self.held not in self.out:
+            self.out.append(self.held)
+        self.held = None
+
+    def reset(self, clear_count: bool = False) -> None:
+        """Clear a stop or error and home the arm. Keeps the count unless clear_count (a fresh demo run),
+        so a stop mid-case never makes the count say everything is back. Raises RuntimeError if busy."""
         with self.lock:
             if self.step not in ("idle", "stopped", "error") or self.jobs:
                 raise RuntimeError("busy")
-            self.jobs.append({"id": uuid.uuid4().hex, "action": "reset", "item": None, "received": time.time()})
+            self.jobs.append({"id": uuid.uuid4().hex, "action": "reset", "item": None,
+                              "clear_count": clear_count, "received": time.time()})
             self.jobs_cv.notify()
 
-    def _reset(self, gen: int) -> None:
+    def _reset(self, gen: int, clear_count: bool = False) -> None:
         """Operator rearm. The real arm stays frozen after a stop until resume(). If it still holds
         an item, carry it home and set it at the safe spot rather than opening wherever it froze."""
         resume = getattr(self.arm, "resume", None)
@@ -193,7 +206,9 @@ class Controller:
         held = self.item
         holding = OPEN_MAX < self._call(gen, self.arm.gripper_position) < GRIPPER_CLOSED
         with self.lock:
-            self.out = []
+            if clear_count:
+                self.out = []
+            self.held = None
         self.set_step("homing", item=held if holding else None)
         self._call(gen, self.arm.go_home)  # saved poses keep the gripper as it is
         if holding:
@@ -201,7 +216,8 @@ class Controller:
             if not self._call(gen, self.arm.set_down_safe_spot):
                 self._fail(lines.SET_DOWN_FAILED, "set_down_safe_spot returned False")
             with self.lock:
-                self.out = [held] if held else []
+                if held and held not in self.out:
+                    self.out.append(held)  # at the safe spot, still off the tray
             self._call(gen, self.arm.go_home)
         else:
             self._call(gen, self.arm.open_gripper)
@@ -284,7 +300,7 @@ class Controller:
                 if cmd["action"] == "handover":
                     self._handover(cmd, gen)
                 elif cmd["action"] == "reset":
-                    self._reset(gen)
+                    self._reset(gen, cmd.get("clear_count", False))
                 else:
                     self._return(cmd, gen)
             except Stopped:
@@ -318,6 +334,7 @@ class Controller:
         with self.lock:
             self.jobs.clear()
             self.step = "error"
+            self._held_out()
         self.emit("error", say=say, error=error)
         raise Stopped
 
@@ -328,6 +345,7 @@ class Controller:
         with self.lock:
             self.jobs.clear()
             self.step = "stopped"
+            self._held_out()
         self.emit("stopped", say=say, reason=reason)
         raise Stopped
 
@@ -367,6 +385,8 @@ class Controller:
             self._call(gen, self.arm.open_gripper)
             self._home(gen)
             return
+        with self.lock:
+            self.held = it["id"]
         self.emit("picked", retries=retries)
         elapsed = lambda: round(time.time() - cmd["received"], 2)  # noqa: E731
 
@@ -385,10 +405,11 @@ class Controller:
             self._home(gen)
             return
         self.set_step("releasing")
-        self._call(gen, self.arm.open_gripper)
-        with self.lock:
+        with self.lock:  # out before the jaw opens: a stop mid-open still counts it
             if it["id"] not in self.out:
                 self.out.append(it["id"])
+            self.held = None
+        self._call(gen, self.arm.open_gripper)
         self.emit("released")
         self._home(gen)
 
@@ -400,6 +421,7 @@ class Controller:
         with self.lock:
             if it["id"] not in self.out:
                 self.out.append(it["id"])
+            self.held = None
         self.emit("set_down", say=say, request_to_hand_s=elapsed() if elapsed else None, retries=retries)
 
     def _reach_hand(self, gen: int, it: dict) -> bool:

@@ -254,7 +254,7 @@ def set_down_failure_holds_for_reset():
     arm.set_down_safe_spot = lambda: False  # real arm: didn't reach the safe spot
     _, evs = run(ctl, {"action": "handover", "item": "scalpel"})
     assert ctl.step == "error" and says(evs)[-1] == lines.SET_DOWN_FAILED, says(evs)
-    assert "set_down" not in types(evs) and ctl.out == []
+    assert "set_down" not in types(evs) and ctl.out == ["scalpel"]  # still in the gripper: off the tray
     assert ctl.submit(dict(HANDOVER))["say"] == lines.NEEDS_RESET
 
 
@@ -357,7 +357,15 @@ def stop_at(step, pull_s=None):
 
 @test
 def stop_while_moving_to_the_hand():
-    stop_at("moving_to_hand")
+    ctl, _ = stop_at("moving_to_hand")
+    assert ctl.out == ["hemostat"] and ctl.state()["out"] == ["hemostat"]  # held item counts as out
+    assert ctl.history[-1]["out"] == ["hemostat"]
+
+
+@test
+def stop_mid_pick_counts_nothing_out():
+    ctl, _ = stop_at("picking")
+    assert ctl.out == []  # not lifted yet
 
 
 @test
@@ -390,16 +398,29 @@ def return_checked_against_the_tray():
 
 
 @test
-def reset_clears_stop_and_count():
+def reset_keeps_count_unless_asked():
     ctl, arm = make()
     run(ctl, HANDOVER)
     ctl.stop()
-    ctl.reset()
+    reset(ctl)
+    assert ctl.step == "idle" and ctl.out == ["hemostat"] and arm.pose == "home"
+    _, evs = run(ctl, {"action": "count"})
+    assert says(evs)[-1] == "Out: hemostat.", says(evs)
+    ctl.stop()
+    ctl.reset(clear_count=True)
     end = time.time() + 5
     while ctl.step != "idle" and time.time() < end:
         time.sleep(0.02)
     assert ctl.step == "idle" and ctl.out == [] and arm.pose == "home"
     assert ctl.history[-1]["say"] == lines.RESET and ctl.history[-1]["out"] == []
+
+
+@test
+def null_command_id_gets_one():
+    ctl, arm = make()
+    reply, evs = run(ctl, {"id": None, "action": "handover", "item": "hemostat", "t": None})
+    ids = {e["command_id"] for e in evs}
+    assert reply["accepted"] and None not in ids and len(ids) == 1, ids
 
 
 @test

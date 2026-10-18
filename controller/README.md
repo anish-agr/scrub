@@ -40,7 +40,7 @@ websocat ws://localhost:8000/events      # or open http://localhost:8000/
 - A `command` event goes out for every command, with extra fields `action`, `heard`, `source`, `accepted`, `reason`.
 - Handover: `finding` (skipped with "I don't see the X" if a fresh TrayState says the slot is empty) → `picking` → `checking` (gripper ≥ 0.95 means it closed on nothing; a fresh TrayState still showing the item also fails) → one retry → `moving_to_hand` (carry pose, then to 8 cm short of the target at speed 0.3, then in at 0.1) → `waiting_for_pull` (load jump over `PULL_LOAD_DELTA`, default 80, or `got_it`; 30 s) → `releasing` → `homing`.
 - Sharp items (`"sharp": true`) go `setting_down` to the safe spot instead: "Scalpel down."
-- **Stop latches.** The real arm stays frozen after `freeze()` until `resume()` (`arm/real_arm.py`), and so does the fake arm. After `stop` or an `error`, handover and return are refused with "I'm stopped. Reset me first." until `POST /reset` (the dashboard's clear-stop button). Reset rearms, homes, and if the gripper still holds an item, sets it at the safe spot instead of opening where it froze.
+- **Stop latches.** The real arm stays frozen after `freeze()` until `resume()` (`arm/real_arm.py`), and so does the fake arm. After `stop` or an `error`, handover and return are refused with "I'm stopped. Reset me first." until `POST /reset` (the dashboard's clear-stop button). Reset rearms, homes, and if the gripper still holds an item, sets it at the safe spot instead of opening where it froze. Reset keeps the count (an item held at the stop counts as out); `POST /reset {"clear_count": true}` clears it for a fresh demo run.
 - Hand tracking counts as running if a Hand arrived in the last 5 s. Then the arm waits up to 10 s for an open, seen hand with a valid `target` and `path_clear` (else it sets the item down: "No hand."). While moving it freezes if the hand is lost (older than 0.5 s) or the path blocks, and holds like a stop: "Lost your hand. Holding." or "Something's in the way. Holding." No automatic retry; a reset carries the item to the safe spot.
 - An arm exception, or `set_down_safe_spot()` returning False ("Couldn't set it down. Holding."), freezes the arm and goes to `error`.
 - Pull: a load change of more than `PULL_LOAD_DELTA` either way (the bus value is signed; measure it on the real arm), or `got_it`. If `gripper_load()` has no reading, Scrub says "Say got it when you have it." and waits for `got_it`.
@@ -57,11 +57,12 @@ websocat ws://localhost:8000/events      # or open http://localhost:8000/
 - `GET /setting`: the current setting file (the voice server can read item ids and aliases here).
 - `GET /events/recent?n=50`: the last events, for a page that loads mid-run.
 - `POST /fake/pull`: simulate the clinician tugging the item (sim arm), otherwise the same as `got_it`.
+- `GET /demo`: the judging console (P4). Keys 1/2/3 load the surgical, dental and bench trays, R resets and clears the count, Space or Esc stops (latched), C sends the current cue's request, G is got it. A 3:00 clock with the PITCH.md beats and who does what, and a rehearsal log for P5. `demo.html` is a copy of `explore/prototypes/48-judge-run.html`.
 - `POST /fake/force` with `{"miss_grasp": 1, "out_of_region": 1, "skill_fail": 1, "no_pull": 1, "no_load": 1}`: the next fake-arm calls fail that way (testing C6).
 
 ## Tests
 
-`.venv/bin/python -m controller.test_flows` forces every failure case on the fake arm (grasp miss and retry, tray grasp check, stale tray, empty slot, no pull, no load reading, load drop, `got_it`, no hand, hand lost and path blocked holding until reset, failed set-down, arm exception, out of region, stop mid-pick, mid-move and while holding out, sharp set-down, return checked against the tray, count, rejects). About 40 s, prints `28/28 passed`.
+`.venv/bin/python -m controller.test_flows` forces every failure case on the fake arm (grasp miss and retry, tray grasp check, stale tray, empty slot, no pull, no load reading, load drop, `got_it`, no hand, hand lost and path blocked holding until reset, failed set-down, arm exception, out of region, stop mid-pick, mid-move and while holding out, sharp set-down, return checked against the tray, count, rejects). About 40 s, prints `30/30 passed`.
 
 ## Full runs (Checkpoint 1, C8)
 

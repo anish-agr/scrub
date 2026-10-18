@@ -4,7 +4,7 @@
   "description": "Owner: Caiden. Tasks C3, C4, C7 in `docs/TASKS.md`.",
   "main": "index.js",
   "scripts": {
-    "test": "echo \"Error: no test specified\" && exit 1",
+    "test": "tsx scripts/test.ts",
     "dev": "tsx src/server.ts",
     "say": "tsx scripts/say.ts",
     "tunnel": ".bin/cloudflared tunnel --url http://localhost:3000",

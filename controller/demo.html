@@ -1,0 +1,764 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Judge Run Console</title>
+<meta name="description" content="Caiden's judging console for Scrub: 3:00 run clock with the PITCH.md beats as cue cards for Anish, Brandon, Evan and Caiden, one-key setting switches, reset, latched stop, lamp tagging, rehearsal log and a backup-video switch.">
+<!--
+FEATURES:
+- Run clock (T+ m:ss.s, 3:00 limit) over a beat timeline built from docs/PITCH.md: 0:00 staffing, 0:30 "This is Scrub",
+  0:50 sharps, 1:05 "Try it", 1:20 return, 1:40 lighting, 2:00 three settings, 2:30 close. Short version (0:30, 1:05, 2:30)
+  for a rushed judge with the K key.
+- Cue card per beat: Anish's line, Brandon's request, Evan's tray or lamp move, Caiden's key, the judge's part. Each arm beat
+  has goals read from WS /events (released / set_down / returned / count, setting and lighting changes). When the goals
+  are met and the arm is back to idle, the cue advances by itself. Speech-only beats advance on Enter.
+- P4 demo keys: 1 / 2 / 3 POST /setting surgical / dental / bench, R POST /reset {"clear_count": true} (homes, opens gripper, clears out),
+  Space or Esc POST /stop (latched until a reset succeeds), L toggles bright / normal via POST /lighting, Shift+L dim.
+  C sends the current cue request as a dashboard /command (rehearsing without the phone), G sends got_it.
+- Live arm panel: step, item, out list, request-to-hand seconds, last 8 events, plus a top view of the table in mm from
+  sim/layout.json (tray slots, return spot, safe spot, hand zone) with the item drawn where the arm has it.
+- Preflight before Enter starts: surgical tray, lighting normal, nothing out, arm idle. One key (R) fixes most of it.
+- Rehearsal log (localStorage): total time, overrun beats (more than 3 s past planned end), source live / mock / backup,
+  and the P5 pass condition "under 3:00 twice in a row" over full, non-mock runs. 3 rehearsals target.
+- Backup-run switch (B): swaps the arm panel for the recorded backup video (load the Sunday 6 AM file, or ?video=url).
+  Beats then advance on Enter, the clock keeps running, STOP still posts.
+- Mock mode when :8000 does not answer, labeled on every panel. The mock controller follows core.py timing roughly
+  (about 1 s per motion) and a "mock clinician" makes each request 2.5 s into its beat.
+SPONSORS: Perceptron Robotics (the arm doing the judged run), Photon (the spoken requests the cues wait on), DubHacks NEXT
+  (the pitch timing itself).
+BACKEND HOOKS: GET {api}/state (poll 2 s), WS {api}/events, POST {api}/setting {"setting"}, POST {api}/reset,
+  POST {api}/stop, POST {api}/lighting {"lighting","lux":null}, POST {api}/command {action,item,source:"dashboard",t}.
+  Default api http://localhost:8000, override ?api=http://host:8000. ?video= sets the backup video URL.
+STYLE: Swiss Design on an OR wall display. Charcoal ground, strict 12-column grid, flush-left Archivo and Archivo Narrow,
+  IBM Plex Mono tabular numbers, 1px rules, square corners. Red is reserved for STOP and overruns, amber for near overrun,
+  cyan for info, per IEC 60601-1-8 meaning.
+-->
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Archivo:wght@400;600;800&family=Archivo+Narrow:wght@500;700&family=IBM+Plex+Mono:wght@400;600&display=swap" rel="stylesheet">
+<style>
+:root{
+  --bg:#141518; --panel:#1b1c20; --rule:#34363c; --rule2:#4a4d55; --ink:#ecebe6; --dim:#9a9ca3; --faint:#6b6e76;
+  --red:#e23b2e; --redbg:#3a1412; --amber:#e3a21a; --cyan:#3fb8cf; --green:#5cb87a;
+  --mono:"IBM Plex Mono",ui-monospace,monospace; --sans:"Archivo",system-ui,sans-serif; --narrow:"Archivo Narrow","Archivo",sans-serif;
+}
+*{box-sizing:border-box}
+html,body{margin:0;background:var(--bg);color:var(--ink);font:15px/1.4 var(--sans)}
+body{min-height:100vh}
+.num,.mono{font-family:var(--mono);font-variant-numeric:tabular-nums}
+.lab{font:700 11px/1 var(--narrow);letter-spacing:.12em;text-transform:uppercase;color:var(--dim)}
+button{font:inherit;color:inherit;background:transparent;border:1px solid var(--rule2);border-radius:2px;min-height:44px;padding:0 12px;cursor:pointer}
+button:focus-visible{outline:2px solid var(--cyan);outline-offset:1px}
+kbd{font:600 12px var(--mono);border:1px solid var(--rule2);padding:1px 5px;border-radius:2px;color:var(--ink)}
+header{display:grid;grid-template-columns:auto 1fr auto;gap:16px;align-items:center;padding:10px 20px;border-bottom:1px solid var(--rule)}
+header h1{margin:0;font:800 18px/1 var(--sans);letter-spacing:-.01em}
+header h1 span{font-weight:400;color:var(--dim)}
+.conn{display:flex;gap:10px;align-items:center;justify-content:flex-end;flex-wrap:wrap}
+.pill{font:700 12px/1 var(--narrow);letter-spacing:.1em;text-transform:uppercase;padding:7px 9px;border:1px solid currentColor}
+.pill.live{color:var(--green)} .pill.mock{color:var(--amber)} .pill.backup{color:var(--cyan)}
+#api{background:var(--panel);border:1px solid var(--rule2);color:var(--ink);font:13px var(--mono);height:36px;padding:0 8px;width:230px;border-radius:2px}
+.mockbar{display:none;background:#2c2410;color:var(--amber);border-bottom:1px solid #5a4614;padding:8px 20px;font:600 13px var(--narrow);letter-spacing:.04em}
+body.mock .mockbar{display:block}
+main{display:grid;grid-template-columns:repeat(12,minmax(0,1fr));gap:0;border-bottom:1px solid var(--rule)}
+section{padding:16px 20px;border-right:1px solid var(--rule);border-bottom:1px solid var(--rule);min-width:0}
+.c-clock{grid-column:1/9}
+.c-stop{grid-column:9/13;border-right:0}
+.c-cue{grid-column:1/9}
+.c-arm{grid-column:9/13;border-right:0}
+.c-log{grid-column:1/13;border-right:0}
+/* clock */
+.clockrow{display:flex;align-items:flex-end;gap:28px;flex-wrap:wrap}
+#clock{font:600 112px/0.9 var(--mono);font-variant-numeric:tabular-nums;letter-spacing:-.04em}
+#clock.warn{color:var(--amber)} #clock.over{color:var(--red)}
+.clockside{display:grid;gap:6px;padding-bottom:6px}
+.clockside .num{font-size:20px}
+.runbtns{display:flex;gap:8px;flex-wrap:wrap;margin-left:auto;padding-bottom:4px}
+.runbtns button.primary{background:var(--ink);color:var(--bg);border-color:var(--ink);font-weight:700}
+.runbtns button.primary kbd{color:var(--bg);border-color:var(--bg)}
+#timeline{position:relative;margin-top:18px;height:58px}
+#timeline .seg{position:absolute;top:0;height:30px;border-left:1px solid var(--rule2);padding:4px 5px;font:600 11px/1.1 var(--narrow);color:var(--dim);overflow:hidden;white-space:nowrap;text-overflow:ellipsis}
+#timeline .seg.now{color:var(--ink);background:#24262b}
+#timeline .seg.done{color:var(--faint)}
+#timeline .actual{position:absolute;top:32px;height:8px;background:var(--rule2)}
+#timeline .actual.over{background:var(--red)}
+#timeline .actual.cur{background:var(--cyan)}
+#timeline .axis{position:absolute;top:44px;font:11px var(--mono);color:var(--faint);transform:translateX(-50%)}
+#timeline .needle{position:absolute;top:-4px;bottom:16px;width:2px;background:var(--ink)}
+#timeline .limit{position:absolute;top:-4px;bottom:16px;width:0;border-left:2px dashed var(--red)}
+.preflight{display:flex;gap:16px;flex-wrap:wrap;margin-top:10px;font:13px var(--mono)}
+.preflight .ok{color:var(--green)} .preflight .bad{color:var(--amber)}
+/* stop */
+#stop{width:100%;min-height:150px;background:var(--red);border:0;color:#fff;font:800 54px/1 var(--sans);letter-spacing:.02em;display:grid;place-items:center;gap:6px;padding:14px}
+#stop small{font:600 13px var(--narrow);letter-spacing:.1em;text-transform:uppercase;opacity:.9}
+body.latched #stop{background:var(--redbg);outline:3px solid var(--red);outline-offset:-3px;color:var(--red)}
+.latchnote{display:none;margin-top:8px;color:var(--red);font:700 14px var(--narrow);letter-spacing:.05em;text-transform:uppercase}
+body.latched .latchnote{display:block}
+.keys{display:grid;grid-template-columns:repeat(3,1fr);gap:6px;margin-top:12px}
+.keys button{display:flex;flex-direction:column;align-items:flex-start;justify-content:center;padding:6px 8px;text-align:left;min-height:52px}
+.keys button b{font:700 14px var(--narrow)}
+.keys button span{font:11px var(--mono);color:var(--dim)}
+.keys button.on{border-color:var(--ink);background:#26282d}
+.keys button.wide{grid-column:span 3;flex-direction:row;justify-content:space-between;align-items:center}
+.keys .row2{grid-column:span 3;display:grid;grid-template-columns:1fr 1fr 1fr;gap:6px}
+#keymsg{min-height:20px;margin-top:8px;font:12px var(--mono);color:var(--dim)}
+#keymsg.err{color:var(--amber)}
+/* cue */
+.cuehead{display:flex;gap:16px;align-items:baseline;flex-wrap:wrap;border-bottom:1px solid var(--rule);padding-bottom:10px}
+.cuehead .num{font-size:30px;font-weight:600}
+.cuehead h2{margin:0;font:800 30px/1.05 var(--sans);letter-spacing:-.015em}
+.cuehead .win{margin-left:auto;font:13px var(--mono);color:var(--dim)}
+.roles{display:grid;grid-template-columns:120px 1fr;border-bottom:1px solid var(--rule)}
+.roles > div{padding:10px 0;border-top:1px solid var(--rule)}
+.roles > div:nth-child(-n+2){border-top:0}
+.roles .who{font:700 13px var(--narrow);letter-spacing:.08em;text-transform:uppercase;color:var(--dim);padding-right:10px}
+.roles .who em{display:block;font:400 11px var(--mono);letter-spacing:0;text-transform:none;color:var(--faint);margin-top:3px}
+.roles .say{font:400 19px/1.35 var(--sans)}
+.roles .act{font:600 17px/1.35 var(--sans)}
+.roles .me{color:var(--cyan)}
+.goals{display:flex;gap:8px;flex-wrap:wrap;margin-top:12px}
+.goal{font:600 13px var(--mono);padding:8px 10px;border:1px solid var(--rule2);color:var(--dim)}
+.goal.met{border-color:var(--green);color:var(--green)}
+.goal.met::before{content:"done  "}
+.goalnote{font:12px var(--mono);color:var(--faint);margin-top:8px}
+.next{margin-top:14px;display:grid;grid-template-columns:120px 1fr;gap:0;color:var(--dim);font-size:14px}
+.next .lab{padding-top:3px}
+/* arm */
+.armgrid{display:grid;grid-template-columns:1fr 1fr;gap:10px 14px;margin:8px 0 12px}
+.armgrid .v{font:600 22px var(--mono);font-variant-numeric:tabular-nums}
+.armgrid .v.stopped{color:var(--red)} .armgrid .v.err{color:var(--red)}
+#topview{width:100%;height:auto;display:block;border:1px solid var(--rule)}
+#evlog{list-style:none;margin:10px 0 0;padding:0;font:12px/1.5 var(--mono);color:var(--dim);max-height:180px;overflow:hidden}
+#evlog li{display:grid;grid-template-columns:62px 88px 1fr;gap:6px;border-top:1px solid var(--rule);padding:3px 0}
+#evlog li b{color:var(--ink);font-weight:600}
+#evlog li.stop b{color:var(--red)}
+#backup{display:none}
+body.backup #livearm{display:none}
+body.backup #backup{display:block}
+#bvwrap{position:relative;border:1px solid var(--cyan);aspect-ratio:16/9;background:#0d0e10;display:grid;place-items:center;text-align:center}
+#bv{width:100%;height:100%;display:none;object-fit:contain}
+#bvwrap.has #bv{display:block} #bvwrap.has .ph{display:none}
+.ph{padding:16px;font:13px/1.5 var(--mono);color:var(--dim)}
+.ph b{display:block;font:700 15px var(--narrow);letter-spacing:.06em;text-transform:uppercase;color:var(--cyan);margin-bottom:6px}
+.filebtn{display:inline-flex;align-items:center;min-height:44px;padding:0 12px;border:1px solid var(--rule2);margin-top:10px;cursor:pointer;font:600 13px var(--sans);color:var(--ink)}
+.filebtn input{display:none}
+/* log */
+.loghead{display:flex;gap:20px;align-items:center;flex-wrap:wrap;margin-bottom:10px}
+.verdict{font:800 20px var(--sans);padding:8px 12px;border:2px solid var(--rule2);color:var(--dim)}
+.verdict.pass{border-color:var(--green);color:var(--green)}
+.tally{font:600 14px var(--mono);color:var(--dim)}
+.tablewrap{overflow-x:auto}
+table{border-collapse:collapse;width:100%;font:13px var(--mono);font-variant-numeric:tabular-nums}
+th{font:700 11px var(--narrow);letter-spacing:.1em;text-transform:uppercase;color:var(--dim);text-align:left;padding:6px 8px;border-bottom:1px solid var(--rule2)}
+td{padding:7px 8px;border-bottom:1px solid var(--rule);vertical-align:top}
+td.over{color:var(--red)} td.under{color:var(--green)} td.src-mock{color:var(--amber)} td.src-backup{color:var(--cyan)}
+.empty{color:var(--faint);font:13px var(--mono);padding:12px 0}
+footer{padding:14px 20px;font:12px var(--sans);color:var(--faint);display:flex;gap:16px;flex-wrap:wrap}
+footer a{color:var(--dim)}
+@media (max-width:1100px){
+  .c-clock,.c-cue{grid-column:1/13;border-right:0}
+  .c-stop,.c-arm{grid-column:1/13}
+  .c-stop{order:-1}
+}
+@media (max-width:640px){
+  header{grid-template-columns:1fr;gap:8px;padding:10px 16px}
+  .conn{justify-content:flex-start}
+  #api{width:100%}
+  section{padding:14px 16px}
+  #clock{font-size:76px}
+  #stop{min-height:110px;font-size:42px}
+  .roles{grid-template-columns:1fr}
+  .roles > div:nth-child(2){border-top:0}
+  .roles .who{padding-bottom:0;border-top:1px solid var(--rule)}
+  .roles .who+div{border-top:0;padding-top:4px}
+  .roles > div:first-child{border-top:0}
+  .cuehead h2{font-size:24px}
+  .next{grid-template-columns:1fr}
+  #timeline .seg{font-size:9px;padding:3px 2px}
+  .runbtns{margin-left:0}
+  .mockbar{padding:8px 16px}
+  footer{padding:14px 16px}
+}
+</style>
+</head>
+<body>
+<header>
+  <h1>Scrub <span>judge run, OR 4 table</span></h1>
+  <div class="lab" id="wall">--:--:--</div>
+  <div class="conn">
+    <span class="pill mock" id="connpill">checking :8000</span>
+    <span class="pill backup" id="backpill" hidden>backup video</span>
+    <input id="api" aria-label="controller URL" spellcheck="false">
+  </div>
+</header>
+<div class="mockbar" id="mockbar">MOCK. The controller at <span id="mockapi"></span> is not answering, so the arm, events and timings on this page are simulated in the browser. Mock runs are logged as mock and never count toward the P5 pass.</div>
+<main>
+  <section class="c-clock" aria-label="run clock">
+    <div class="clockrow">
+      <div>
+        <div class="lab">Run clock, limit 3:00</div>
+        <div id="clock">0:00.0</div>
+      </div>
+      <div class="clockside">
+        <div class="lab">Left</div><div class="num" id="left">3:00</div>
+        <div class="lab">Schedule</div><div class="num" id="drift">on time</div>
+      </div>
+      <div class="runbtns">
+        <button class="primary" id="bStart"><kbd>Enter</kbd>&nbsp; start run</button>
+        <button id="bShort"><kbd>K</kbd>&nbsp; full version</button>
+        <button id="bAbort"><kbd>X</kbd>&nbsp; abort</button>
+      </div>
+    </div>
+    <div id="timeline"></div>
+    <div class="preflight" id="preflight"></div>
+  </section>
+
+  <section class="c-stop" aria-label="stop and demo keys">
+    <button id="stop" aria-label="Stop the arm"><span id="stopword">STOP</span><small>Space or Esc, latched</small></button>
+    <div class="latchnote">Stopped and latched. Press R to reset: arm homes, gripper opens, count clears.</div>
+    <div class="keys">
+      <button data-set="surgical"><b><kbd>1</kbd> Operating room</b><span>surgical</span></button>
+      <button data-set="dental"><b><kbd>2</kbd> Dental office</b><span>dental</span></button>
+      <button data-set="bench"><b><kbd>3</kbd> Robotics bench</b><span>bench</span></button>
+      <div class="row2">
+        <button data-light="dim"><b><kbd>&#8679;L</kbd> dim</b><span>lighting</span></button>
+        <button data-light="normal"><b><kbd>L</kbd> normal</b><span>lighting</span></button>
+        <button data-light="bright"><b><kbd>L</kbd> bright</b><span>lamp on</span></button>
+      </div>
+      <button class="wide" id="bReset"><b><kbd>R</kbd> Reset</b><span>home, open, clear count</span></button>
+      <button id="bCue"><b><kbd>C</kbd> cue request</b><span>/command</span></button>
+      <button id="bGot"><b><kbd>G</kbd> got it</b><span>release</span></button>
+      <button id="bBackup"><b><kbd>B</kbd> backup</b><span>video run</span></button>
+    </div>
+    <div id="keymsg" role="status"></div>
+  </section>
+
+  <section class="c-cue" aria-label="current cue">
+    <div class="cuehead">
+      <span class="num" id="cueAt">0:00</span>
+      <h2 id="cueTitle">Ready</h2>
+      <span class="win" id="cueWin"></span>
+    </div>
+    <div class="roles" id="roles"></div>
+    <div class="goals" id="goals"></div>
+    <div class="goalnote" id="goalnote"></div>
+    <div class="next"><span class="lab">Next</span><span id="nextCue"></span></div>
+  </section>
+
+  <section class="c-arm" aria-label="arm">
+    <div id="livearm">
+      <div class="lab"><span id="armsrc">Arm</span>, from WS /events</div>
+      <div class="armgrid">
+        <div><div class="lab">Step</div><div class="v" id="aStep">idle</div></div>
+        <div><div class="lab">Item</div><div class="v" id="aItem">none</div></div>
+        <div><div class="lab">Out</div><div class="v" id="aOut" style="font-size:15px">none</div></div>
+        <div><div class="lab">Request to hand</div><div class="v" id="aRth">-- s</div></div>
+      </div>
+      <svg id="topview" viewBox="0 0 400 300" aria-label="top view of the table in mm"></svg>
+      <ul id="evlog"></ul>
+    </div>
+    <div id="backup">
+      <div class="lab">Backup run, recorded Sunday 6:00 to 7:00 AM (PLAN.md)</div>
+      <div id="bvwrap" style="margin-top:8px">
+        <video id="bv" controls playsinline muted></video>
+        <div class="ph"><b>backup-run.mp4 placeholder</b>No video loaded. Load the clean full run file, or open with ?video=URL. The arm is not used while this is on; STOP still posts to the controller.</div>
+      </div>
+      <label class="filebtn">Load backup video<input type="file" id="bvfile" accept="video/*"></label>
+      <p class="goalnote">In backup mode the cues do not hear the arm. Press Enter when each beat plays out on the video.</p>
+    </div>
+  </section>
+
+  <section class="c-log" aria-label="rehearsal log">
+    <div class="loghead">
+      <div class="lab">Rehearsal log, P5</div>
+      <div class="verdict" id="verdict">Under 3:00 twice in a row: not yet</div>
+      <div class="tally" id="tally">0 of 3 rehearsals</div>
+      <button id="bClear" style="margin-left:auto">Clear log</button>
+    </div>
+    <div class="tablewrap"><table>
+      <thead><tr><th>#</th><th>Started</th><th>Version</th><th>Source</th><th>Total</th><th>Beats over plan (more than 3 s)</th><th>Result</th></tr></thead>
+      <tbody id="logbody"></tbody>
+    </table></div>
+    <div class="empty" id="logempty">No rehearsals yet. Press Enter to start the first one; it is logged when the close beat ends.</div>
+  </section>
+</main>
+<footer>
+  <span>Roles: Anish speaks, Brandon is the clinician, Caiden runs this console and the stop key, Evan swaps trays and the lamp.</span>
+  <a href="40-failure-drills.html">Failure drills (40)</a>
+  <a href="39-handoff-path.html">Handoff path (39)</a>
+  <a href="#">Terms</a><a href="#">Privacy</a>
+</footer>
+
+<script>
+"use strict";
+const Q=new URLSearchParams(location.search);
+// Served by the controller at /demo: same origin. Opened from disk: localhost:8000.
+let API=(Q.get("api")||(location.protocol.startsWith("http")?location.origin:"http://localhost:8000")).replace(/\/$/,"");
+const $=id=>document.getElementById(id);
+$("api").value=API; $("mockapi").textContent=API;
+
+/* ---------------- beats (docs/PITCH.md, docs/PLAN.md) ---------------- */
+const ITEM_NAMES={scalpel:"scalpel",hemostat:"hemostat",mayo_scissors:"Mayo scissors",mouth_mirror:"mouth mirror",explorer:"explorer",
+  cotton_pliers:"cotton pliers",needle_nose_pliers:"needle-nose pliers",wire_cutters:"wire cutters",hex_key:"hex key"};
+const SETTING_ITEMS={surgical:["hemostat","scalpel","mayo_scissors"],dental:["mouth_mirror","explorer","cotton_pliers"],bench:["needle_nose_pliers","wire_cutters","hex_key"]};
+const FULL=[
+ {at:0,end:30,title:"The staffing numbers",
+  anish:"“In a dental office or an operating room, the doctor works with an assistant who hands them instruments. Clinics can't hire enough of them. Two out of three dentists who are recruiting say finding one is very or extremely hard, and a surgical tech job stays open about four months. When nobody is there, the doctor turns away from the patient, puts down what they're holding, and searches the tray.”",
+  brandon:"Stand as the clinician, hands busy.", evan:"OR tray on the blue towel. Lamp off. Hands clear.",
+  caiden:"Dashboard faces the judge. Press Enter when Anish says “This is Scrub.”", goals:[]},
+ {at:30,end:50,title:"“This is Scrub.”",
+  anish:"“This is Scrub. The doctor asks for what they need, and Scrub hands it over, handle first, and lets go when they take it.”",
+  brandon:"Say “hemostat.” Open hand, take it by the handle, pull.", evan:"Stay out of the camera.",
+  caiden:"Point at the request-to-hand time when it lands.", goals:[{k:"hand",item:"hemostat"}]},
+ {at:50,end:65,title:"The sharps line",
+  anish:"“Scalpels go to a safe spot instead of hand to hand, the way operating rooms pass sharps.”",
+  brandon:"Say “scalpel.” Wait for “scalpel down,” then pick it up from the safe spot.", evan:"Stay out of the camera.",
+  caiden:"Watch the path. Space if anything crosses it.", goals:[{k:"down",item:"scalpel"}]},
+ {at:65,end:80,title:"“Try it.”",
+  anish:"“Try it. Ask for the scissors.” Hand the judge the moment.",
+  brandon:"Step back so the judge's hand is the only open hand.", judge:"Asks for the scissors out loud and takes them.", evan:"Nothing.",
+  caiden:"If voice misses, press C to send the request.", goals:[{k:"hand",item:"mayo_scissors"}]},
+ {at:80,end:100,title:"The return line",
+  anish:"“When an instrument is done, it goes back in its slot, and Scrub keeps the count so nothing gets left behind.”",
+  brandon:"Set the hemostat in the return spot. Say “return.”", evan:"Nothing.",
+  caiden:"Watch for “Hemostat back in its slot.”", goals:[{k:"returned",item:"hemostat"}]},
+ {at:100,end:120,title:"The lighting line",
+  anish:"“We fine-tuned Perceptron's Isaac model on our own demonstrations. Operating lights are extremely bright and steel throws glare, so we trained and tested under bright, normal and dim light. Here's the success rate for each.”",
+  brandon:"Once the lamp is on, ask for any instrument on the tray.", evan:"Lamp on, aimed at the tray.",
+  caiden:"Press L when the lamp is on (POST /lighting bright). Point at the lighting table.",
+  goals:[{k:"light",value:"bright"},{k:"hand",item:"*"}]},
+ {at:120,end:150,title:"Three settings",
+  anish:"“The same system works anywhere someone needs a second pair of hands. You've seen the operating room. Here's a dental office, and here's a robotics lab. Each one is a new tray and new demonstrations, with no new code.”",
+  brandon:"“Mirror.” Then “pliers.”", evan:"Lamp off. Swap to the dental tray, then the bench tray.",
+  caiden:"L back to normal. Key 2 once the dental tray is down, key 3 once the bench tray is down.",
+  goals:[{k:"setting",value:"dental"},{k:"hand",item:"mouth_mirror"},{k:"setting",value:"bench"},{k:"hand",item:"needle_nose_pliers"}]},
+ {at:150,end:180,title:"The close",
+  anish:"“Scrub runs on an open-source arm that costs a few hundred dollars, and the software is ready for a medical-grade arm. We're starting with dental offices.”",
+  brandon:"Say “count.”", evan:"Hold up the phone so the summary text shows.",
+  caiden:"Press Enter when Anish finishes. That ends and logs the run.", goals:[{k:"count"}], manualEnd:true},
+];
+const SHORT_IDX=[1,3,7];
+function buildShort(){let t=0;return SHORT_IDX.map(i=>{const b=FULL[i],d=b.end-b.at;const o=Object.assign({},b,{at:t,end:t+d});t+=d;
+  if(i===1)o.caiden="Short version for a rushed judge. Clock started at the hemostat request."; return o;});}
+let shortMode=false, BEATS=FULL;
+
+/* ---------------- state ---------------- */
+const S={step:"idle",item:null,out:[],setting:"surgical",lighting:"normal",rth:null};
+let mode="mock"; // live | mock
+let latched=false, backup=false;
+const run={on:false,t0:0,idx:0,beatStart:0,ends:[],goalState:[],awaitIdle:false,mockTimer:null};
+let events=[];
+
+/* ---------------- transport ---------------- */
+async function http(method,path,body){
+  if(mode==="mock") return MOCK.call(method,path,body);
+  const r=await fetch(API+path,{method,headers:body?{"content-type":"application/json"}:{},body:body?JSON.stringify(body):undefined});
+  let j=null; try{j=await r.json()}catch(e){}
+  if(!r.ok){const err=new Error((j&&j.detail)||("HTTP "+r.status));err.status=r.status;throw err}
+  return j;
+}
+let ws=null, polling=null;
+async function probe(){
+  try{
+    const ctl=new AbortController(); const to=setTimeout(()=>ctl.abort(),1500);
+    const r=await fetch(API+"/state",{signal:ctl.signal}); clearTimeout(to);
+    if(!r.ok) throw 0; const s=await r.json();
+    if(mode!=="live"){mode="live"; MOCK.halt(); openWS();}
+    applyState(s);
+  }catch(e){
+    if(mode!=="mock"){mode="mock"; if(ws){try{ws.close()}catch(_){}} ws=null; MOCK.boot();}
+  }
+  paintConn();
+}
+function openWS(){
+  try{ws=new WebSocket(API.replace(/^http/,"ws")+"/events");}catch(e){return}
+  ws.onmessage=m=>{try{onEvent(JSON.parse(m.data))}catch(e){}};
+  ws.onclose=()=>{ws=null; setTimeout(()=>{if(mode==="live"&&!ws)openWS()},1500)};
+}
+function paintConn(){
+  const p=$("connpill");
+  document.body.classList.toggle("mock",mode==="mock");
+  p.className="pill "+(mode==="live"?"live":"mock");
+  p.textContent=mode==="live"?("live "+API.replace(/^https?:\/\//,"")+(ws&&ws.readyState===1?", ws open":", ws connecting")):"mock, controller down";
+  $("armsrc").textContent=mode==="live"?"Arm, live":"Arm, MOCK";
+}
+$("api").addEventListener("change",e=>{API=e.target.value.trim().replace(/\/$/,"");$("mockapi").textContent=API;mode="unknown";if(ws)try{ws.close()}catch(_){};ws=null;probe();});
+
+/* ---------------- mock controller (shapes from docs/CONTRACTS.md, timing like controller/fake_arm.py) ---------------- */
+const MOCK={
+  st:null,timers:[],jobs:[],gen:0,
+  boot(){ if(!this.st) this.st={step:"idle",item:null,out:[],setting:"surgical",lighting:"normal"}; applyState(Object.assign({},this.st)); },
+  halt(){ this.timers.forEach(clearTimeout); this.timers=[]; },
+  emit(type,extra){const s=this.st;const ev=Object.assign({type,item:s.item,step:s.step,say:null,request_to_hand_s:null,retries:null,
+     setting:s.setting,lighting:s.lighting,command_id:null,out:s.out.slice(),t:Date.now()/1000},extra||{});
+     setTimeout(()=>onEvent(ev),0);},
+  step(step,item){this.st.step=step; if(item!==undefined)this.st.item=item; this.emit("step");},
+  busy(){return !["idle","stopped","error"].includes(this.st.step)||this.jobs.length>0},
+  later(ms,fn){const g=this.gen;const t=setTimeout(()=>{if(g===this.gen)fn()},ms);this.timers.push(t)},
+  seq(list,done){const go=i=>{if(i>=list.length){done&&done();return} const [ms,fn]=list[i]; this.later(ms,()=>{fn();go(i+1)})}; go(0);},
+  call(method,path,body){
+    const s=this.st;
+    return new Promise((res,rej)=>{
+      const fail=(c,d)=>{const e=new Error(d);e.status=c;rej(e)};
+      setTimeout(()=>{
+        if(path==="/stop"){this.gen++;this.halt();this.jobs=[];s.step="stopped";this.emit("stopped",{say:"Stopped."});return res({accepted:true})}
+        if(path==="/reset"){ if(this.busy())return fail(409,"busy: stop first");
+          s.out=[]; this.step("homing",null); this.later(1000,()=>{s.step="idle";this.emit("step",{say:"Reset. Ready."})}); return res({ok:true})}
+        if(path==="/setting"){ if(this.busy())return fail(409,"busy: stop or wait for idle before switching trays");
+          if(!SETTING_ITEMS[body.setting])return fail(404,"no setting");
+          s.setting=body.setting;s.out=[];s.step="idle";s.item=null;this.emit("step",{item:null});return res({id:body.setting})}
+        if(path==="/lighting"){s.lighting=body.lighting;return res({ok:true})}
+        if(path==="/command") return res(this.command(body));
+        if(path==="/state") return res(Object.assign({},s,{fake_arm:true,queue:[]}));
+        fail(404,"not in mock");
+      },60);
+    });
+  },
+  command(c){
+    const s=this.st, a=c.action, id=Math.random().toString(16).slice(2,10);
+    const cmdEv=(ok,reason,say)=>this.emit("command",{item:c.item||null,command_id:id,action:a,heard:c.heard||null,source:c.source,accepted:ok,reason,say});
+    if(a==="count"){const names=s.out.map(i=>ITEM_NAMES[i]);const say=names.length?"Out: "+names.join(", ")+".":"Everything's on the tray.";
+      cmdEv(true,null,null);this.emit("count",{say,item:null});return {accepted:true,reason:null,say}}
+    if(a==="got_it"){ if(s.step!=="waiting_for_pull"){cmdEv(false,"not holding anything out",null);return {accepted:false,reason:"not holding anything out",say:null}}
+      this.pull&&this.pull(); cmdEv(true,null,null); return {accepted:true,reason:null,say:null}}
+    if(a==="handover"){ if(!SETTING_ITEMS[s.setting].includes(c.item)){cmdEv(false,"not in setting","That's not on this tray.");return {accepted:false,reason:"not in setting",say:"That's not on this tray."}}
+      if(this.busy()){cmdEv(false,"busy","One moment.");return {accepted:false,reason:"busy",say:"One moment."}}
+      const nm=ITEM_NAMES[c.item], say=nm[0].toUpperCase()+nm.slice(1)+" coming."; cmdEv(true,null,say); this.handover(c.item,performance.now()); return {accepted:true,reason:null,say}}
+    if(a==="return"){ if(this.busy()||!s.out.length){cmdEv(false,"nothing is out","Nothing's out.");return {accepted:false,reason:"nothing is out",say:"Nothing's out."}}
+      const it=s.out[0]; cmdEv(true,null,null); this.returnItem(it); return {accepted:true,reason:null,say:null}}
+    cmdEv(false,"unknown command","Sorry, say that again?"); return {accepted:false,reason:"unknown command",say:"Sorry, say that again?"};
+  },
+  handover(item,t0){
+    const s=this.st, sharp=item==="scalpel", nm=ITEM_NAMES[item];
+    this.jobs=[1];
+    const el=()=>Math.round((performance.now()-t0)/100)/10;
+    const seq=[[200,()=>this.step("finding",item)],[900,()=>this.step("picking")],[1300,()=>this.step("checking")],
+               [600,()=>{this.emit("picked",{retries:0});if(!s.out.includes(item))s.out.push(item)}]];
+    if(sharp){ seq.push([300,()=>this.step("setting_down")],[1200,()=>this.emit("set_down",{say:"Scalpel down.",request_to_hand_s:el(),retries:0})],
+                [300,()=>this.step("homing",null)],[1000,()=>{this.jobs=[];this.step("idle")}]);
+      this.seq(seq); return; }
+    seq.push([300,()=>this.step("moving_to_hand")],[1300,()=>{this.step("waiting_for_pull");this.emit("handed",{request_to_hand_s:el(),retries:0})}]);
+    this.seq(seq,()=>{
+      let pulled=false;
+      this.pull=()=>{ if(pulled)return; pulled=true; this.pull=null;
+        this.seq([[100,()=>this.step("releasing")],[400,()=>this.emit("released")],[200,()=>this.step("homing",null)],[1000,()=>{this.jobs=[];this.step("idle")}]]); };
+      this.later(1500,()=>this.pull&&this.pull());
+    });
+  },
+  returnItem(item){
+    const s=this.st; this.jobs=[1];
+    this.seq([[200,()=>this.step("returning",item)],[1600,()=>this.step("picking")],[1400,()=>{s.out=s.out.filter(x=>x!==item);
+      const nm=ITEM_NAMES[item];this.emit("returned",{say:nm[0].toUpperCase()+nm.slice(1)+" back in its slot.",retries:0})}],
+      [300,()=>this.step("homing",null)],[1000,()=>{this.jobs=[];this.step("idle")}]]);
+  }
+};
+
+/* ---------------- state + events ---------------- */
+function applyState(s){
+  if(!s)return;
+  ["step","item","setting","lighting"].forEach(k=>{if(k in s)S[k]=s[k]});
+  if(Array.isArray(s.out))S.out=s.out.slice();
+  if(S.step==="stopped")setLatched(true);
+  paintArm(); paintKeys();
+}
+function onEvent(ev){
+  if(ev.step)S.step=ev.step;
+  if("item" in ev && ev.type==="step")S.item=ev.item;
+  if(ev.setting)S.setting=ev.setting;
+  if(ev.lighting)S.lighting=ev.lighting;
+  if(Array.isArray(ev.out))S.out=ev.out.slice();
+  if(ev.type==="handed"||ev.type==="set_down"){if(ev.request_to_hand_s!=null)S.rth=ev.request_to_hand_s}
+  if(ev.type==="stopped")setLatched(true);
+  if(ev.type==="step"&&ev.say==="Reset. Ready.")setLatched(false);
+  events.unshift(ev); events=events.slice(0,8);
+  matchGoals(ev); checkSoftGoals();
+  paintArm(); paintKeys();
+}
+
+/* ---------------- goals ---------------- */
+function goalLabel(g){
+  if(g.k==="hand")return (g.item==="*"?"any item":ITEM_NAMES[g.item])+" released";
+  if(g.k==="down")return ITEM_NAMES[g.item]+" at safe spot";
+  if(g.k==="returned")return ITEM_NAMES[g.item]+" back in slot";
+  if(g.k==="light")return "lighting "+g.value;
+  if(g.k==="setting")return "tray "+g.value;
+  if(g.k==="count")return "count read back";
+}
+function goalMet(g,ev){
+  if(g.k==="hand")return (ev.type==="released"||ev.type==="set_down")&&(g.item==="*"||ev.item===g.item);
+  if(g.k==="down")return ev.type==="set_down"&&ev.item===g.item;
+  if(g.k==="returned")return ev.type==="returned"&&(!g.item||ev.item===g.item);
+  if(g.k==="count")return ev.type==="count";
+  return false;
+}
+function matchGoals(ev){
+  if(!run.on||backup)return;
+  const b=BEATS[run.idx]; if(!b)return;
+  // goals are met in order, so "mirror" before the dental tray switch does not count
+  const i=run.goalState.indexOf(false);
+  if(i>=0&&goalMet(b.goals[i],ev)){run.goalState[i]=true; checkSoftGoals();}
+  checkBeatDone();
+}
+function checkSoftGoals(){ // lighting / setting goals come from our own POSTs or from events
+  if(!run.on||backup)return; const b=BEATS[run.idx]; if(!b)return;
+  const i=run.goalState.indexOf(false); if(i<0)return;
+  const g=b.goals[i];
+  if((g.k==="light"&&S.lighting===g.value)||(g.k==="setting"&&S.setting===g.value)){run.goalState[i]=true;checkBeatDone();}
+}
+function checkBeatDone(){
+  const b=BEATS[run.idx];
+  if(!b.goals.length||run.goalState.includes(false)){paintCue();return}
+  if(b.manualEnd){paintCue();return}
+  if(S.step==="idle")advance(); else {run.awaitIdle=true; paintCue();}
+}
+
+/* ---------------- run control ---------------- */
+const now=()=>performance.now()/1000;
+const fmt=(s,tenths)=>{const neg=s<0;s=Math.abs(s);const m=Math.floor(s/60),r=s-m*60;
+  const str=m+":"+(tenths?r.toFixed(1).padStart(4,"0"):String(Math.floor(r)).padStart(2,"0")); return (neg?"-":"")+str};
+function startRun(){
+  if(run.on)return;
+  Object.assign(run,{on:true,t0:now(),idx:0,beatStart:now(),ends:[],awaitIdle:false});
+  enterBeat(0);
+  if(backup){const v=$("bv");if(v.src){v.currentTime=0;v.play().catch(()=>{})}}
+  flash("run started"+(mode==="mock"?" (mock)":""));
+}
+function enterBeat(i){
+  run.idx=i; run.beatStart=now(); run.awaitIdle=false;
+  run.goalState=BEATS[i].goals.map(()=>false);
+  clearTimeout(run.mockTimer);
+  run.mockPending=false;
+  checkSoftGoals();
+  paintCue(); paintTimeline();
+}
+function advance(){
+  if(!run.on)return;
+  run.ends[run.idx]=now()-run.t0;
+  if(run.idx>=BEATS.length-1){finishRun(true);return}
+  enterBeat(run.idx+1);
+}
+function finishRun(completed){
+  if(!run.on)return;
+  clearTimeout(run.mockTimer);
+  const total=now()-run.t0;
+  if(completed){
+    const beats=BEATS.map((b,i)=>({title:b.title,planned:b.end,actual:run.ends[i]==null?null:Math.round(run.ends[i]*10)/10}));
+    const rec={at:new Date().toISOString(),version:shortMode?"short":"full",src:backup?"backup":mode,total:Math.round(total*10)/10,beats};
+    const log=loadLog(); log.push(rec); saveLog(log);
+  }
+  run.on=false; run.idx=0; run.ends=[];
+  paintLog(); paintCue(); paintTimeline();
+  flash(completed?"run logged: "+fmt(total,true):"run aborted, not logged");
+}
+function scheduleMockClinician(){
+  const b=BEATS[run.idx]; const gi=run.goalState.indexOf(false); if(gi<0)return;
+  const g=b.goals[gi]; let cmd=null;
+  if(g.k==="hand"||g.k==="down")cmd={action:"handover",item:g.item==="*"?SETTING_ITEMS[S.setting][0]:g.item};
+  if(g.k==="returned")cmd={action:"return",item:null};
+  if(g.k==="count")cmd={action:"count",item:null};
+  if(!cmd)return; // light / setting goals wait for Caiden's key
+  run.mockTimer=setTimeout(()=>{
+    if(!run.on||mode!=="mock"||latched)return;
+    if(S.step!=="idle"){scheduleMockClinician();return}
+    http("POST","/command",Object.assign(cmd,{source:"voice",heard:"(mock clinician) "+(cmd.item?ITEM_NAMES[cmd.item]:cmd.action),t:Date.now()/1000}));
+  },2500);
+}
+
+/* ---------------- keys ---------------- */
+function flash(msg,err){const k=$("keymsg");k.textContent=msg;k.className=err?"err":""}
+async function doStop(){
+  setLatched(true);
+  try{await http("POST","/stop");flash("POST /stop accepted, arm frozen")}catch(e){flash("POST /stop failed: "+e.message+". Pull the power if the arm still moves.",true)}
+}
+function setLatched(v){latched=v;document.body.classList.toggle("latched",v);$("stopword").textContent=v?"STOPPED":"STOP"}
+async function doReset(){
+  try{await http("POST","/reset",{clear_count:true});flash("POST /reset {clear_count}: homing, gripper open, count cleared");S.rth=null;
+    if(mode==="live")setTimeout(()=>{if(S.step!=="stopped")setLatched(false)},300);}
+  catch(e){flash("reset refused ("+(e.status||"")+"): "+e.message,true)}
+}
+async function doSetting(id){
+  try{await http("POST","/setting",{setting:id});S.setting=id;S.out=[];flash("POST /setting "+id+": tray loaded, out cleared");checkSoftGoals();paintKeys();paintArm()}
+  catch(e){flash("setting "+id+" refused ("+(e.status||"")+"): "+e.message,true)}
+}
+async function doLight(v){
+  try{await http("POST","/lighting",{lighting:v,lux:null});S.lighting=v;flash("POST /lighting "+v+": later events tagged "+v);checkSoftGoals();paintKeys()}
+  catch(e){flash("lighting refused: "+e.message,true)}
+}
+async function doCue(){
+  const b=run.on?BEATS[run.idx]:null; const gi=b?run.goalState.indexOf(false):-1;
+  const g=gi>=0?b.goals[gi]:null; let cmd;
+  if(g&&(g.k==="hand"||g.k==="down"))cmd={action:"handover",item:g.item==="*"?SETTING_ITEMS[S.setting][0]:g.item};
+  else if(g&&g.k==="returned")cmd={action:"return",item:null};
+  else if(g&&g.k==="count")cmd={action:"count",item:null};
+  else {flash(g?"this cue is a key, not a request: "+goalLabel(g):"no request on this cue",true);return}
+  try{const r=await http("POST","/command",Object.assign(cmd,{source:"dashboard",t:Date.now()/1000}));
+    flash("/command "+cmd.action+(cmd.item?" "+cmd.item:"")+": "+(r.accepted?"accepted":"refused, "+r.reason)+(r.say?". Says “"+r.say+"”":""),!r.accepted)}
+  catch(e){flash("/command failed: "+e.message,true)}
+}
+async function doGot(){
+  try{const r=await http("POST","/command",{action:"got_it",item:null,source:"dashboard",t:Date.now()/1000});flash(r.accepted?"got_it: releasing":"got_it refused: "+r.reason,!r.accepted)}
+  catch(e){flash("got_it failed: "+e.message,true)}
+}
+function toggleBackup(){
+  backup=!backup; document.body.classList.toggle("backup",backup); $("backpill").hidden=!backup;
+  if(!backup){const v=$("bv");if(v.src)v.pause()}
+  else if(run.on){const v=$("bv");if(v.src)v.play().catch(()=>{})}
+  flash(backup?"backup video on: cues advance on Enter":"backup video off: cues follow the arm again");
+  if(run.on)enterBeat(run.idx); paintCue();
+}
+function toggleShort(){
+  if(run.on){flash("finish or abort the run first",true);return}
+  shortMode=!shortMode; BEATS=shortMode?buildShort():FULL;
+  $("bShort").innerHTML="<kbd>K</kbd>&nbsp; "+(shortMode?"short version (3 beats)":"full version");
+  paintTimeline(); paintCue();
+}
+document.addEventListener("keydown",e=>{
+  const typing=e.target.tagName==="INPUT";
+  if(e.key==="Escape"){e.preventDefault();doStop();return}
+  if(typing)return;
+  if(e.key===" "||e.code==="Space"){e.preventDefault();doStop();return}
+  if(e.metaKey||e.ctrlKey||e.altKey)return;
+  const k=e.key.toLowerCase();
+  if(k==="1")doSetting("surgical"); else if(k==="2")doSetting("dental"); else if(k==="3")doSetting("bench");
+  else if(k==="r")doReset();
+  else if(k==="l"){ if(e.shiftKey)doLight("dim"); else doLight(S.lighting==="bright"?"normal":"bright"); }
+  else if(k==="enter"){e.preventDefault(); if(!run.on)startRun(); else advance();}
+  else if(k==="x"){ if(run.on)finishRun(false); }
+  else if(k==="k")toggleShort();
+  else if(k==="b")toggleBackup();
+  else if(k==="c")doCue();
+  else if(k==="g")doGot();
+});
+$("stop").onclick=doStop; $("bReset").onclick=doReset;
+document.querySelectorAll("[data-set]").forEach(b=>b.onclick=()=>doSetting(b.dataset.set));
+document.querySelectorAll("[data-light]").forEach(b=>b.onclick=()=>doLight(b.dataset.light));
+$("bStart").onclick=()=>{if(!run.on)startRun();else advance()};
+$("bAbort").onclick=()=>{if(run.on)finishRun(false)};
+$("bShort").onclick=toggleShort; $("bBackup").onclick=toggleBackup; $("bCue").onclick=doCue; $("bGot").onclick=doGot;
+$("bClear").onclick=()=>{if(confirm("Clear every logged rehearsal?")){saveLog([]);paintLog()}};
+$("bvfile").onchange=e=>{const f=e.target.files[0];if(!f)return;const v=$("bv");v.src=URL.createObjectURL(f);$("bvwrap").classList.add("has");flash("backup video loaded: "+f.name)};
+if(Q.get("video")){$("bv").src=Q.get("video");$("bvwrap").classList.add("has")}
+
+/* ---------------- paint ---------------- */
+function paintKeys(){
+  document.querySelectorAll("[data-set]").forEach(b=>b.classList.toggle("on",b.dataset.set===S.setting));
+  document.querySelectorAll("[data-light]").forEach(b=>b.classList.toggle("on",b.dataset.light===S.lighting));
+  const pf=[["tray surgical",S.setting==="surgical"],["lighting normal",S.lighting==="normal"],["nothing out",S.out.length===0],["arm idle",S.step==="idle"]];
+  $("preflight").innerHTML=run.on?"":'<span class="lab" style="align-self:center">Preflight</span>'+pf.map(([l,ok])=>`<span class="${ok?"ok":"bad"}">${ok?"ok":"check"} ${l}</span>`).join("")+
+    (pf.every(p=>p[1])?"":'<span style="color:var(--dim)">R resets, 1 loads surgical, L to normal</span>');
+}
+function paintArm(){
+  const st=$("aStep"); st.textContent=S.step.replace(/_/g," "); st.className="v"+(S.step==="stopped"?" stopped":S.step==="error"?" err":"");
+  $("aItem").textContent=S.item?ITEM_NAMES[S.item]||S.item:"none";
+  $("aOut").textContent=S.out.length?S.out.map(i=>ITEM_NAMES[i]||i).join(", "):"none";
+  $("aRth").textContent=S.rth==null?"-- s":S.rth.toFixed(1)+" s";
+  const t0=events.length?events[events.length-1].t:0;
+  $("evlog").innerHTML=events.map(ev=>{
+    const tt=new Date(ev.t*1000).toTimeString().slice(0,8);
+    const what=ev.type==="command"?(ev.action+(ev.item?" "+ev.item:"")+(ev.accepted===false?" refused":"")):(ev.type==="step"?ev.step:(ev.item||""));
+    return `<li class="${ev.type==="stopped"?"stop":""}"><span>${tt}</span><b>${ev.type}</b><span>${esc(what)}${ev.say?" “"+esc(ev.say)+"”":""}${ev.heard&&ev.heard.startsWith("(mock")?" (mock clinician)":""}</span></li>`}).join("");
+  drawTop();
+}
+const esc=s=>String(s).replace(/[&<>"]/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c]));
+function drawTop(){
+  // sim/layout.json, meters in arm base frame. Screen: x forward = up, y left = left. Window x -0.04..0.40, y -0.30..0.30
+  const W=400,H=300,K=W/0.62, sx=y=>W/2-y*K, sy=x=>H-16-x*K, mm=v=>v*K;
+  const tray={c:[0.24,0],s:[0.10,0.26]}, slots=[[0.24,-0.08],[0.24,0],[0.24,0.08]];
+  const items=SETTING_ITEMS[S.setting]||[];
+  let out=`<rect x="0" y="0" width="${W}" height="${H}" fill="#18191d"/>`;
+  for(let x=0;x<=0.40001;x+=0.1){out+=`<line x1="0" x2="${W}" y1="${sy(x)}" y2="${sy(x)}" stroke="#26282d"/><text x="4" y="${sy(x)-3}" fill="#6b6e76" font-size="9" font-family="IBM Plex Mono">${Math.round(x*1000)} mm</text>`}
+  out+=`<rect x="${sx(tray.c[1]+tray.s[1]/2)}" y="${sy(tray.c[0]+tray.s[0]/2)}" width="${mm(tray.s[1])}" height="${mm(tray.s[0])}" fill="none" stroke="#9a9ca3"/>`;
+  const zone=(p,label,col,r)=>`<circle cx="${sx(p[1])}" cy="${sy(p[0])}" r="${r||16}" fill="none" stroke="${col}" stroke-dasharray="3 3"/><text x="${sx(p[1])}" y="${sy(p[0])+(r||16)+11}" fill="${col}" font-size="9" text-anchor="middle" font-family="Archivo Narrow">${label}</text>`;
+  out+=zone([0.17,0.17],"RETURN SPOT","#9a9ca3")+zone([0.17,-0.18],"SAFE SPOT","#e3a21a")+zone([0.28,-0.14],"HAND ZONE","#3fb8cf",20);
+  // where is the active item
+  const held=S.item; const atHand=["moving_to_hand","waiting_for_pull","releasing"].includes(S.step);
+  slots.forEach((p,i)=>{const id=items[i]; const isOut=S.out.includes(id)||(held===id&&S.step!=="idle");
+    out+=`<rect x="${sx(p[1])-18}" y="${sy(p[0])-7}" width="36" height="14" fill="${isOut?"none":"#3a3c42"}" stroke="${held===id?"#ecebe6":"#4a4d55"}"/>`+
+    `<text x="${sx(p[1])}" y="${sy(p[0])-12}" fill="${isOut?"#6b6e76":"#ecebe6"}" font-size="9" text-anchor="middle" font-family="IBM Plex Mono">${(ITEM_NAMES[id]||"").split(" ").pop()}</text>`});
+  // arm base and a line to the target
+  const base=[sx(0),sy(0)]; let tgt=null;
+  const hi=items.indexOf(held);
+  if(atHand)tgt=[0.28,-0.14]; else if(S.step==="setting_down")tgt=[0.17,-0.18]; else if(hi>=0&&["finding","picking","checking","returning"].includes(S.step))tgt=slots[hi];
+  if(tgt)out+=`<line x1="${base[0]}" y1="${base[1]}" x2="${sx(tgt[1])}" y2="${sy(tgt[0])}" stroke="${S.step==="stopped"?"#e23b2e":"#ecebe6"}" stroke-width="3"/><circle cx="${sx(tgt[1])}" cy="${sy(tgt[0])}" r="4" fill="#ecebe6"/>`;
+  out+=`<rect x="${base[0]-14}" y="${base[1]-10}" width="28" height="12" fill="#4a4d55"/><text x="${base[0]+20}" y="${base[1]}" fill="#9a9ca3" font-size="9" font-family="Archivo Narrow">SO-101 BASE, reach about 400 mm</text>`;
+  $("topview").innerHTML=out;
+}
+function paintCue(){
+  const b=run.on?BEATS[run.idx]:BEATS[0];
+  $("cueAt").textContent=fmt(b.at);
+  $("cueTitle").textContent=run.on?b.title:"Ready: "+b.title;
+  $("cueWin").textContent=`planned ${fmt(b.at)} to ${fmt(b.end)}, ${b.end-b.at} s`+(run.on?`  beat ${run.idx+1} of ${BEATS.length}`:"");
+  const rows=[["Anish","speaks",b.anish,"say"],["Brandon","clinician",b.brandon,"act"]];
+  if(b.judge)rows.push(["Judge","their turn",b.judge,"act"]);
+  rows.push(["Evan","trays, lamp",b.evan,"act"],["Caiden","you, this console",b.caiden,"act me"]);
+  $("roles").innerHTML=rows.map(([w,r,t,c])=>`<div class="who">${w}<em>${r}</em></div><div class="${c}">${esc(t)}</div>`).join("");
+  $("goals").innerHTML=b.goals.length?b.goals.map((g,i)=>`<span class="goal ${run.on&&run.goalState[i]?"met":""}">${goalLabel(g)}</span>`).join(""):'<span class="goal">speech only</span>';
+  let note="";
+  if(!run.on)note="Press Enter on Anish's first word. Space or Esc stops the arm at any time.";
+  else if(backup)note="Backup video: arm events are ignored. Enter moves to the next beat.";
+  else if(!b.goals.length)note="Enter when the line is done.";
+  else if(run.goalState.every(Boolean)&&b.manualEnd)note="Count done. Enter when Anish finishes to end and log the run.";
+  else if(run.awaitIdle)note="Goals met. Advancing when the arm reports idle.";
+  else note="Advances by itself when these land in order on WS /events"+(mode==="mock"?" (mock clinician asks 2.5 s in).":". Enter forces it.");
+  $("goalnote").textContent=note;
+  const n=run.on?BEATS[run.idx+1]:BEATS[1];
+  $("nextCue").textContent=n?`${fmt(n.at)} ${n.title}  /  Brandon: ${n.brandon}  Evan: ${n.evan}`:"Questions. Everyone. Run ends on Enter.";
+  paintKeys();
+}
+function paintTimeline(){
+  const span=shortMode?90:190, pct=t=>(Math.min(t,span)/span*100)+"%";
+  let h=BEATS.map((b,i)=>`<div class="seg ${run.on&&i===run.idx?"now":run.on&&i<run.idx?"done":""}" style="left:${pct(b.at)};width:${pct(b.end-b.at)}" title="${esc(b.title)}">${fmt(b.at)} ${esc(b.title)}</div>`).join("");
+  if(!shortMode)h+=`<div class="limit" style="left:${pct(180)}"></div>`;
+  const ticks=shortMode?[0,20,40,60,80]:[0,30,60,90,120,150,180];
+  h+=ticks.map(t=>`<span class="axis" style="left:${pct(t)}">${fmt(t)}</span>`).join("");
+  if(run.on){let prev=0;
+    for(let i=0;i<=run.idx;i++){const end=i<run.idx?run.ends[i]:now()-run.t0;const over=end>BEATS[i].end+3;
+      h+=`<div class="actual ${i===run.idx?"cur":""} ${over?"over":""}" style="left:${pct(prev)};width:calc(${pct(Math.max(0,end-prev))} - 1px)"></div>`;prev=end;}
+    h+=`<div class="needle" style="left:${pct(Math.min(now()-run.t0,span))}"></div>`;}
+  $("timeline").innerHTML=h;
+}
+function tick(){
+  $("wall").textContent=new Date().toTimeString().slice(0,8)+"  T+ "+(run.on?fmt(now()-run.t0):"0:00");
+  const el=run.on?now()-run.t0:0, c=$("clock");
+  c.textContent=fmt(el,true);
+  const limit=shortMode?BEATS[BEATS.length-1].end:180;
+  c.className=el>180?"over":el>165?"warn":"";
+  $("left").textContent=fmt(180-el);
+  if(run.on){const b=BEATS[run.idx]; const d=el-b.end;
+    $("drift").textContent=d>0?"+"+Math.round(d)+" s over beat":Math.round(-d)+" s left in beat";
+    $("drift").style.color=d>3?"var(--red)":d>-5?"var(--amber)":"";
+    $("bStart").innerHTML="<kbd>Enter</kbd>&nbsp; next beat";
+    if(Math.floor(el*4)!==tick.q){tick.q=Math.floor(el*4);paintTimeline();}
+  } else {$("drift").textContent="not running";$("drift").style.color="";$("bStart").innerHTML="<kbd>Enter</kbd>&nbsp; start run"}
+}
+/* ---------------- rehearsal log ---------------- */
+const LK="scrub48.rehearsals";
+function loadLog(){try{return JSON.parse(localStorage.getItem(LK)||"[]")}catch(e){return []}}
+function saveLog(l){try{localStorage.setItem(LK,JSON.stringify(l))}catch(e){}}
+function paintLog(){
+  const log=loadLog();
+  $("logempty").style.display=log.length?"none":"block";
+  $("logbody").innerHTML=log.map((r,i)=>{
+    const overs=r.beats.filter(b=>b.actual!=null&&b.actual>b.planned+3).map(b=>`${esc(b.title)} +${Math.round(b.actual-b.planned)} s`);
+    const under=r.total<180;
+    return `<tr><td>${i+1}</td><td>${new Date(r.at).toLocaleTimeString([], {hour:"2-digit",minute:"2-digit"})}</td><td>${r.version}</td>
+      <td class="src-${r.src}">${r.src}</td><td class="${under?"under":"over"}">${fmt(r.total,true)}</td>
+      <td class="${overs.length?"over":""}">${overs.length?overs.join("; "):"none"}</td>
+      <td>${r.src==="mock"?"mock, not counted":r.version==="short"?"short, not counted":under?"under 3:00":"over 3:00"}</td></tr>`}).reverse().join("");
+  const counted=log.filter(r=>r.src!=="mock"&&r.version==="full");
+  const last2=counted.slice(-2);
+  const pass=last2.length===2&&last2.every(r=>r.total<180);
+  const v=$("verdict"); v.className="verdict"+(pass?" pass":"");
+  v.textContent=pass?"Under 3:00 twice in a row: yes":"Under 3:00 twice in a row: "+(last2.length&&last2[last2.length-1].total<180?"one so far":"not yet");
+  $("tally").textContent=`${counted.length} of 3 rehearsals (full, live or backup)`;
+}
+
+/* ---------------- boot ---------------- */
+MOCK.boot(); paintConn(); paintCue(); paintTimeline(); paintArm(); paintLog();
+probe(); setInterval(probe,2000);
+setInterval(tick,100); tick();
+// mock: chain the next clinician request after each goal lands
+setInterval(()=>{ if(run.on&&mode==="mock"&&!backup&&S.step==="idle"&&!latched){const b=BEATS[run.idx];
+  if(b&&run.goalState.includes(false)&&!run.mockPending){run.mockPending=true;scheduleMockClinician();setTimeout(()=>run.mockPending=false,3000)}} },500);
+</script>
+</body>
+</html>

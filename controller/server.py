@@ -12,6 +12,7 @@ from pydantic import BaseModel
 from .core import Controller
 
 DASHBOARD = Path(__file__).resolve().parent.parent / "dashboard"
+DEMO = Path(__file__).resolve().parent / "demo.html"  # copy of explore/prototypes/48-judge-run.html
 
 
 class Command(BaseModel):
@@ -25,6 +26,10 @@ class Command(BaseModel):
 
 class Setting(BaseModel):
     setting: str
+
+
+class Reset(BaseModel):
+    clear_count: bool = False
 
 
 class Lighting(BaseModel):
@@ -55,10 +60,10 @@ def make_app(ctl: Controller, extra=None) -> FastAPI:
         return {"accepted": True}
 
     @app.post("/reset")
-    async def reset():
-        """Clear a stop or error: rearm, home, set down a held item, clear the count."""
+    async def reset(body: Optional[Reset] = None):
+        """Clear a stop or error: rearm, home, set down a held item. {"clear_count": true} also empties out."""
         try:
-            ctl.reset()
+            ctl.reset(clear_count=bool(body and body.clear_count))
         except RuntimeError:
             raise HTTPException(409, "busy: stop first")
         return {"ok": True}
@@ -134,6 +139,11 @@ def make_app(ctl: Controller, extra=None) -> FastAPI:
             pass
         finally:
             ctl.listeners.remove(entry)
+
+    @app.get("/demo", response_class=HTMLResponse)
+    async def demo():
+        """P4 demo console: 1/2/3 settings, R reset that clears the count, Space stop, 3:00 cue cards."""
+        return DEMO.read_text()
 
     if extra:
         extra(app)
