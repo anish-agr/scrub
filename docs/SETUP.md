@@ -22,7 +22,7 @@
 | Anish | LeRobot with Feetech extras (`pip install -e ".[feetech]"` in a LeRobot checkout) | Hugging Face write token (huggingface.co/settings/tokens) |
 | Caiden | FastAPI, uvicorn; Node with Photon's SDK; cloudflared or ngrok for the tunnel | Photon project and SMS number (app.photon.codes), ElevenLabs agent and API key, Gemini API key (Google AI Studio) |
 | Brandon | OpenCV, MediaPipe, requests | The Perceptron API key: posts it in the chat. Later, the $50 vision credits (code DUBHACKS26: enter $50.00 at checkout, it totals $0) |
-| Evan | pymongo | MongoDB Atlas free cluster (mlh.link/mongodb), Vultr with MLH credits, a GoDaddy domain through MLH's GoDaddy Registry offer (Saturday night) |
+| Evan | pymongo | MongoDB Atlas free cluster (mlh.link/mongodb), Vultr with MLH credits |
 
 ## Status of accounts
 
@@ -38,7 +38,6 @@
 | Hugging Face token | needed if LeRobot pushes datasets to the Hub. Otherwise record with `--dataset.push_to_hub=false` | Anish |
 | MongoDB Atlas | to do | Evan |
 | Vultr | to do, Saturday night | Evan |
-| GoDaddy domain | to do, Saturday night | Evan |
 | GitHub access | done | everyone |
 | Devpost team | done | everyone |
 | MLH Commit Fellowship form | Sunday, after submitting | Anish |
@@ -49,7 +48,7 @@
 - Bench: needle-nose pliers, wire cutters, hex key
 - A tray or box per setting, a blue towel under the tray, painter's tape for positions
 - The brightest lamp we have; a lux-meter phone app
-- Nitrile gloves in two sizes (the hand tracker gets tested with them)
+- Nitrile gloves in two sizes (for the handoff shots)
 - A USB webcam and a way to mount it overhead, if Perceptron's setup has no overhead camera we can use
 - A phone for the speakerphone call to the Photon number
 - A power strip and an extension cord; laptop and phone chargers

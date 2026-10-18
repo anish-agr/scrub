@@ -1,5 +1,7 @@
 # Arm, recording and fine-tuning
 
+> **Demo scope (Oct 18 morning):** the demo uses three instruments (scalpel handle, hemostat, Mayo scissors), has no sharps safe spot and no hand tracking (the arm slows as it nears the handoff point), and the arm goes home after each handoff. Return on the real arm is manual. `safe_spot` below is no longer needed.
+
 Owner: Anish. The workshop is the source of truth. Where it differs from below, the workshop wins and this file gets updated.
 
 ## Workshop notes
@@ -110,7 +112,7 @@ Perceptron's arms come assembled, so skip `lerobot-setup-motors` unless they say
 
 ## One demonstration
 
-- **Hand out:** the arm starts at home, the item in its slot. Pick it by the handle, lift to the carry pose, hold still. The move to the hand isn't recorded, since `move_to` plans it from the hand tracker. For the scalpel, place it in the safe spot instead.
+- **Hand out:** the arm starts at home, the item in its slot. Pick it by the handle, lift to the carry pose, hold still. Then carry it to the handoff point and hold it there for the pull. (The demo has no safe spot and no hand tracking.)
 - **Put back:** the item lies in the return spot. Pick it, place it in its slot.
 - Instructions: `pick the <name>` and `return the <name>`, matching `settings/*.json`.
 
@@ -125,11 +127,10 @@ Perceptron's arms come assembled, so skip `lerobot-setup-motors` unless they say
 | Order | Setting | Items | Demos | Arm time |
 | --- | --- | --- | --- | --- |
 | 1 | Operating room | scalpel handle, hemostat, Mayo scissors | 90 (20 pick + 10 return per item) | about 1 h 30 min |
-| 2 | Bench | needle-nose pliers, wire cutters, hex key | 75 (15 pick + 10 return per item) | about 1 h 15 min |
 
-Per item: 20 pick and 10 return for the operating room, 15 pick and 10 return for the bench. Two people: one on the leader arm, one resetting and logging in `docs/DATA-LOG.md`.
+Per item: 20 pick and 10 return. Two people: one on the leader arm, one resetting and logging in `docs/DATA-LOG.md`.
 
-If arm time turns out short, cut in this order: bench put-back, then dim light for bench (dental is dropped). Never cut the operating room set.
+If arm time turns out short, cut returns first. Never cut the three surgical picks.
 
 ## Fine-tuning runs
 

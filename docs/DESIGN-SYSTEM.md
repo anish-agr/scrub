@@ -43,7 +43,7 @@ Alarm colors follow IEC 60601-1-8 meaning (red high, amber medium, cyan info). C
 | Section | 2px ink rule on top, small-caps label (12px, .14em tracking, mute color), no boxes, no shadows |
 | Readout | Big number in mono with its unit printed ("6.4 s", "3 / 3"), label above in small caps |
 | Step strip | The handoff steps in a row (FIND, PICK, CHECK, HAND, WAIT, RELEASE, HOME), current one filled ink, failed one red |
-| Item row | Instrument name, slot, status word (ON TRAY / OUT / SAFE SPOT / RETURNING), item code style ("HEM-01") |
+| Item row | Instrument name, slot, status word (ON TRAY / OUT / RETURNING), item code style ("HEM-01") |
 | Event log | Mono, one line per event, time first, status color only on the status word |
 | Buttons | Square, 1px ink border, uppercase 15px, 44px min height; pressed = inverted. STOP is solid red, full width on its panel, and always visible |
 | Tables | 1px hair rules, tabular numbers, rate with tries and range ("83%  10/12  [55–95]") |
