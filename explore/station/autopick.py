@@ -176,7 +176,7 @@ def gemini_box(bgr, label="scalpel handle", timeout=15.0):
 # view), elongation 14-30, gray 58-70; tray rim, small scissors, steel tools and the leader all fall outside.
 LOCAL_LEN_CM = (4.0, 12.0)
 LOCAL_MIN_ELONG = 12.0
-LOCAL_MAX_GRAY = 95
+LOCAL_MAX_GRAY = 110  # lighting changes: a shadow brought the handle up to ~102
 
 
 def local_detect(bgr, H, workspace):
@@ -192,6 +192,8 @@ def local_detect(bgr, H, workspace):
     m = ((diff > 45) & (g < 120)).astype(np.uint8)
     m[: int(g.shape[0] * 0.53)] = 0  # the table starts below the horizon line
     m = cv2.morphologyEx(m, cv2.MORPH_CLOSE, np.ones((3, 3), np.uint8))
+    # a faint handle breaks into pieces along its length: join small gaps (ellipse 7x7 bridges ~6 px; 9x9 merged it with a neighbour)
+    m = cv2.morphologyEx(m, cv2.MORPH_CLOSE, cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (7, 7)))
     n, lab, st_, _ = cv2.connectedComponentsWithStats(m, connectivity=8)
     best = None
     for i in range(1, n):
