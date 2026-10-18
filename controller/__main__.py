@@ -49,6 +49,7 @@ def main() -> None:
     elif a.sim_arm:
         from sim.sim_arm import SimArm
         arm = SimArm()
+        arm.set_setting(a.setting)  # --setting must select the physical sim tray at startup too
         arm.pull_delta = 0.5  # sim load is servo force in N; pull() adds 1.0
     else:
         from .fake_arm import FakeArm
