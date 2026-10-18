@@ -1792,7 +1792,20 @@ class StubLocator:
 
 FOUND = {"item": "hemostat", "found": True, "confidence": 0.9, "method": "local", "arm_offset": [0.01, 0.0]}
 ROWS = [[]]  # what picker.load_rows() gives the controller's background refresh
-picker.load_rows = lambda: ROWS[0]
+if __name__ == "__main__":
+    picker.load_rows = lambda: ROWS[0]
+else:
+    import pytest
+
+    @pytest.fixture(scope="module", autouse=True)
+    def _isolate_picker_rows():
+        """Do not leave the flow suite's stub installed in the subsequent picker tests."""
+        saved = picker.load_rows
+        picker.load_rows = lambda: ROWS[0]
+        try:
+            yield
+        finally:
+            picker.load_rows = saved
 
 
 def smart(locator=None, deployment=True, **kw):
