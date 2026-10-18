@@ -7,6 +7,7 @@ import math
 import re
 import subprocess
 import uuid
+from functools import lru_cache
 from pathlib import Path
 
 import cv2
@@ -17,6 +18,7 @@ from PIL import Image, ImageDraw, ImageFont
 REPO = Path(__file__).resolve().parents[1]
 BASE = REPO / "data" / "video"
 LABELS = {"simulation": "SIMULATION", "reconstructed": "RECONSTRUCTED FROM ARM JOINT DATA",
+          "mixed": "MIXED FOOTAGE - NON-REAL SHOTS LABELED; NOT A CONTINUOUS REAL DEMO",
           "photo_plate": "PHOTO PLATE - STATIC BACKGROUND, NOT AN ACTION RECORDING",
           "unknown": "UNVERIFIED SOURCE"}
 PAPER, INK = (236, 232, 221), (20, 19, 15)
@@ -128,14 +130,22 @@ def font(size, mono=False):
 
 
 def text_bar(frame, lines, *, bottom=False, color=PAPER, foreground=INK):
-    image = Image.fromarray(cv2.cvtColor(frame, cv2.COLOR_BGR2RGB))
-    draw = ImageDraw.Draw(image)
-    size = max(12, round(frame.shape[1] / 48))
+    band = _band(frame.shape[1], tuple(map(str,lines)), tuple(color), tuple(foreground))
+    result = frame.copy()
+    height = min(result.shape[0], band.shape[0])
+    y = result.shape[0] - height if bottom else 0
+    result[y:y+height] = band[:height]
+    return result
+
+
+@lru_cache(maxsize=128)
+def _band(width, lines, color, foreground):
+    size = max(12, round(width / 48))
     line_h = size + 10
     height = line_h * len(lines) + 12
-    y = max(0, image.height - height) if bottom else 0
-    draw.rectangle((0, y, image.width, y + height), fill=color)
-    draw.line((0, y + height - 2, image.width, y + height - 2), fill=foreground, width=2)
+    image=Image.new('RGB',(width,height),color)
+    draw=ImageDraw.Draw(image)
+    draw.line((0,height-2,width,height-2),fill=foreground,width=2)
     face = font(size, mono=True)
     for i, line in enumerate(lines):
         # Fit full disclosure, never silently crop the reconstruction label.
@@ -143,7 +153,7 @@ def text_bar(frame, lines, *, bottom=False, color=PAPER, foreground=INK):
         while draw.textlength(str(line), font=actual) > image.width - 20 and size > 10:
             size -= 1
             actual = font(size, mono=True)
-        draw.text((10, y + 6 + i * line_h), str(line), font=actual, fill=foreground)
+        draw.text((10, 6 + i * line_h), str(line), font=actual, fill=foreground)
     return cv2.cvtColor(np.asarray(image), cv2.COLOR_RGB2BGR)
 
 
@@ -334,3 +344,7 @@ def epoch_at(meta, seconds):
     if meta.get("start_time") is None:
         raise ValueError("No source clock: align the clip with ingest --sync or a clap first")
     return finite(meta["start_time"]) + seconds
+
+
+def speed_at(meta, seconds):
+    return next((s['speed'] for s in meta.get('time_map',[]) if s['output_start']<=seconds<s['output_end']),1)
