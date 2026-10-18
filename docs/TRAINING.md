@@ -2,6 +2,11 @@
 
 This is the plain version. Every command with every flag is in `docs/BRINGUP.md` sections 6 to 8. Run all of this on **the laptop the arm is plugged into**.
 
+For a detailed operator-agent walkthrough, give the helper
+[`docs/TRAINING-HANDOFF-PROMPT.md`](TRAINING-HANDOFF-PROMPT.md). It requires one-step
+confirmation, discovers actual Windows ports/cameras/HF repo, tracks per-light
+counts, logs each batch, and gates both training submissions on real evidence.
+
 ## The idea in four lines
 
 1. A person moves the **leader** arm by hand. The **follower** arm copies it. That's teleoperation.
