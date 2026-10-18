@@ -21,7 +21,7 @@ Use a multi-agent workflow. You are the orchestrator.
 ## Phase 0: understand everything (read before changing anything)
 
 Read all of these, fully:
-- `docs/OVERVIEW.md` first (it explains every idea, decision and folder, including how to treat `explore/`), then `README.md`, `AGENTS.md`, every file in `docs/` (CONTRACTS, PLAN, TASKS, STATUS, LEFT, QA, BRINGUP, TRAINING, TRAINING-HANDOFF-PROMPT, ARM, PERCEPTRON-ROBOTICS, PERCEPTRON, PITCH, SLIDES, NEXT, DEVPOST, DEV-POST, README-PUBLIC, DATA-LOG, SETUP, PROPOSAL, PROMPTS), and every folder README.
+- `docs/OVERVIEW.md` first (it explains every idea, decision and folder, including how to treat `explore/`), then `README.md`, `AGENTS.md`, every file in `docs/` (CONTRACTS, PLAN, TASKS, STATUS, LEFT, QA, BRINGUP, TRAINING, ARM, PERCEPTRON-ROBOTICS, PITCH, SLIDES, DEVPOST, DEV-POST, README-PUBLIC, DATA-LOG, SETUP, PROPOSAL, PROMPTS), and every folder README.
 - Every source file in `controller/`, `voice/`, `vision/`, `arm/`, `ledger/`, `dashboard/`, `settings/`, `deploy/`, and the parts of `explore/` that the build uses (`explore/arm_session.py`, `explore/arm_ui.*`, `explore/dataset/`, `explore/research/isaac-workshop-notes.md`).
 - `git log --since="18 hours ago" --stat` to see who changed what.
 
@@ -30,7 +30,7 @@ Facts you must hold onto:
 - The arm is plugged into this Mac. Recording runs through `explore/arm_session.py`. Perceptron needs exactly two cameras, `side` and `wrist`, at 640x480 and 30 fps, `use_degrees`, one dataset, and allows only **2 successful training runs**.
 - Known hardware issue: `explore/dataset/README.md` says the wrist camera ran at about 23 fps and was dark.
 
-Then write `docs/STATE.md`: a one-page map of the whole system as it actually is now. Every part, what it does, how to start it, what it depends on, its tests, and its status (works, works offline only, partial, missing). This is the file the whole team reads from now on.
+Then write `docs/STATUS.md` ("Current state"): a one-page map of the whole system as it actually is now. Every part, what it does, how to start it, what it depends on, its tests, and its status (works, works offline only, partial, missing). This is the file the whole team reads from now on.
 
 ## Phase 1: finish every piece of software
 
@@ -47,7 +47,7 @@ Compare the plan (`docs/PLAN.md`, `docs/TASKS.md`, `docs/LEFT.md`, `docs/PROPOSA
 10. Every open bug in `docs/QA.md` and every row in `docs/LEFT.md` that is software.
 11. Dental hidden everywhere it's user-facing (dashboard, tablet, voice prompts, texts, judge page, Devpost, pitch). Keep the file.
 12. **The pitch.** Rewrite `docs/PITCH.md` as a 3-minute pitch spoken over the live demo, split across four speakers: Caiden and Anish carry most of it, Evan and Brandon each have a short part (for example, Evan on the data, the dashboard and the tables; Brandon on vision and hand tracking). Lead with the statistics (the surgical tech shortage, retained surgical items, sharps injuries, time spent searching the tray) and show step by step how Scrub works. Surgical first; the bench tray proves "new setting, no new code". Every statistic has a source link and is checked against that source (drop any number you can't confirm). Use `[measured]` where our own numbers go. Plain words, short sentences, no em dashes, no buzzwords, nothing that sounds AI-written.
-13. **Everything presented says the same thing.** The pitch, `docs/DEMO.md`, `docs/QNA.md`, `docs/SLIDES.md`, `docs/DEVPOST.md`, `docs/NEXT.md` (the business case), the judge page, the table card and `docs/README-PUBLIC.md` must tell one consistent story with the same numbers, the same item names, the same tracks and the same speaker roles. Fix any mismatch.
+13. **Everything presented says the same thing.** The pitch, `docs/DEMO.md`, `docs/QNA.md`, `docs/SLIDES.md`, `docs/DEVPOST.md`, `docs/NEXT-PASS-PROMPT.md` (section "Earlier next-steps notes") (the business case), the judge page, the table card and `docs/README-PUBLIC.md` must tell one consistent story with the same numbers, the same item names, the same tracks and the same speaker roles. Fix any mismatch.
 14. Anything else in the plan that has no code yet.
 
 ## Phase 2: the comb
@@ -70,7 +70,7 @@ Write every finding into `docs/AUDIT.md` by severity (critical, high, medium, lo
     - stop mid-move, reset, "got it", hand lost, path blocked
     - the Perceptron vision API failing (it must go stale, not freeze), the controller restarting, MongoDB down
     - Check the dashboard, tablet, nurse console, case replay, judge page, `/stats` and the end-of-case text at every step.
-6. **Real-arm readiness:** read `arm/real_arm.py`, `arm/streaming.py`, `arm/sessions.py`, the `--real-arm` path, the recorder, `arm.train pipeline`, `docs/BRINGUP.md` and `docs/TRAINING-HANDOFF-PROMPT.md` together. Find anything that will break on first contact with this Mac and the real arm (ports, camera names, units, the 30 Hz loop, network latency, session expiry), and fix it.
+6. **Real-arm readiness:** read `arm/real_arm.py`, `arm/streaming.py`, `arm/sessions.py`, the `--real-arm` path, the recorder, `arm.train pipeline`, `docs/BRINGUP.md` and `docs/TRAINING.md` together. Find anything that will break on first contact with this Mac and the real arm (ports, camera names, units, the 30 Hz loop, network latency, session expiry), and fix it.
 7. **Docs match the code:** every command in README, BRINGUP, TRAINING, DEMO and the folder READMEs actually works as written on this Mac.
 8. **Judge view:** everything a judge sees looks clean, loads fast and works on a phone. No placeholder text, no "TODO", no dental.
 9. **Repo ready to go public:** no keys or tokens anywhere in the history (scan it), no large files, a clean `.gitignore`, and `docs/README-PUBLIC.md` ready to become the README on Sunday.
@@ -102,7 +102,7 @@ Cover Perceptron (robotics team key and vision key), Hugging Face, Gemini, Eleve
 - Update `docs/STATUS.md` from the evidence: tick what's actually done, untick what isn't, and one line each on how to run or check it.
 - Empty `docs/LEFT.md` of everything finished. What remains should only point to HARDWARE-TODO.md and ACCOUNTS-TODO.md.
 - Mark docs that are out of date at their top ("Superseded by ...") instead of deleting them.
-- Make sure a new person can open `README.md`, then `docs/STATE.md`, and understand the whole project in five minutes.
+- Make sure a new person can open `README.md`, then `docs/STATUS.md` ("Current state"), and understand the whole project in five minutes.
 
 ## Final report
 

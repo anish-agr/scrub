@@ -31,7 +31,7 @@ Tests after the comb: `controller.test_flows` 66/66, `controller.test_run_all` 3
 | H12 | `vision/service.py` | Event clips were deduped by `command_id` alone, so no handover clip was ever saved live. | FIXED. Test |
 | H13 | `deploy/`, `ledger/` | Two installers fought over the server (port 80 vs 8080); the push copied the whole `.env` and `buffer.jsonl`. | FIXED: one path (`deploy/setup_public.sh`), server gets only `MONGODB_URI` and `SCRUB_PUBLIC_URL` |
 | H14 | `ledger/__init__.py` | Fake-arm runs counted in `/stats` rates and medians. | FIXED: `fake_arm`/`sim` rows left out (`?sim=1` includes them); the controller tags every event and restock. Tests |
-| H15 | `docs/NEXT.md` | The ROI table showed $560 to $800 saved minus $750 as a gain, from unsourced savings. | FIXED: one sourced number ($36 per OR minute, JAMA Surgery 2018), break-even 22 OR minutes a month per room |
+| H15 | `docs/NEXT-PASS-PROMPT.md` (section "Earlier next-steps notes") | The ROI table showed $560 to $800 saved minus $750 as a gain, from unsourced savings. | FIXED: one sourced number ($36 per OR minute, JAMA Surgery 2018), break-even 22 OR minutes a month per room |
 | H17 | `voice/src/turn.ts` | Lines spoken while no turn was open piled up and were all read at the next turn (20 lines from 15 minutes before "Mayo scissors coming"). | FIXED: lines over 10 s old dropped, at most 2 read. Test |
 | H18 | `controller/core.py` | A controller restart mid-case forgot `out`: "what's out" said everything was on the tray. | FIXED: count and case saved per port and restored within 6 h on the same tray. Test |
 | H19 | `controller/__main__.py`, `server.py` | With a WebSocket client connected, SIGTERM or Ctrl-C never exited, so `arm.disconnect()` never ran and the real arm's serial port stayed held. | FIXED: graceful timeout, SIGTERM acts like Ctrl-C, the arm always disconnects. Checked by hand on fake and sim |
@@ -65,13 +65,14 @@ Tests after the comb: `controller.test_flows` 66/66, `controller.test_run_all` 3
     - A blocked path says "Something's in the way".
     - `ledger.shots` and `ledger.qr` take `--help`.
     - `npm test` no longer reads the real keys or the live controller.
-- NOT FIXED:
-  - `controller.trials --practice --tries 2` scores 1/2 on the fake arm (the item isn't put back between tries). Practice only; real trials are one try each.
-  - MongoDB reconnect uploads the buffer one row at a time under the lock, and `/stats` can take 2.5 s while Mongo is down.
+- FIXED later on Oct 18 (NEXT-PASS combs):
+  - `controller.trials --practice --tries 2` scored 1/2 on the fake arm. The cause was a race between reading state and events; trials and smoke now read events first.
+  - MongoDB reconnect: `/stats` answers from a cached Atlas copy plus the local buffer and never waits on MongoDB; the reconnect uploads in batches outside the lock.
+  - `explore/arm_session.py` passes `--robot.use_degrees=true` and `--teleop.use_degrees=true` and refuses a port another process holds.
+- NOT FIXED (measure on hardware):
   - M6 `arm/real_arm.py`: the 400 ms deadline is measured after the frame is grabbed and encoded, so image age at execution can reach about 580 ms. Decide after measuring `counters.late` on the real arm.
   - M7: about 1 MB of PNG per predict twice a second on venue Wi-Fi. Measure `counters.late`; use a hotspot or wired link if most replies are late.
   - M8: prepare opens 6 sessions at once; the deployment may cap them (three `HTTP 409` lines at start mean it does).
-  - `explore/arm_session.py` was being edited when the comb ended (two commits in 20 minutes), so it was left alone. It needs `--robot.use_degrees=true` and `--teleop.use_degrees=true` made explicit, and the same busy-port refusal (`arm.backends.port_holders`) before recording.
 
 ## Low
 
@@ -87,12 +88,13 @@ Tests after the comb: `controller.test_flows` 66/66, `controller.test_run_all` 3
   - `.gitignore` covers logs, buffers, parquet, avi.
   - The demo console speaker cues match the pitch.
   - `/arm/pose` has `counters` and `last_reason` for first contact.
+- FIXED later on Oct 18 (NEXT-PASS combs):
+  - The hand watcher freezes after `HAND_CLOSED_READS` (3) closed reads in a row on the fast leg. One closed read between open ones is ignored.
+  - A failed return still holding the item sets it at the safe spot.
+  - Vision binds 127.0.0.1 by default (`VISION_HOST=0.0.0.0` to show the stream on a phone or tablet).
+  - Voice backfills missed events from `/events/recent` on reconnect, so the summary counts every pass.
 - NOT FIXED:
-  - The hand watcher doesn't freeze when the hand closes mid-approach (open/closed flicker would latch stops).
   - With vision down for 5 s, the arm uses the saved spot with no hand check. **Team decision** before the real arm demo.
-  - A failed return homes without setting the item down (a reset handles it).
-  - Vision binds 0.0.0.0, so the camera stream is reachable on the venue LAN.
-  - Voice misses events while it reconnects, so a summary can undercount passes (the count itself is right).
 
 ## Facts the comb checked that matter on stage
 

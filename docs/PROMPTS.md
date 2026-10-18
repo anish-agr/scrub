@@ -124,13 +124,13 @@ For B4:
 
 ```
 I'm Brandon. Read AGENTS.md, the TrayState part of docs/CONTRACTS.md,
-settings/*.json and docs/PERCEPTRON.md. Do task B4: vision/tray.py sends a
+settings/*.json and docs/PERCEPTRON-ROBOTICS.md (Part 2). Do task B4: vision/tray.py sends a
 frame to the Perceptron vision API about once a second (key
 PERCEPTRON_API_KEY in .env), maps detections to each slot box and the return
 spot of the current setting (GET CONTROLLER_URL/state for the setting),
 and POSTs a TrayState. Keep the last good state if a call fails and mark
 it stale. Draw the boxes on the MJPEG stream. Write the working request and
-response shapes and the latency into docs/PERCEPTRON.md.
+response shapes and the latency into docs/PERCEPTRON-ROBOTICS.md (Part 2).
 ```
 
 ### Evan

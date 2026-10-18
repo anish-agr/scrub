@@ -23,7 +23,7 @@ Run Oct 18, 1:00 AM on the arm Mac. The arm and cameras were not touched (the re
 | GoDaddy | Domain on the QR code | `deploy/enable_https.ps1` | none | FAIL. No domain bought; `SCRUB_PUBLIC_URL` empty, so the replay link in the text has no host. Evan or Brandon buys it |
 | Tiger Data | Handoff time series | `ledger/tiger.py` | `python -m deploy` | FAIL. missing key `TIGER_DATABASE_URL`, Evan or Brandon adds it. The series page runs from the local ledger |
 | Backboard | Memory notes and next-item answer | `ledger/memory.py` | `python -m deploy` | FAIL. missing keys `BACKBOARD_API_KEY` and `BACKBOARD_ASSISTANT_ID`. Page answers from the local ledger |
-| Hugging Face | Dataset repo Perceptron trains from | `arm/record.py` (repo name), `arm/train.py` `dataset_url`, `arm/pipeline.py` | `python -m deploy` | FAIL. missing key `HF_TOKEN` (and `HF_USER`), Caiden adds it. Pipeline uses it, so run 1 cannot start without it |
+| Hugging Face | Dataset repo Perceptron trains from | `arm/record.py` (repo name), `arm/train.py` `dataset_url`, `arm/pipeline.py` | `python -m deploy` (Hugging Face row); write check: create and delete a private dataset repo with `huggingface_hub.HfApi` | PASS (Oct 18, 1:40 AM). `HF_TOKEN` and `HF_USER=caidenm11` set on the arm Mac from Caiden's Hub login; whoami HTTP 200; a private dataset repo was created and deleted |
 | MediaPipe | Hand at the handoff spot | `vision/hand.py` `HandTracker` | load the real landmarker on a blank frame; `pytest -q vision/test_vision.py -k hand` | PASS. Real model downloaded and ran (no hand on a blank frame, as expected); 7 hand tests. `vision/models/` is empty here, so the first `python -m vision` needs internet |
 | MuJoCo | Sim backup, joint reconstruction | `sim/`, `video/reconstruction.py` | `python -m controller.run_all backup --offline --no-open`; `python -m unittest video.test_video` | PASS. Sim stack and scripted run start; 25 video tests |
 | `video/` | Demo cut from ledger and joints | `video/__main__.py` | `PLAYWRIGHT_BROWSERS_PATH=$PWD/data/video/browser python -m video --root data/video/integration-proof demo-assets --seconds 3` | PASS for `demo-assets` (clip, events, joints written). FAIL for "reads our real ledger and dataset paths": every command takes `--events` and `--input` from the caller, with no default to `ledger/buffer.jsonl` or the recorded dataset, and `demo-assets` is synthetic |
@@ -47,5 +47,5 @@ Supported only once someone fixes a missing item:
 
 Drop unless the keys land before 10:00 AM:
 - MLH Tiger Data and MLH Backboard: no key exists, nothing real runs against either service. The pages work from the local ledger, which is not those products. Remove both from Devpost and `docs/DEVPOST.md` (lines 25 and 26, and the built-with list at line 116).
-- Hugging Face as a sponsor claim: no token.
+- Hugging Face as a sponsor claim: the token works now, but it is only storage for the dataset. Not a track.
 - MediaPipe as a headline claim: it works, but is a supporting detail.
