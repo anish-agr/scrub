@@ -62,6 +62,9 @@ const model = {
   serverCatalog: null,
   settingPending: false,
   link: "connecting",
+  sheet: null,
+  packs: [],
+  mismatch: [],
 };
 
 let socket = null;
@@ -122,6 +125,7 @@ function render() {
     .slice(-6)
     .map((event) => seconds(event.request_to_hand_s));
   $("handoffs").textContent = recent.length ? `Recent handoffs ${recent.join(", ")}` : "";
+  renderPaper();
   const reset = $("reset");
   if (reset) reset.hidden = !(model.live && (model.step === "stopped" || model.step === "error"));
 
@@ -161,6 +165,12 @@ function render() {
     if (event.item) bits.push(nameOf(event.item));
     if (event.step) bits.push(STEP_LABEL[event.step] || event.step);
     if (event.say) bits.push(event.say);
+    else if (event.type === "read" && event.read && event.read.kind) {
+      bits.push(String(event.read.kind).replaceAll("_", " ") + (event.read.ok === false ? " not read" : " read"));
+    }
+    if (event.type === "count" && Array.isArray(event.sheet_mismatch) && event.sheet_mismatch.length) {
+      bits.push("sheet mismatch: " + event.sheet_mismatch.map((m) => nameOf(m.item)).join(", "));
+    }
     if (event.request_to_hand_s != null && !Number.isNaN(Number(event.request_to_hand_s))) {
       bits.push(`${Number(event.request_to_hand_s).toFixed(1)}s`);
     }
@@ -220,7 +230,57 @@ function fillSettings() {
   });
 }
 
+function cell(row, text, bad) {
+  const td = document.createElement("td");
+  td.textContent = text == null ? "--" : String(text);
+  if (bad) td.className = "bad";
+  row.appendChild(td);
+}
+
+function renderPaper() {
+  const sheet = model.sheet && model.sheet.items && typeof model.sheet.items === "object" ? model.sheet : null;
+  const packs = Array.isArray(model.packs) ? model.packs : [];
+  const sheetTable = $("sheet-table");
+  const packsTable = $("packs-table");
+  if (!sheetTable || !packsTable) return;
+  $("paper").hidden = !sheet && !packs.length;
+  sheetTable.hidden = !sheet;
+  packsTable.hidden = !packs.length;
+  if (sheet) {
+    const bits = ["Count sheet"];
+    if (sheet.tray) bits.push(`tray ${sheet.tray}`);
+    if (sheet.method) bits.push(sheet.method);
+    $("sheet-caption").textContent = bits.join(" · ");
+    const wrong = new Set((model.mismatch || []).map((m) => m && m.item));
+    const body = sheetTable.querySelector("tbody");
+    body.replaceChildren();
+    Object.entries(sheet.items).forEach(([id, row]) => {
+      const r = row || {};
+      const tr = document.createElement("tr");
+      const bad = wrong.has(id);
+      cell(tr, nameOf(id) + (bad ? " (mismatch)" : ""), bad);
+      cell(tr, r.expected);
+      cell(tr, r.initial, bad);
+      cell(tr, r.closing, bad);
+      body.appendChild(tr);
+    });
+  }
+  if (packs.length) {
+    const body = packsTable.querySelector("tbody");
+    body.replaceChildren();
+    packs.forEach((pack) => {
+      const tr = document.createElement("tr");
+      cell(tr, nameOf(pack.item));
+      cell(tr, pack.lot);
+      cell(tr, pack.expires ? (pack.expired ? `${pack.expires} expired` : pack.expires) : null, Boolean(pack.expired));
+      body.appendChild(tr);
+    });
+  }
+}
+
 function applyState(state) {
+  model.sheet = state.sheet || null;
+  model.packs = Array.isArray(state.packs) ? state.packs : [];
   model.step = state.step || "idle";
   model.item = state.item || null;
   model.queue = Array.isArray(state.queue) ? state.queue : [];
@@ -256,6 +316,7 @@ function pushEvent(event) {
   if (model.events.length > 80) model.events.shift();
   if (event.step) model.step = event.step;
   if (event.skill_source) model.source = event.skill_source;
+  if (event.type === "count") model.mismatch = Array.isArray(event.sheet_mismatch) ? event.sheet_mismatch : [];
   if (event.item) model.item = event.item;
   else if (event.type === "step" && (event.step === "idle" || event.step === "homing")) {
     model.item = null;
