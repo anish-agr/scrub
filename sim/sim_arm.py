@@ -431,6 +431,17 @@ class SimArm:
         # items: where each item of the current setting is (m, base frame), so the viewer draws what the sim does
         return {"q": q, "names": NAMES, "gripper": self.gripper_position(), "holding": self.holding, "items": items}
 
+    def pose(self):
+        """Joint angles plus every mocap body (items, hand) for an offline renderer (video/simcine.py)."""
+        with self.lock:
+            bodies = {}
+            for i in range(self.model.nbody):
+                mid = self.model.body_mocapid[i]
+                if mid >= 0:
+                    bodies[self.model.body(i).name] = [float(v) for v in (*self.data.mocap_pos[mid], *self.data.mocap_quat[mid])]
+            return {"t": time.time(), "qpos": [float(v) for v in self.data.qpos[:6]], "mocap": bodies,
+                    "holding": self.holding, "setting": self.layout["setting"]}
+
     def tip(self):
         with self.lock:
             return self.data.site_xpos[self.site].copy()
