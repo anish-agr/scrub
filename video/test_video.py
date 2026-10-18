@@ -123,6 +123,83 @@ class VideoTests(unittest.TestCase):
             self.assertEqual(len(successful_trials(copy)[0]),0)
         self.assertEqual(len(successful_trials(rows+[{'type':'error','t':2.5,'command_id':'a'}])[0]),0)
 
+    def _caption(self, **over):
+        row={'case_id':'c','item':'hemostat','event_type':'handed','timestamp':10.0,'label':'arm holds a hemostat out',
+             'label_source':'perceptron','caption_item':'hemostat','caption_action':'handed','agrees':True}
+        row.update(over)
+        return row
+
+    def test_agreeing_and_disagreeing_captions_reorder_takes(self):
+        from video.captions import assess
+        from video.takes import rank
+        trial={'command_id':'a','case_id':'c','item':'hemostat','start':9.0,'end':12.0}
+        good=assess(trial,[self._caption()])
+        self.assertEqual(good['caption_score'],1)
+        self.assertEqual(good['captions'],['arm holds a hemostat out'])
+        wrong=assess(trial,[self._caption(agrees=False,caption_item='scalpel',label='arm holds a scalpel')])
+        self.assertEqual(wrong['caption_score'],-1)
+        self.assertEqual(wrong['caption_reasons'],['camera disagrees: saw scalpel, controller said hemostat'])
+        words=assess(trial,[self._caption(label='the hemostat is dropped',agrees=None)])
+        self.assertEqual(words['caption_score'],-1)
+        empty=assess(trial,[self._caption(label='empty gripper over the tray',agrees=None)])
+        self.assertEqual(empty['caption_score'],-1)
+        takes=[{'id':'wrong','framing_score_laplacian':900,**wrong},{'id':'none','framing_score_laplacian':500,
+               'caption_score':0},{'id':'good','framing_score_laplacian':100,**good}]
+        self.assertEqual([t['id'] for t in rank(takes)],['good','none','wrong'])
+
+    def test_fallback_labels_and_other_trials_are_ignored(self):
+        from video.captions import assess
+        trial={'command_id':'a','case_id':'c','item':'hemostat','start':9.0,'end':12.0}
+        fallback=self._caption(label_source='fallback',label='hemostat dropped',agrees=False)
+        elsewhere=self._caption(timestamp=99.0,agrees=False)
+        other_case=self._caption(case_id='other',agrees=False)
+        result=assess(trial,[fallback,elsewhere,other_case])
+        self.assertEqual((result['caption_score'],result['captions']),(0,[]))
+
+    def test_qa_report_flags_lower_a_training_take(self):
+        from video.captions import assess
+        trial={'command_id':'a','item':'hemostat','start':1,'end':2,'episode':3}
+        qa={3:{'episode':3,'flags':['dropped'],'caption':'the tool falls'},4:{'episode':4,'flags':[]}}
+        result=assess(trial,[],qa)
+        self.assertEqual(result['caption_score'],-1)
+        self.assertEqual(result['captions'],['the tool falls'])
+        self.assertEqual(assess({**trial,'episode':4},[],qa)['caption_score'],0)
+
+    def test_find_shows_captions_tolerates_missing_metadata_and_flag_off(self):
+        import json
+        from video.common import write_json
+        from video.ingest import ingest
+        from video.synthetic import demo_assets
+        from video.takes import find
+        from unittest import mock
+        with mock.patch('video.reconstruction.render_joints'):  # the MuJoCo replay is not needed to rank takes
+            demo_assets(self.ws,2)
+        ingest(self.ws)
+        clips=self.root/'clips'
+        missing=find(self.ws,'demo/events.jsonl',clips_dir=clips)
+        self.assertEqual(missing['takes'][0]['captions'],[])
+        (clips/'demo-case').mkdir(parents=True)
+        t=1792285200.0+1
+        (clips/'demo-case'/'metadata.json').write_text(json.dumps([self._caption(case_id='demo-case',timestamp=t,
+            agrees=False,caption_item='scalpel',label='arm holds a scalpel')]))
+        report=find(self.ws,'demo/events.jsonl',clips_dir=clips)
+        take=report['takes'][0]
+        self.assertEqual(take['captions'],['arm holds a scalpel'])
+        self.assertIn('camera disagrees: saw scalpel, controller said hemostat',take['caption_reasons'])
+        off=find(self.ws,'demo/events.jsonl',clips_dir=clips,captions=False)
+        self.assertEqual((off['takes'][0]['caption_score'],off['takes'][0]['captions'],off['captions_used']),(0,[],False))
+        (clips/'demo-case'/'metadata.json').write_text('not json')
+        self.assertEqual(find(self.ws,'demo/events.jsonl',clips_dir=clips)['takes'][0]['captions'],[])
+
+    def test_caption_records_in_a_ledger_export_are_read(self):
+        import json
+        from video.captions import load_captions
+        path=self.root/'ledger.jsonl'
+        row={'type':'caption','t':10.0,**self._caption()}
+        path.write_text(json.dumps({'kind':'event','doc':row})+'\n')
+        rows=load_captions([{'case_id':'c'}],path,self.root/'none')
+        self.assertEqual(len(rows),1)
+
     def test_overlay_never_shows_a_future_measurement_or_count(self):
         from video.overlay import display_state
         rows=[{'type':'command','action':'handover','heard':'kelly','command_id':'a','t':10,'out':[]},

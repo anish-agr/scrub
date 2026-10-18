@@ -365,6 +365,32 @@ and excluded trials are retained in `ranked.json`. Sharpness is not proof of goo
 framing. Optional `--gemini` currently reports **SKIPPED**; no remote scorer is
 configured and no footage is uploaded. Nothing paid is required.
 
+### Camera captions as a second signal
+
+The ledger decides which takes qualify. Captions only reorder them: takes sort by
+`caption_score`, then sharpness. A caption never rescues a failed trial.
+
+- Source: `vision/clips/<case_id>/metadata.json` (or `--clips-dir`), `--vision-url $VISION_URL`
+  (GET `/clips?case_id=`), and `{"type":"caption"}` rows in the events file. A clip
+  belongs to a take when its `command_id` matches, or its `case_id` matches and its
+  `timestamp` is within 1 s of the trial window.
+- Only `label_source == "perceptron"` counts. Fallback labels are built from the event
+  itself, so they are ignored. Missing or unreadable metadata means no captions, not an error.
+- +1 for `agrees: true`. -1 for `agrees: false`, for a seen item that differs from the
+  ledger's item, and for caption words such as dropped, missed, fell, failed or empty gripper.
+- `--qa report.json` adds a `qa_video` report: a take whose ledger rows carry an `episode`
+  number gets -1 per `dropped`, `grasp_failed` or `dark` flag on that episode.
+- `--no-captions` ranks by sharpness alone, as before.
+
+Each take in `ranked.json` and the CLI output gets `captions`, `caption_score` and
+`caption_reasons`, for example:
+
+```
+"captions": ["arm holds a scalpel"],
+"caption_score": -1,
+"caption_reasons": ["camera disagrees: saw scalpel, controller said hemostat"]
+```
+
 ## How to shoot it
 
 - Landscape 1080p/30, locked focus/exposure, tripod/propped phone; include the
