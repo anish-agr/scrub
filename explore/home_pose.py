@@ -111,5 +111,55 @@ def test(hold_s: float = 5.0) -> None:
           f"CHECK: a joint moved {worst:.1f} deg after torque off; pick a more folded home")
 
 
+HOME_DEG_S = 30.0  # how fast "go home" moves (degrees per second of the slowest-finishing joint)
+
+
+def torque(on: bool) -> dict:
+    """Motors on: target = where each joint is, then torque on (nothing moves). Motors off: torque off."""
+    scs, ph, pk = _bus()
+    try:
+        if on:
+            here = read_pose(pk, ph)
+            for i, n in enumerate(NAMES, 1):
+                pk.write2ByteTxRx(ph, i, 42, here[n])
+        for i in range(1, 7):
+            pk.write1ByteTxRx(ph, i, 40, 1 if on else 0)
+        state = {n: pk.read1ByteTxRx(ph, i, 40)[0] for i, n in enumerate(NAMES, 1)}
+    finally:
+        ph.closePort()
+    return state
+
+
+def go_home_and_rest() -> dict:
+    """Torque on where it is, move slowly to the saved home (claw stays put), settle, torque off."""
+    home = json.loads(FILE.read_text())["raw"]
+    scs, ph, pk = _bus()
+    try:
+        here = read_pose(pk, ph)
+        for i, n in enumerate(NAMES, 1):
+            pk.write2ByteTxRx(ph, i, 42, here[n])
+            pk.write1ByteTxRx(ph, i, 40, 1)
+        goal = {n: (home[n] if n != "gripper" else here[n]) for n in NAMES}
+        worst = max(abs(goal[n] - here[n]) for n in NAMES) * 360 / 4096
+        steps = max(1, int(worst / HOME_DEG_S * 30))
+        for k in range(1, steps + 1):
+            for i, n in enumerate(NAMES, 1):
+                pk.write2ByteTxRx(ph, i, 42, int(round(here[n] + (goal[n] - here[n]) * k / steps)))
+            time.sleep(1 / 30)
+        time.sleep(1.0)
+        for i in range(1, 7):
+            pk.write1ByteTxRx(ph, i, 40, 0)
+        time.sleep(0.5)
+        after = read_pose(pk, ph)
+    finally:
+        ph.closePort()
+    off = {n: round((after[n] - home[n]) * 360 / 4096, 1) for n in NAMES if n != "gripper"}
+    return {"moved_s": round(steps / 30, 1), "off_by_deg": off, "torque": "off"}
+
+
 if __name__ == "__main__":
-    {"save": save, "show": show, "test": test}[sys.argv[1] if len(sys.argv) > 1 else "show"]()
+    cmd = sys.argv[1] if len(sys.argv) > 1 else "show"
+    if cmd in ("home", "on", "off"):
+        print({"home": go_home_and_rest, "on": lambda: torque(True), "off": lambda: torque(False)}[cmd]())
+    else:
+        {"save": save, "show": show, "test": test}[cmd]()
