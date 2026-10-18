@@ -39,6 +39,15 @@ Where the code goes (read each file first, change as little as possible, keep ev
 - The dashboard and ops page: show a waiting question ("Which screwdriver: flathead or Phillips?") in the existing event log style. Use design/scrub.css only; no new styles beyond what the design system already has.
 - settings/README.md and voice/README.md: document `group`, `variant` and the hint.
 
+What already exists, so you build on it instead of duplicating it: an unknown request gets "Which instrument? You can say: call the hemostat a clamp" (`controller/lines.py` `unknown`, `controller/core.py` around the teaching hint), clinics can teach new words ("call the hemostat a clamp" writes `settings/<id>.local.json`), and voice drops stale spoken lines (`voice/src/turn.ts`). There is no multi-turn question with a pending state yet, and no left/right resolution. That's what you add.
+
+After "Which one?" works and is pushed, add conversation context on the same pending-state machinery, each with tests:
+- "Another one" or "same again" repeats the last item handed in this call; "the other one" means the other candidate from the last question.
+- "Put it back" or "take it back" means the last item handed to this person.
+- If the item asked for is already out ("hemostat" while the only hemostat is in the surgeon's hand), say "The hemostat is with you" instead of failing, and offer the second one if the camera sees one.
+- When Gemini's parse is unsure (a low-confidence or two-way parse), confirm before moving: "Mayo scissors?" and go on "yes", drop on "no".
+- Log every question and answer as events (`clarify`, `clarify_answer`, with the time to answer) so the data page can show how often Scrub had to ask and how fast people answered.
+
 ## Step 3: prove it
 
 - Unit tests in voice (npm test) for: two names match, the variant answer, left/right, "the second", "either", "cancel", "stop" during a question, the timeout, a text thread and a call each keeping their own question, and a single match never asking.
