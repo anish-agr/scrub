@@ -20,6 +20,7 @@ def cap(s): return s[:1].upper() + s[1:]
 
 
 def coming(name): return f"{cap(name)} coming."
+def coming_sharp(name): return f"{cap(name)} to the safe spot."
 def queued(name): return f"{cap(name)} next."
 def handed(name): return None  # the arm arriving is enough; keeps the call quiet
 def retry(name): return f"Missed the {name}, trying again."
