@@ -11,9 +11,19 @@ import { handleTurn, startEvents } from "./turn.js";
 function readBody(req: http.IncomingMessage): Promise<any> {
   return new Promise((resolve) => {
     let raw = "";
-    req.on("data", (d) => (raw += d));
+    req.on("data", (d) => { raw += d; if (raw.length > 1_000_000) { req.destroy(); resolve({}); } });  // a chat turn is a few KB
     req.on("end", () => { try { resolve(raw ? JSON.parse(raw) : {}); } catch { resolve({}); } });
+    req.on("error", () => resolve({}));  // caller hung up mid-body
   });
+}
+
+// With VOICE_LLM_SECRET set, /heard and /summary (they move the arm and send a text) need it too when the request
+// came through the tunnel. Plain local curl (loopback, no forwarding header) still works without it.
+function allowed(req: http.IncomingMessage): boolean {
+  if (!LLM_SECRET || req.headers.authorization === `Bearer ${LLM_SECRET}`) return true;
+  const local = ["127.0.0.1", "::1", "::ffff:127.0.0.1"].includes(req.socket.remoteAddress || "");
+  const forwarded = ["x-forwarded-for", "x-real-ip", "cf-connecting-ip", "forwarded"].some((h) => h in req.headers);
+  return local && !forwarded;
 }
 
 function json(res: http.ServerResponse, code: number, body: unknown) {
@@ -63,6 +73,10 @@ const server = http.createServer(async (req, res) => {
   try {
     if (req.method === "POST" && url.endsWith("/chat/completions")) return await chatCompletions(req, res);
     // Testing without a call: {"text": "grab me the kelly"} -> the lines Scrub would say.
+    if (req.method === "POST" && (url === "/heard" || url === "/summary") && !allowed(req)) {
+      console.log(`[server] 401 ${url}: needs VOICE_LLM_SECRET through the tunnel`);
+      return json(res, 401, { error: "bad key" });
+    }
     if (req.method === "POST" && url === "/heard") {
       const { text: heard = "" } = await readBody(req);
       const lines: string[] = [];

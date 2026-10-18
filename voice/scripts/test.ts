@@ -12,7 +12,7 @@ import type { AddressInfo } from "node:net";
 import { WebSocketServer } from "ws";
 import { callerFrom, heardFrom } from "../src/chat.js";
 import { isStop, isTrayCheck, localParse, parseAlias } from "../src/parse.js";
-import { caseFacts, caseLink, clock, closeCaseWithLink, endCase, newCase, recordEvent, setCaller, templateSummary, textCaller } from "../src/summary.js";
+import { caseFacts, caseLink, clock, closeCaseWithLink, endCase, newCase, recordEvent, setCaller, templateSummary, textCaller, withTimeout } from "../src/summary.js";
 import type { Setting } from "../src/settings.js";
 import { CANT_CHECK, textTrayCheck, trayReadyText, voiceTrayCheck } from "../src/tray.js";
 import { BUSY, JUDGE, notSetUp, settingAsked, switchSetting } from "../src/cases.js";
@@ -155,26 +155,36 @@ assert.equal(localText("surgical case", surgical).kind, "setting");
 assert.equal(localText("add a second hemostat to the surgical tray", surgical).kind, "restock");  // not a switch
 assert.equal(settingAsked("grab me the kelly"), null);
 assert.equal(settingAsked("the dental mirror"), null);
+// Bug: any switch word anywhere made a tray switch, and a switch clears the count. These stay handovers.
+for (const no of ["go grab the kelly off the surgical tray", "can you go get the scissors from the surgical tray", "move the pliers back to the bench"])
+  assert.equal(settingAsked(no), null, no);
+for (const [yes, id] of [["go to the bench tray", "bench"], ["switch trays to bench", "bench"], ["let's switch over to the surgical tray", "surgical"], ["start a new surgical case", "surgical"]])
+  assert.equal(settingAsked(yes), id, yes);
+// A restock naming the hidden tray is not logged and the reply doesn't name it.
+assert.equal(await handleText("x", null, { ...deps, parse: async () => ({ kind: "restock" as const, item: "hemostat", qty: 1, setting: "dental" }) }), notSetUp("dental"));
 const benchFile = { id: "bench", label: "Robotics bench", items: [{ id: "needle_nose_pliers", name: "needle-nose pliers" },
   { id: "wire_cutters", name: "wire cutters" }, { id: "hex_key", name: "hex key" }] };
 const BENCH_LINE = "Bench case started: needle-nose pliers, wire cutters, hex key.";
 const posted: string[] = [];
 const fakePost = (status: number) => async (id: string) => { posted.push(id); return { status, setting: status === 200 ? benchFile : null }; };
 assert.equal(await switchSetting("bench", fakePost(200)), BENCH_LINE);
+// A switch clears the controller's count: anything still out is named so it isn't forgotten.
+assert.equal(await switchSetting("bench", fakePost(200), async () => ({ out: ["mayo_scissors"] })),
+  `${BENCH_LINE} Still out from the last tray: mayo scissors.`);
 assert.equal(await switchSetting("bench", fakePost(409)), BUSY);
 assert.equal(await switchSetting("bench", fakePost(404)), "I don't have a bench tray.");
 assert.equal(await switchSetting("bench", fakePost(403)), JUDGE);  // the controller refused it in judge mode
 assert.equal(await switchSetting("bench", async () => { throw new Error("down"); }), "I can't reach the arm controller.");
-assert.equal(await switchSetting("dental", fakePost(200)), "The dental tray isn't set up for this demo.");  // never posted
-assert.equal(notSetUp("dental"), "The dental tray isn't set up for this demo.");
-assert.deepEqual(posted, ["bench", "bench", "bench", "bench"]);
+assert.equal(await switchSetting("dental", fakePost(200)), notSetUp("dental"));  // never posted
+assert.ok(!/dental/i.test(notSetUp("dental")) && /surgical and bench/.test(notSetUp("dental")));  // never names the hidden tray
+assert.deepEqual(posted, ["bench", "bench", "bench", "bench", "bench"]);
 const switched: string[] = [];
 const switchDeps = { ...deps, switchTo: async (id: string) => { switched.push(id); return switchSetting(id, fakePost(200)); } };
 summaries = 0;
 assert.equal(await handleText("start a bench case", "+15555550123", switchDeps), BENCH_LINE);
 assert.equal(await handleText("start a dental case", "+15555550123", switchDeps), notSetUp("dental"));
 assert.deepEqual(switched, ["bench", "dental"]);
-assert.equal(posted.length, 5);  // dental never reached POST /setting
+assert.equal(posted.length, 6);  // dental never reached POST /setting
 assert.equal(summaries, 0);  // the previous case's summary is not sent on a switch
 assert.equal(await handleText("which tray", null, { ...deps, parse: async () => ({ kind: "setting" as const, item: null, qty: 1, setting: null }) }),
   "Which tray? surgical, bench.");
@@ -259,6 +269,8 @@ assert.equal(texted.length, 1);  // no SCRUB_PUBLIC_URL: no case link text
 assert.equal(texted[0][0], "+15555550123");
 assert.match(texted[0][1], /^Still out: hemostat\. Check the count\.\nScrub case: surgical, started /);
 assert.deepEqual(caseFacts().passed, {});  // a new case after the text
+// Bug: a second summary before any new event said "everything is back on the tray" with the hemostat still out.
+assert.deepEqual(caseFacts().still_out, ["hemostat"]);
 // Case link (X5): a second short text only when SCRUB_PUBLIC_URL is set and the case has a case_id.
 const linked: [string, string][] = [];
 const r2 = await endCase(async (to, text) => { linked.push([to, text]); return true; }, async () => "Count: everything is back on the tray.", "https://scrub.example/");
@@ -270,6 +282,11 @@ assert.equal(caseLink(`surgical-${start}`, ""), null);
 const notSent: string[] = [];
 await endCase(async (_to, text) => { notSent.push(text); throw new Error("photon down"); }, async () => "x", "https://scrub.example");
 assert.deepEqual(notSent, ["x"]);  // the summary failed: no link text after it
+// A Photon call that never answers fails instead of hanging the summary.
+await assert.rejects(withTimeout(new Promise(() => {}), 50, "Photon send"), /timed out/);
+const hung = await endCase(async (_to, text) => withTimeout(new Promise<boolean>(() => {}), 50, `send ${text}`), async () => "y", "");
+assert.equal(hung.sent, false);
+assert.match(hung.error ?? "", /timed out/);
 // A "summary" text gets the link on its own line after the summary.
 assert.equal(await closeCaseWithLink(async () => "Count: everything is back on the tray.", "https://scrub.example"),
   `Count: everything is back on the tray.\n\nCase replay: https://scrub.example/case.html?id=surgical-${start}`);
@@ -343,6 +360,10 @@ const ctl = http.createServer((req, res) => {
         emit({ type: "error", command_id: c.id, item: c.item, code: 409, say: "The arm's model is busy. Try again.", error: "409" });
         return setTimeout(reply, 50);
       }
+      if (c.action === "got_it") {  // the released event carries the handover's command_id
+        setTimeout(() => emit({ type: "released", command_id: "the-handover", item: "hemostat" }), 50);
+        return reply();
+      }
       if (preopenError) {  // a pre-open session error mid-handover: spoken, but the handover goes on
         setTimeout(() => emit({ type: "error", command_id: null, step: "idle", code: 503, say: "The robot model is down right now." }), 30);
         setTimeout(() => emit({ type: "handed", command_id: c.id, item: c.item, say: "Hemostat in your hand." }), 400);
@@ -405,9 +426,9 @@ try {
   assert.ok(!out.join("").includes("[gemini]"));
   hits.length = 0;
   assert.equal(await turn("start a bench case"), BENCH_LINE);
-  assert.deepEqual(hits, ["GET /state", "POST /setting"]);  // a phrase match (judge mode checked): no Gemini, no /command
+  assert.deepEqual(hits, ["GET /state", "GET /state", "POST /setting"]);  // judge mode, then what is out, then the switch: no Gemini, no /command
   hits.length = 0;
-  assert.equal(await turn("start a dental case"), "The dental tray isn't set up for this demo.");
+  assert.equal(await turn("start a dental case"), notSetUp("dental"));
   assert.equal(hits.length, 0, hits.join());  // dental is never posted
 
   // Bug: count (and stop) events arrive while the controller answers the POST, before the hold starts:
@@ -419,6 +440,12 @@ try {
   t1 = Date.now();
   assert.equal(await turn("knife please"), "The arm's model is busy. Try again.");
   assert.ok(Date.now() - t1 < 1200, `error turn took ${Date.now() - t1} ms`);
+  // Bug: "got it" held the reply open the full VOICE_HOLD_S (the release names the handover, not got_it).
+  t1 = Date.now();
+  assert.equal(await turn("got it"), "");
+  assert.ok(Date.now() - t1 < 1200, `got it turn took ${Date.now() - t1} ms`);
+  // Bug: asking again within 3 s got silence (the same line was muted as a repeat, though it's a new command).
+  assert.equal(await turn("knife please"), "The arm's model is busy. Try again.");
   errorLater = true;
   assert.equal(await turn("grab me the kelly"), "The arm's model is offline. Reset the arm.");
   errorLater = false;
