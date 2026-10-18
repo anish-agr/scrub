@@ -22,11 +22,11 @@ Judges watch this video to decide whether the robot works. The tool may change h
 
 ## Commands (`python -m video <command>`)
 
-1. **`markers`**: writes a printable sheet of 4 ArUco markers (DICT_4X4_50, ids 0 to 3, 60 mm) for the tray corners, plus capture instructions. Taped markers make every other step automatic and reliable.
+1. **`corners`**: no markers needed (we don't have any). For each camera or clip, find the tray's four corners automatically (the tray is a light rectangle on a blue towel: color segmentation plus the largest four-sided contour), show the result, and let me drag any corner to fix it. Save per camera in `data/video/corners.json`. One click-through per camera, then everything after it is automatic.
 2. **`ingest`**: indexes every clip and photo (duration, fps, resolution, start time), makes a contact sheet per clip, and lines clips up in time using the ledger timestamps or a clap in the audio. Writes `data/video/manifest.json`.
 3. **`topdown`**: the virtual overhead camera, three ways, each usable alone:
-    - **Plane warp:** find the 4 markers (or let me click 4 tray corners once per camera), compute the homography to the table plane, and warp every frame to a true top-down view at a fixed scale (2 px per mm). Shows the tray and the hand clearly. Tall things (the arm) look stretched; that's expected.
-    - **Photo plate:** warp every photo to the same plane and blend them (median) into one clean, high-resolution top-down image of the tray with no people or arm in it. Used as the background for diagrams, title shots and the reconstruction.
+    - **Plane warp:** take the 4 tray corners from `corners` (tracked frame to frame with optical flow if the camera moves a little), compute the homography to the table plane, and warp every frame to a true top-down view at a fixed scale (2 px per mm). Shows the tray and the hand clearly. Tall things (the arm) look stretched; that's expected.
+    - **Photo plate:** take one reference photo from straight above, match every other photo to it with SIFT features and RANSAC (no markers), warp them to the same plane and blend them (median) into one clean, high-resolution top-down image of the tray with no people or arm in it. Used as the background for diagrams, title shots and the reconstruction.
     - **Reconstruction:** replay the recorded joint angles through the MuJoCo SO-101 (`sim/`, see `explore/dataset/replay.py`) with an orthographic camera straight down, composite it over the photo plate with the instruments at their slots, and sync it to the real clip. Labeled `RECONSTRUCTED FROM ARM JOINT DATA`.
 4. **`clean`**: a chain where each step is optional, logged, and previewable before/after:
     - stabilize (ffmpeg `vidstab` two-pass, or OpenCV feature tracking)
@@ -49,11 +49,12 @@ Python 3.10, OpenCV (already installed), NumPy, `imageio-ffmpeg` (bundles an ffm
 
 ## Testing before real footage exists
 
-`python -m video demo-assets` generates synthetic inputs: a rendered table with markers and instruments, a short clip from the sim arm, a set of "photos" from different angles, and matching ledger events. Every command must run end to end on these, and `video/test_video.py` checks the homography error (under 2 mm on the synthetic plate), that labels appear on simulated shots, and that the render matches the EDL timings.
+`python -m video demo-assets` generates synthetic inputs: a rendered table with a tray on a blue towel and instruments, a short clip from the sim arm, a set of "photos" from different angles, and matching ledger events. Every command must run end to end on these, and `video/test_video.py` checks the tray-corner finder and the homography error (under 2 mm on the synthetic plate, with no markers in the scene), that labels appear on simulated shots, and that the render matches the EDL timings.
 
 ## Capture guide (what the team does)
 
-- Tape the 4 printed markers at the tray corners before recording. Don't move them.
+- No markers needed. Keep the whole tray in frame with all four corners visible, and keep the blue towel under it (the tray finder uses the contrast).
+- Take one photo from straight above the tray first: it's the reference for everything.
 - Phone: landscape, 1080p, 30 fps, focus and exposure locked, propped or on a tripod.
 - Photos for the plate: 20 to 40, from above and around, overlapping, nobody in the frame.
 - Keep the speakerphone close to a second phone recording audio.
