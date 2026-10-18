@@ -465,6 +465,8 @@ def demo_keyposes(state, fps=30):
 
 REPLAY_SPEED = 0.8   # the chosen demo plays at 80% of the speed it was recorded at
 REPLAY_SMOOTH_S = 0.3  # moving-average window that takes out hand jitter
+REPLAY_SQUEEZE = 6.0   # close this far past where the demo's jaw stopped (a ring slipped out at 3)
+REPLAY_CLAMP_S = 0.6   # pause with the jaw shut before lifting (the replay lifts as fast as the hand did)
 
 
 def pick_demo(task, min_episode=0, folder=None):
@@ -608,7 +610,7 @@ class AutoPick:
             i_end = kp["frames"]["handoff"]  # stop holding it at the hand-off spot, before the demo opened
             times, poses = smooth_track(state, fps, i_end)
             i_g = kp["frames"]["grasp"]
-            closed = max(0.0, kp["grip_closed"] - 3.0)  # a little past where the demo's jaw stopped: firm hold
+            closed = max(0.0, kp["grip_closed"] - REPLAY_SQUEEZE)  # past where the demo's jaw stopped: firm hold
             for i in range(i_g, len(poses)):
                 poses[i]["gripper"] = closed
             first = poses[0]
@@ -621,8 +623,10 @@ class AutoPick:
                 name = "approach" if i < i_g - fps else ("grip" if i < i_g + fps // 2 else "carry")
                 span = max(abs(poses[j][m] - poses[i - step][m]) for m in JOINTS)
                 dur = max(float(times[j] - times[i - step]), span / MAX_DEG_S)  # never faster than the cap
+                # clamp fully before the lift: hold still a moment at the first sample past the grasp
+                hold = REPLAY_CLAMP_S if i - step < i_g <= j else 0.0
                 self.plan.append({"name": name, "from": poses[i - step], "to": poses[j],
-                                  "dur": round(dur, 3), "hold": 0.0, "lin": True, "detail": f"following demo {ep}"})
+                                  "dur": round(dur, 3), "hold": hold, "lin": True, "detail": f"following demo {ep}"})
             self.plan[-1]["name"], self.plan[-1]["hold"] = "present", 0.3
             self.grip_hold = closed
             self.found = {"demo": ep, "frames": kp["frames"]}
