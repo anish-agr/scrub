@@ -13,6 +13,8 @@ Checked Oct 17 on the arm Mac. `.env` was read only for set or empty, never valu
 7. Devpost: team and draft submitted not confirmed from this Mac.
 8. MLH Commit Fellowship form (after submitting).
 9. DEV writeup.
+10. Tiger Data: `TIGER_DATABASE_URL` empty on this Mac. Series page still runs from the local ledger.
+11. Backboard: `BACKBOARD_API_KEY` and `BACKBOARD_ASSISTANT_ID` empty on this Mac. Memory page still answers from the local ledger.
 
 Done and working: Gemini (HTTP 200), ElevenLabs API key (HTTP 200), Perceptron vision key (set; the check says 400, see below).
 
@@ -91,12 +93,34 @@ Vision probe note: `deploy/check_env.py` sends a 1x1 gray JPEG to `/v1/detect` a
 - Now: UNKNOWN from this Mac (Evan, Saturday night). Confirm.
 
 ### Devpost
-- For: the submission. Tracks it should have ticked (from `docs/DEVPOST.md`): Perceptron, Photon, MLH Gemini API, MLH MongoDB Atlas, MLH Vultr, MLH GoDaddy Registry, MLH Commit Fellowship, MLH DEV writing, plus the ElevenLabs voice prize if offered.
+- For: the submission. Tracks it should have ticked (from `docs/DEVPOST.md`): Perceptron, Photon, MLH Gemini API, MLH MongoDB Atlas, MLH Tiger Data, MLH Backboard, MLH Vultr, MLH GoDaddy Registry, MLH Commit Fellowship, MLH DEV writing, plus the ElevenLabs voice prize if offered.
 - Get it: https://devpost.com, the DubHacks '26 project, Edit, Manage team, Edit tracks. Text is in `docs/DEVPOST.md`.
 - Now: team done per `docs/SETUP.md`. Tracks ticked and draft submitted: NOT CONFIRMED (STATUS E5 is unticked; the draft is due Sat 10:00 PM internal, 10:30 PM official). A person must open the project and check. Final submit with video by Sun 9:30 AM internal, 10:00 AM official.
 
 ### MLH Commit Fellowship form
 - For: the fellowship track. Get it: https://mlh.link/commit-fellowship-form. Submit after the Devpost final (Anish). Now: NOT DONE.
+
+### Tiger Data (`TIGER_DATABASE_URL`)
+- For: the handoff time series. Track: MLH Tiger Data. Page: http://127.0.0.1:8080/series.html once `python -m ledger serve` is running.
+- Get it, in this order:
+  1. Open https://console.cloud.timescale.com (Tiger Cloud) and sign up with the team email. Use the MLH Tiger Data offer if it is on the DubHacks sponsor page.
+  2. New service. Pick the free or smallest service, region closest to Seattle, Postgres. Create service.
+  3. When it is ready, Download the config. That file is the only time the password is shown. Copy the service URL. It looks like `postgresql://USER:PASSWORD@HOST:PORT/tsdb?sslmode=require`.
+  4. Put that whole URL in the repo-root `.env` as `TIGER_DATABASE_URL=...` with no quotes and no spaces. Do not commit `.env`.
+  5. From the repo root: `.venv/bin/pip install -r ledger/requirements.txt` (needs `psycopg`), then `.venv/bin/python -m deploy`. Tiger Data should say PASS and "connected". The series page then says the minutes are read from the hypertable. The first handoff creates `scrub_handoff`.
+- Needed in: the machine that runs the controller and `python -m ledger serve`.
+- Now: MISSING on this Mac. The page works without it and says so.
+
+### Backboard (`BACKBOARD_API_KEY`, `BACKBOARD_ASSISTANT_ID`)
+- For: notes of what was asked, and answers for what usually comes next. Track: MLH Backboard. Page: http://127.0.0.1:8080/memory.html.
+- Get it, in this order:
+  1. Open https://app.backboard.io and sign up. Pick the API path (not only the desktop app).
+  2. Create an API key. Copy it once into `.env` as `BACKBOARD_API_KEY=...`.
+  3. Create an assistant named Scrub. System prompt: "You are Scrub. Answer in one sentence what instrument usually comes next. Use only the memories you have."
+  4. Copy the assistant id (a UUID) into `.env` as `BACKBOARD_ASSISTANT_ID=...`.
+  5. `.venv/bin/python -m deploy`. Backboard should say PASS and HTTP 200. Ask on the memory page. The answer line should say it came from Backboard.
+- Needed in: the machine that runs `python -m ledger serve`.
+- Now: MISSING on this Mac. The page answers from the local ledger until both names are set.
 
 ### DEV (dev.to)
 - For: the MLH DEV writing track. Get it: https://dev.to, sign in, New Post, paste the writeup from `docs/DEV-POST.md`, add the hackathon tag the MLH page asks for, publish, and put the link in Devpost. Now: NOT DONE (nothing found here).
