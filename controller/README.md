@@ -52,6 +52,7 @@ websocat ws://localhost:8000/events      # or open http://localhost:8000/
 - Count from the camera (F2): `GET /state` and `count` events carry `out_camera` (empty slots minus the return-spot item, from a fresh TrayState; `null` without one). If it disagrees with `out`, the count line adds "Camera also sees the X gone." and/or "Camera sees the X back."; otherwise the line is unchanged.
 - `count` answers at once, even mid-handover. Up to 3 handovers queue; `stop` clears the queue.
 - Switching trays (`POST /setting`) only works when idle or stopped, and clears `out`.
+- `case_id` (`<setting>-<unix start seconds>`) is in `GET /state` and on every event. A new case starts at controller start, on `POST /setting`, and on `POST /reset {"clear_count": true}`; a plain reset keeps it.
 - `ledger` is used if `ledger.log` exists; otherwise `/stats` comes from memory.
 
 ## Extra endpoints (not needed by other parts)
@@ -66,7 +67,7 @@ websocat ws://localhost:8000/events      # or open http://localhost:8000/
 
 ## Tests
 
-`.venv/bin/python -m controller.test_flows` forces every failure case on the fake arm (grasp miss and retry, tray grasp check, stale tray, empty slot, no pull, no load reading, load drop, `got_it`, no hand, hand lost and path blocked holding until reset, failed set-down, arm exception, out of region, stop mid-pick, mid-move and while holding out, sharp set-down, return checked against the tray, count, rejects). About 40 s, prints `30/30 passed`.
+`.venv/bin/python -m controller.test_flows` forces every failure case on the fake arm (grasp miss and retry, tray grasp check, stale tray, empty slot, no pull, no load reading, load drop, `got_it`, no hand, hand lost and path blocked holding until reset, failed set-down, arm exception, out of region, stop mid-pick, mid-move and while holding out, sharp set-down, return checked against the tray, count, auto return, count against the camera, case_id, rejects). About 50 s, prints `37/37 passed`.
 
 ## Full runs (Checkpoint 1, C8)
 
