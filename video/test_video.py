@@ -40,6 +40,28 @@ class VideoTests(unittest.TestCase):
         self.assertTrue(provenance(result["clip"])["synthetic"])
         self.assertEqual(provenance(self.root / "raw-sim/so101.mp4")["kind"], "reconstructed")
 
+    def test_markerless_corners_and_homography_under_two_mm(self):
+        from video.geometry import detect_corners, homography
+        image = np.full((480, 640, 3), (155, 70, 15), np.uint8)
+        truth = np.float32([[90, 95], [552, 110], [580, 390], [55, 375]])
+        cv2.fillConvexPoly(image, truth.astype(np.int32), (220, 225, 230))
+        detected = detect_corners(image)
+        matrix, size = homography(detected, 300, 180)
+        got = cv2.perspectiveTransform(truth[None], matrix)[0]
+        expected = np.float32([[0, 0], [599, 0], [599, 359], [0, 359]])
+        error_mm = np.linalg.norm(got-expected, axis=1)/2
+        self.assertLess(float(error_mm.max()), 2)
+        self.assertEqual(size, (600, 360))
+
+    def test_bad_geometry_is_refused(self):
+        from video.geometry import order_corners, homography, detect_corners
+        with self.assertRaises(ValueError):
+            order_corners([[0,0]]*4)
+        with self.assertRaises(ValueError):
+            homography([[0,0],[100,0],[100,100],[0,100]], -1, 100)
+        with self.assertRaises(ValueError):
+            detect_corners(np.zeros((480,640,3), np.uint8))
+
 
 if __name__ == "__main__":
     unittest.main()

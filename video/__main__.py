@@ -14,6 +14,14 @@ def parser():
     sub = p.add_subparsers(dest="command", required=True)
     demo = sub.add_parser("demo-assets", help="generate labeled synthetic footage/photos/events/joints; never real results")
     demo.add_argument("--seconds", type=float, default=6)
+    c = sub.add_parser("corners", help="detect markerless tray and drag corners to fix")
+    c.add_argument("--input", required=True)
+    c.add_argument("--camera", required=True)
+    c.add_argument("--width-mm", type=float, required=True, help="actually measured left-to-right tray extent")
+    c.add_argument("--height-mm", type=float, required=True, help="actually measured top-to-bottom tray extent")
+    c.add_argument("--points", help="JSON [[TLx,TLy],[TRx,TRy],[BRx,BRy],[BLx,BLy]]")
+    c.add_argument("--headless", action="store_true")
+    c.add_argument("--accept-auto", action="store_true", help="explicitly accept unattended calibration (fixtures only recommended)")
     return p
 
 
@@ -27,6 +35,10 @@ def main(argv=None):
             if not 2 <= finite(args.seconds) <= 60:
                 raise ValueError("Demo seconds must be between 2 and 60")
             result = demo_assets(ws, args.seconds)
+        elif args.command == "corners":
+            from .geometry import corners
+            result = corners(ws, args.input, args.camera, args.width_mm, args.height_mm,
+                json.loads(args.points) if args.points else None, args.headless, args.accept_auto)
         else:
             raise ValueError("Unknown command")
         print(json.dumps(result, indent=2, allow_nan=False))
