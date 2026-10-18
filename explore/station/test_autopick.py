@@ -307,3 +307,45 @@ def test_wrist_align_corrects_a_sideways_miss(monkeypatch):
                 st.gripper = max(10.5, a["gripper.pos"])
     assert abs(d.xy_target[1] - (d.found["xy_m"][1] + true_dy)) < 0.004, (d.xy_target, d.found["xy_m"])
     assert any(p["name"] == "descend" for p in d.plan)
+
+
+def _demo(t_grasp=60, n=200, lift_drop=30.0):
+    """A synthetic demo: open the jaw, reach, close at t_grasp, lift, open again at the hand-off."""
+    rows = []
+    for i in range(n):
+        g = 35.0 if i < t_grasp else (9.0 if i < 150 else 35.0)
+        lift = 10.0 if i < t_grasp else 10.0 - lift_drop * min(1.0, (i - t_grasp) / 30)
+        rows.append([5.0, lift, 30.0, 50.0, 70.0, g])
+    return rows
+
+
+def test_learned_from_demos(tmp_path, monkeypatch):
+    import json
+    for k, tg in enumerate((60, 64, 58)):
+        (tmp_path / f"ep-{20 + k:04d}.json").write_text(json.dumps(
+            {"episode_index": 20 + k, "task": "pick the scalpel", "fps": 30, "state": _demo(tg)}))
+    (tmp_path / "ep-0005.json").write_text(json.dumps(  # old setup: ignored
+        {"episode_index": 5, "task": "pick the scalpel", "fps": 30, "state": _demo(60, lift_drop=80)}))
+    monkeypatch.setattr(AP, "EPISODES_DIR", tmp_path)
+    demo = AP.learn_demos("pick the scalpel", 18)
+    assert demo["episodes"] == [20, 21, 22]
+    assert abs(demo["grasp"]["shoulder_lift"] - 10.0) < 3 and demo["lift"]["shoulder_lift"] < -15
+    assert "handoff" in demo and demo["grip_closed"] < 15
+    d = AP.AutoPick({"mode": "learned"})
+    st = St()
+    d.start(st)
+    assert [p["name"] for p in d.plan] == ["approach", "descend", "grip", "lift", "present"]
+    t = [0.0]
+    monkeypatch.setattr(AP.time, "perf_counter", lambda: t[0])
+    released = False
+    for _ in range(6000):
+        a = d.tick(st, {})
+        t[0] += 1 / 30
+        if a is None or "done" in a:
+            break
+        if a and "gripper.pos" in a:
+            st.gripper = max(10.5 if not released else 3.0, a["gripper.pos"])
+        if d.hand == "offer" and not released and t[0] > 1:
+            d.release()  # someone says "let go"
+            released = True
+    assert released and d.handed

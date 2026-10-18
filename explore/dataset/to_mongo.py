@@ -130,6 +130,16 @@ def upload(root: str, only: int | None = None) -> int:
 def upload_episode(root: str, idx: int, task, fps: int, names: list, state, action, timestamp) -> None:
     """From the station at save time (the data parquet stays open until the session ends). Never raises.
     Video locations are filled in by a later plain run of this script."""
+    try:  # a local copy first: works offline, and the station keeps the dataset parquet open while it runs
+        local = Path.home() / "scrub-logs" / "episodes"
+        local.mkdir(parents=True, exist_ok=True)
+        (local / f"ep-{int(idx):04d}.json").write_text(json.dumps({
+            "dataset": os.path.expanduser(root), "episode_index": int(idx), "task": task, "fps": fps, "joints": names,
+            "state": [[round(float(x), 3) for x in v] for v in state],
+            "action": [[round(float(x), 3) for x in v] for v in action],
+            "timestamp": [round(float(t), 4) for t in timestamp], "saved_at": time.time()}))
+    except Exception as e:  # noqa: BLE001
+        print(f"to_mongo: local copy of episode {idx} not written ({type(e).__name__})")
     try:
         doc = {"dataset": os.path.expanduser(root), "episode_index": int(idx), "task": task, "length": len(state),
                "fps": fps, "duration_s": round(len(state) / fps, 2), "uploaded_at": time.time(), "joints": names,

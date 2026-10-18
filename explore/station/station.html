@@ -92,7 +92,7 @@ label.f{display:flex;flex-direction:column;gap:4px;font:700 12px var(--f);letter
 select,#r-args{font:500 15px var(--m);background:var(--paper2);color:var(--ink);border:1px solid var(--hair);padding:8px 10px;min-width:0}
 #runform{display:grid;grid-template-columns:1fr 2fr 1fr;gap:10px;margin-bottom:12px}
 #b-run,#b-stop,#b-toggle{font-size:22px;padding:16px}
-#b-pick,#b-cal,#b-look{font-size:17px;padding:12px}
+#b-pick,#b-cal,#b-look,#b-letgo{font-size:17px;padding:12px}
 #b-cal.on{background:var(--amber,#ffcc00);color:#111;border-color:var(--amber,#ffcc00)}
 #b-run:not(:disabled){background:var(--green);color:#0b1a10;border-color:var(--green)}
 #b-stop:not(:disabled){background:var(--amber);color:#111;border-color:var(--amber)}
@@ -107,7 +107,7 @@ select,#r-args{font:500 15px var(--m);background:var(--paper2);color:var(--ink);
 #b-kill{background:var(--red);color:#fff;border:3px solid #fff;font:900 34px var(--f);letter-spacing:.1em;padding:22px 10px}
 #b-kill small{color:#fff;opacity:.85}
 .pair{display:grid;grid-template-columns:1fr 1fr;gap:8px}
-#b-reconnect{background:var(--amber);color:#111;border-color:var(--amber)}
+#b-reconnect.urgent{background:var(--amber);color:#111;border-color:var(--amber)}
 #temps{display:grid;grid-template-columns:repeat(3,1fr);gap:4px}
 .t{font:500 11px var(--m);color:var(--mute);padding:4px 6px;border:1px solid var(--hair)}
 .t b{display:block;font:600 17px var(--m);color:var(--green)}
@@ -175,11 +175,12 @@ kbd{border:1px solid var(--hair);padding:0 4px;font:inherit}
         <button id="b-stop" class="big">Stop<small>ends the run, home, motors off</small></button>
       </div>
       <div class="grid2" id="autopick-row" style="margin-top:10px">
-        <button id="b-pick">Pick &amp; hand over<small>finds the scalpel handle, offers it, lets go when you take it</small></button>
+        <button id="b-pick">Pick &amp; hand over<small>picks it like the demos, holds it out, lets go on "let go" or a pull</small></button>
         <button id="b-cal">Calibrate camera<small>arm maps the camera to the tray by itself (~1 min, claw stays shut); hands clear</small></button>
       </div>
       <div class="grid2" style="margin-top:8px">
         <button id="b-look">Check detection<small>says where it sees the handle; no pick (parks at home after)</small></button>
+        <button id="b-letgo">Let go<small>opens the jaw while it holds the item out (same as saying "let go")</small></button>
       </div>
       <div id="runhint" class="mute" style="margin-top:8px;font-size:14px"></div>
       <div id="runlive" hidden><div id="runtext"></div><div class="prog"><i id="runprog"></i></div></div>
@@ -207,7 +208,7 @@ kbd{border:1px solid var(--hair);padding:0 4px;font:inherit}
       <button id="b-wake">Motors on<small>holds, then follows</small></button>
       <button id="b-home">Home<small>glide home, motors off</small></button>
     </div>
-    <button id="b-reconnect" hidden>Reconnect arms<small>after a USB or power drop</small></button>
+    <button id="b-reconnect">Reconnect<small>cameras + arms: parks, saves, restarts (~15 s)</small></button>
     <div><h2>Motors °C</h2><div id="temps"></div></div>
     <details id="d-joints"><summary>Joints</summary><div id="joints"></div></details>
     <details id="d-log"><summary>Log</summary><div id="log"></div></details>
@@ -309,6 +310,7 @@ function renderRun(s){
   $("b-stop").disabled=!running;
   const apOk=[...$("r-driver").options].some(o=>o.value==="autopick"&&!o.disabled);
   ["b-pick","b-cal","b-look"].forEach(id=>{$(id).disabled=running||s.state!=="idle"||!apOk;});
+  $("b-letgo").disabled=!running;
   if($("b-cal").disabled)calArm(false);
   ["r-driver","r-episode","r-speed","r-args"].forEach(id=>$(id).disabled=running&&!retry);
   $("runlive").hidden=!running;
@@ -363,7 +365,8 @@ function render(s){
 
   $("b-home").disabled=!["idle","running"].includes(s.state);
   $("b-wake").disabled=!(["parked","homing","killed","off"].includes(s.state)||(s.killed&&s.state!=="cooling"));
-  $("b-reconnect").hidden=s.state!=="error";
+  $("b-reconnect").disabled=s.state==="recording"||!!s.saving;
+  $("b-reconnect").classList.toggle("urgent",s.state==="error"||Object.values(s.cameras||{}).some(c=>c.down));
   $("temps").replaceChildren(...M.map(m=>{const t=(s.temps||{})[m], d=el("div","t "+(t==null?"":t>=60?"red":t>=55?"amber":""),SHORT[m]);
     d.append(el("b",null,t==null?"--":String(t)));return d;}));
   const j=s.joints||{};
@@ -387,7 +390,7 @@ $("b-discard").onclick=()=>send("discard");
 $("b-kill").onclick=()=>send("kill");
 $("b-home").onclick=()=>send("home");
 $("b-wake").onclick=()=>send("wake");
-$("b-reconnect").onclick=()=>send("reconnect");
+$("b-reconnect").onclick=()=>send("restart");
 $("b-qaack").onclick=()=>send("qa_ack");
 $("r-driver").onchange=driverFields;
 $("b-run").onclick=()=>{
@@ -397,8 +400,9 @@ $("b-run").onclick=()=>{
   send("run",{driver:d,args});
 };
 $("b-stop").onclick=()=>send("stop");
+$("b-letgo").onclick=()=>send("release");
 $("b-look").onclick=()=>send("run",{driver:"autopick",args:{mode:"look"}});
-$("b-pick").onclick=()=>send("run",{driver:"autopick",args:{mode:"handoff"}});
+$("b-pick").onclick=()=>send("run",{driver:"autopick",args:{mode:"learned"}});
 let calArmed=null;
 function calArm(on){
   clearTimeout(calArmed); calArmed=null;

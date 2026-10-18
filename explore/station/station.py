@@ -47,6 +47,8 @@ ERROR_AFTER = 10                                 # consecutive failed loops befo
 HTML = HERE / "station.html"
 # Run mode: a driver moves the follower instead of the leader (never recorded). "module:Class", loaded lazily
 # so a driver file that is missing or broken only hides that driver. Interface: replay.py's docstring.
+CAM_RESTART_S = 15  # a camera down this long while parked: the station restarts itself (a hung camera
+                    # only reopens in a new process on macOS)
 DRIVERS = {"replay": "replay:Replay", "autopick": "autopick:AutoPick"}
 LOCAL = ("127.0.0.1", "::1", "::ffff:127.0.0.1")
 USE_DEGREES = True                               # follower and leader; cadence entries record what the configs say
@@ -423,6 +425,9 @@ class Station:
         self.session_saved = 0
         self.pending_discard = None              # set by the guards (from inside send_action)
         self.down: set = set()                   # camera roles not sending frames
+        self.down_since: dict = {}               # role -> when it went down
+        self.restart_requested = False           # set when a hung camera needs a fresh process
+        self._restart_hint = 0.0
         self.stalls: dict = {}
         self.cam_new: dict = {}                  # role -> new frames seen since start
         self.cam_ticks: dict = {}
@@ -576,9 +581,11 @@ class Station:
         role = self._role(index)
         if is_down and role not in self.down:
             self.down.add(role)
+            self.down_since[role] = time.time()
             self.note(f"{role} camera DOWN: reconnecting; recording is blocked until it is back")
         elif not is_down and role in self.down:
             self.down.discard(role)
+            self.down_since.pop(role, None)
             self.note(f"{role} camera back")
         if is_down:
             self._flag_discard("camera_down")
@@ -635,6 +642,20 @@ class Station:
             if self.state != "running" or self.auto is None or not callable(getattr(self.auto, "answer", None)):
                 return False, "which one: no active question"
             return self.auto.answer(self, payload.get("question_id"), payload.get("side"))
+        if action == "restart":  # the page's Reconnect: park if needed, save, start fresh (cameras + arms)
+            if self.state == "recording" or self.saving:
+                return False, "reconnect: not while recording or saving (save or discard first)"
+            if self.auto is not None:
+                self._auto_finish("stopped", then="home")
+            elif self.state == "idle":
+                self._dispatch("home", None, {})
+            self.restart_pending = True
+            return True, "reconnecting: parking, saving, restarting the station (about 15 s)"
+        if action == "release":  # "let go" (voice or the page): open at the offer
+            if self.state != "running" or self.auto is None or not callable(getattr(self.auto, "release", None)):
+                return False, "let go: nothing is being held out"
+            self.auto.release()
+            return True, "letting go"
         if action == "stop":
             if self.auto is None:
                 return False, "stop: nothing is running"
@@ -1094,7 +1115,44 @@ class Station:
                 self.tick()
             except Exception as e:  # noqa: BLE001 - the station never dies from one bad tick
                 self.note(f"tick error: {type(e).__name__}: {e}")
+            self._camera_restart_check()
+            self._restart_pending_check()
             precise_sleep(max(1 / self.fps - (time.perf_counter() - t0), 0.0))
+
+    def _restart_pending_check(self) -> None:
+        if getattr(self, "restart_pending", False) and not self.restart_requested and \
+                self.state in ("off", "parked", "error", "killed") and not self.saving and self.auto is None:
+            self.note("reconnect: restarting the station now")
+            self.restart_requested = True
+            self.stop_evt.set()
+
+    def _camera_restart_check(self) -> None:
+        """A hung camera (macOS) often only comes back when the process holding it exits; reopening it in
+        place times out forever. After CAM_RESTART_S down, with the arm parked or motors off and nothing
+        recording, running or saving, and the camera still plugged in: stop cleanly so main() re-execs."""
+        if not self.down or self.restart_requested:
+            return
+        now = time.time()
+        if now - min(self.down_since.values(), default=now) < CAM_RESTART_S:
+            return
+        busy = self.state not in ("off", "parked") or self.saving or self.auto is not None
+        if busy:
+            if now - self._restart_hint > 30:
+                self._restart_hint = now
+                self.note(f"{', '.join(sorted(self.down))} camera still down: press Home (park) and the station "
+                          "restarts itself to bring it back")
+            return
+        roles = set(self.down)
+        specs = [spec for _i, (role, spec) in A.CAM_SPECS.items() if role in roles]
+        if any(spec and not str(spec).isdigit() and A.find_camera(spec) is None for spec in specs):
+            if now - self._restart_hint > 30:
+                self._restart_hint = now
+                self.note(f"{', '.join(sorted(roles))} camera is not plugged in: plug it back in")
+            return
+        self.note(f"{', '.join(sorted(roles))} camera hung for {CAM_RESTART_S} s: restarting the station "
+                  "to bring it back (about 15 s; the dataset is saved first)")
+        self.restart_requested = True
+        self.stop_evt.set()
 
     def start_thread(self) -> threading.Thread:
         t = threading.Thread(target=self.run, daemon=True, name="station-loop")
@@ -1426,6 +1484,9 @@ def main(argv=None) -> None:
     finally:
         st.close()
         srv.shutdown()
+    if st.restart_requested:  # a hung camera: a fresh process opens it again (same arguments)
+        print("restarting the station for the camera", flush=True)
+        os.execv(sys.executable, [sys.executable] + sys.argv)
 
 
 if __name__ == "__main__":
