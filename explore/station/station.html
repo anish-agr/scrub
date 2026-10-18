@@ -175,7 +175,7 @@ kbd{border:1px solid var(--hair);padding:0 4px;font:inherit}
         <button id="b-stop" class="big">Stop<small>ends the run, home, motors off</small></button>
       </div>
       <div class="grid2" id="autopick-row" style="margin-top:10px">
-        <button id="b-pick">Pick &amp; hand over<small>replays your most typical demo smoothly, holds it out, lets go on "let go"</small></button>
+        <button id="b-pick">Pick &amp; hand over<small>averages your demos of the current task, holds it out, lets go on "let go"</small></button>
         <button id="b-cal">Calibrate camera<small>arm maps the camera to the tray by itself (~1 min, claw stays shut); hands clear</small></button>
       </div>
       <div class="grid2" id="replay-row" style="margin-top:8px"></div>
@@ -317,8 +317,8 @@ function renderRun(s){
   if(row&&row.replaceChildren&&row.dataset&&row.dataset.tasks!==tasks.join("|")){
     row.dataset.tasks=tasks.join("|");
     row.replaceChildren(...tasks.map(t=>{const b=el("button","replay-btn",`Replay: ${t.replace(/^pick the /,"")}`);
-      const sm=document.createElement("small"); sm.textContent="smooth replay of its latest demos, hold out, let go on command"; b.appendChild(sm);
-      b.onclick=()=>send("run",{driver:"autopick",args:{mode:"replay_demo",task:t}}); return b;}));
+      const sm=document.createElement("small"); sm.textContent="averages its demos into one smooth path, holds it out, lets go on command"; b.appendChild(sm);
+      b.onclick=()=>send("run",{driver:"autopick",args:{mode:"average",task:t}}); return b;}));
   }
   if(row&&row.querySelectorAll)row.querySelectorAll("button").forEach(b=>{b.disabled=running||s.state!=="idle"||!apOk;});
   if($("b-cal").disabled)calArm(false);
@@ -412,7 +412,7 @@ $("b-run").onclick=()=>{
 $("b-stop").onclick=()=>send("stop");
 $("b-letgo").onclick=()=>send("release");
 $("b-look").onclick=()=>send("run",{driver:"autopick",args:{mode:"look"}});
-$("b-pick").onclick=()=>send("run",{driver:"autopick",args:{mode:"replay_demo"}});
+$("b-pick").onclick=()=>send("run",{driver:"autopick",args:{mode:"average"}});
 let calArmed=null;
 function calArm(on){
   clearTimeout(calArmed); calArmed=null;
