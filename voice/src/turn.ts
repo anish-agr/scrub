@@ -5,7 +5,7 @@ import { HOLD_S } from "./config.js";
 import { SETTING_IDS, settingAsked, switchSetting } from "./cases.js";
 import { stationOn, stationPhrase } from "./station.js";
 import { followEvents, getStats, JUDGE_LINE, judgeMode, makeCommand, noteJudge, postCommand, postStop, type ScrubEvent } from "./controller.js";
-import { countTurn, isEndCase, isLetGo, isStop, isTrayCheck, parse, parseAlias } from "./parse.js";
+import { countTurn, isEndCase, isLetGo, isStop, isTrayCheck, localParse, parse, parseAlias } from "./parse.js";
 import { currentSetting, forgetSetting, teach } from "./settings.js";
 import { canText, endCase, recordEvent } from "./summary.js";
 import { voiceTrayCheck } from "./tray.js";
@@ -137,6 +137,31 @@ export async function handleTurn(heard: string, sayTo: Say, signal?: AbortSignal
   return done;
 }
 
+// With the station as the arm: no Gemini, no clarifying questions. A phrase that names an instrument runs its
+// averaged demo replay at once (any pending question is dropped); "got it" releases; anything else is chatter
+// the always-listening page picked up, and gets no reply.
+async function stationTurn(heard: string, hold: Hold, clock: Clock, context: string) {
+  clock.tm.parser = "local";
+  dialogue.clear(context);
+  const setting = await io.currentSetting(settingId).catch(() => null);
+  if (!setting) { hold([], 0); return; }
+  settingId = setting.id;
+  const p = localParse(heard, setting);
+  const action = p.action === "return" && p.item ? "handover" : p.action;  // "back to me, the kelly": still a pick
+  if (!((action === "handover" && p.item) || action === "got_it")) {
+    console.log(`[station] ignored: "${heard}"`);
+    hold([], 0);
+    return;
+  }
+  const cmd = makeCommand(action, action === "handover" ? p.item : null, heard);
+  console.log(`[command] ${cmd.action}${cmd.item ? " " + cmd.item : ""}  (local, station)`);
+  const sent = posting(clock);
+  const reply = await io.postCommand(cmd);
+  clock.tm.controller_ms = Date.now() - sent;
+  speak(reply.say, true, cmd.id, context);
+  hold([], 0.05, cmd.id);
+}
+
 async function stationWords(heard: string, hold: Hold, clock: Clock): Promise<boolean> {
   const sent = posting(clock);
   const r = await stationPhrase(heard);
@@ -188,6 +213,7 @@ async function run(heard: string, clock: Clock, hold: Hold, context: string, sig
     if (done) return;
   }
   if (isLetGo(heard)) { clock.tm.parser = "local"; return letGoNow(heard, hold, clock); }
+  if (stationOn()) return stationTurn(heard, hold, clock, context);  // fast lane: local words only, no Gemini
   dialogue.bind(context, (line) => speak(line, false, undefined, context));
   const version = dialogue.version();
   const stale = () => signal?.aborted || dialogue.version() !== version;
