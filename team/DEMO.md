@@ -65,6 +65,8 @@ If the judges want only the sim and there's power for a laptop only:
 
 That plays a scripted case on the simulated arm, labeled SIMULATION on the dashboard. Say it's a simulation.
 
+Careful: the controller still sends the scalpel to a safe spot and says so (the `sharp` flag in `settings/surgical.json`). We don't claim a safe spot, so prefer the video. If you run the backup, stop it before the scalpel step or say that part is old.
+
 ## Rules for the table
 
 - Say a number only if it's in `team/FACTS-0718.md` or the PITCH Sources table.
