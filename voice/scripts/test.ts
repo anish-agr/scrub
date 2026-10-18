@@ -95,8 +95,10 @@ assert.equal(countReply({ step: "idle", out: [], setting: "surgical", t: 1 }), "
 assert.match(await handleText("add another one", null, deps), /^Which instrument\?/);
 // The restock file writer, on a scratch file.
 const tmp = path.join(mkdtempSync(path.join(tmpdir(), "scrub-")), "restocks.jsonl");
-logRestock(restocks[0], tmp);
+await logRestock(restocks[0], tmp, async () => { throw new Error("controller down"); });  // falls back to the file
 assert.equal(JSON.parse(readFileSync(tmp, "utf8").trim()).item, "hemostat");
+await logRestock(restocks[0], tmp, async () => ({ ok: true }));  // the ledger took it: nothing more in the file
+assert.equal(readFileSync(tmp, "utf8").trim().split("\n").length, 1);
 
 // Call-to-text memory (F4): events grouped by case_id, the text names the case, goes to the caller. Fake sender, no Gemini.
 const start = Math.floor(Date.now() / 1000) - 600;

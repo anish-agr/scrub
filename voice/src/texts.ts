@@ -1,10 +1,10 @@
 // Texts in on the Photon thread: restock, "what's out?", "summary". Gemini parses (structured output), local match if not.
-// Restocks go to voice/restocks.jsonl: the ledger (Python) has no HTTP way in yet.
+// Restocks go to the ledger via the controller's POST /restock, else voice/restocks.jsonl.
 import { appendFileSync } from "node:fs";
 import path from "node:path";
 import { GoogleGenAI, Type } from "@google/genai";
 import { GEMINI_API_KEY, GEMINI_MODEL, VOICE_DIR } from "./config.js";
-import { getState, type State } from "./controller.js";
+import { getState, postRestock, type State } from "./controller.js";
 import { isEndCase } from "./parse.js";
 import { currentSetting, type Setting } from "./settings.js";
 import { closeCase, getPhoton, photonConfigured } from "./summary.js";
@@ -96,8 +96,10 @@ export function localText(text: string, setting: Setting): TextIntent {
 
 export interface Restock { type: "restock"; item: string; qty: number; setting: string; from: string | null; heard: string; case_id: string | null; t: number }
 
-export function logRestock(r: Restock, file = RESTOCKS_FILE) {
-  appendFileSync(file, JSON.stringify(r) + "\n");
+// To the ledger through the controller's POST /restock; the local file if that fails or the ledger isn't loaded.
+export async function logRestock(r: Restock, file = RESTOCKS_FILE, post = postRestock) {
+  const ok = await post(r).then((res) => res.ok, () => false);
+  if (!ok) appendFileSync(file, JSON.stringify(r) + "\n");
 }
 
 export function countReply(st: State): string {
@@ -114,7 +116,7 @@ export interface TextDeps {
   state: () => Promise<State>;
   setting: (id: string) => Promise<Setting>;
   parse: (text: string, setting: Setting) => Promise<TextIntent>;
-  log: (r: Restock) => void;
+  log: (r: Restock) => void | Promise<void>;
   summary: () => Promise<string>;
 }
 const DEFAULTS: TextDeps = { state: getState, setting: currentSetting, parse: parseText, log: logRestock, summary: () => closeCase() };
@@ -131,7 +133,7 @@ export async function handleText(text: string, from: string | null, deps: Partia
   if (p.kind === "restock") {
     if (!p.item) return `Which instrument? On this tray: ${setting.items.map((i) => i.name).join(", ")}.`;
     const tray = p.setting || setting.id;
-    d.log({ type: "restock", item: p.item, qty: p.qty, setting: tray, from, heard: text, case_id: st?.case_id ?? null, t: Date.now() / 1000 });
+    await d.log({ type: "restock", item: p.item, qty: p.qty, setting: tray, from, heard: text, case_id: st?.case_id ?? null, t: Date.now() / 1000 });
     return `Logged: +${p.qty} ${name(p.item)} on the ${tray} tray.`;
   }
   return HELP;
