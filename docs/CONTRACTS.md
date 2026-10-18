@@ -71,9 +71,14 @@ Every part codes against these. Build against fake inputs that match them, and t
   "lighting": "normal",
   "fake_arm": true,
   "hand_seen": true,
+  "out_camera": ["hemostat"],
+  "case_id": "surgical-1760731200",
   "t": 1760731200.12
 }
 ```
+
+- `out_camera` (optional): what the camera says is out, from the latest fresh TrayState: items whose slot is empty, minus anything sitting in the return spot. `null` when there's no fresh TrayState. `count` compares it with `out` and says if they disagree.
+- `case_id` (optional): the current case, `<setting>-<unix start seconds>`. A new case starts when the controller starts, when the setting changes and on `POST /reset` with `clear_count`.
 
 `step` is one of `idle`, `finding`, `picking`, `checking`, `moving_to_hand`, `setting_down`, `waiting_for_pull`, `releasing`, `homing`, `returning`, `stopped`, `error`.
 
@@ -127,6 +132,7 @@ Every part codes against these. Build against fake inputs that match them, and t
 - `type` is one of `command`, `step`, `picked`, `handed`, `set_down`, `released`, `returned`, `missed`, `count`, `stopped`, `error`.
 - `say` is the line the voice server speaks, or `null`. Only the controller writes these lines, so wording lives in one place.
 - Every field except `type` and `t` can be `null`.
+- `case_id` (optional): the case this event belongs to, same value as in State. The voice server uses it to group the end-of-case text.
 - The voice server speaks Event `say` lines only. The `say` in the `/command` reply repeats the same line, for keyboard and curl use.
 - Optional extra fields on `command` events: `action`, `heard`, `source`, `accepted`, `reason`. Every event carries `out` (the State's list at that moment), so pages don't need to re-read `/state`. On `error` events: `error`. On `stopped` events from the hand watcher: `reason` (`hand_lost` or `hand_blocked`); the arm holds the item until a reset.
 
