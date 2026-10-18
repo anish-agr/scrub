@@ -108,6 +108,17 @@ VISION_TRAY_STALE_S=8        # default: detect timeout + 2 s
 The controller has its own 3 s cutoff (`TRAY_STALE_S` in `controller/core.py`), so with a 4 s detect it sees the tray as stale between reads.
 `GET /tray_check` reports `stale: true` with no tray read yet, after a failed read, or when the last read is older than the cutoff above (a hung detect), so the controller says it can't check instead of "missing everything". `wrong_slot[].in_slot_of` is another item's id or null. Event clips: vision polls the controller's `/events/recent` every 0.5 s and saves a clip for each picked, handed, set_down, released, returned, stopped and missed event once its 1.5 s after-window has passed. Events from before vision started are skipped. The clip buffer keeps frames at 640 px wide. `target` stays null until `vision/calibration.json` exists, except `python -m vision --fake`, which posts a stand-in target so the fake arm can finish a handover. The API returns no confidence, so a fresh TrayState uses `1.0`. A failed call keeps the last good state and sets `stale` true (optional field).
 
+## Clip captions
+
+`POST /clips/label {"case_id": ...}` captions every clip of a case. Each clip sends one `/v1/chat/completions` call (perceptron-mk1.5, `reasoning_effort: "low"`) with 5 frames spread over the 3 s clip as a `video_frames` part (each frame a JPEG data URL with `timestamp_ms`), plus the controller's event in the prompt: item, event type, and `request_to_hand_s` when the event has it. The reply is cut to one line and the request-to-hand time is added, for example `spatula handed to the clinician's right hand, 6.4 s`.
+
+Each clip in `GET /clips` then has `label`, `label_source` (`perceptron` or `fallback`), `caption_latency_ms` (null when no call was made), `caption_frames`, `caption_error` (why the fallback was used) and `labeled_at`. Without a key, on an HTTP error, an exception or an empty reply, the label is the fallback (`hemostat presented to clinician, 14:02`).
+
+- `max_completion_tokens` is 1024 because reasoning tokens count against it. At 256 one call came back with empty content.
+- The caption leans on the event in the prompt. On a clip where the arm never moved, labeled as `handed`, it still said `hemostat held by robot arm at hand-off spot`. Treat it as a log line, not as proof the event happened.
+- Live, Oct 18, 2026, `python -m vision --fake --port 8072` with 2 clips cut from a real recorded episode (side camera): `spatula held by robot arm` (picked, 2.3 s) and `spatula handed to the clinician's right hand, 6.4 s` (handed, 1.4 s). Earlier calls took 1.6 to 3.0 s.
+- Tests: `python -m vision.test_clips` (fake HTTP, synthetic frames).
+
 ## Lamp check (B1)
 
 Open `http://localhost:8001/` and turn a lamp on. The picture should brighten and stay there. It should not flash and settle back, which is what auto exposure does. Optional numbers: `python -m vision.lighting --label bright` (and `normal`, `dim`).

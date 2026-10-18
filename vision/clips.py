@@ -1,9 +1,10 @@
 """Event clip recording and Perceptron video/caption labeling (X4).
 
 Vision maintains a rolling frame buffer and saves short video clips (.mp4)
-around each Event per case_id. After the case, Perceptron's vision-language
-model (or fallback clinical labeler) labels each clip (e.g. "scalpel set at the safe spot, 14:02")
-for display in the case replay.
+around each Event per case_id. After the case, POST /clips/label captions each
+clip with Perceptron from 5 frames spread over the clip plus the controller's event ("hemostat handed
+to the surgeon's right hand, 6.4 s"). Without a key, or when the call fails, the fallback label is used
+("scalpel set at the safe spot, 14:02"). label_source says which one.
 """
 
 from __future__ import annotations
@@ -58,6 +59,126 @@ def format_event_label(event: dict, timestamp: float | None = None) -> str:
     }
     action = action_map.get(ev_type, f"{item} {ev_type}")
     return f"{action}, {time_str}"
+
+
+CAPTION_MODEL = "perceptron-mk1.5"
+CAPTION_FRAMES = 5  # frames sent per clip, spread over the whole clip (the API needs at least 2)
+CAPTION_TIMEOUT_S = 20.0  # labeling runs after the case, so a slow call is fine
+CAPTION_MAX_CHARS = 120
+
+_EVENT_PHRASE = {
+    "set_down": "set the item down at the safe spot",
+    "picked": "picked the item up from the tray",
+    "handed": "held the item out at the hand-off spot for the clinician",
+    "waiting_for_pull": "is holding the item, waiting for the clinician to pull it",
+    "released": "opened the gripper after the clinician pulled the item",
+    "returned": "put the item back in its tray slot",
+    "missed": "tried to grasp the item and missed",
+    "stopped": "was stopped (emergency stop)",
+    "error": "stopped on an arm error",
+}
+
+
+def build_caption_prompt(clip: dict[str, Any]) -> str:
+    """The caption request for one clip, with the controller's event as context."""
+    event = clip.get("event") or {}
+    ev_type = event.get("type") or clip.get("event_type") or "event"
+    item = (event.get("item") or clip.get("item") or "instrument").replace("_", " ")
+    phrase = _EVENT_PHRASE.get(ev_type, f"logged '{ev_type}'")
+    lines = [
+        f"These frames are in time order from a {clip.get('duration_s') or 3} s overhead camera clip of a "
+        "robot arm that passes surgical instruments to a clinician.",
+        f"The controller logged this event: the arm {phrase}. Item: {item}. Event type: {ev_type}.",
+    ]
+    rth = event.get("request_to_hand_s")
+    if isinstance(rth, (int, float)):
+        lines.append(f"The clinician asked for it {float(rth):.1f} s before the hand-off.")
+    lines.append(
+        f"Write one short log line, lowercase, under 15 words, that starts with the item name, for example "
+        f"\"{item} handed to the surgeon's right hand\" or \"{item} returned to its tray slot\". "
+        "Describe only what the frames show: which hand took it, where it was placed, or if it was dropped. "
+        "The controller can be wrong. If the gripper is empty, the arm does not move, or the frames do not "
+        f"show the logged event, say what they do show, for example \"arm at rest, no {item} in the gripper\". "
+        "No times, no quotes, no extra sentences."
+    )
+    return "\n".join(lines)
+
+
+def build_caption_payload(frames: list[tuple[int, bytes]], prompt: str) -> dict[str, Any]:
+    """A chat completions body: the frames as one `video_frames` part (timestamp_ms each), then the prompt."""
+    parts = [
+        {"image_url": {"url": "data:image/jpeg;base64," + base64.b64encode(jpg).decode("ascii")},
+         "timestamp_ms": int(ms)}
+        for ms, jpg in frames
+    ]
+    return {
+        "model": CAPTION_MODEL,
+        "messages": [{"role": "user", "content": [
+            {"type": "video_frames", "video_frames": {"frames": parts}},
+            {"type": "text", "text": prompt},
+        ]}],
+        "reasoning_effort": "low",
+        "max_completion_tokens": 1024,  # reasoning counts here: 256 ran out before the answer once
+        "temperature": 0.2,
+    }
+
+
+def sample_clip_frames(clip: dict[str, Any], n: int = CAPTION_FRAMES) -> list[tuple[int, bytes]]:
+    """n JPEG frames spread over the clip's .mp4, with their offsets in ms. Falls back to the thumbnail
+    (sent twice: the API wants at least two frames), then to a black frame."""
+    frames: list[np.ndarray] = []
+    fps = 10.0
+    path = clip.get("path")
+    if path and Path(path).is_file():
+        cap = cv2.VideoCapture(str(path))
+        fps = cap.get(cv2.CAP_PROP_FPS) or fps
+        while True:
+            ok, f = cap.read()
+            if not ok:
+                break
+            frames.append(f)
+        cap.release()
+    out: list[tuple[int, bytes]] = []
+    if len(frames) >= 2:
+        n = max(2, min(n, len(frames)))
+        for i in [round(k * (len(frames) - 1) / (n - 1)) for k in range(n)]:
+            ok, enc = cv2.imencode(".jpg", frames[i], [cv2.IMWRITE_JPEG_QUALITY, 80])
+            if ok:
+                out.append((int(i * 1000 / fps), enc.tobytes()))
+    if len(out) >= 2:
+        return out
+    thumb = clip.get("thumbnail")
+    if thumb and Path(thumb).is_file():
+        jpg = Path(thumb).read_bytes()
+    else:
+        jpg = cv2.imencode(".jpg", np.zeros((480, 640, 3), dtype=np.uint8))[1].tobytes()
+    return [(0, jpg), (0, jpg)]
+
+
+_THINK = re.compile(r"<think>.*?</think>", re.S | re.I)
+_TAGS = re.compile(r"<[^>]+>")
+
+
+def caption_from_response(body: dict) -> str | None:
+    """The first line of the reply, without think blocks, tags or quotes; None when there is none."""
+    choices = body.get("choices") if isinstance(body, dict) else None
+    if not choices:
+        return None
+    content = (choices[0].get("message") or {}).get("content") or ""
+    if isinstance(content, list):  # content parts
+        content = " ".join(p.get("text", "") for p in content if isinstance(p, dict))
+    text = _TAGS.sub("", _THINK.sub("", str(content))).strip()
+    line = next((ln.strip() for ln in text.splitlines() if ln.strip()), "")
+    line = line.strip(" \"'`*").rstrip(".").strip()
+    return line[:CAPTION_MAX_CHARS].rstrip() or None
+
+
+def with_request_to_hand(caption: str, clip: dict[str, Any]) -> str:
+    """Append the controller's request-to-hand time (", 6.4 s") when the event has one."""
+    rth = (clip.get("event") or {}).get("request_to_hand_s")
+    if isinstance(rth, (int, float)) and not re.search(r"\d s$", caption):
+        return f"{caption}, {float(rth):.1f} s"
+    return caption
 
 
 class ClipManager:
@@ -186,67 +307,57 @@ class ClipManager:
         clip: dict[str, Any],
         prompt: str | None = None,
         api_key: str | None = None,
-        timeout: float = 6.0,
+        timeout: float = CAPTION_TIMEOUT_S,
     ) -> str:
-        """Label a clip using Perceptron chat completions (or clinical fallback if key unset)."""
+        """Caption a clip with Perceptron from several frames of the clip, or use the fallback label.
+
+        Sets label, label_source ("perceptron" or "fallback"), caption_latency_ms (the API round trip,
+        None when no call was made), caption_frames, caption_error and labeled_at on the clip, saves the
+        case metadata, and returns the label."""
         key = os.environ.get("PERCEPTRON_API_KEY", "").strip() if api_key is None else api_key.strip()
         label: str | None = None
+        latency_ms: int | None = None
+        error: str | None = None
+        frames: list[tuple[int, bytes]] = []
 
         if key:
-            # Call Perceptron Chat Completions API with key frame
+            started = time.perf_counter()
             try:
-                thumb_path = clip.get("thumbnail")
-                if thumb_path and Path(thumb_path).exists():
-                    frame_bytes = Path(thumb_path).read_bytes()
-                else:
-                    # Create blank frame
-                    ok, encoded = cv2.imencode(".jpg", np.zeros((480, 640, 3), dtype=np.uint8))
-                    frame_bytes = encoded.tobytes()
-
-                data_url = "data:image/jpeg;base64," + base64.b64encode(frame_bytes).decode("ascii")
-                task_prompt = prompt or (
-                    "Provide a concise, human-friendly label for the medical robot action in this clip. "
-                    "Example: 'scalpel set at the safe spot, 14:02'."
-                )
-                payload = {
-                    "model": "perceptron-mk1.5",
-                    "messages": [
-                        {
-                            "role": "user",
-                            "content": [
-                                {"type": "image_url", "image_url": {"url": data_url}},
-                                {"type": "text", "text": task_prompt},
-                            ],
-                        }
-                    ],
-                    "vision_config": {
-                        "enable_thinking": True,
-                        "annotation_format": "clip",
-                    },
-                }
+                frames = sample_clip_frames(clip)
+                payload = build_caption_payload(frames, prompt or build_caption_prompt(clip))
                 resp = httpx.post(
                     CHAT_COMPLETIONS_URL,
                     json=payload,
                     headers={"Authorization": f"Bearer {key}", "Content-Type": "application/json"},
                     timeout=timeout,
                 )
-                if resp.status_code == 200:
-                    body = resp.json()
-                    choices = body.get("choices") or []
-                    if choices:
-                        msg = choices[0].get("message") or {}
-                        content = msg.get("content") or ""
-                        if content.strip():
-                            label = content.strip()
+                latency_ms = round((time.perf_counter() - started) * 1000)
+                body = resp.json() if resp.status_code == 200 else {}
+                caption = caption_from_response(body)
+                if caption:
+                    label = with_request_to_hand(caption, clip)
+                elif resp.status_code == 200:
+                    finish = ((body.get("choices") or [{}])[0] or {}).get("finish_reason")
+                    error = f"empty caption (finish_reason {finish})"
+                else:
+                    error = f"HTTP {resp.status_code}"
             except Exception as exc:
-                logger.warning("Perceptron caption call failed: %s; using clinical fallback", exc)
+                latency_ms = round((time.perf_counter() - started) * 1000)
+                error = type(exc).__name__
+                logger.warning("Perceptron caption call failed: %s; using the fallback label", exc)
+        else:
+            error = "PERCEPTRON_API_KEY unset"
 
-        # Fallback to structured clinical action format if API not available or empty
+        source = "perceptron" if label else "fallback"
         if not label:
             event = clip.get("event") or {"type": clip.get("event_type"), "item": clip.get("item")}
             label = format_event_label(event, clip.get("timestamp"))
 
         clip["label"] = label
+        clip["label_source"] = source
+        clip["caption_latency_ms"] = latency_ms
+        clip["caption_frames"] = len(frames) if source == "perceptron" else 0
+        clip["caption_error"] = error if source == "fallback" else None
         clip["labeled_at"] = time.time()
 
         case_id = clip.get("case_id")
