@@ -9,6 +9,7 @@ from .fake_arm import FakeArm
 core.HAND_WAIT_S = 1.0
 core.PULL_WAIT_S = 1.0
 core.TRAY_LAG_S = 0.05
+core.AUTO_RETURN_S = 0.3
 
 
 class RecordingArm(FakeArm):
@@ -71,6 +72,42 @@ def tray_feed(ctl, stop_evt, item, present=lambda: True):
             tray(ctl, item, present())
             time.sleep(0.05)
     threading.Thread(target=loop, daemon=True).start()
+
+
+def scene_feed(ctl, stop_evt, scene, period=0.05):
+    """TrayStates from a mutable scene: {"spot": item or None, "empty": set of item ids off their slots}."""
+    def loop():
+        while not stop_evt.is_set():
+            ctl.post_tray({"setting": "surgical",
+                           "slots": [{"item": i, "present": i not in scene["empty"], "confidence": 0.9, "box": None}
+                                     for i in ("scalpel", "hemostat", "mayo_scissors")],
+                           "return_spot": {"item": scene["spot"], "confidence": 0.9, "box": None}, "t": time.time()})
+            time.sleep(period)
+    threading.Thread(target=loop, daemon=True).start()
+
+
+def put_back_moves_it(arm, scene):
+    """The fake arm's return skill moves the item from the return spot into its slot."""
+    orig = arm.run_skill
+
+    def run_skill(instruction, max_s=20.0):
+        ok = orig(instruction, max_s)
+        if ok and instruction.startswith("return") and scene["spot"]:
+            scene["empty"].discard(scene["spot"])
+            scene["spot"] = None
+        return ok
+    arm.run_skill = run_skill
+
+
+def autos(evs):
+    return [e for e in evs if e["type"] == "command" and e.get("source") == "auto"]
+
+
+def wait_for(cond, timeout=5.0):
+    end = time.time() + timeout
+    while time.time() < end and not cond():
+        time.sleep(0.02)
+    return cond()
 
 
 def reset(ctl, timeout=5.0):
@@ -404,6 +441,82 @@ def return_checked_against_the_tray():
     _, evs = run(ctl, {"action": "return", "item": "hemostat"})
     stop.set()
     assert says(evs)[-1] == lines.couldnt_return("hemostat") and ctl.out == ["hemostat"], says(evs)
+
+
+@test
+def auto_return_from_the_return_spot():
+    ctl, arm = make()
+    run(ctl, HANDOVER)
+    scene = {"spot": None, "empty": {"hemostat"}}
+    put_back_moves_it(arm, scene)
+    stop = threading.Event()
+    scene_feed(ctl, stop, scene)
+    time.sleep(0.2)
+    scene["spot"] = "hemostat"  # the clinician sets it down
+    time.sleep(0.15)
+    assert autos(ctl.history) == [], "triggered before the item sat long enough"
+    assert wait_for(lambda: any(e["type"] == "returned" for e in ctl.history))
+    assert wait_for(lambda: ctl.step == "idle" and ctl.cmd is None)
+    stop.set()
+    a = autos(ctl.history)
+    assert len(a) == 1 and a[0]["say"] == lines.auto_return("hemostat") and a[0]["action"] == "return", a
+    evs = [e for e in ctl.history if e["command_id"] == a[0]["command_id"]]
+    assert types(evs) == ["command", "returned"] and ctl.out == [], types(evs)
+
+
+@test
+def auto_return_once_per_visit_to_the_spot():
+    ctl, arm = make()
+    arm.force["skill_fail"] = 2  # the put-back fails: the item stays in the return spot
+    scene = {"spot": "hemostat", "empty": {"hemostat"}}
+    stop = threading.Event()
+    scene_feed(ctl, stop, scene)
+    assert wait_for(lambda: any(e["type"] == "missed" for e in ctl.history))
+    assert wait_for(lambda: ctl.step == "idle" and ctl.cmd is None)
+    time.sleep(0.8)
+    assert len(autos(ctl.history)) == 1, says(ctl.history)  # still there: no second try
+    scene["spot"] = None  # picked up, then set down again
+    time.sleep(0.2)
+    scene["spot"] = "hemostat"
+    assert wait_for(lambda: len(autos(ctl.history)) == 2), says(ctl.history)
+    stop.set()
+    wait_for(lambda: ctl.step == "idle" and ctl.cmd is None)
+
+
+@test
+def auto_return_never_while_stopped_or_busy():
+    ctl, arm = make(pull_s=None)
+    ctl.submit(dict(HANDOVER))
+    assert wait_for(lambda: ctl.step == "waiting_for_pull")
+    stop = threading.Event()
+    scene_feed(ctl, stop, {"spot": "mayo_scissors", "empty": {"hemostat", "mayo_scissors"}})
+    time.sleep(0.8)
+    assert autos(ctl.history) == [] and ctl.step == "waiting_for_pull"  # busy
+    ctl.stop()
+    time.sleep(0.8)
+    assert autos(ctl.history) == [] and ctl.step == "stopped"
+    stop.set()
+
+
+@test
+def stop_interrupts_auto_return():
+    ctl, arm = make()
+    arm.scale = 2.0
+    scene = {"spot": "hemostat", "empty": {"hemostat"}}
+    stop = threading.Event()
+    scene_feed(ctl, stop, scene)
+    assert wait_for(lambda: ctl.step == "returning")
+    t0 = time.time()
+    ctl.submit({"action": "stop", "source": "voice"})
+    n = len(ctl.history)
+    time.sleep(0.5)
+    later = [e for e in list(ctl.history)[n:] if e["type"] != "command"]
+    assert ctl.step == "stopped" and later == [] and time.time() - t0 < 1.0, later
+    arm.scale = 0.1
+    reset(ctl)
+    time.sleep(0.8)  # same item still in the spot: no retrigger after the reset
+    stop.set()
+    assert len(autos(ctl.history)) == 1 and ctl.step == "idle", says(ctl.history)
 
 
 @test
