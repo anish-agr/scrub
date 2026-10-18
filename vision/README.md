@@ -110,13 +110,27 @@ The controller has its own 3 s cutoff (`TRAY_STALE_S` in `controller/core.py`), 
 
 ## Clip captions
 
-`POST /clips/label {"case_id": ...}` captions every clip of a case. Each clip sends one `/v1/chat/completions` call (perceptron-mk1.5, `reasoning_effort: "low"`) with 5 frames spread over the 3 s clip as a `video_frames` part (each frame a JPEG data URL with `timestamp_ms`), plus the controller's event in the prompt: item, event type, and `request_to_hand_s` when the event has it. The reply is cut to one line and the request-to-hand time is added, for example `spatula handed to the clinician's right hand, 6.4 s`.
+`POST /clips/label {"case_id": ...}` captions every clip of a case. Each clip sends one `/v1/chat/completions` call (perceptron-mk1.5, `reasoning_effort: "low"`) with 5 frames spread over the 3 s clip as a `video_frames` part (each frame a JPEG data URL with `timestamp_ms`). The prompt does not name the controller's event. It lists the tray's item names (the event's `setting`, or every tray in `settings/`; the clip's own item is sorted in if no tray has it) and asks for JSON: `caption` (one neutral line on what the arm and hands do), `item_seen` (an item name or `none`) and `action` (`picked`, `handed`, `set_down`, `released`, `returned`, `none_or_unclear`).
 
-Each clip in `GET /clips` then has `label`, `label_source` (`perceptron` or `fallback`), `caption_latency_ms` (null when no call was made), `caption_frames`, `caption_error` (why the fallback was used) and `labeled_at`. Without a key, on an HTTP error, an exception or an empty reply, the label is the fallback (`hemostat presented to clinician, 14:02`).
+Each clip in `GET /clips` then has:
+- `label`: the caption, plus `, 6.4 s` when the event has `request_to_hand_s`. Without a key, on an HTTP error, an exception or an empty reply, the fallback (`hemostat presented to clinician, 14:02`).
+- `label_source`: `perceptron` or `fallback`.
+- `caption_item`, `caption_action`: from the reply (null on fallback, or when the reply had no JSON).
+- `agrees`: true when `caption_action` and `caption_item` match the event (`waiting_for_pull` counts as `handed`); null for events a clip can't show (`stopped`, `missed`, `error`) and on fallback.
+- `caption_latency_ms` (null when no call was made), `caption_frames`, `caption_error` (why the fallback was used), `labeled_at`.
 
+Notes:
 - `max_completion_tokens` is 1024 because reasoning tokens count against it. At 256 one call came back with empty content.
-- The caption leans on the event in the prompt. On a clip where the arm never moved, labeled as `handed`, it still said `hemostat held by robot arm at hand-off spot`. Treat it as a log line, not as proof the event happened.
-- Live, Oct 18, 2026, `python -m vision --fake --port 8072` with 2 clips cut from a real recorded episode (side camera): `spatula held by robot arm` (picked, 2.3 s) and `spatula handed to the clinician's right hand, 6.4 s` (handed, 1.4 s). Earlier calls took 1.6 to 3.0 s.
+- An earlier prompt that named the event echoed it: a clip where the arm never moved, labeled `handed`, came back `hemostat held by robot arm at hand-off spot`. That is why the event is left out now.
+- Live, Oct 18, 2026, `python -m vision --fake --port 8072`, 3 clips cut from real recorded side-camera frames, one `POST /clips/label`:
+
+| Clip (controller event) | label | item, action | agrees | ms |
+| --- | --- | --- | --- | --- |
+| episode 5 grasp (picked spatula) | Robot arm hands scalpel to person's hand | scalpel, handed | false | 2129 |
+| episode 5 end (handed spatula, 6.4 s) | human hand reaches in and takes the scalpel from the tray, 6.4 s | scalpel, handed | false | 1552 |
+| episode 0, arm never moves (handed hemostat, 5.2 s) | robot arm holds blue tool over tray, 5.2 s | none, none_or_unclear | false | 2176 |
+
+  The still-arm clip now disagrees, as it should. The first two disagree on the item: the recording's task says "spatula" but the tool on the tray looks like a scalpel. A person's hand is in frame during the grasp, which is likely why the model called it `handed`.
 - Tests: `python -m vision.test_clips` (fake HTTP, synthetic frames).
 
 ## Lamp check (B1)
