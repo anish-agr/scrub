@@ -2,7 +2,7 @@
 
 Every finding from the fine-toothed comb (`docs/COMB-PROMPT.md` Phase 2), by severity, with where it was and what happened to it. FIXED items are on `main` with tests. NOT FIXED items say why and who decides.
 
-Tests after the comb: `controller.test_flows` 62/62, `controller.test_run_all` 27, `controller.trials --self-test` 19, arm 94 (9 suites plus the new `arm/test_safety.py`), `vision.test_vision` 41, `ledger.test_ledger` 12, `deploy.test_check_env` 6, `sim/test_sim.py` 16/16, `cd voice && npm test` passes, `npx tsc --noEmit` clean.
+Tests after the comb: `controller.test_flows` 66/66, `controller.test_run_all` 30, `controller.trials --self-test` 19, arm 94 (9 suites plus the new `arm/test_safety.py`), `vision.test_vision` 41, `ledger.test_ledger` 14, `deploy.test_check_env` 6, `sim/test_sim.py` 16/16, `cd voice && npm test` passes, `npx tsc --noEmit` clean.
 
 ## Critical
 
@@ -32,6 +32,9 @@ Tests after the comb: `controller.test_flows` 62/62, `controller.test_run_all` 2
 | H13 | `deploy/`, `ledger/` | Two installers fought over the server (port 80 vs 8080); the push copied the whole `.env` and `buffer.jsonl`. | FIXED: one path (`deploy/setup_public.sh`), server gets only `MONGODB_URI` and `SCRUB_PUBLIC_URL` |
 | H14 | `ledger/__init__.py` | Fake-arm runs counted in `/stats` rates and medians. | FIXED: `fake_arm`/`sim` rows left out (`?sim=1` includes them); the controller tags every event and restock. Tests |
 | H15 | `docs/NEXT.md` | The ROI table showed $560 to $800 saved minus $750 as a gain, from unsourced savings. | FIXED: one sourced number ($36 per OR minute, JAMA Surgery 2018), break-even 22 OR minutes a month per room |
+| H17 | `voice/src/turn.ts` | Lines spoken while no turn was open piled up and were all read at the next turn (20 lines from 15 minutes before "Mayo scissors coming"). | FIXED: lines over 10 s old dropped, at most 2 read. Test |
+| H18 | `controller/core.py` | A controller restart mid-case forgot `out`: "what's out" said everything was on the tray. | FIXED: count and case saved per port and restored within 6 h on the same tray. Test |
+| H19 | `controller/__main__.py`, `server.py` | With a WebSocket client connected, SIGTERM or Ctrl-C never exited, so `arm.disconnect()` never ran and the real arm's serial port stayed held. | FIXED: graceful timeout, SIGTERM acts like Ctrl-C, the arm always disconnects. Checked by hand on fake and sim |
 | H16 | `sim/scene.py` | A cross-tray fallback (commit c4fffd9) gave another tray's item the slot at the same index, so on the surgical tray "wire cutters" picked whatever sat there. | FIXED: active tray only. `sim/test_sim.py` 16/16 |
 
 ## Medium
@@ -51,7 +54,20 @@ Tests after the comb: `controller.test_flows` 62/62, `controller.test_run_all` 2
     - Hand posts no longer wait on the tray loop.
   - **Ledger and deploy:** CORS on the read-only `/api/*`, and the server binds 127.0.0.1 behind nginx. `python -m deploy` reads the Spectrum key names and passes a vision key on HTTP 400. 3 s timeouts on every polling fetch. Phone table spacing on the judge page.
   - **Presented docs:** dental removed everywhere a judge looks, and the speaker roles are the same in every doc. DEMO used `run_all check` without `--url` (it never checked the live stack). The table card showed "[the number goes here]". QNA claimed a gripper guard that only the recorder had (now true for the real arm too, H6).
+  - **From the full-stack sim test:**
+    - Voice hold raised to 14 s (the scalpel set-down took 8.2 s).
+    - "check the tray" works on the sim and backup stacks (falls back to the controller's TrayState).
+    - "thanks got it" and "take back the X" parse without Gemini.
+    - Voice starts the Photon listener only after it owns its port.
+    - The nurse console fits 390 px and lost its dev wording.
+    - A moved `run_all` stack prints its own dashboard URL.
+    - `run_all reset` no longer makes an empty case.
+    - A blocked path says "Something's in the way".
+    - `ledger.shots` and `ledger.qr` take `--help`.
+    - `npm test` no longer reads the real keys or the live controller.
 - NOT FIXED:
+  - `controller.trials --practice --tries 2` scores 1/2 on the fake arm (the item isn't put back between tries). Practice only; real trials are one try each.
+  - MongoDB reconnect uploads the buffer one row at a time under the lock, and `/stats` can take 2.5 s while Mongo is down.
   - M6 `arm/real_arm.py`: the 400 ms deadline is measured after the frame is grabbed and encoded, so image age at execution can reach about 580 ms. Decide after measuring `counters.late` on the real arm.
   - M7: about 1 MB of PNG per predict twice a second on venue Wi-Fi. Measure `counters.late`; use a hotspot or wired link if most replies are late.
   - M8: prepare opens 6 sessions at once; the deployment may cap them (three `HTTP 409` lines at start mean it does).
@@ -76,7 +92,6 @@ Tests after the comb: `controller.test_flows` 62/62, `controller.test_run_all` 2
   - With vision down for 5 s, the arm uses the saved spot with no hand check. **Team decision** before the real arm demo.
   - A failed return homes without setting the item down (a reset handles it).
   - Vision binds 0.0.0.0, so the camera stream is reachable on the venue LAN.
-  - `ledger.shots` and `ledger.qr` take no arguments, so `--help` runs them. `shots` talks to :8000, :8001 and :8080.
   - Voice misses events while it reconnects, so a summary can undercount passes (the count itself is right).
 
 ## Facts the comb checked that matter on stage
