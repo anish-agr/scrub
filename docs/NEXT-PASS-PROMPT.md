@@ -122,6 +122,11 @@ Make `team/` and move into it everything about how we worked rather than what Sc
 
 **Writing rules for everything new in this pass** (docs, UI copy, voice lines, commit messages): short and plain. No em dashes. No "it's not X, it's Y". No rhetorical questions, colon reveals or one-line paragraphs for effect. No filler (honestly, really, actually, simply, just, very). No decorative AI words (delve, leverage, seamless, robust as praise, crucial, unlock, empower). No emojis. Real units and real numbers only.
 
+## Before you stop: push everything, and write what's left
+
+- Push every commit. At the end, `git status` is clean, `git log origin/main..HEAD` is empty, and no local branch or worktree on this Mac has commits that aren't on `origin/main` (merge them or push them as named branches and say so). Nothing is left only on this Mac except `.env` and the recorded data.
+- Write `docs/LEFT.md` (it moves to `team/LEFT.md` in Phase 9) as the one list of what's left. For each item: what it is, who does it (Anish, Caiden, Brandon, Evan), the exact steps or command, and when it has to be done by. Group it as "people only" (plug in, teach by hand, record, film, accounts, Devpost, the Commit form) and "code" (should be empty when this pass ends; if not, say why). If something is done, it's not on the list. Push it last.
+
 ## Final report
 
 1. Phase 0: what was merged, what was skipped and why.
