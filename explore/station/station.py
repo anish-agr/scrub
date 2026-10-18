@@ -93,6 +93,18 @@ def tolerate_status_errors() -> None:
                       flush=True)
     MotorsBus.write = tolerant
 
+    _read = MotorsBus._read
+
+    def read_tolerant(self, address, length, motor_id, *, num_retry=0, raise_on_error=True, err_msg=""):
+        """Reads too (LeRobot's start-up firmware check refused the flagged elbow): a reply that arrived
+        with a status flag still has a valid value; a missing reply still raises ConnectionError."""
+        value, comm, error = _read(self, address, length, motor_id, num_retry=max(num_retry, 2),
+                                   raise_on_error=False, err_msg=err_msg)
+        if raise_on_error and not self._is_comm_success(comm):
+            raise ConnectionError(f"{err_msg} {self.packet_handler.getTxRxResult(comm)}")
+        return value, comm, error
+    MotorsBus._read = read_tolerant
+
 
 def hold_off(port: str) -> None:
     """Before LeRobot connects: every goal = where the motor is, torque off. LeRobot's configure() then
