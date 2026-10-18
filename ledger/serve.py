@@ -9,9 +9,11 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from urllib.parse import parse_qs, urlparse
 
-from ledger import stats
+from ledger import stats, stored_rows
 from ledger.cases import case_view, list_cases
+from ledger.memory import answer, configured, notes
 from ledger.qr import png_bytes, public_url
+from ledger.tiger import series
 
 _CASE_ID = re.compile(r"^[A-Za-z0-9._-]{1,80}$")
 
@@ -25,6 +27,10 @@ FILES = {
     "/case.html": ("case.html", "text/html; charset=utf-8"),
     "/cases.js": ("cases.js", "text/javascript; charset=utf-8"),
     "/card.html": ("card.html", "text/html; charset=utf-8"),
+    "/series.html": ("series.html", "text/html; charset=utf-8"),
+    "/series.js": ("series.js", "text/javascript; charset=utf-8"),
+    "/memory.html": ("memory.html", "text/html; charset=utf-8"),
+    "/memory.js": ("memory.js", "text/javascript; charset=utf-8"),
     "/qr.png": ("qr.png", "image/png"),
 }
 
@@ -43,7 +49,7 @@ class Handler(BaseHTTPRequestHandler):
     def do_OPTIONS(self) -> None:
         self.send_response(204)
         self.send_header("Access-Control-Allow-Origin", "*")
-        self.send_header("Access-Control-Allow-Methods", "GET, OPTIONS")
+        self.send_header("Access-Control-Allow-Methods", "GET, POST, OPTIONS")
         self.send_header("Access-Control-Allow-Headers", "Content-Type")
         self.send_header("Access-Control-Max-Age", "600")
         self.send_header("Content-Length", "0")
@@ -75,6 +81,13 @@ class Handler(BaseHTTPRequestHandler):
             return
         if path == "/api/public":
             self._json({"url": public_url()})
+            return
+        if path == "/api/series":
+            events, _tests = stored_rows()
+            self._json(series(events))
+            return
+        if path == "/api/memory":
+            self._json({"backboard": configured(), "notes": notes()})
             return
         if path == "/qr.png":
             try:
@@ -115,6 +128,23 @@ class Handler(BaseHTTPRequestHandler):
         self.send_header("Content-Length", str(len(body)))
         self.end_headers()
         self.wfile.write(body)
+
+    def do_POST(self) -> None:
+        parsed = urlparse(self.path)
+        if parsed.path != "/api/memory":
+            self.send_error(404)
+            return
+        try:
+            length = int(self.headers.get("Content-Length") or "0")
+        except ValueError:
+            length = 0
+        raw = self.rfile.read(min(length, 4000)) if length else b""
+        try:
+            body = json.loads(raw.decode() or "{}")
+        except json.JSONDecodeError:
+            body = {}
+        question = body.get("q") if isinstance(body, dict) else ""
+        self._json(answer(str(question or "")))
 
     def log_message(self, fmt: str, *args) -> None:
         return

@@ -3,14 +3,18 @@
 from __future__ import annotations
 
 import json
+import os
 import tempfile
 import unittest
 from pathlib import Path
 
 import ledger
+import ledger.memory as memory
 from ledger.cases import case_view, list_cases
 from ledger.logbook import log_batch
+from ledger.memory import answer, remember_event
 from ledger.qr import png_bytes
+from ledger.tiger import series, series_from
 
 
 class OutTests(unittest.TestCase):
@@ -41,11 +45,14 @@ class StatsTests(unittest.TestCase):
         ledger.BUFFER = self.buffer
         ledger._db = None
         ledger._uri = lambda: ""
+        self._notes = memory.NOTES
+        memory.NOTES = Path(self.tmp.name) / "memory-buffer.jsonl"
 
     def tearDown(self):
         ledger.BUFFER = self._buffer
         ledger._db = self._db
         ledger._uri = self._uri
+        memory.NOTES = self._notes
         self.tmp.cleanup()
 
     def test_handed_event_shows_up_in_stats_from_the_buffer(self):
@@ -178,6 +185,75 @@ class StatsTests(unittest.TestCase):
         self.assertIn("Median request to hand 3.0s", view["summary"])
         rows = list_cases(events)
         self.assertEqual(rows[0]["case_id"], "later")
+
+
+class TrackTests(unittest.TestCase):
+    def test_series_buckets_one_minute(self):
+        buckets = series_from(
+            [
+                {"type": "handed", "item": "hemostat", "request_to_hand_s": 4, "t": 120, "fake_arm": True},
+                {"type": "handed", "item": "hemostat", "request_to_hand_s": 6, "t": 130, "fake_arm": False},
+                {"type": "step", "t": 140},
+            ]
+        )
+        self.assertEqual(len(buckets), 1)
+        self.assertEqual(buckets[0]["t"], 120)
+        self.assertEqual(buckets[0]["n"], 2)
+        self.assertEqual(buckets[0]["real"], 1)
+        self.assertEqual(buckets[0]["median_s"], 5)
+        previous = os.environ.pop("TIGER_DATABASE_URL", None)
+        try:
+            self.assertEqual(series([])["source"], "local")
+        finally:
+            if previous is not None:
+                os.environ["TIGER_DATABASE_URL"] = previous
+
+    def test_memory_answers_from_the_ledger_without_backboard(self):
+        events = []
+        stamp = 1
+        for case, second in enumerate(("scalpel", "scalpel")):
+            for item in ("hemostat", second):
+                events.append(
+                    {
+                        "type": "command",
+                        "action": "handover",
+                        "accepted": True,
+                        "item": item,
+                        "case_id": f"m-{case}",
+                        "t": stamp,
+                    }
+                )
+                stamp += 1
+        saved = {name: os.environ.pop(name, None) for name in ("BACKBOARD_API_KEY", "BACKBOARD_ASSISTANT_ID")}
+        try:
+            reply = answer("what usually follows hemostat", events)
+        finally:
+            for name, value in saved.items():
+                if value is not None:
+                    os.environ[name] = value
+        self.assertEqual(reply["source"], "local")
+        self.assertIn("scalpel", reply["answer"])
+        self.assertFalse(reply["backboard"])
+
+    def test_remember_writes_a_local_note_only(self):
+        path = Path(tempfile.mkdtemp()) / "memory-buffer.jsonl"
+        previous = memory.NOTES
+        memory.NOTES = path
+        try:
+            remember_event(
+                {
+                    "type": "command",
+                    "action": "handover",
+                    "accepted": True,
+                    "item": "mayo_scissors",
+                    "setting": "surgical",
+                    "t": 3,
+                }
+            )
+            text = path.read_text(encoding="utf-8")
+        finally:
+            memory.NOTES = previous
+        self.assertIn("mayo scissors", text)
 
 
 class QrTests(unittest.TestCase):
