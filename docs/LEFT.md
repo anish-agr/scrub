@@ -7,9 +7,10 @@ Evan's tasks (E1 to E7) aren't listed here; he's on them. As of 5 PM he has push
 | Agent | Works on | May edit |
 | --- | --- | --- |
 | Caiden, session 1 (orchestrator) | L1 to L10 below | `controller/` (except `trials.py`), `voice/`, `arm/check_setup.py`, `arm/record.py`, `controller/run_all.py`, `README.md` "Running it", `docs/SLIDES.md`, `explore/` |
-| Evan, Cursor (Grok only) | E3 to E7, then Brandon's V1 to V3 | `dashboard/`, `ledger/`, `settings/`, `docs/DATA-LOG.md`, `docs/DEVPOST.md`, `vision/`, `docs/PERCEPTRON.md` |
+| Evan, Cursor (Grok only) | E3 to E7, his QA bugs | `dashboard/`, `ledger/`, `settings/`, `docs/DATA-LOG.md`, `docs/DEVPOST.md` |
 | Anish, Codex | R1 to R4, Q1, Q2 below | `arm/` except `check_setup.py` and `record.py`; `docs/BRINGUP.md`; `controller/trials.py` (new file only) |
-| Anish, Antigravity | G1, G2 below | `docs/PITCH.md`, `docs/QA.md` |
+| Anish, Antigravity | V1 to V3, F5, F6, the vision QA bugs, then G3 and G4 | `vision/`, `docs/PERCEPTRON.md`, `docs/QA.md`, `docs/NEXT.md`, `docs/DEV-POST.md` |
+| Caiden, phase 2 (after session 1 ends) | F1 to F4, QA-12 | `controller/`, `voice/` |
 
 ## More work (Q, R, G)
 
@@ -20,15 +21,30 @@ Evan's tasks (E1 to E7) aren't listed here; he's on them. As of 5 PM he has push
 | Q3 | `docs/AUDIT.md`: read every part against `docs/CONTRACTS.md` and list mismatches and likely bugs, by owner. Done in the final verification pass | Caiden, final pass |
 | Q4 | A sim backup: a recorded full run on the MuJoCo sim arm with voice and the dashboard, in case the real arm fails at judging | Caiden, final pass |
 | R4 | Live bring-up with Anish once the arm is plugged in and the team key is in: capabilities, `real_arm --dry-run` against the real joints, the five-point `move_to` check, gripper load sign | Codex |
-| V1 | B5 tooling: `vision/mark_slots.py` works on a live frame or a saved image, writes boxes for all three trays in the settings format, and is tested with `--fake` | Evan (for Brandon) |
-| V2 | B6 tooling: `vision/calibrate.py` accepts both guided gripper points and `--pairs` from `explore` page 42, reports the fit error in cm, and the controller gets `target` once `vision/calibration.json` exists. Test with synthetic pairs | Evan (for Brandon) |
-| V3 | B8 tooling: a lighting test mode that records detection rate, hand-tracking rate and stale rate per lighting tag to a CSV. Also confirm live `/v1/detect` works with `PERCEPTRON_API_KEY` | Evan (for Brandon) |
+| V1 | B5 tooling: `vision/mark_slots.py` works on a live frame or a saved image, writes boxes for all three trays in the settings format, and is tested with `--fake` | Antigravity (for Brandon) |
+| V2 | B6 tooling: `vision/calibrate.py` accepts both guided gripper points and `--pairs` from `explore` page 42, reports the fit error in cm, and the controller gets `target` once `vision/calibration.json` exists. Test with synthetic pairs | Antigravity (for Brandon) |
+| V3 | B8 tooling: a lighting test mode that records detection rate, hand-tracking rate and stale rate per lighting tag to a CSV. Also confirm live `/v1/detect` works with `PERCEPTRON_API_KEY` | Antigravity (for Brandon) |
 | G1 | `docs/PITCH.md`: tighten the 3-minute script and judge Q&A against what's built, with `[measured]` slots for the numbers. Plain words, no buzzwords, no em dashes | Antigravity |
 | G2 | Browser QA: start the stack with the fake arm and `vision --fake`, click through the dashboard and the public page, try every control, and write bugs by owner in `docs/QA.md` | Antigravity |
 
 ## After everyone finishes: the final pass
 
 When Caiden session 1, Codex, Antigravity and Evan's Cursor are done, Caiden runs one verification pass with subagents: Q3 (the audit), Q4 (the sim backup), every test in the repo, the full stack on the sim arm, and small fixes anywhere. That pass is the last software step before the hardware work takes over.
+
+## Features from the plan not built yet (F)
+
+From `docs/PROPOSAL.md` (tracks section) and the demo. All of these are in the plan, so all get built.
+
+| # | What | Track it serves | Who |
+| --- | --- | --- | --- |
+| F1 | **Auto return:** when TrayState shows an item in the return spot for about 2 seconds and the arm is idle, the controller says "returning the X" and runs the return without a voice command | Perceptron Perception, demo | Caiden phase 2 |
+| F2 | **Count from the camera:** "count" reconciles the controller's `out` list with the latest TrayState (empty slots plus the return spot) and says if they disagree. `GET /state` gains an optional `out_camera` field | Perceptron Perception | Caiden phase 2 |
+| F3 | **Photon texts in:** the same Photon thread accepts texts. "add a second hemostat to the surgical tray" logs a restock to the ledger and replies; "what's out?" replies with the count. Gemini parses it with the same item list | Photon | Caiden phase 2 |
+| F4 | **Call to text memory:** the end-of-case text goes to the number that called and names the case (setting, start time, items used, anything still out, median request-to-hand time). Optional `case_id` on events | Photon | Caiden phase 2 |
+| F5 | **Lighting from the camera:** vision measures scene brightness, tags bright, normal or dim, and posts it to `POST /lighting` with an estimated lux, so the tables tag lighting without anyone clicking | Perceptron Perception, lighting tables | Antigravity |
+| F6 | **Live boxes on every instrument:** the stream draws each detected item with its name and confidence, highlights the return spot when occupied, and shows the palm dot with the handoff target | Perceptron Perception, demo | Antigravity |
+| G3 | `docs/NEXT.md`: the DubHacks NEXT business case (dental offices first, price per chair per month, the cost of an unfilled assistant shift, what we changed this weekend), from `explore/research` and `explore/pages/startup-case.html`. Check every number against its source | DubHacks NEXT | Antigravity |
+| G4 | `docs/DEV-POST.md`: a draft of the DEV post (data collection, lighting tests, what we learned), with blanks for measured results | MLH DEV | Antigravity |
 
 ## Blockers only people can clear
 
