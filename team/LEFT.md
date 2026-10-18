@@ -12,16 +12,8 @@ Roles: Anish arm, training and the pitch. Caiden controller, voice and tools. Br
 
 Ordered by deadline. Arm items point to a step in "Tonight's plan" and a procedure in "Arm procedures" below.
 
-### Training job ids (Anish, now, by 2:00)
-Anish reported 2 successful training jobs. No doc or file records their ids, and `arm.train deployments` lists 0 deployments. Send both ids in the chat, then for each:
-`.venv/bin/python -m arm.train status job <id>`
-If both jobs used the team's quota of 2 successful jobs, run 1 below cannot start: ask the Perceptron staff before spending anything.
-
-### Clear the wrong deployment id (Caiden, by 2:00)
-`PERCEPTRON_DEPLOYMENT_ID` in `.env` is reported to hold a vision API key, not a deployment id (`python -m deploy`: "id not among 0 deployments"; on Oct 18 at 00:50 `status deployment` on it returned HTTP 404). Edit `.env` so the line reads `PERCEPTRON_DEPLOYMENT_ID=` (empty). After run 1 deploys, the pipeline writes the real id; check with `.venv/bin/python -m arm.train deployments` and `.venv/bin/python -m deploy` (Perceptron deployment PASS).
-
-### Set the follower port (Caiden, by 2:00)
-`SO101_PORT` is missing from `.env`, and `arm.teach skill`, `arm.taught --check` and the controller read it. Add `SO101_PORT=/dev/tty.usbmodem5C821089781`. Check: `.venv/bin/python -m deploy` lists SO101_PORT as set.
+### Training quota (checked, no action)
+The earlier "2 jobs used" is wrong. Checked 2:05 AM Oct 18: `GET /v1/jobs` is empty, capabilities `successful_jobs_per_team` 5 with 0 used, 0 deployments; about 65 of 1200 shared GPU hours used. The 14 `pick the spatula` episodes in `~/scrub-dataset` are not training data; surgical training data goes in `~/scrub-surgical` (`team/RUN-TRAIN.md`).
 
 ### Restart vision and the controller on the new builds (Brandon for vision, Caiden for the controller, by 2:00)
 Vision on :8001 is an older `--fake` build: its `/health` has no `fps` or `detect_p50_ms`. The controller on :8000 is a fake-arm build with no `skills` in `/state`.

@@ -9,7 +9,16 @@ Checks for the LeRobot demos before they use one of the two Isaac training jobs.
 | Replay | `.venv/bin/python explore/dataset/replay.py --root <ds> --episode 0 --port 8095` | The MuJoCo arm set to the recorded joints next to the real side and wrist video. `--check` prints joint-limit and tip-height problems with no server. |
 | Aim | `.venv/bin/python explore/dataset/aim.py --live` (port 8096) | Camera level, sharpness, brightness, and a ghost of a reference frame with shift/rotation/scale. While `explore/arm_session.py` runs it reads that session's streams on :8090 and never opens a camera. File mode: `--side-image`, `--wrist-image`, `--dataset`. |
 
-Tests (a synthetic dataset, no recorded data): `.venv/bin/python -m pytest -q explore/dataset/test_dataset_tools.py`.
+`qa.py`, `replay.py` and `variety.py` read LeRobot v3 (episodes parquet tree) and v2.x (`meta/episodes.jsonl`, `meta/tasks.jsonl`, one data and video file per episode) when the v3 tree is absent. Shared reader: `lerobot_meta.py`.
+
+Functions for other modules (what `python -m arm.train preflight` imports). Both return a list of failure reasons, `[]` when clean, write nothing, and return a `dataset: ...` reason instead of raising when the dataset can't be read:
+- `explore.dataset.qa.qa_failures(root, html_out=None) -> list[str]`: one `episode N: reason` per FAIL flag in the whole dataset; writes the HTML report only if `html_out` is given.
+- `explore.dataset.qa_video.video_failures(root, episode=None, use_api=False, max_calls=30) -> list[str]`: `episode N: camera: reason` for dark or unreadable video; `episode=N` checks one episode index. `use_api=True` adds the Perceptron grasp_failed / dropped reasons (needs `PERCEPTRON_API_KEY`).
+
+Push a batch to MongoDB (joint data only, one document per episode, upserted on dataset + episode_index so re-running is safe; videos stay on disk):
+`.venv/bin/python explore/dataset/to_mongo.py --root ~/scrub-surgical` (add `--episode N` for one, or `--check` to compare with MongoDB). Episode handoff telemetry is matched by dataset root, so `~/scrub-dataset` (spatula) episodes with the same index are not mixed in. Needs `MONGODB_URI` in `.env`.
+
+Tests (synthetic datasets of both shapes, no recorded data): `.venv/bin/python -m pytest -q explore/dataset`.
 
 Found on the first test recording (Oct 17):
 - shoulder_lift rests at about -103.7 deg, past the URDF limit of -100 deg, so `arm/kinematics.py` rejects the rest pose. Suggest a shoulder_lift offset of about +4 deg in `arm/rig.json`, measured on the arm (Anish's file).

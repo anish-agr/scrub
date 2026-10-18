@@ -2,7 +2,8 @@
 
   .venv/bin/python explore/dataset/to_mongo.py                       # every readable episode in ~/scrub-dataset
   .venv/bin/python explore/dataset/to_mongo.py --root <ds> --episode 12
-  .venv/bin/python explore/dataset/to_mongo.py --check               # what MongoDB has vs the dataset
+  .venv/bin/python explore/dataset/to_mongo.py --root ~/scrub-surgical          # push a batch for that root
+  .venv/bin/python explore/dataset/to_mongo.py --root ~/scrub-surgical --check  # what MongoDB has vs the dataset
 
 One document per episode, upserted on (dataset, episode_index), so re-running is safe:
   dataset, episode_index, task, length, fps, duration_s, uploaded_at,
@@ -93,11 +94,21 @@ def build_docs(root: str, only: int | None = None) -> list[dict]:
     return docs
 
 
-def _handoff(idx: int):
-    """The station's episode_end summary for this dataset index, if it was logged."""
+def _handoff(idx: int, root: str | None = None):
+    """The station's episode_end summary for this dataset index, if it was logged. Episode indexes repeat across
+    dataset roots (~/scrub-dataset and ~/scrub-surgical both start at 0), so with a root only events from
+    sessions whose episode_start named that root count."""
     try:
-        r = thermal_log._collection().find_one({"kind": "event", "event": "episode_end", "episode": idx,
-                                                "reason": "saved"}, {"_id": 0}, sort=[("t", -1)])
+        coll = thermal_log._collection()
+        q = {"kind": "event", "event": "episode_end", "episode": idx, "reason": "saved"}
+        if root:
+            full = os.path.abspath(os.path.expanduser(root))
+            sessions = coll.distinct("session", {"kind": "event", "event": "episode_start", "episode": idx,
+                                                 "root": {"$in": [root, full]}})
+            if not sessions:
+                return None
+            q["session"] = {"$in": sessions}
+        r = coll.find_one(q, {"_id": 0}, sort=[("t", -1)])
         return {k: r[k] for k in ("grasps", "lifted", "lift_m", "pulled", "released", "handoff_success",
                                   "duration_s", "peak_temps", "session") if k in r} if r else None
     except Exception:  # noqa: BLE001
@@ -108,7 +119,7 @@ def upload(root: str, only: int | None = None) -> int:
     c = _coll()
     n = 0
     for d in build_docs(root, only):
-        d["handoff"] = _handoff(d["episode_index"])
+        d["handoff"] = _handoff(d["episode_index"], root)
         c.replace_one({"dataset": d["dataset"], "episode_index": d["episode_index"]}, d, upsert=True)
         n += 1
         print(f"episode {d['episode_index']:3d}: {d['length']} frames, {d['duration_s']} s"
@@ -124,7 +135,7 @@ def upload_episode(root: str, idx: int, task, fps: int, names: list, state, acti
                "fps": fps, "duration_s": round(len(state) / fps, 2), "uploaded_at": time.time(), "joints": names,
                "state": [[round(float(x), 3) for x in v] for v in state],
                "action": [[round(float(x), 3) for x in v] for v in action],
-               "timestamp": [round(float(t), 4) for t in timestamp], "video": {}, "handoff": _handoff(int(idx))}
+               "timestamp": [round(float(t), 4) for t in timestamp], "video": {}, "handoff": _handoff(int(idx), root)}
         _coll().replace_one({"dataset": doc["dataset"], "episode_index": doc["episode_index"]}, doc, upsert=True)
     except BaseException as e:  # noqa: BLE001 - telemetry must never break recording
         print(f"to_mongo: episode {idx} not uploaded ({type(e).__name__}); run explore/dataset/to_mongo.py later")

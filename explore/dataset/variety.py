@@ -18,11 +18,30 @@ import pandas as pd
 repo_root = Path(__file__).parent.parent.parent
 sys.path.insert(0, str(repo_root))
 from arm.kinematics import Kinematics
+from explore.dataset import lerobot_meta
+
+
+def load_episodes_v2(root):
+    """LeRobot v2.x: meta/episodes.jsonl, meta/tasks.jsonl, one data parquet per episode."""
+    task_idx_to_name = lerobot_meta.v2_tasks(root)
+    data = pd.concat([pd.read_parquet(f) for f in sorted((root / "data").rglob("*.parquet"))], ignore_index=True)
+    episodes = []
+    for r in lerobot_meta.read_jsonl(root / "meta/episodes.jsonl"):
+        ep_idx = int(r["episode_index"])
+        ep_data = data[data['episode_index'] == ep_idx].copy()
+        if len(ep_data) > 0:
+            task_idx = int(ep_data['task_index'].iloc[0])
+            task_name = task_idx_to_name.get(task_idx) or (list(r.get("tasks") or []) or [f"task_{task_idx}"])[0]
+            episodes.append({'episode_index': ep_idx, 'task_index': task_idx, 'task_name': task_name,
+                             'data': ep_data.reset_index(drop=True)})
+    return episodes, task_idx_to_name
 
 
 def load_episodes(root_path):
-    """Load all episodes from dataset."""
+    """Load all episodes from dataset (LeRobot v3, or v2.x when the v3 episodes parquet tree is absent)."""
     root = Path(root_path)
+    if lerobot_meta.is_v2(root):
+        return load_episodes_v2(root)
 
     # Load episode metadata
     episodes_meta = []

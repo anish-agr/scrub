@@ -40,7 +40,7 @@ lerobot-record \
   --robot.type=so101_follower --robot.port=<follower port> --robot.id=scrub_follower \
   --robot.cameras="{ side: {type: opencv, index_or_path: <i>, width: 640, height: 480, fps: 30}, wrist: {type: opencv, index_or_path: <j>, width: 640, height: 480, fps: 30} }" \
   --teleop.type=so101_leader --teleop.port=<leader port> --teleop.id=scrub_leader \
-  --dataset.repo_id=<hf user>/scrub-surgical \
+  --dataset.repo_id=<HF_USER>/scrub \
   --dataset.single_task="pick the hemostat" \
   --dataset.num_episodes=15 \
   --dataset.fps=30
@@ -50,8 +50,8 @@ Each instruction ("pick the hemostat", "return the hemostat") is recorded as its
 
 ## Two ways to send a dataset
 
-1. **Public Hugging Face repo (easiest).** Record with push to the Hub on and the repo public, then `POST /v1/datasets` with `{"name": ..., "source_kind": "huggingface", "repo_id": "<user>/scrub-surgical", "revision": "main"}`. Needs `HF_TOKEN`.
-2. **Direct upload.** `POST /v1/datasets` with `source_kind: "upload"`, then `POST /v1/datasets/{id}/uploads` with each file's path, size and lowercase SHA-256 (up to 500 per batch, `meta/info.json` required). PUT each file's bytes to its signed URL with the returned headers (URLs expire in 15 minutes, no team key on the PUT). Then `POST /v1/datasets/{id}/finalize`. `arm/upload_dataset.py` does this.
+1. **Public Hugging Face repo.** Not the default; use it only if direct upload fails. Record with push to the Hub on and the repo public, then `POST /v1/datasets` with `{"name": ..., "source_kind": "huggingface", "repo_id": "<HF_USER>/scrub", "revision": "main"}`. Needs `HF_TOKEN`.
+2. **Direct upload (the default source in `arm.train pipeline`).** `POST /v1/datasets` with `source_kind: "upload"`, then `POST /v1/datasets/{id}/uploads` with each file's path, size and lowercase SHA-256 (up to 500 per batch, `meta/info.json` required). PUT each file's bytes to its signed URL with the returned headers (URLs expire in 15 minutes, no team key on the PUT). Then `POST /v1/datasets/{id}/finalize`. `arm/upload_dataset.py` does this.
 
 Both return a dataset id. Then poll `GET /v1/datasets/{id}` until ready and read `GET /v1/datasets/{id}/validation` before training. Keep each `Idempotency-Key` the same when retrying the same request.
 
