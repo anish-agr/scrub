@@ -12,6 +12,12 @@ Roles: Anish arm, training and the pitch. Caiden controller, voice and tools. Br
 
 Ordered by deadline. Arm items point to a step in "Tonight's plan" and a procedure in "Arm procedures" below.
 
+### Full Gemini model and the judge page (Caiden, now)
+Tested on Anish's laptop at about 6:30 AM against the fake arm. `gemini-3.8-flash` parsed a request with no tool name in 2.8 s and asked back on an unclear one. Known tool names skip Gemini.
+1. `git pull --rebase`. In the repo-root `.env` set `GEMINI_MODEL=gemini-3.8-flash`, `GEMINI_TIMEOUT_MS=8000`, `GEMINI_THINKING_LEVEL=low`, `GEMINI_MAX_OUTPUT_TOKENS=1024` (see `.env.example`). Restart the voice server.
+2. Check: `cd voice && npm run say -- "the thing for prying open a paint can"` should print `gemini <ms>` on the server line, not `gemini local`.
+3. Redeploy the public page so Vultr shows the corrected text and leaves sim rows out of the stats: `powershell -File deploy/push_public.ps1 -Target root@144.202.95.111` from the laptop whose SSH key is on the server (Brandon's), or add your key and run `deploy/setup_public.sh` steps from `deploy/README.md`. Then `curl -s http://144.202.95.111/` should not say "bench tray", "Isaac 0.5, fine-tuned" or "Photon number".
+
 ### Training quota (checked, no action)
 The earlier "2 jobs used" is wrong. Checked 2:05 AM Oct 18: `GET /v1/jobs` is empty, capabilities `successful_jobs_per_team` 5 with 0 used, 0 deployments; about 65 of 1200 shared GPU hours used. The 14 `pick the spatula` episodes in `~/scrub-dataset` are not training data; surgical training data goes in `~/scrub-surgical` (`team/RUN-TRAIN.md`).
 
