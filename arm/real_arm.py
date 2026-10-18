@@ -8,6 +8,7 @@ from __future__ import annotations
 import math
 import os
 from pathlib import Path
+import re
 import threading
 import time
 
@@ -17,9 +18,32 @@ from dotenv import load_dotenv
 from .backends import LeRobotBackend, SavedImageBackend
 from .kinematics import Kinematics
 from .motion import CartesianMotion
+from .perceptron import APIError
 from .sessions import DryPolicySession, PolicySession
 from .session_pool import SessionPool
 from .streaming import DELAY, HZ, STRIDE, Timeline
+
+# Claw guard, in LeRobot gripper units (0..100), the same numbers explore/arm_session.py records with.
+# Closing on something and not moving for GRIP_STALL_S: hold at the contact point plus GRIP_SQUEEZE
+# instead of stalling the servo at its torque limit until it overheats or trips overload.
+GRIP_STALL_S = 0.3
+GRIP_MOVE = 1.0
+GRIP_SQUEEZE = 1.5
+GRIP_SETTLE = 3.0       # a jaw move counts as done this close to its goal (the calibrated ends are soft)
+SETTLE_MAX_DEG = 5.0    # a move also counts as done this close to its goal once the joints stop moving:
+SETTLE_STILL_DEG = 0.2  # the servos are P-only (LeRobot sets P 16, I 0), so a loaded joint stops short
+SETTLE_STILL_S = 0.3
+RELEASED_FRACTION = 0.15  # a put-back is done when the jaw that closed on the item is this open again and still
+PREDICT_TRIES = 5       # consecutive failed predicts before a skill gives up and raises
+REGRANT = (401, 404, 410)        # expired grant or robot session gone: fresh grant and session, once
+RESTART = (409, 422)             # sequence, timestamp or prior chunk refused: reset the session history
+TRANSIENT = (None, 429, 500, 502, 503, 504)  # hold and send a fresh frame
+
+
+def _status(error):
+    """HTTP status from an APIError ("Perceptron HTTP 503"), None for a transport failure."""
+    m = re.search(r"HTTP (\d{3})", str(error))
+    return int(m.group(1)) if m else None
 
 
 class Arm:
@@ -56,8 +80,12 @@ class Arm:
         self._skill_deadline = 0.0
         self._skill_success = False
         self._played = False
+        self._skill_return = False
+        self._was_closed = False
+        self._grip = {"ref": None, "since": 0.0, "hold": None}
+        self._settle = {"anchor": None, "since": 0.0}
         self.last_reason = "not connected"
-        self.counters = {"accepted": 0, "late": 0, "holds": 0, "ticks": 0, "overruns": 0}
+        self.counters = {"accepted": 0, "late": 0, "holds": 0, "ticks": 0, "overruns": 0, "api_errors": 0}
 
     def connect(self):
         if self._thread is not None:
@@ -75,10 +103,11 @@ class Arm:
                 port = port or os.getenv("SO101_PORT")
                 if not port:
                     raise RuntimeError("SO101_PORT is required")
+                # Camera ids: OpenCV indexes, or on the Mac name parts like "C920" (backends.camera_index).
                 self._backend = LeRobotBackend(
                     port, robot_id or os.getenv("SO101_ROBOT_ID", "scrub_follower"),
-                    side_index if side_index is not None else int(os.getenv("SO101_SIDE_CAMERA", "0")),
-                    wrist_index if wrist_index is not None else int(os.getenv("SO101_WRIST_CAMERA", "1")))
+                    side_index if side_index is not None else os.getenv("SO101_SIDE_CAMERA", "0"),
+                    wrist_index if wrist_index is not None else os.getenv("SO101_WRIST_CAMERA", "1"))
         try:
             self._backend.connect()
             state = np.asarray(self._backend.read_joints(), dtype=float)
@@ -88,6 +117,7 @@ class Arm:
             raise
         self._state = state
         self._last_sent = state.copy()
+        self._grip = {"ref": None, "since": 0.0, "hold": None}
         self._epoch = time.perf_counter()
         self._state_time = self._epoch
         self._shutdown.clear()
@@ -115,6 +145,50 @@ class Arm:
             if self._state is None or time.perf_counter() - self._state_time > .1:
                 raise RuntimeError("No fresh arm state")
             return self._state.copy()
+
+    def _guard_grip(self, row, state, now):
+        """Keep the jaw inside its configured range and never stall it squeezing (the policy, like the
+        leader arm, commands "closed" past the contact point). Called with _lock held; no I/O."""
+        row = np.array(row, dtype=float)
+        lo, hi = sorted((self.rig["gripper_open"], self.rig["gripper_closed"]))
+        row[5] = min(hi, max(lo, row[5]))
+        d = 1.0 if self.rig["gripper_closed"] > self.rig["gripper_open"] else -1.0  # closing direction
+        g, goal, pos = self._grip, row[5], state[5]
+        if g["hold"] is not None:
+            if (g["hold"] - goal) * d >= GRIP_SQUEEZE:  # told to open past the contact point: let go
+                g["hold"], g["ref"] = None, None
+            else:
+                if (goal - g["hold"]) * d > 0:
+                    row[5] = g["hold"]  # never tighter than the gentle hold
+                return row
+        if (goal - pos) * d > GRIP_SQUEEZE:  # told to close further than it is
+            if g["ref"] is None or abs(pos - g["ref"]) > GRIP_MOVE:
+                g["ref"], g["since"] = pos, now  # still closing
+            elif now - g["since"] > GRIP_STALL_S:
+                g["hold"] = min(hi, max(lo, pos + d * GRIP_SQUEEZE))
+                row[5] = g["hold"]
+        else:
+            g["ref"] = None
+        return row
+
+    def _settled(self, state, rows, now):
+        """Joints within a degree of the final target, or within SETTLE_MAX_DEG and no longer moving
+        (P-only servos under gravity stop short); the jaw too, only if this move changes it."""
+        goal, s = rows[-1], self._settle
+        if s["anchor"] is None or np.max(abs(state[:5] - s["anchor"][:5])) > SETTLE_STILL_DEG:
+            s["anchor"], s["since"] = state.copy(), now
+        error = np.max(abs(state[:5] - goal[:5]))
+        if error >= 1.0 and not (error < SETTLE_MAX_DEG and now - s["since"] >= SETTLE_STILL_S):
+            return False
+        return abs(rows[0][5] - goal[5]) <= GRIP_MOVE or abs(state[5] - goal[5]) < GRIP_SETTLE
+
+    def _commanded_start(self):
+        """Measured joints with the commanded jaw. A move starts where the arm is but keeps the grip
+        it was told to hold: the measured jaw sits at the contact point, and commanding that lets go."""
+        start = self.joints()
+        with self._lock:
+            start[5] = self._last_sent[5]
+        return start
 
     def _closed_fraction(self, raw):
         return float(np.clip((raw - self.rig["gripper_open"]) /
@@ -155,7 +229,10 @@ class Arm:
                         self._load = None
                 with self._lock:
                     self._state, self._state_time = state, now
-                    row = state.copy()
+                    # Hold means resend the last command. Sending the measured joints back would let
+                    # the P-only servos sag under gravity every tick and the jaw relax its grip.
+                    prev = self._last_sent.copy()
+                    row = prev.copy()
                     if self._frozen.is_set():
                         self._finish("frozen")
                     elif self._mode == "skill":
@@ -164,10 +241,19 @@ class Arm:
                         else:
                             if np.max(abs(state[:5] - anchor[:5])) > self.rig["still_joint_delta_deg"] or abs(state[5] - anchor[5]) > self.rig["still_gripper_delta"]:
                                 anchor, still_since = state.copy(), now
-                            if self._played and self._closed_fraction(state[5]) >= self.rig["grasp_closed_fraction"] and now - still_since >= self.rig["still_seconds"]:
-                                self._finish("closed_and_still", True)
+                            closed = self._closed_fraction(state[5])
+                            still = self._played and now - still_since >= self.rig["still_seconds"]
+                            if closed >= self.rig["grasp_closed_fraction"]:
+                                self._was_closed = True
+                            if self._skill_return:
+                                # A put-back grips the item, then lets go in its slot: closing alone is mid-skill.
+                                done = still and self._was_closed and closed <= RELEASED_FRACTION
                             else:
-                                row = self._timeline.command(tick, self._last_sent, state)
+                                done = still and closed >= self.rig["grasp_closed_fraction"]
+                            if done:
+                                self._finish("released_and_still" if self._skill_return else "closed_and_still", True)
+                            else:
+                                row = self._timeline.command(tick, self._last_sent)
                                 if self._timeline.active(tick) is not None:
                                     if not self._played:
                                         anchor, still_since = state.copy(), now
@@ -178,17 +264,19 @@ class Arm:
                         start, rows = self._motion
                         index = tick - start
                         if index >= len(rows):
-                            # Remain on the final target until measured joints settle.
+                            # Remain on the final target (and keep holding it after) until joints settle.
                             row = rows[-1]
-                            if np.max(abs(state - row)) < 1.0:
+                            if self._settled(state, rows, now):
                                 self._finish("motion_complete", True)
-                                row = state.copy()
                         elif index >= 0:
                             row = rows[index]
+                    row = self._guard_grip(row, state, now)
                     self._last_sent = row.copy()
                 # Recheck after planning. freeze() never waits for this thread.
                 if self._frozen.is_set():
-                    row = state.copy()
+                    row = prev
+                    with self._lock:
+                        self._last_sent = prev.copy()
                 self._backend.send(row)
                 self.counters["ticks"] += 1
             except Exception as error:
@@ -207,6 +295,7 @@ class Arm:
             self._done.clear()
             self._skill_success = False
             self._motion = (self._tick() + 1, rows)
+            self._settle = {"anchor": None, "since": 0.0}
             self._mode = "motion"
         deadline = time.perf_counter() + len(rows) / HZ + 3
         while not self._done.wait(.02):
@@ -219,13 +308,13 @@ class Arm:
         with self._operation:
             if not self._ready():
                 return False
-            return CartesianMotion(self.kin, self.joints, self._execute).move_to(x, y, z, speed)
+            return CartesianMotion(self.kin, self._commanded_start, self._execute).move_to(x, y, z, speed)
 
     def _pose(self, name):
         pose = self.rig.get(name)
         if pose is None:
             raise RuntimeError(f"Measure and save the {name} pose in rig.json")
-        start = self.joints()
+        start = self._commanded_start()
         goal = np.asarray(pose, dtype=float).copy()
         if goal.shape != (6,):
             raise ValueError("Saved poses need six raw joint values")
@@ -253,7 +342,7 @@ class Arm:
     def _open_gripper(self):
         if not self._ready():
             return False
-        start = self.joints()
+        start = self._commanded_start()
         goal = start.copy()
         goal[5] = self.rig["gripper_open"]
         return self._execute(self.kin.trajectory(start, goal))
@@ -306,10 +395,13 @@ class Arm:
                 self._timeline.clear()
                 self._done.clear()
                 self._played = False
+                self._skill_return = instruction.startswith("return")
+                self._was_closed = False
                 self._skill_success = False
                 self._skill_deadline = deadline
                 self._mode = "skill"
             next_capture = self._tick()
+            failures, regranted = 0, False
             try:
                 # This caller is the inference thread; the only other control
                 # thread is _playback. Synchronous predict => one in flight.
@@ -326,7 +418,7 @@ class Arm:
                         state = self._state.copy()
                         if time.perf_counter() - self._state_time > .1:
                             raise RuntimeError("Observation joints are stale")
-                        rtc = self._timeline.rtc(tick, self._last_sent, state)
+                        rtc = self._timeline.rtc(tick, self._last_sent)
                         gap = bool(self._timeline.chunks) and rtc is None
                     if gap:
                         # Expired chunk: there is no legal prior_start_index.
@@ -347,7 +439,32 @@ class Arm:
                         metadata["rtc"] = rtc
                     if self._frozen.is_set() or self._done.is_set() or time.perf_counter() >= deadline:
                         break
-                    reply = session.predict(metadata, images)
+                    try:
+                        reply = session.predict(metadata, images)
+                    except APIError as error:
+                        # Playback holds meanwhile (no chunk covers now). Bounded by PREDICT_TRIES and max_s.
+                        failures += 1
+                        code = _status(error)
+                        self.counters["api_errors"] += 1
+                        if failures >= PREDICT_TRIES or code not in REGRANT + RESTART + TRANSIENT:
+                            raise
+                        if code in REGRANT:
+                            if regranted:
+                                raise
+                            regranted = True
+                            self._sessions.discard(session)
+                            session = self._get_session(instruction)
+                        elif code in RESTART:
+                            session.reset()
+                        if code in REGRANT + RESTART:
+                            sequence = 0
+                            with self._lock:
+                                self._timeline.clear()  # no RTC history survives a new or reset session
+                        else:
+                            sequence += 1  # never resend a number the service may have seen
+                        next_capture = self._tick() + 1
+                        continue
+                    failures = 0
                     arrival = time.perf_counter()
                     if self._done.is_set() or self._frozen.is_set() or arrival >= deadline:
                         break
@@ -361,6 +478,11 @@ class Arm:
                     next_capture = tick + STRIDE
                     if next_capture <= self._tick():
                         next_capture += ((self._tick() - next_capture) // STRIDE + 1) * STRIDE
+            except APIError:
+                # The controller turns this into an error event with the HTTP code (CONTRACTS: Arm).
+                self.last_reason = "policy_api_error"
+                self.freeze()
+                raise
             except Exception as error:
                 self.last_reason = f"policy_error:{type(error).__name__}"
                 self.freeze()

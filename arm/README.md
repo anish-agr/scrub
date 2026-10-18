@@ -104,13 +104,22 @@ URDF IK and the same 30 Hz sender. The sender owns all bus I/O; the caller of
 on the playback clock. A chunk's rows remain anchored at capture time, not
 arrival time. RTC commits 12 rows, uses a 400 ms acceptance deadline, and
 switches only at `execute_from_index`. Late replies are discarded. Playback
-holds measured position when no chunk covers the current tick. Joint rate
+holds the last command when no chunk covers the current tick, and so do idle,
+freeze and the end of a move. (Resending the measured position would let the
+P-only servos, LeRobot sets P 16 and I 0, sag a little more every tick and the
+jaw let go of a held tool.) Joint rate
 limiting is reflected in `rtc.committed_actions`; the server must echo those
 rows or the reply is rejected. Gaps after an exhausted chunk reset the session
 before sending a fresh first observation. Missed ticks are not replayed in bursts.
 
-`run_skill` returns true only after a closed-and-still gripper; max_s, freeze,
-and errors return false. This heuristic is not proof of a grasp. In particular,
+`run_skill` returns true only after a closed-and-still gripper for a `pick`
+skill, and only after the jaw closed and then opened again and went still
+(`released_and_still`) for a `return` skill; max_s, freeze, and errors return false.
+Perceptron errors on predict: 503/504/429 or a timeout hold and retry with a
+fresh frame and a new sequence number; 409/422 reset the session; 401/404/410
+(expired grant, idle-expired session) get a fresh grant and session once. After
+`PREDICT_TRIES` (5) failures in a row, or any other status, the arm freezes and
+`run_skill` raises the `APIError`, so the controller speaks the code and holds. This heuristic is not proof of a grasp. In particular,
 an open-gripper return ending at max_s is **not** automatically a successful
 return; that flow needs an independently verified completion condition later.
 
@@ -125,8 +134,18 @@ dropping a held tool; support the arm, set tools down and power off manually.
 The LeRobot adapter uses `use_degrees=True`, named `side`/`wrist` RGB cameras
 at 640x480/30 FPS, no automatic calibration, and `Present_Load` from the Feetech
 bus with `normalize=False` (signed raw motor load, not torque). Missing load
-raises instead of manufacturing a reading. Measured pose moves preserve the
-current gripper value; `set_down_safe_spot()` opens only after arrival.
+raises instead of manufacturing a reading. Pose moves and `move_to` keep the
+commanded grip (not the measured jaw, which sits at the contact point);
+`set_down_safe_spot()` opens only after arrival. A claw guard (the same numbers
+as `explore/arm_session.py`) holds a jaw that closed on something and stopped
+moving for 0.3 s at the contact point plus 1.5 units, instead of stalling the
+servo at its torque limit, and keeps every jaw command inside the rig's
+`gripper_open`..`gripper_closed`. A move ends when the joints are within 1 degree,
+or within 5 degrees and still for 0.3 s (loaded joints stop short).
+
+`connect()` refuses while another process has the serial port open (`lsof`,
+both `/dev/tty.*` and `/dev/cu.*` on the Mac): teleop, recording, replay and
+`arm.teach` must be closed first, so only the controller moves the arm.
 
 Source APIs were inspected against LeRobot `v0.4.4`:
 `robots/so_follower/{so_follower,config_so_follower}.py`,
@@ -244,10 +263,14 @@ failure. Measure/verify:
 Set these local `.env` variables (never commit it): `PERCEPTRON_TEAM_API_KEY`,
 `PERCEPTRON_DEPLOYMENT_ID`, `SO101_PORT`, `SO101_ROBOT_ID` (default
 `scrub_follower`), `SO101_SIDE_CAMERA` (default 0), `SO101_WRIST_CAMERA` (default 1).
+Camera ids are OpenCV indexes or, on the Mac, name parts matched like
+`arm.check_setup` (indexes move on a replug). This Mac:
+`SO101_PORT=/dev/tty.usbmodem5C821089781`, `SO101_SIDE_CAMERA=C920`,
+`SO101_WRIST_CAMERA=icspring` (check with `python -m arm.check_setup --side C920 --wrist icspring`).
 Camera ids and calibration id must match recording. Then the controller, not
 another script, connects with `python -m controller --real-arm`.
 
-### Handoff to Caiden (no controller/contract edits made here)
+### Handoff to Caiden (items 1 to 3 are done in `controller/core.py`; item 4 is done in the arm)
 
 1. In `controller/core.py::_reset`, explicitly call optional `arm.resume()`
    **before** `open_gripper`/`go_home`, only on an operator-authorized reset.
