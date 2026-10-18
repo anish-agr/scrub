@@ -39,7 +39,19 @@ The public read-only page (the count and the tables, no arm controls):
 python -m ledger serve
 ```
 
-Open http://127.0.0.1:8080/. `PORT` changes the port. Cases are at http://127.0.0.1:8080/cases.html. Brandon deploys this page. The page reads Mongo through this process, so the URI never goes to the browser.
+Open http://127.0.0.1:8080/ for the judge page. Cases are at http://127.0.0.1:8080/cases.html. The printable table card is http://127.0.0.1:8080/card.html. Brandon deploys this page. The page reads Mongo through this process, so the URI never goes to the browser.
+
+```
+python -m ledger.qr
+```
+
+That writes `ledger/public/qr.png` for `SCRUB_PUBLIC_URL` in `.env`. If the variable is empty, the code points at http://127.0.0.1:8080 until Brandon's domain is set. Run it again after the domain is in `.env`.
+
+```
+python -m ledger.shots
+```
+
+That runs a fake-arm hemostat handover (starting the controller and `vision --fake` if they are not already up) and saves screenshots in `docs/media/`.
 
 Log one recorded batch (appends a row to `docs/DATA-LOG.md`):
 

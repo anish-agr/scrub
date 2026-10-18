@@ -71,6 +71,34 @@ function paint(report) {
   $("status").hidden = true;
 }
 
+async function loadCases() {
+  const list = document.getElementById("replays");
+  if (!list) return;
+  try {
+    const response = await fetch("/api/cases", { cache: "no-store" });
+    if (!response.ok) throw new Error("bad");
+    const rows = await response.json();
+    list.replaceChildren();
+    const shown = (rows || []).slice(0, 8);
+    if (!shown.length) {
+      const empty = document.createElement("li");
+      empty.textContent = "No cases yet.";
+      list.appendChild(empty);
+      return;
+    }
+    shown.forEach((row) => {
+      const li = document.createElement("li");
+      const link = document.createElement("a");
+      link.href = `case.html?id=${encodeURIComponent(row.case_id)}`;
+      link.textContent = `${row.case_id} · ${row.setting || "case"}`;
+      li.appendChild(link);
+      list.appendChild(li);
+    });
+  } catch (error) {
+    /* the count still updates if the case list fails */
+  }
+}
+
 async function refresh() {
   try {
     const response = await fetch("/api/stats", { cache: "no-store" });
@@ -83,4 +111,6 @@ async function refresh() {
 }
 
 refresh();
+loadCases();
 setInterval(refresh, 2000);
+setInterval(loadCases, 5000);
