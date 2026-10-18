@@ -8,7 +8,7 @@ from fastapi import FastAPI, HTTPException, WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import HTMLResponse
 from fastapi.staticfiles import StaticFiles
-from pydantic import BaseModel
+from pydantic import BaseModel, Field, StrictInt
 
 from . import armview, core, reads, traycheck
 from .core import Controller
@@ -20,6 +20,24 @@ OPS = Path(__file__).resolve().parent / "ops.html"
 DESIGN = Path(__file__).resolve().parent.parent / "design"  # shared scrub.css for every page
 
 
+class Instance(BaseModel):
+    variant: Optional[str] = None
+    side: Optional[Literal["left", "right", "closest"]] = None
+    slot: Optional[StrictInt] = Field(default=None, ge=1)
+
+
+class Clarify(BaseModel):
+    type: Literal["clarify", "clarify_answer"]
+    say: Optional[str] = None
+    item: Optional[str] = None
+    candidates: Optional[list[dict]] = None
+    question_id: Optional[str] = None
+    answer: Optional[str] = None
+    answer_ms: Optional[float] = None
+    context: Optional[dict | str] = None
+    confirm: Optional[bool] = None
+
+
 class Command(BaseModel):
     id: Optional[str] = None
     action: str
@@ -28,6 +46,8 @@ class Command(BaseModel):
     source: Optional[str] = None
     t: Optional[float] = None
     method: Optional[str] = None  # --skills smart: force the first grasp method (trials); ignored otherwise
+    instance: Optional[Instance] = None
+    question_id: Optional[str] = None
 
 
 class Setting(BaseModel):
@@ -77,7 +97,15 @@ def make_app(ctl: Controller, extra=None) -> FastAPI:
 
     @app.post("/command")
     async def command(cmd: Command):
-        return ctl.submit(cmd.model_dump())
+        # Locate/preflight may wait on vision; never block stop or the server event loop.
+        return await asyncio.to_thread(ctl.submit, cmd.model_dump(exclude_none=True))
+
+    @app.post("/clarify")
+    async def clarify(body: Clarify):
+        data = body.model_dump(exclude_none=True)
+        type_ = data.pop("type")
+        ctl.emit(type_, **data, command_id=None)
+        return {"ok": True}
 
     @app.post("/stop")
     async def stop():

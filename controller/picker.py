@@ -345,8 +345,8 @@ class Locator:
         except Exception:  # noqa: BLE001 - the pick goes on without a located pose
             return None
 
-    def locate(self, item_id: str, timeout_s: float = 2.0) -> dict | None:
-        return self._get("/locate", {"item": item_id}, timeout_s)
+    def locate(self, item_id: str, timeout_s: float = 2.0, instance: dict | None = None) -> dict | None:
+        return self._get("/locate", {"item": item_id, **(instance or {})}, timeout_s)
 
     def safe_zone(self, timeout_s: float = 2.0) -> dict | None:
         return self._get("/safe_zone", None, timeout_s)
