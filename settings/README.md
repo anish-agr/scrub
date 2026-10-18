@@ -18,7 +18,9 @@ Names and aliases still work. The surgical training tray is unchanged.
 
 A handover may carry `"instance": {"variant": "phillips"}`, `{"side": "left"}`,
 `{"side": "right"}`, `{"side": "closest"}` or `{"slot": 2}`. Slots are one-based
-within the candidate list. Side words are from the surgeon's side, not necessarily
-camera-left. Set the vision orientation for the mounted camera before using them
-on the real arm. A question never authorizes a pick until answered, and expires
+within the candidate list. The controller's overhead view assumes the surgeon is
+at image-bottom: image-left is their left, and larger image y is closer. The
+station's side camera uses its separately documented opposite-camera view in
+`explore/station/README.md`. Confirm the mounted camera and the surgeon's position
+before using side words on the real arm. A question never authorizes a pick until answered, and expires
 after 15 seconds. Stop still stops immediately.
