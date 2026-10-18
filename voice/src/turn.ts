@@ -3,7 +3,7 @@
 // but only the last 2 and only if they are under 10 s old (a dashboard or smoke run left 20 lines for the next caller).
 import { HOLD_S } from "./config.js";
 import { SETTING_IDS, settingAsked, switchSetting } from "./cases.js";
-import { stationOn, stationPhrase } from "./station.js";
+import { photonLog, stationOn, stationPhrase } from "./station.js";
 import { followEvents, getStats, JUDGE_LINE, judgeMode, makeCommand, noteJudge, postCommand, postStop, type ScrubEvent } from "./controller.js";
 import { countTurn, isEndCase, isLetGo, isStop, isTrayCheck, localParse, parse, parseAlias } from "./parse.js";
 import { currentSetting, forgetSetting, teach } from "./settings.js";
@@ -168,6 +168,7 @@ async function stationWords(heard: string, hold: Hold, clock: Clock): Promise<bo
   if (!r) return false;
   clock.tm.controller_ms = Date.now() - sent;
   console.log(`[station] "${heard}": ${r.msg}`);
+  photonLog("caller", heard); photonLog("scrub", r.say);
   speak(r.say, true);
   hold([], 0.05);
   return true;
@@ -182,7 +183,10 @@ async function stopNow(hold: Hold, clock: Clock) {
   clock.tm.controller_ms = Date.now() - sent;  // one retry: a dropped connection must not lose a stop
   console.log("[command] stop (POST /stop)");
   flushPending();
-  if ((await stopping).station) { speak("Stopped.", true); hold([], 0.05); return; }  // station: no controller events
+  if ((await stopping).station) {  // station: no controller events
+    photonLog("caller", "stop"); photonLog("scrub", "Stopped.");
+    speak("Stopped.", true); hold([], 0.05); return;
+  }
   hold(DONE.stop, 1.5);
 }
 

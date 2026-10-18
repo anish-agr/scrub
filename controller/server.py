@@ -14,8 +14,8 @@ from . import armview, core, reads, traycheck
 from .core import Controller
 
 DASHBOARD = Path(__file__).resolve().parent.parent / "dashboard"
-DEMO = Path(__file__).resolve().parent / "demo.html"  # copy of team/prototypes/48-judge-run.html
-NURSE = Path(__file__).resolve().parent / "nurse.html"  # live port of team/prototypes/24-scrub-nurse.html
+DEMO = Path(__file__).resolve().parent / "demo.html"  # judging console
+NURSE = Path(__file__).resolve().parent / "nurse.html"  # live nurse console
 OPS = Path(__file__).resolve().parent / "ops.html"
 DESIGN = Path(__file__).resolve().parent.parent / "design"  # shared scrub.css for every page
 

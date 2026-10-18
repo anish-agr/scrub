@@ -2,7 +2,7 @@
 import WebSocket from "ws";
 import { randomUUID } from "node:crypto";
 import { CONTROLLER_URL, JUDGE_TTL_MS } from "./config.js";
-import { STATION_ACTIONS, stationCommand, stationFast, stationOn, stationReply } from "./station.js";
+import { photonLog, STATION_ACTIONS, stationCommand, stationFast, stationOn, stationReply } from "./station.js";
 
 // read_sheet, read_tray, read_pack (optional, the OCR pass): item is null; the answer comes as a `read` event.
 export type Action = "handover" | "return" | "count" | "stop" | "got_it" | "let_go" | "unknown" | "read_sheet" | "read_tray" | "read_pack";
@@ -69,12 +69,15 @@ export async function postCommand(c: Command): Promise<CommandReply> {
   // page picks up (unknown) gets no reply at all.
   if (stationOn()) {
     if (STATION_ACTIONS.has(c.action)) {
+      photonLog("caller", c.heard);
       const tag = `[station] ${c.action}${c.item ? " " + c.item : ""}`;
       const m = await stationFast(c, undefined, undefined, (done) => console.log(`${tag}: ${done}`));
       console.log(`${tag}: ${m}`);
-      return { ...stationReply(c, m), station: true };
+      const reply = { ...stationReply(c, m), station: true };
+      photonLog("scrub", reply.say);
+      return reply;
     }
-    if (c.action === "unknown") return { accepted: false, reason: "unknown command", say: null, station: true };
+    if (c.action === "unknown") { photonLog("caller", c.heard); return { accepted: false, reason: "unknown command", say: null, station: true }; }
   }
   return call("POST", "/command", c, COMMAND_TIMEOUT_MS);
 }

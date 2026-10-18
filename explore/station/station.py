@@ -454,6 +454,16 @@ class Station:
         self.down: set = set()                   # camera roles not sending frames
         self.down_since: dict = {}               # role -> when it went down
         self.restart_requested = False           # set when a hung camera needs a fresh process
+        def _probe_voice():  # is the voice server (Photon calls and texts) up? for the Photon tab
+            import urllib.request
+            while True:
+                try:
+                    with urllib.request.urlopen("http://127.0.0.1:3000/health", timeout=1.5) as r:
+                        self.voice_server_up = r.status == 200
+                except Exception:  # noqa: BLE001
+                    self.voice_server_up = False
+                time.sleep(5)
+        threading.Thread(target=_probe_voice, daemon=True, name="voice-probe").start()
         try:
             self.voice_items = voice_items()     # words that name each item, for the page's voice control
         except Exception:  # noqa: BLE001
@@ -665,6 +675,15 @@ class Station:
 
     def _dispatch(self, action: str, task, payload=None):
         payload = payload or {}
+        if action == "photon_tab":  # the page's Photon tab is open (heartbeat): calls/texts may drive the arm
+            self.photon_tab_t = time.time() if payload.get("on") else 0.0
+            return True, "photon tab " + ("open" if payload.get("on") else "closed")
+        if action == "photon_log":  # a line of the Photon conversation, from the voice server, for the tab's feed
+            feed = self.__dict__.setdefault("photon_feed", [])
+            feed.append({"t": time.strftime("%H:%M:%S"), "who": str(payload.get("who") or "")[:20],
+                         "text": str(payload.get("text") or "")[:300]})
+            del feed[:-60]
+            return True, "logged"
         if action == "page_voice":  # the page's Talk is listening (heartbeat): station_voice.py stays quiet
             self.page_voice_t = time.time() if payload.get("on") else 0.0
             return True, "page voice " + ("on" if payload.get("on") else "off")
@@ -1309,6 +1328,9 @@ class Station:
                 "any_task": self.any_task, "task_ok": self.task in self.allowed, "allowed_tasks": self.allowed,
                 "voice_items": self.voice_items,
                 "page_voice": time.time() - getattr(self, "page_voice_t", 0.0) < 12,
+                "photon_tab": time.time() - getattr(self, "photon_tab_t", 0.0) < 12,
+                "photon_feed": list(getattr(self, "photon_feed", []))[-30:],
+                "voice_server": getattr(self, "voice_server_up", None),
                 "use_degrees": self.use_degrees(), "counts": self.counts(), "qa": qa,
                 "last_qa": qa[-1] if qa else None,
                 "rerecord": [f"RE-RECORD episode {r['episode']}: {'; '.join(r['reasons'])}" for r in qa
@@ -1398,7 +1420,7 @@ def make_handler(st: Station):
             except ValueError:
                 body = {}
             out = st.control(str(body.get("action", "")), body.get("task"),
-                             payload={k: body[k] for k in ("driver", "args", "result", "question_id", "side", "heard", "on") if k in body})
+                             payload={k: body[k] for k in ("driver", "args", "result", "question_id", "side", "heard", "on", "who", "text") if k in body})
             self._send(200, json.dumps(out).encode(), "application/json")
 
         def _stream(self, name: str):

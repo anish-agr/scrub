@@ -52,3 +52,9 @@ explore/recognition/out/
 
 # analysis charts and snapshot are committed (data/ above ignores every data dir)
 !docs/media/data/
+
+# clinic-taught aliases written at run time (bench.local.json is a committed test fixture)
+settings/*.local.json
+!settings/bench.local.json
+# lighting test rows from python -m vision.lighting --test
+vision/lighting_tests.csv

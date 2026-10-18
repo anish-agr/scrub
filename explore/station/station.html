@@ -61,6 +61,10 @@ html,body{margin:0;background:var(--paper);color:var(--ink);font:400 16px/1.35 v
 .cam .chip{position:absolute;right:0;bottom:0;background:rgba(0,0,0,.7);padding:3px 8px;font:500 13px var(--m);color:#e8e6df}
 .cam .chip.bad{background:var(--amber);color:#111}
 
+#ph-log{list-style:none;margin:12px 0 0;padding:0;display:flex;flex-direction:column;gap:6px;max-height:380px;overflow:auto}
+#ph-log li{display:flex;gap:10px;font:500 15px var(--m);line-height:1.35}
+#ph-log .who{flex:0 0 58px;font:800 11px var(--f);letter-spacing:.1em;text-transform:uppercase;color:var(--mute);padding-top:3px}
+#ph-log .scrub{color:var(--green)}
 #t-log{list-style:none;margin:12px 0 0;padding:0;display:flex;flex-direction:column;gap:6px;max-height:340px;overflow:auto}
 #t-log li{display:flex;gap:10px;font:500 15px var(--m);line-height:1.35}
 #t-log .who{flex:0 0 52px;font:800 11px var(--f);letter-spacing:.1em;text-transform:uppercase;color:var(--mute);padding-top:3px}
@@ -134,7 +138,7 @@ kbd{border:1px solid var(--hair);padding:0 4px;font:inherit}
 <body class="scrub-ui">
 <div id="top">
   <div id="mark">Scrub Station</div>
-  <div id="tabs"><button id="tab-record" class="on">Record</button><button id="tab-run">Run</button><button id="tab-talk">Talk</button></div>
+  <div id="tabs"><button id="tab-record" class="on">Record</button><button id="tab-run">Run</button><button id="tab-talk">Talk</button><button id="tab-photon">Photon</button></div>
   <div id="state">Connecting</div>
   <div id="clock" class="mono"></div>
   <div id="stats"></div>
@@ -207,6 +211,16 @@ kbd{border:1px solid var(--hair);padding:0 4px;font:inherit}
       </div>
       <div id="tally"></div>
     </section>
+    <section id="p-photon" class="panel" hidden>
+      <h2>Photon line (calls and texts)</h2>
+      <p class="mute" style="margin:4px 0 10px;font-size:14px">While this tab is open, a call or text to Scrub's Photon number drives this arm, the same words as Talk: "get the hemostat", "stop", "continue", "return to home", "kill", "let go". Leave the tab and calls and texts go back to the simulated controller.</p>
+      <div id="ph-status" style="font:600 15px var(--m);margin:6px 0"></div>
+      <div class="grid2" style="margin-top:8px">
+        <button id="ph-letgo">Let go<small>opens the jaw while it holds the item out</small></button>
+        <button id="ph-home">Return to home<small>stops what it is doing, goes home, motors off</small></button>
+      </div>
+      <ul id="ph-log" class="tlog"></ul>
+    </section>
     <section id="p-talk" class="panel" hidden>
       <h2>Talk to Scrub</h2>
       <p class="mute" style="margin:4px 0 10px;font-size:14px">Always listening while on. Say or type: "get the hemostat", "kelly", "stop", "continue", "return to home", "kill", "let go". Instrument words come from the settings.</p>
@@ -265,8 +279,9 @@ function flash(m){const f=$("flash");f.hidden=false;f.textContent=m;clearTimeout
 function setMode(m){
   mode=m; try{localStorage.setItem("station-mode",m);}catch(e){}
   $("tab-record").classList.toggle("on",m==="record"); $("tab-run").classList.toggle("on",m==="run");
-  $("tab-talk").classList.toggle("on",m==="talk");
-  $("p-record").hidden=m!=="record"; $("p-run").hidden=m!=="run"; $("p-talk").hidden=m!=="talk";
+  $("tab-talk").classList.toggle("on",m==="talk"); $("tab-photon").classList.toggle("on",m==="photon");
+  $("p-record").hidden=m!=="record"; $("p-run").hidden=m!=="run"; $("p-talk").hidden=m!=="talk"; $("p-photon").hidden=m!=="photon";
+  phBeat(m==="photon");
   if(m==="run")loadDrivers();
   if(st)render(st);
 }
@@ -376,7 +391,8 @@ function renderRun(s){
 
 function render(s){
   // a running driver pins the Run tab; recording pins Record
-  if(s.state==="running"&&mode!=="run"&&mode!=="talk")setMode("run");  // Talk stays up while it runs
+  if(s.state==="running"&&mode!=="run"&&mode!=="talk"&&mode!=="photon")setMode("run");  // Talk/Photon stay up while it runs
+  if(mode==="photon")phRender(s);
   if(s.state==="recording"&&mode!=="record")setMode("record");
   $("tab-run").disabled=s.state==="recording"; $("tab-record").disabled=s.state==="running";
 
@@ -423,6 +439,7 @@ setInterval(()=>{if(mode==="run"&&st&&st.state!=="running")loadDrivers();},15000
 $("tab-record").onclick=()=>setMode("record");
 $("tab-run").onclick=()=>setMode("run");
 $("tab-talk").onclick=()=>setMode("talk");
+$("tab-photon").onclick=()=>setMode("photon");
 $("b-toggle").onclick=()=>send("toggle");
 $("b-discard").onclick=()=>send("discard");
 $("b-kill").onclick=()=>send("kill");
@@ -521,6 +538,26 @@ function vShow(){
   const t=$("t-voice");t.classList.toggle("on",vOn);t.firstChild.textContent=vOn?"Listening - click to stop":"Start listening";
   $("t-status").textContent=vOn?"Listening. Just talk.":"Not listening. Type below, or click Start listening.";
 }
+/* ---------- Photon tab: while it is open the voice server's calls and texts drive this arm ---------- */
+function phSend(on){fetch("/control",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({action:"photon_tab",on})}).catch(()=>{});}
+let phOn=false;
+function phBeat(on){ if(on!==phOn){phOn=on;phSend(on);} }
+setInterval(()=>{if(phOn)phSend(true);},4000);
+if(typeof window!=="undefined"&&window.addEventListener)window.addEventListener("pagehide",()=>{if(phOn)navigator.sendBeacon&&navigator.sendBeacon("/control",new Blob([JSON.stringify({action:"photon_tab",on:false})],{type:"application/json"}));});
+let phSeen="";
+function phRender(s){
+  const up=s.voice_server, live=s.photon_tab;
+  $("ph-status").textContent=(live?"Live: calls and texts drive this arm.":"Connecting...")+"  "+
+    (up===false?"Voice server is not running (start it: cd voice && npm run dev, plus the tunnel for calls).":up?"Voice server up.":"");
+  $("ph-status").style.color=up===false?"var(--red)":live?"var(--green)":"var(--mute)";
+  const feed=s.photon_feed||[], key=feed.length?feed[feed.length-1].t+feed.length:"";
+  if(key===phSeen) return; phSeen=key;
+  const ul=$("ph-log"); ul.replaceChildren(...feed.slice().reverse().map(x=>{const li=el("li"); li.append(el("span","who",x.t+" "+x.who), el("span",x.who,x.text)); return li;}));
+  if(!feed.length) ul.replaceChildren(el("li","mute","No calls or texts yet."));
+}
+$("ph-letgo").onclick=()=>send("release");
+$("ph-home").onclick=()=>send("home");
+
 // While listening, tell the station every 4 s (station_voice.py stays quiet then: one voice), and say once when
 // a run has ended and the arm is home, so the next command can follow.
 function vBeat(on){fetch("/control",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({action:"page_voice",on})}).catch(()=>{});}
