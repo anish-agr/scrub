@@ -693,10 +693,12 @@ def supervise(a, argv: list) -> None:
     START.unlink(missing_ok=True)
     confirmed = not record or a.no_confirm
     live = {"proc": None}
-    if not confirmed:
+    if record:
         import threading
+        import urllib.request
 
-        def enter_to_start():
+        def enter_key():
+            """Enter: preview -> start recording; recording -> save the episode; reset -> next episode."""
             while True:
                 try:
                     input()
@@ -705,7 +707,14 @@ def supervise(a, argv: list) -> None:
                 if live["proc"] is not None and not START.exists():
                     START.touch()
                     live["proc"].send_signal(2)  # SIGINT: the preview ends, recording starts
-        threading.Thread(target=enter_to_start, daemon=True).start()
+                    continue
+                try:
+                    urllib.request.urlopen(urllib.request.Request(
+                        "http://127.0.0.1:8090/control", data=b'{"action": "next"}',
+                        headers={"Content-Type": "application/json"}, method="POST"), timeout=2)
+                except Exception:  # noqa: BLE001 - between sessions: nothing to advance
+                    pass
+        threading.Thread(target=enter_key, daemon=True).start()
     if COOLDOWN.exists():  # left from a cool-down that was interrupted: finish it first
         cool_down(a, arm_ui)
     try:
@@ -746,6 +755,9 @@ def supervise(a, argv: list) -> None:
             if not confirmed:
                 print("PREVIEW: nothing is recorded yet. Check the cameras and tray on the page, then click "
                       "'Start recording' there or press Enter here.", flush=True)
+            else:
+                print("RECORDING: press Enter (or 'Done' on the page) to save each episode, and Enter again "
+                      "to start the next one after you reset the tray.", flush=True)
             if opened:
                 env["BROWSER"] = "true"  # the tab is already open; don't open another
             LAST_ERROR.unlink(missing_ok=True)
@@ -854,8 +866,9 @@ def main() -> None:
     p.add_argument("--wrist", help='wrist camera: name part like "icspring", or an OpenCV index')
     p.add_argument("--task", help='record this exact instruction, e.g. "pick the hemostat"; omit to teleop')
     p.add_argument("--episodes", type=int, default=5)
-    p.add_argument("--episode-s", type=int, default=25)
-    p.add_argument("--reset-s", type=int, default=10)
+    # Episodes end when you say so: "Done" on the page or Enter in the terminal. These are only caps.
+    p.add_argument("--episode-s", type=int, default=600, help="cap; end an episode with Done / Enter")
+    p.add_argument("--reset-s", type=int, default=600, help="cap; start the next episode with Next / Enter")
     p.add_argument("--root", default=str(Path.home() / "scrub-dataset"))
     p.add_argument("--repo", default="local/scrub", help="dataset name; only matters if pushed later")
     p.add_argument("--ease-s", type=float, default=3.0)
