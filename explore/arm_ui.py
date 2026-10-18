@@ -32,6 +32,7 @@ loop_ticks: deque = deque(maxlen=60)
 cam_counts: dict = {}             # camera name -> hardware frames read since start
 events: dict = {}
 stalls: dict = {}                 # camera name -> stalls this episode
+down: set = set()                 # cameras not sending frames right now
 ep = {"t0": None, "obs": 0, "cam0": {}, "pending": None}  # wall-clock evidence for the episode
 cfg = {"root": None, "episode_s": None, "reset_s": None, "cams": {}}
 lock = threading.Lock()
@@ -45,6 +46,21 @@ def camera_stall(index) -> None:
     name = cfg["cams"].get(index, str(index))
     stalls[name] = stalls.get(name, 0) + 1
     note(f"{name} camera stalled")
+
+
+def camera_down(index, is_down: bool) -> None:
+    """While a camera is down, a recording episode is thrown away and re-recorded."""
+    name = cfg["cams"].get(index, str(index))
+    if is_down and name not in down:
+        down.add(name)
+        note(f"{name} camera DOWN: reconnecting; episodes are discarded until it is back")
+    elif not is_down and name in down:
+        down.discard(name)
+        note(f"{name} camera back")
+    if is_down and S["phase"] == "recording" and events and not events.get("rerecord_episode"):
+        events["rerecord_episode"] = True
+        events["exit_early"] = True
+        note("episode discarded (camera down)")
 
 
 def phase(name: str, seconds=None) -> None:
@@ -243,6 +259,9 @@ def status() -> dict:
             warn.append(f"{k.capitalize()} camera is dark (brightness {c['brightness']})")
         if c["fps"] is not None and c["fps"] < 25:
             warn.append(f"{k.capitalize()} camera {c['fps']:.0f} fps (needs 30)")
+    for k in sorted(down):
+        warn.insert(0, f"{k.upper()} CAMERA DOWN: reconnecting" +
+                    (" (episodes are discarded until it is back)" if out["mode"] == "record" else ""))
     for k, n in stalls.items():
         warn.append(f"{k.capitalize()} camera stalled {n}x" +
                     (" this episode: re-record it" if out["mode"] == "record" else ""))
