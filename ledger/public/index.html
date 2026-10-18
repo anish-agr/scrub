@@ -24,10 +24,10 @@
     <section class="intro">
       <p class="kicker">What it is</p>
       <p class="lead">Scrub is a robot arm that passes instruments when you ask out loud.</p>
-      <p>It picks the tool from the tray and brings it to an open hand, handle first. A scalpel goes to a fixed safe spot instead of hand to hand.</p>
-      <p>An instrument set in the return spot goes back to its slot. Scrub keeps the count and checks it with the camera.</p>
+      <p>It picks the tool from the tray and holds it out, handle first, slowing as it nears the handoff point. It lets go when you pull, then goes home on its own.</p>
+      <p>Instruments go back to the tray by hand. Scrub keeps the count and checks it with the camera.</p>
       <p>The tray has three instruments: a scalpel, a hemostat and Mayo scissors.</p>
-      <p>A research prototype, not a medical device.</p>
+      <p>A research prototype, not a medical device. Scrub never touches the patient. A clinic version would run under a sterile drape on a medical-grade arm, like today's surgical robots, with the trays and tools sterilized as usual. We don't claim it's sterile.</p>
     </section>
 
     <section class="method">
@@ -36,12 +36,12 @@
   -&gt; ElevenLabs (speech to text, and the spoken reply)
   -&gt; voice/ (Gemini turns the words into one command from the current tray)
   -&gt; controller/ -&gt; arm/ -&gt; SO-101
-     vision/ (Perceptron reads the tray, the camera finds the open hand)
+     vision/ (Perceptron reads the tray for the count)
   -&gt; ledger/ (MongoDB) + this page</pre>
       <ol class="stack">
         <li>ElevenLabs hears the words. Gemini turns them into one command from the current tray, and asks back when a request could mean two instruments.</li>
-        <li>Perceptron's vision API checks the tray. The camera finds the open hand.</li>
-        <li>Only the controller moves the arm. Each pick is labeled with what ran it: the model trained on our demonstrations, or a taught skill.</li>
+        <li>Perceptron's vision API reads the tray for the count check.</li>
+        <li>Only the controller moves the arm. Each pick is a skill we taught it from our recorded demonstrations.</li>
         <li>The ledger keeps the count and the results below. Simulated and fake-arm runs are left out of every number.</li>
       </ol>
     </section>
@@ -93,8 +93,8 @@
       <p class="kicker">Tracks</p>
       <ul class="tracks">
         <li><b>Community Kitchen.</b> A working assistant for a real staffing gap in health care.</li>
-        <li><b>Perceptron Robotics.</b> Their model, trained on demonstrations we recorded on this SO-101. Every pick says whether the model or a taught skill ran it.</li>
-        <li><b>Perceptron Perception.</b> Their vision API reads the tray for the count check and the grasp check.</li>
+        <li><b>Perceptron Robotics.</b> Demonstrations we recorded on this SO-101. The picks on the arm are taught skills replayed from those recordings.</li>
+        <li><b>Perceptron Perception.</b> Their vision API reads the tray for the count check.</li>
         <li><b>DubHacks NEXT.</b> Surgery centers first, a monthly fee per operating room.</li>
         <li><b>MLH Gemini API.</b> Turns speech into one command from the current tray.</li>
         <li><b>MLH MongoDB Atlas.</b> Stores every event and every measured trial.</li>

@@ -24,11 +24,11 @@ async function load() {
   if (!response.ok) throw new Error("bad");
   const body = await response.json();
   const word = document.getElementById("mode-word");
-  word.textContent = body.backboard ? "Backboard connected" : "Local ledger";
+  word.textContent = body.backboard ? "Notes service" : "Local ledger";
   word.className = body.backboard ? "status-word live" : "status-word wait";
   document.getElementById("mode-text").textContent = body.backboard
-    ? "Questions go to Backboard, which keeps these notes across cases. If it does not answer, the reply says so."
-    : "Backboard is not connected, so answers are counted from the local ledger. They switch to Backboard once its keys are set.";
+    ? "Questions go to the notes service, which keeps these notes across cases. If it does not answer, the reply says so."
+    : "Answers are counted from the local ledger.";
   paintNotes(body.notes);
 }
 
@@ -49,8 +49,8 @@ document.getElementById("ask").addEventListener("submit", async (event) => {
     from.hidden = false;
     from.className = "answer-from " + (fromBackboard ? "live" : "wait");
     from.textContent = fromBackboard
-      ? "Answered by Backboard"
-      : body.backboard ? "Backboard did not answer. Counted from the local ledger" : "Counted from the local ledger. Not from Backboard";
+      ? "Answered by the notes service"
+      : body.backboard ? "The notes service did not answer. Counted from the local ledger" : "Counted from the local ledger";
     document.getElementById("answer-text").textContent = body.answer || "";
     status.hidden = true;
   } catch (error) {
