@@ -22,7 +22,8 @@ def cap(s): return s[:1].upper() + s[1:]
 def coming(name): return f"{cap(name)} coming."
 def coming_sharp(name): return f"{cap(name)} to the safe spot."
 def queued(name): return f"{cap(name)} next."
-def handed(name): return f"Here's the {name}. Ready to grab."  # said as the arm reaches the hand
+def _here(name): return "Here are" if name.lower().endswith(("scissors", "pliers", "cutters", "forceps")) else "Here's"
+def handed(name): return f"{_here(name)} the {name}. Ready to grab."  # said as the arm reaches the hand
 def retry(name): return f"Missed the {name}, trying again."
 def couldnt_pick(name): return f"I couldn't pick the {name}."
 def not_on_tray(name): return f"I don't see the {name} on the tray."
