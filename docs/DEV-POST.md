@@ -1,73 +1,58 @@
-# Building Scrub: An Open-Source Robot Scrub Assistant
+# Building Scrub: a robot arm that passes surgical instruments by voice
 
-By Team Scrub at DubHacks 2026.
+By Team Scrub (Anish, Caiden, Brandon, Evan) at DubHacks '26. Draft for the MLH DEV post after the event. Fill every `[measured]` from the dashboard tables first, or cut the sentence.
 
-## The Problem: The Empty Chair Next to the Doctor
+## The problem
 
-Surgeons and assembly technicians work best when an assistant hands them instruments. Today, operating rooms cannot hire enough of those assistants.
+Surgeons work with a scrub tech who hands them instruments and keeps the count. Hospitals can't hire enough of them. A surgical tech job takes about 120 days to fill ([Periop Leader, 2024](https://www.periopleader.com/survey-staffing-woes-ease-slightly-but-challenges-remain/)).
 
-In hospitals, surgical technologist positions stay vacant for an average of 120 days. First-year staff turnover exceeds 42%.
+When nobody is there to pass, the surgeon looks away from the patient, puts down what they're holding, and searches the tray.
 
-When an assistant is missing, the clinician must repeatedly look away from the patient, drop what they are holding, and search through a metal tray. In delicate procedures, those interruptions cost time and break concentration.
+The count matters. One Mayo Clinic study found an item left inside a patient about once in 5,500 operations, and most of those counts had been called correct ([Cima et al., 2008](https://pubmed.ncbi.nlm.nih.gov/18589366/)). Sharps matter too. US hospital staff have about 385,000 needle and sharps injuries a year ([CDC](https://www.cdc.gov/sharpssafety/)).
 
-We built Scrub to solve this problem. Scrub is an open-source robotic assistant that listens to voice commands, picks instruments from a tray, brings them handle-first to an open hand, and puts them back when finished.
+Scrub is our weekend answer. You ask for an instrument out loud. A small open-source arm picks it from the tray, brings it to your open hand handle first, and lets go when you pull. Scalpels go to a safe spot instead. Used tools go back to their slots, and Scrub keeps the count.
 
-## System Architecture
+## How it fits together
 
-Scrub consists of four modular processes that talk to each other over clean HTTP and WebSocket contracts:
+Five parts, built in parallel by four people, talking over a short list of HTTP and WebSocket messages:
 
-1. **Voice Input and Understanding:** The clinician speaks into a phone on speaker. A Photon telephone endpoint receives the call. ElevenLabs converts speech to text. Google Gemini extracts the target instrument name against the active tray catalog. The system also maps common clinical nicknames (for example, "Kelly" maps to hemostat, and "Mayo" maps to scissors).
-2. **Overhead Perception:** A webcam mounted above the table looks straight down. MediaPipe tracks the clinician's hand at 10 Hz and checks whether the palm is open. Perceptron's vision API detects instrument positions and monitors whether slots are occupied.
-3. **Motion and Manipulation:** An open-source SO-101 6-axis arm runs fine-tuned Isaac 0.5 policies. The robot picks items, carries them at safe heights, and delivers them handle-first.
-4. **Safety Controller and Ledger:** A central controller enforces state transitions. It checks grasps, diverts sharp blades to a dedicated safe spot, and logs all events to MongoDB Atlas.
+1. **Voice.** A phone on speaker calls a Photon number. An ElevenLabs agent hears the words. Its language model is our voice server, where Gemini turns them into one action and one item from the current tray. Clinic words work: "Kelly" is the hemostat, "Mayo" is the scissors. "Stop" skips Gemini and goes straight to the controller.
+2. **Vision.** One overhead camera. MediaPipe finds the open hand about 10 times a second. Perceptron's vision API finds the instruments and says which slots are full.
+3. **Arm.** An SO-101 runs Perceptron's Isaac 0.5, fine-tuned on our own demonstrations, for the pick and the return. The move to the hand is planned from the camera, because the hand is somewhere new every time.
+4. **Controller.** The only thing that moves the arm. It checks every grasp, sends sharps to the safe spot, and freezes on "stop".
+5. **Ledger and dashboard.** Every event goes to MongoDB Atlas. The dashboard shows the step, what's out, the handoff time and the success tables.
 
-## Data Collection: Teaching the Arm with Demonstrations
+## Teaching the arm
 
-Robots in surgical settings cannot rely on hardcoded joint trajectories. Instruments shift in their slots. Hands move to different positions. Tools rest at varying angles.
+Hard-coded paths break when a tool sits a little off or the light changes. So we taught the arm from demonstrations.
 
-We trained Scrub by recording demonstrations:
-- We recorded teleoperation demonstrations using LeRobot: 20 picks and 10 returns for each operating room instrument, and 15 picks and 10 returns for each bench tool.
-- We covered 6 distinct tools across two settings: operating room (scalpel, hemostat, Mayo scissors) and robotics bench (needle-nose pliers, wire cutters, hex key).
-- In total, we collected [measured] clean episodes.
-- Each demonstration captured dual camera streams (overhead table view and wrist-mounted camera view) along with joint positions at 30 frames per second.
+- A person moves a leader arm. The follower copies it. LeRobot records two cameras (side and wrist) and six joint angles at 30 frames a second.
+- Each episode has its exact instruction, like `pick the hemostat` or `return the hemostat`. One model learns every item and both directions.
+- The plan: 20 picks and 10 returns for each operating room instrument, 15 picks and 10 returns for each bench tool, across bright, normal and dim light. We recorded [measured] clean episodes.
+- The bench tray (needle-nose pliers, wire cutters, hex key) needed new demonstrations and one settings file. No code change. It took [measured] minutes.
 
-The Isaac 0.5 model fine-tuned on this data learns generalized grasping policies directly from vision and proprioception. Adding the bench setting required zero new control code, just new demonstrations. It took [measured] minutes of demonstration time.
+## Glare
 
-## Conquering Glare: The Lighting Experiments
+Operating lights are bright and steel throws glare. With auto exposure, the camera kept changing its gain and the tray went dark around a reflection.
 
-The biggest surprise during development was lighting.
+1. At startup we lock exposure and white balance, so a lamp no longer makes the picture flicker.
+2. The vision service tags every frame bright, normal or dim from its brightness, and every logged trial carries that tag.
+3. We test in all three. Results: bright [measured]%, normal [measured]%, dim [measured]%. Median request to hand: [measured] seconds.
 
-Operating room lamps are intense. Stainless steel tools reflect direct glare. Under standard camera auto-exposure settings, the camera sensor constantly adjusts its gain. A bright reflection causes the background to turn black, causing detection models to lose track of instruments.
+## Safety rules we built in
 
-To fix this, we took three steps:
+1. **Sharps never go hand to hand.** Operating rooms pass sharps hands-free for a reason. Scrub sets the scalpel on a fixed safe spot and says "scalpel down."
+2. **Every grasp is checked twice.** The gripper position shows whether the jaws closed on something. The camera shows whether the slot is now empty. A miss is retried once, then reported out loud.
+3. **Stop is its own path and it latches.** "Stop", the spacebar or the stop button freezes the arm in [measured] ms. It stays frozen until a person resets it.
+4. **The hand decides.** The arm slows near the hand. If the hand is lost or something crosses the path, it holds still and says so.
+5. **Let go on a pull.** The arm waits with the tool. When you pull, the gripper feels the load change and opens. You can also say "got it."
 
-1. **Hardware Control Lock:** At camera startup, our software locks exposure and white balance to fixed values. Even when a 1200-lux lamp turns directly onto the tray, the camera gain remains steady.
-2. **Automated Scene Classification:** Our vision service monitors average frame brightness in real time. It automatically classifies the lighting as bright, normal, or dim, and estimates the scene lux. It tags every logged trial automatically.
-3. **Rigorous Three-Condition Testing:** We evaluated perception and grasping across three distinct lighting environments:
-   - Normal room lighting: approximately 450 lux
-   - Direct surgical lamp glare: approximately 1200 lux
-   - Dim ambient lighting: approximately 80 lux
+## What we learned
 
-Our measured results across lighting conditions:
-- Normal light pick success rate: [measured]%
-- Bright glare pick success rate: [measured]%
-- Dim light pick success rate: [measured]%
-- Median request-to-hand duration: [measured] seconds
+The useful version of this job is small. Pass the instrument, put it back, keep the count, and never hand someone a blade. Stop has to be its own path, because a round trip to a model is too slow when someone says stop.
 
-## Safety Rules and Lessons Learned
+## What's next
 
-Building a robot that interacts with human hands required strict safety rules:
+Surgery centers first, in training labs before any patient. A monthly fee per operating room. At about $36 a minute of operating room time ([JAMA Surgery, 2018](https://jamanetwork.com/journals/jamasurgery/fullarticle/2673385)), Scrub breaks even if it saves a room about 22 minutes a month, and a pilot has to show that. It helps scrub techs. It doesn't replace them. Scrub is a research prototype with no clinical claims.
 
-1. **Never pass a sharp hand to hand.** In a real operating room, nurses do not hand scalpels directly into a surgeon's fingers. They place them in a neutral safe spot. Scrub enforces this rule in software. When a user requests a scalpel, Scrub picks the knife, carries it carefully, sets it down at a fixed safe spot, and announces "scalpel down."
-2. **Dual-check grasps.** Gripper current sensing alone can give false readings if a tool catches at an odd angle. We built dual verification. First, the gripper position sensor checks whether the jaws closed completely on empty air. Second, the overhead camera verifies that the tray slot is actually empty. If either check fails, the controller retries once before reporting the failure. The grasp verification accuracy is [measured]%.
-3. **Safety stop must be instant and latched.** A safety stop cannot wait for an API round trip. When someone says "stop", hits the spacebar, or taps the emergency button on the dashboard, the controller freezes the arm joints in [measured] ms. Once stopped, the arm remains locked until an operator explicitly issues a reset command.
-4. **Dynamic hand tracking and standoff.** The overhead camera watches the user's hand at 10 Hz. The robot continuously aims for a standoff point 8 cm short of the palm. If the user pulls their hand back, or if another person reaches into the workspace, the robot halts motion instantly.
-5. **Release on pull.** When delivering a tool, the robot waits in place. When the user takes the instrument, the gripper detects the mechanical load change and opens immediately. The user can also say "got it" to release.
-
-## What Is Next
-
-We built Scrub on an arm that costs under $500 to show that useful physical AI is possible on accessible hardware today. 
-
-Our first target is surgery centers and operating rooms, starting with training labs. Surgical trays use standardized instruments and predictable layouts. We plan to offer Scrub as a monthly subscription per operating room, priced below the cost of covering unfilled scrub tech shifts. Scrub is a training and research prototype with no clinical claims.
-
-All code, data collection tooling, and test suites are open source in our repository.
+The code, the recording tools and the tests are open source in our repo.

@@ -2,7 +2,7 @@
 
 Owner: Evan. Ready to paste before 10:30 PM Saturday. Plain words. No buzzwords. No em dashes.
 
-Paste into the Devpost form from **Project name** through **Built with**. Leave this note out. Leave the video sections out of the form. Anish submits the draft.
+Paste into the Devpost form from **Project name** through **Built with**. Leave this note out. Leave the video sections out of the form. Evan submits the draft by 10:00 PM Saturday (see `docs/PLAN.md`).
 
 Measured arm numbers stay as `[measured]` until the tests are logged on Sunday morning. Do not invent a success rate.
 
@@ -18,21 +18,21 @@ A robot arm that passes instruments when you ask out loud.
 
 - **Community Kitchen (title).** The job itself: a clinician asks, and Scrub passes the instrument so they do not turn away from the patient to search the tray.
 - **Perceptron Robotics.** The SO-101 arm. A fine-tuned Isaac 0.5 model runs "pick the hemostat" and "return the hemostat" from our own demonstrations.
-- **Perceptron Perception.** The overhead camera. It says which slots are full and whether the return spot has an instrument in it.
-- **Photon.** The phone call on speaker, and the end-of-case summary text on the same thread.
-- **DubHacks NEXT.** The later plan: a monthly fee per operating room.
-- **MLH Gemini API.** Turns what was said into one command from the current tray. It cannot invent an instrument that is not on the tray.
+- **Perceptron Perception.** Their vision API on the overhead camera. It says which slots are full and whether the return spot holds an instrument. That drives the grasp check, the automatic return, the count check and "check the tray".
+- **Photon (including best voice agent).** The whole case runs over a call to the Photon number. Texts in (restock, what's out) and the end-of-case summary out use the same thread.
+- **DubHacks NEXT.** The business case in `docs/NEXT.md`: surgery centers first, a monthly fee per operating room, with the break-even worked out.
+- **MLH Gemini API.** Turns what was said into one command from the current tray, with structured output. It cannot invent an instrument that is not on the tray. It also writes the end-of-case summary and reads texts.
 - **MLH MongoDB Atlas.** Stores every event and every measured trial. The success tables are read from there.
-- **MLH Vultr.** Hosts the public judge page.
-- **MLH GoDaddy Registry.** The domain on the QR code at the table.
+- **MLH Vultr.** The public judge page runs on a Vultr server.
+- **MLH GoDaddy Registry.** Our domain points at that page. It is on the QR code at the table.
 - **MLH Commit Fellowship.** The form Anish sends after we submit.
-- **MLH DEV writing.** This writeup.
+- **MLH DEV writing.** A post after the event (draft in `docs/DEV-POST.md`).
 
 ## Inspiration
 
-Surgeons work with a scrub tech who hands them instruments. Hospitals cannot hire enough of them. A surgical technologist job stays open about 120 days. When nobody is there, the clinician turns away from the patient, puts down what they are holding, and searches the tray.
+Surgeons work with a scrub tech who hands them instruments and keeps the count. Hospitals cannot hire enough of them. A surgical tech job takes about 120 days to fill ([Periop Leader, 2024](https://www.periopleader.com/survey-staffing-woes-ease-slightly-but-challenges-remain/)). When nobody is there, the surgeon looks away from the patient, puts down what they are holding, and searches the tray.
 
-The same pause happens on a robotics bench. Both hands are on the work, and the next tool is across the table.
+The count and the sharps matter too. One Mayo Clinic study found an item left inside a patient about once in 5,500 operations, and most of those counts had been called correct ([Cima et al., 2008](https://pubmed.ncbi.nlm.nih.gov/18589366/)). US hospital staff have about 385,000 needle and sharps injuries a year ([CDC](https://www.cdc.gov/sharpssafety/)), most often while passing them.
 
 ## What it does
 
@@ -40,9 +40,9 @@ Scrub is a robot arm that passes instruments by voice. A clinician asks out loud
 
 A scalpel never goes hand to hand. Scrub sets it in a fixed safe spot and says "scalpel down." That follows the operating-room habit of passing sharps one at a time, in a called-out spot.
 
-When an instrument is done, it goes in the return spot. Scrub puts it back in its slot. Say "count" and Scrub reads back what is still out, so a tool is not left behind at the end of a case.
+When an instrument is done, it goes in the return spot. After about two seconds Scrub puts it back in its slot on its own. Say "count" and Scrub reads back what is still out, checked against the camera. Say "check the tray" before a case and it says what is missing. Say "end of case" and a summary arrives by text.
 
-The demo is the operating room tray first. The robotics bench is the second tray. It uses the same code and a different settings file. A dental tray file is in the repo and is not part of the demo.
+The demo is the operating room tray first. The robotics bench is the second tray. It uses the same code, new demonstrations and a different settings file.
 
 - Operating room: scalpel handle, hemostat, Mayo scissors
 - Robotics bench: needle-nose pliers, wire cutters, hex key
@@ -89,7 +89,7 @@ Working in the repo as of Saturday night:
 - A live dashboard. A handover on the fake arm updates the step, the log, what is out, and the seconds from request to hand. Stop and reset are on the page. Spacebar stops the arm.
 - A ledger of every event, success tables with a 95% range, and a public judge page.
 - A case replay, a tablet view, and a "likely next" line that does not move the arm.
-- Typed speech ("grab me the kelly") becomes a hemostat handover through Gemini. A real phone call is still waiting on the Photon number.
+- Typed speech ("grab me the kelly") becomes a hemostat handover through Gemini, through the same endpoint the ElevenLabs agent calls. A full case on a real Photon call: [measured].
 - The camera locks exposure, finds an open hand, and posts the tray.
 
 The real-arm numbers go here on Sunday morning:
@@ -107,7 +107,7 @@ The useful version of this job is small. Pass the instrument, put it back, keep 
 
 ## What's next
 
-Later, surgery centers and operating rooms are the first customers, as a monthly fee per room. Scrub is a training and research prototype with no clinical claims, so training labs come before live cases. A medical-grade arm is the later version of this weekend's arm. After that, Scrub can hand over the next instrument before it is asked for, using the step of the procedure.
+Surgery centers are the first customers, as a monthly fee per operating room. At about $36 a minute of operating room time ([JAMA Surgery, 2018](https://jamanetwork.com/journals/jamasurgery/fullarticle/2673385)), Scrub breaks even if it saves a room about 22 minutes a month. We have not measured that yet, so a pilot comes first. Scrub is a research prototype with no clinical claims, so training labs come before live cases. A medical-grade arm is the later version of this weekend's arm. After that, Scrub can hand over the next instrument before it is asked for, using the step of the procedure.
 
 ## Built with
 
@@ -133,7 +133,7 @@ Before upload, replace the `[measured]` slots above with the numbers on the dash
 
 ## Video edit plan (after the arm works)
 
-Cut one 2 minute film, 16:9, 1080p. No music. Room sound only, with the speakerphone loud enough to hear the ask and the reply. Do not include the dental tray, a failed take, or a shot of the laptop setup. The fake-arm screenshots stay in the written Devpost. This film is the real arm.
+Cut one 2 minute film, 16:9, 1080p. No music. Room sound only, with the speakerphone loud enough to hear the ask and the reply. Do not include a failed take, or a shot of the laptop setup. The fake-arm screenshots stay in the written Devpost. This film is the real arm.
 
 Assembly, in this order. Times are the finished cut, not the length of the raw take.
 

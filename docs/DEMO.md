@@ -1,93 +1,105 @@
 # Live demo run
 
-Scope: surgical first. The operating room tray is the demo. The robotics bench tray is the second setting, shown to prove a new setting needs only demos and no new code. No dental tray in the demo.
+Surgical first. The operating room tray (scalpel handle, hemostat, Mayo scissors) is the demo. The robotics bench tray (needle-nose pliers, wire cutters, hex key) comes second, to show a new setting needs new demonstrations and a settings file, not new code.
 
-Numbers in [brackets] come from the dashboard tables. Say them only after Sunday's tests are logged. Until then, do not say a number.
+The words to say are in `docs/PITCH.md`. This file is who stands where, what each person does, and what to do when something fails. The beat times match the demo console at `http://localhost:8000/demo`.
+
+Numbers: say a success rate or a time only once it is on the dashboard. Until then it is `[measured]` and you skip the sentence.
 
 ## Roles
 
-| Role | Who | Does |
-| --- | --- | --- |
-| Speaker | Anish | Gives the pitch (one person speaks, see `docs/PITCH.md`). Stands by the judge. Calls the recovery lines |
-| Clinician on the phone | Brandon | Hands busy. Calls the Photon number on speaker. Says the instrument words. Receives the handoffs. Brings a second phone as a spare caller |
-| Operator | Caiden | At the demo console laptop (`http://localhost:8000/demo`). Keeps a hand near Space. Runs reset between judges |
-| Tray resetter | Evan | Puts instruments back in their slots, switches trays, turns the lamp on and off. Watches the dashboard facing the judge |
+| Person | Stands | Speaks | Runs |
+| --- | --- | --- | --- |
+| Anish | Next to the judge, facing them | The problem, "This is Scrub", the second tray, the close | Decides "the arm is dead, go to backup" (he owns the arm) |
+| Caiden | At the demo laptop, one hand near Space | Sharps and stop, the judge's turn, the return and the count | The demo console keys, the stop key, the reset between judges |
+| Evan | Beside the lamp and the spare tray, out of the camera | The lighting test and the tables | Lamp on and off, swaps the trays, puts instruments back between judges, turns the dashboard screen to the judge |
+| Brandon | Across the tray from the arm, as the clinician | Hand tracking | The phone call on speaker. Asks for each instrument and takes the handoffs. Keeps a spare phone |
 
-Anish owns the arm, so he also makes the call on "arm is dead, go to backup."
+Stop rule: anyone who sees a problem says "stop" out loud. Caiden hits Space at the same moment.
 
-## Setup checklist (before judges arrive)
+## Setup (before the first judge)
 
-- [ ] Power strip on. Arm powered, clamped, area around it clear. Overhead camera seen in `http://localhost:8001/`.
-- [ ] `python -m controller.run_all --arm real --vision real --tunnel` is running. Add `--judge` if the console will be handed to a judge.
-- [ ] `python -m controller.run_all check` shows the whole stack green (controller 8000, vision 8001, voice 3000).
-- [ ] Surgical tray on the blue towel: scalpel handle, hemostat, Mayo scissors in their slots. Return spot and safe spot empty and marked.
-- [ ] Lamp off. Normal light. Dashboard at `http://localhost:8000/` facing the judge. Tablet at `/tablet.html` across the room if there is room.
-- [ ] Demo console open at `http://localhost:8000/demo`. Press `1` (surgical) and `R` (reset and clear count).
-- [ ] Phone on speaker, volume up, second phone or laptop mic next to it. One test call: say "hemostat" once and watch it arrive, then put it back.
-- [ ] Bench tray (needle-nose pliers, wire cutters, hex key) set aside within reach of Evan.
-- [ ] Backup ready: sim arm works (`python -m controller.run_all backup` tested once), slides open (`docs/SLIDES.md` deck), backup video on the laptop.
-- [ ] Everyone knows the stop rule: anyone who sees a problem says "stop". Operator hits Space.
+Commands run from the repo root on Caiden's Mac.
 
-## Between judges
+1. Power strip on. Arm powered and clamped. Clear space around it.
+2. Start everything:
+   ```
+   .venv/bin/python -m controller.run_all --arm real --vision real --tunnel --ledger
+   ```
+   It waits for each part and prints every URL: dashboard, demo console, nurse console, tablet, vision preview, voice health, the tunnel and the judge page. Add `--judge` if a judge will touch the laptop (then the controller only takes handover, count, stop and got it).
+3. Paste the printed tunnel URL plus `/v1` into the ElevenLabs agent's Custom LLM Server URL. Free tunnels change every start and end after 60 minutes, so recheck this before each judging block.
+4. In a second terminal, check the running stack without moving the arm:
+   ```
+   .venv/bin/python -m controller.run_all check --url http://localhost:8000 --vision-url http://localhost:8001 --voice-url http://localhost:3000
+   ```
+   Everything should read PASS. "handover -> ledger" says SKIP on the real arm. That is expected. The check switches to the bench tray and back, so run it before you lay out the tray.
+5. Surgical tray on the blue towel: scalpel handle, hemostat, Mayo scissors in their slots. Return spot and safe spot empty.
+6. Lamp off. Overhead camera picture looks normal at `http://localhost:8001/`.
+7. Dashboard `http://localhost:8000/` on the screen facing the judge. Tablet view `/tablet.html` across the room if there is space.
+8. Demo console `http://localhost:8000/demo` on the laptop. Press `1` (surgical), then `R` (reset and clear the count). The preflight row should be all "ok".
+9. Brandon calls the Photon number on speaker. Volume up. Second phone or the laptop mic next to it if we are filming. Say "check the tray". Scrub should answer that the tray is ready. Then one test: "hemostat", take it, put it back.
+10. Bench tray within Evan's reach. Backup video open on the laptop. Slides open (`docs/SLIDES.md`).
 
-1. Operator runs `python -m controller.run_all reset` (clears the count, surgical tray, normal lighting). On the console, `R` does the reset and clears the count too.
-2. Evan puts every instrument back in its slot and clears the return and safe spots. Lamp off.
-3. Operator presses `1` to confirm the surgical tray.
-4. Brandon hangs up and calls again if the call went quiet.
-5. Look at the dashboard: count is 0, step is idle, no "vision stale". Ready.
+## The 3-minute run
 
-## 3-minute slot
+The console's run clock starts when Caiden presses Enter on "This is Scrub". Each arm beat moves on by itself when the arm is done. The sharps, return and lighting beats run a little long. The second tray beat has slack to make it up.
 
-Anish speaks the whole time. The demo runs during the pitch. Times match `docs/PITCH.md`.
-
-| Time | Who | Say (word for word) | Judge sees | If it fails |
+| Time | Who | What happens | Judge sees | If it fails |
 | --- | --- | --- | --- | --- |
-| 0:00 | Anish, Brandon stands with hands busy | "Clinics cannot hire enough assistants. A surgical tech job stays open about four months. When nobody is there, the clinician turns away from the patient, puts down what they are holding, and searches the tray." | Brandon holding something, not free to reach | Nothing to fail. Keep talking |
-| 0:30 | Anish, then Brandon on the phone | Anish: "This is Scrub. It is an operating room tray, and the clinician just asks." Brandon: "Hemostat." | Scrub answers on speaker. Arm picks the hemostat, brings it to Brandon's open hand, handle first. He pulls, gripper opens. Dashboard shows the handoff seconds | Call drops or no answer: Caiden clicks the hemostat button on the dashboard or presses the console key. Say: "Same command, no phone." Arm misses: Scrub retries once on its own. If it misses again, say "It tells you out loud when it cannot, and it never guesses." Move on |
-| 0:50 | Anish, Brandon | Anish: "Scalpels never pass hand to hand." Brandon: "Scalpel." | Arm sets the scalpel on the safe spot. Scrub says "scalpel down" | Arm goes toward the hand: Space at once, then R. Say "That is the stop. It latches until a person resets." |
-| 1:05 | Anish to the judge | "Your turn. Ask for the scissors." | Judge says "scissors" (or "Mayo") to the phone. Scrub delivers Mayo scissors to the judge's open hand | Judge not heard: Anish says "Say it once more, close to the phone." Still nothing: Caiden presses `C` on the console (sends the cue's request) and says "That is the console path." If the judge asks for something else, judge mode only allows an instrument, the count, or stop |
-| 1:20 | Evan, Anish | Anish: "When a clinician is done, they set it in the return spot." Evan places the hemostat in the return spot | Scrub says "returning the hemostat" and puts it in its slot | Return not seen after 5 s: Caiden says "return the hemostat" into the phone or uses the console. If it still fails, Evan slots it by hand. Say "It does this on its own after two seconds when the camera sees it" only if that worked in testing |
-| 1:40 | Evan, Anish | Anish: "Operating room lights are harsh. Steel throws glare." Evan turns on the lamp over the tray | Glare on the steel. Brandon asks for an instrument. It still arrives. Anish points to the lighting table on the dashboard | Miss in glare: Scrub retries once. Say "This is why we log bright, normal and dim: [measured]% in bright, [measured]% in normal." Lamp off afterwards |
-| 2:00 | Evan, Anish, Brandon | Anish: "Same arm, same code, second setting." Evan swaps to the bench tray. Caiden presses `2`. Brandon: "Needle-nose pliers." | Arm brings the pliers. Dashboard shows the bench setting | Swap fails: Caiden presses `2` again once the arm is idle (tray switch only works when idle or stopped). If it will not work, show the dashboard bench table and say "Adding this setting took [measured] minutes of demos and no new code." |
-| 2:30 | Brandon, Caiden, Anish | Brandon: "Count." Anish: "Scrub reads back what is still out, so nothing is left behind at the end of a case." | Voice reads the count. Caiden sends the end-of-case summary (`POST localhost:3000/summary`). Text arrives on Brandon's phone | Summary text late: show the dashboard count and say "The same summary is on the case page." Count wrong: say "The camera also checks the count" and move on |
-| 3:00 | Anish | "Questions." | Team answers by area. See `docs/QNA.md` | None |
+| 0:00 | Anish speaks. Brandon stands with his hands busy | The problem: the scrub tech shortage and the search for the tray | A clinician who can't reach | Nothing can fail. Keep talking |
+| 0:30 | Anish, then Brandon says "Hemostat." | Scrub says "hemostat coming", picks it, brings it to Brandon's open hand handle first. He pulls and the gripper opens | The handoff and the seconds on the dashboard | No answer on the call: Caiden presses `C` (sends the cue's request). Anish says "Same command, typed instead of spoken." A miss: Scrub retries once by itself. A second miss: Scrub says so. Anish: "It tells you when it can't. It never guesses." Move on |
+| 0:50 | Brandon says "Scalpel." Caiden speaks | The arm sets the scalpel on the safe spot. Scrub says "scalpel down." Brandon picks it up from the spot | The scalpel never comes to the hand | Anything heads the wrong way: Space at once. Caiden: "That's the stop. It holds until a person resets it." Then `R` |
+| 1:05 | Caiden invites the judge. Then Brandon speaks | The judge says "scissors" (or "Mayo") to the phone. Brandon steps back so the judge's hand is the only open hand | Mayo scissors arrive in the judge's hand | Not heard: "Once more, close to the phone." Still nothing: Caiden presses `C`. If the judge asks for something odd: "Good one. Today it hands instruments, counts and stops." |
+| 1:20 | Brandon sets the hemostat in the return spot. Caiden speaks | After about 2 seconds, Scrub says "returning the hemostat" and puts it in its slot | The return, then the count line on the dashboard | Not picked up in 5 s: outside judge mode, Brandon says "return the hemostat." In judge mode (return is not allowed), Evan slots it by hand. Do not claim the automatic return unless it worked |
+| 1:40 | Evan turns the lamp on and speaks. Caiden presses `L` (bright). Brandon asks for any instrument | Glare on the steel. The handoff still works. Evan points at the lighting table | The live table by lighting | A miss in glare: it retries once. Evan: "This is why we test bright, normal and dim." Lamp off. Do not say a rate that is not on the table |
+| 2:00 | Evan: lamp off, swap to the bench tray. Caiden: `L` back to normal, then `2` once the tray is down. Brandon: "Needle-nose pliers." Anish speaks | The pliers arrive | The dashboard shows the robotics bench tray | `2` refused: the arm is busy. Wait for idle and press `2` again. Still failing: show the bench row of the table and say it in words. Never fake it |
+| 2:30 | Brandon: "Count." Then "End of case." Caiden, then Anish | Scrub reads what is out. The summary text arrives on Brandon's phone | The count read aloud, the text on the phone | No text: Caiden runs `curl -XPOST localhost:3000/summary`. Still none: show the case page on the dashboard. Count looks wrong: "The camera also checks the count," and move on |
+| 3:00 | Anish | "Questions?" | | Answers by area, see `docs/QNA.md` |
 
-At any point, if something is not right: say "stop" or Space, then `R`. A stop is a feature, not a failure. Say so.
+## The 60-second version
 
-## 1-minute version
+For a judge in a hurry. Press `K` on the console for the short cue cards.
 
-Anish speaks short. Three beats only: a handoff, the judge's turn, the count.
-
-| Time | Who | Say (word for word) | Judge sees | If it fails |
+| Time | Who | Say | Judge sees | If it fails |
 | --- | --- | --- | --- | --- |
-| 0:00 | Anish | "Clinics cannot hire enough assistants, so the doctor turns away to search the tray. This is Scrub. It is an arm that hands you instruments when you ask out loud." | Tray, arm, dashboard | None |
-| 0:15 | Brandon | "Hemostat." | Arm hands the hemostat handle first. Dashboard shows the seconds | Call drops: Caiden uses the console. Miss: it retries once. Then say the line |
-| 0:30 | Anish, judge | "Now you. Ask for the scissors." | Judge asks. Mayo scissors arrive at their hand | Not heard: Caiden presses `C` |
-| 0:45 | Brandon, Anish | Brandon: "Count." Anish: "It reads back what is out. Scalpels go to a safe spot, and it works on a second tray with no new code." | Count read aloud. Summary text arrives if time allows | Skip the text. Show the count on the dashboard |
-| 1:00 | Anish | "Training and research prototype. Happy to answer questions." | | |
+| 0:00 | Anish | "Hospitals can't hire enough scrub techs. A surgical tech job takes about 120 days to fill. So the surgeon stops to search the tray. This is Scrub. You ask out loud." | The tray, the arm, the dashboard | Nothing |
+| 0:15 | Brandon: "Hemostat." | | The hemostat arrives handle first. The seconds on the dashboard | No answer: Caiden presses `C`. A miss: it retries once |
+| 0:30 | Caiden | "Your turn. Ask for the scissors." | Mayo scissors arrive in the judge's hand | Not heard: `C` |
+| 0:45 | Brandon: "Count." Anish | "It keeps the count. Scalpels go to a safe spot, never hand to hand. And a second tray works with no new code. It's a research prototype. Questions?" | The count read aloud | Skip the text. Show the count on the dashboard |
 
-Skip scalpel, return, lamp and the bench tray in the short version unless the judge asks. Do them in the Q&A if there is time.
+Skip the scalpel, return, lamp and bench tray in the short version. Show them during questions if there is time.
 
-## Failure table
+## Between judges (about 60 seconds)
+
+1. Caiden runs `.venv/bin/python -m controller.run_all reset`. It waits for the arm to go idle, resets it (this also clears a stop), clears the count, loads the surgical tray and sets normal light. It prints "READY for the next judge". (On the console, `R` resets and clears the count, `1` loads surgical, `L` sets normal.)
+2. Evan puts every instrument back in its slot. Return spot and safe spot empty. Lamp off.
+3. Brandon checks the call is still live. If it went quiet, hang up and call again. Say "check the tray". Scrub should say the tray is ready.
+4. Look at the dashboard: count 0, step idle, no "vision stale".
+5. Every hour: check the tunnel is still up (`curl <tunnel>/health`). If not, restart it and paste the new URL into ElevenLabs.
+
+## When something fails
 
 | What fails | What you see | What to do | Who |
 | --- | --- | --- | --- |
-| Call drops or phone silent | No "heard" on the dashboard | Brandon calls again. If it fails twice, use the dashboard item buttons or the console keys. Say "Same controller, typed instead of spoken" | Caiden |
-| Phone audio not heard | Wrong word or nothing | Say it again, closer. Use `C` on the console | Brandon, Caiden |
-| Wi-Fi down | Tunnel and Gemini unreachable; voice stops | Use local voice through the demo console and the dashboard buttons. Stop still works with no network because it skips Gemini. Public judge page may be stale | Caiden |
-| Arm misses the grasp | "checking" then a retry | Scrub retries once. If it misses again it says so out loud. Say the line: "It reports a miss instead of guessing." Reset tray, continue | Anish, Evan |
-| Arm goes wrong or slow | Moves toward the wrong place | Space or "stop". Then R. Explain the latch | Caiden |
-| Arm dead or will not move | Errors, no motion, stopped latch will not clear | `python -m controller.run_all backup`. It switches to the MuJoCo sim arm and plays a scripted full run. Then switch to the slides and the backup video | Anish decides, Caiden runs |
-| Hand not found | Scrub says "No hand." and sets the item at the safe spot | Brandon opens his palm in view of the camera. Say "It will not move to a hand it cannot see." Try once more | Brandon |
-| Vision stale | Dashboard says "vision stale" | Check the camera cable and `http://localhost:8001/`. The arm still runs on the saved spot | Brandon |
-| Lighting breaks the camera | Missing detections under the lamp | Lamp off. Say the lighting table numbers | Evan |
-| Stop pressed | Arm frozen; handovers refused with "I'm stopped. Reset me first." | Space or "stop" freezes it. R resets, rearms and clears the count. Run `python -m controller.run_all reset` between judges | Caiden |
-| Summary text does not arrive | No text on the phone | Show the case summary on the dashboard. Say the text is sent through Photon | Caiden |
-| MongoDB down | Ledger errors | Events go to a local file and upload later. Say that | Evan |
-| Judge asks something odd | Console in judge mode only passes instrument, count, stop | Say "Good one, we do not do that yet." Do not improvise a motion | Anish |
+| Call drops or no answer | No "heard" on the dashboard | Brandon calls again. Twice failed: use the console (`C`) or the dashboard item buttons. "Same controller, typed instead of spoken" | Brandon, Caiden |
+| Wrong word heard | Scrub asks "Which instrument?" | Say it again, closer to the phone. Then `C` | Brandon, Caiden |
+| Wi-Fi down | Tunnel, Gemini and Photon unreachable | Use the console and the dashboard buttons. Stop still works with no network. The public judge page may lag | Caiden |
+| Grasp missed | "checking", then a retry | It retries once, then says it missed. Evan resets the item. Continue | Evan |
+| Arm heads the wrong way | Motion toward the wrong place | Space or "stop". Explain the latch. `R` | Caiden |
+| Hand not found | Scrub says it has no hand and sets the item on the safe spot | Brandon opens his palm in the camera's view. "It won't move to a hand it can't see." Try once more | Brandon |
+| Hand leaves mid-move | Scrub says "Lost your hand. Holding." | That is the safety rule working. Say so. `R` carries the item to the safe spot | Caiden |
+| Vision stale | Dashboard says "vision stale" | Check the camera cable and `http://localhost:8001/` | Brandon |
+| Lamp breaks detection | Missed detections under the lamp | Lamp off. Point at the table | Evan |
+| Stopped and refusing | "I'm stopped. Reset me first." | `R` on the console or `run_all reset` | Caiden |
+| Summary text missing | No text on the phone | `curl -XPOST localhost:3000/summary`. Then show the case page | Caiden |
+| MongoDB down | Ledger errors in the terminal | Events go to a local file and upload later. Say that if asked | Evan |
+| Arm dead | No motion, errors, stop will not clear | Anish calls it. Caiden presses Ctrl-C in the run_all terminal, then runs `.venv/bin/python -m controller.run_all backup`. The sim arm plays a full run on the same dashboard. Or press `B` on the console for the backup video, then the slides | Anish decides, Caiden runs |
+
+`run_all backup` will not start while the real-arm controller holds port 8000. Stop it first, or run the backup beside it with `.venv/bin/python -m controller.run_all backup --base-port 8100` and show `http://localhost:8100/`.
 
 ## Rules for the table
 
-- Never say a success rate unless it is on the dashboard. Use [measured] until it is.
-- Never claim clinical use. Say "training and research prototype."
+- Say a number only if it is on the dashboard. Otherwise skip the sentence.
+- Never claim clinical use. Say "research prototype".
+- Never say Scrub prevents retained items or replaces scrub techs. It adds a second check and helps them.
 - Stay at the table the whole round.
