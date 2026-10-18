@@ -665,6 +665,9 @@ class Station:
 
     def _dispatch(self, action: str, task, payload=None):
         payload = payload or {}
+        if action == "page_voice":  # the page's Talk is listening (heartbeat): station_voice.py stays quiet
+            self.page_voice_t = time.time() if payload.get("on") else 0.0
+            return True, "page voice " + ("on" if payload.get("on") else "off")
         if payload.get("heard"):  # from the page's voice control: say what triggered it
             self.note(f"voice: {str(payload['heard'])[:80]!r} -> {action}")
         if action in ("kill", "home", "reconnect") and self.auto is not None:
@@ -1305,6 +1308,7 @@ class Station:
                 "grip_health": arm_ui.S.get("grip_health"), "root": str(self.root), "warnings": warn,
                 "any_task": self.any_task, "task_ok": self.task in self.allowed, "allowed_tasks": self.allowed,
                 "voice_items": self.voice_items,
+                "page_voice": time.time() - getattr(self, "page_voice_t", 0.0) < 12,
                 "use_degrees": self.use_degrees(), "counts": self.counts(), "qa": qa,
                 "last_qa": qa[-1] if qa else None,
                 "rerecord": [f"RE-RECORD episode {r['episode']}: {'; '.join(r['reasons'])}" for r in qa
@@ -1394,7 +1398,7 @@ def make_handler(st: Station):
             except ValueError:
                 body = {}
             out = st.control(str(body.get("action", "")), body.get("task"),
-                             payload={k: body[k] for k in ("driver", "args", "result", "question_id", "side", "heard") if k in body})
+                             payload={k: body[k] for k in ("driver", "args", "result", "question_id", "side", "heard", "on") if k in body})
             self._send(200, json.dumps(out).encode(), "application/json")
 
         def _stream(self, name: str):

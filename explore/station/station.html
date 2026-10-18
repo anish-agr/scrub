@@ -466,7 +466,11 @@ function vSay(text){
   speechSynthesis.speak(u);
 }
 const vSleep=ms=>new Promise(r=>setTimeout(r,ms));
+let vLast={key:"",t:0};
 async function vDo(it,text){
+  const key=it.a+":"+(it.task||""), now=Date.now();
+  if(key===vLast.key&&now-vLast.t<4000) return;   // the same command heard twice (interim + final, restarts)
+  vLast={key,t:now};
   $("voice-heard").textContent="heard: "+text+"  ->  "+(it.task||it.a);
   talkLog("you",text); talkLog("arm",it.task?("run: "+it.task):it.a,"arm");
   if(it.a!=="pick"){
@@ -487,7 +491,7 @@ async function vDo(it,text){
 }
 function vStart(){
   if(!vRec||!vOn||vTalking||vRunning) return;
-  try{vRec.start();vRunning=true;}catch(e){}
+  try{vRec.start();vRunning=true;vSent.clear();}catch(e){}   // result numbers restart with each session
 }
 function vInit(){
   const SR=window.SpeechRecognition||window.webkitSpeechRecognition;
@@ -512,9 +516,21 @@ function vShow(){
   const t=$("t-voice");t.classList.toggle("on",vOn);t.firstChild.textContent=vOn?"Listening - click to stop":"Start listening";
   $("t-status").textContent=vOn?"Listening. Just talk.":"Not listening. Type below, or click Start listening.";
 }
+// While listening, tell the station every 4 s (station_voice.py stays quiet then: one voice), and say once when
+// a run has ended and the arm is home, so the next command can follow.
+function vBeat(on){fetch("/control",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({action:"page_voice",on})}).catch(()=>{});}
+setInterval(()=>{if(vOn)vBeat(true);},4000);
+let vPrevState=null;
+setInterval(()=>{
+  if(!st) return;
+  if(vOn&&vPrevState==="running"&&["parked","off"].includes(st.state)&&!vBusy) vSay("Ready for the next one.");
+  if(vOn&&vPrevState==="homing"&&st.state==="parked"&&!vBusy) vSay("Ready for the next one.");
+  vPrevState=st.state;
+},500);
 function vToggle(){
   if(!vRec&&!vInit()) return;
   vOn=!vOn; vShow();
+  vBeat(vOn);
   if(vOn){vSay("Listening.");vStart();} else {try{vRec.stop();}catch(e){} speechSynthesis.cancel();}
 }
 $("b-voice").onclick=vToggle;

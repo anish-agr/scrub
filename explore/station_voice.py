@@ -87,6 +87,9 @@ def main() -> None:
             if first and cur is not None:
                 prev, first = cur, False  # don't announce what was already true when we started
             for text, key, every in updates(prev, cur):
+                if cur and cur.get("page_voice"):  # the station page's Talk is listening and speaking: one voice
+                    print(f"quiet (page voice on): {text}", flush=True)
+                    continue
                 print(f"say: {text}", flush=True)
                 arm_voice.say(text, key=key, every=every)
             if cur is not None or prev is not None:
