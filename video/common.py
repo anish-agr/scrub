@@ -297,11 +297,22 @@ def encode(ws, output, images, fps=30, audio=None, segments=None, audio_clean=Fa
     return {"frames": count, "fps": fps, "duration_s": duration, "width": w, "height": h}
 
 
+def ledger_rows(path):
+    result=[]
+    for line in Path(path).read_text(encoding="utf-8-sig").splitlines():
+        if not line.strip():
+            continue
+        row=json.loads(line)
+        kind=row.get('kind')
+        doc=dict(row['doc']) if kind in {'event','test'} and 'doc' in row else dict(row)
+        doc['_record_kind']=kind if kind in {'event','test'} else 'test' if doc.get('type')=='test' else 'event'
+        finite(doc['t'],'ledger timestamp')
+        result.append(doc)
+    return sorted(result,key=lambda row:row['t'])
+
+
 def events(path):
-    rows = [json.loads(line) for line in Path(path).read_text(encoding="utf-8-sig").splitlines() if line.strip()]
-    for row in rows:
-        finite(row["t"], "event timestamp")
-    return sorted(rows, key=lambda row: row["t"])
+    return [row for row in ledger_rows(path) if row['_record_kind']=='event']
 
 
 def fit(image, width, height):
