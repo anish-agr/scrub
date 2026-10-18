@@ -71,7 +71,7 @@ def main() -> None:
     print("\nWhen it says 'Move ... to the middle of its range': support the arm (torque is off), set it")
     print("upper arm ~45 deg up, elbow ~90 deg, WRIST STRAIGHT in line with the forearm, roll level, claw")
     print("half open, THEN press ENTER. Then move each joint slowly end to end (wrist flex all the way up")
-    print("and all the way down into the folded rest pose; wrist roll about a third of a turn each way,\n")
+    print("and all the way down into the folded rest pose; wrist roll about a third of a turn each way,")
     print("not a full turn; claw fully open and closed) and press ENTER.\n")
     venv_bin = Path(sys.executable).parent
     rc = subprocess.call([str(venv_bin / "lerobot-calibrate"), "--robot.type=so101_follower",
