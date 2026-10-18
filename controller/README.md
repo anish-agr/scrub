@@ -28,12 +28,21 @@ websocat ws://localhost:8000/events      # or open http://localhost:8000/
 
 | File | What |
 | --- | --- |
+| `__main__.py` | `python -m controller`: picks the arm (fake, sim or real), starts the server |
 | `server.py` | the endpoints |
 | `core.py` | state, events, the step machine (one worker thread runs arm calls; `stop` never waits on it) |
 | `lines.py` | every line Scrub says (`say`). Change wording here only |
 | `fake_arm.py` | the arm interface with sleeps, plus forced failures |
 | `traycheck.py` | `GET /tray_check`: asks vision's `/tray_check`, words the answer with `lines.py` |
 | `settings.py` | loads `settings/<id>.json` (built-in defaults until those files exist) with the clinic overlay `settings/<id>.local.json` merged in |
+| `armview.py` | read-only `/arm/pose`, arm camera frames, `/camera/overhead`, `/calibration` |
+| `sim_vision.py` | stands in for `vision/` with `--sim-arm` (TrayState and Hand from the sim) |
+| `demo.html`, `nurse.html`, `ops.html` | the judging console (`/demo`), the nurse console (`/nurse`), the ops page (`/ops`) |
+| `run_all.py` | the whole stack in one command, the between-judges reset, the sim backup and the full-stack check |
+| `smoke.py` | full runs against a live controller (C5, C8) |
+| `trials.py` | operator-gated PLAN.md trials over HTTP, written to the ledger |
+| `doctor.py` | one-command health check of every service, key, log and the arm port |
+| `test_flows.py`, `test_doctor.py`, `test_run_all.py` | tests (see Tests) |
 
 ## Behaviour other parts should know
 
@@ -42,16 +51,16 @@ websocat ws://localhost:8000/events      # or open http://localhost:8000/
 - Handover: `finding` (skipped with "I don't see the X" if a fresh TrayState says the slot is empty) → `picking` → `checking` (gripper ≥ 0.95 means it closed on nothing; a fresh TrayState still showing the item also fails) → one retry → `moving_to_hand` (carry pose, then to 8 cm short of the target at speed 0.3, then in at 0.1) → `waiting_for_pull` (load jump over `PULL_LOAD_DELTA`, default 80, a grip-load collapse, or `got_it`; 30 s) → `releasing` → `homing`.
 - Sharp items (`"sharp": true`) go `setting_down` to the safe spot instead: "Scalpel down, on the safe spot. Careful, it's sharp." A handed item says "Here's the hemostat. Ready to grab." as the arm reaches the hand.
 - **Stop latches.** The real arm stays frozen after `freeze()` until `resume()` (`arm/real_arm.py`), and so does the fake arm. After `stop` or an `error`, handover and return are refused with "I'm stopped. Reset me first." until `POST /reset` (the dashboard's clear-stop button). Reset rearms, homes, and if the gripper still holds an item, sets it at the safe spot instead of opening where it froze. Reset keeps the count (an item held at the stop counts as out); `POST /reset {"clear_count": true}` clears it for a fresh demo run.
-- Hand tracking counts as running if a Hand arrived in the last 5 s. Then the arm waits up to 10 s for an open, seen hand with a valid `target` and `path_clear` (else it sets the item down: "No hand." or, when the hand is seen but the path is blocked, "Something's in the way. Hemostat is at the safe spot."). While moving it freezes if the hand is lost (older than 0.5 s) or the path blocks, and holds like a stop: "Lost your hand. Holding." or "Something's in the way. Holding." No automatic retry; a reset carries the item to the safe spot.
+- Hand tracking counts as running if a Hand arrived in the last 5 s. Then the arm waits up to 10 s for an open, seen hand with a valid `target` and `path_clear` (else it sets the item down: "No hand." or, when the hand is seen but the path is blocked, "Something's in the way. Hemostat is at the safe spot."). While moving it freezes if the hand is lost (older than 0.5 s) or the path blocks, and holds like a stop: "Lost your hand. Holding." or "Something's in the way. Holding." On the first, faster leg (to 8 cm short of the hand) it also freezes when `HAND_CLOSED_READS` (3) Hand posts in a row say `open: false`: "Your hand closed. Holding." One closed read between open ones is flicker and is ignored. On the slow last 8 cm a closing hand is the clinician taking the instrument, so it never stops there. No automatic retry; a reset carries the item to the safe spot.
 - An arm exception, or `set_down_safe_spot()` returning False ("Couldn't set it down. Holding."), freezes the arm and goes to `error`. A thermal stop (`ArmFault` from `arm/real_arm.py`) says the arm's own message ("Too hot: shoulder_lift 71 C. Cooling down.") and holds the same way; reset once it has cooled.
 - Skills (`--skills`): `model` (default) runs every pick and return on the robot model. `taught` plays the recorded skill from `arm/skills/<setting>/<item>-<pick|return>.json` (`arm/taught.py`) and refuses a handover or return with no recording: "I have no taught skill for the hemostat." `auto` uses the model for an item when a deployment exists (real arm: `PERCEPTRON_DEPLOYMENT_ID` set; fake and sim always count) and the model passed that item's last 3 real tries, else the taught skill if one is recorded, else the model. Real tries are written by the controller after each real-arm pick or return to `~/scrub-logs/skill-tries.json` (`SCRUB_TRIES_FILE` moves it; fake and sim runs never write it), so run `--skills model` trials to earn an item its model slot. Every event of a pick or return flow carries `skill_source` (`model` or `taught`), and `GET /state` has `skills` (`mode` and each item's source).
 - `GET /state` also has `latency_ms` (`skill`: last `run_skill` ms, `skill_p50` over the last 50, `hand_age` and `tray_age`: ms since vision last posted) and, when the arm has `telemetry()`, `arm_telemetry` (temperatures, loads, hottest, cooling), polled once a second on its own thread so `/state` never touches the bus.
 - Pull: a load change of more than `PULL_LOAD_DELTA` either way (the bus value is signed; measure it on the real arm), or `got_it`. If `gripper_load()` has no reading, Scrub says "Say got it when you have it." and waits for `got_it`.
 - Release on pull (collapse): at the hand, if the grip load falls to `PULL_COLLAPSE_FRAC` (default 0.3) of the load it held on arrival or less, for two reads running (0.1 s), the gripper opens. This catches a clinician taking the weight without a sharp tug. It only applies when the held load was at least the pull delta, so noise near zero never drops an item. `PULL_COLLAPSE_FRAC=0` turns it off. The `released` event has `release`: `pull`, `collapse` or `got_it`.
-- Grasp check: gripper at or above `GRIPPER_CLOSED` (0.95) means it closed on nothing. The tray check runs after the lift to carry, using only a non-stale TrayState from at least 1 s after the pick. A return counts only if a later TrayState shows the item back in its slot (when tray vision is running).
+- Grasp check: gripper at or above `GRIPPER_CLOSED` (0.95) means it closed on nothing. The tray check runs after the lift to carry, using only a non-stale TrayState from at least 1 s after the pick. A TrayState older than `TRAY_STALE_S` (8 s) counts as no camera reading: a handover never waits on it, the checks fall back to the gripper and `out`. A return counts only if a later TrayState shows the item back in its slot (when tray vision is running).
 - Tracking stays "running" for 5 s after the last Hand post. Fake-hand drills need about a 6 s gap between them, or the next handover waits for a hand instead of using the saved spot.
 - Out of region: if the point 8 cm short of the hand is refused (and the hand watcher didn't freeze it), the arm goes straight to the hand slowly. Only if the hand point itself is refused does it say "That's out of my reach" and set the item down (`/fake/force {"out_of_region": 2}` forces that). With no Hand posts at all it goes to the saved spot (`handoff_spot` in `arm/rig.json`, else `[0.22, -0.10, 0.18]`).
-- `return` with no item takes the return-spot item from a fresh TrayState, else the last item out.
+- `return` with no item takes the return-spot item from a fresh TrayState, else the last item out. A failed return (the skill fails twice, or the tray still shows the slot empty) says "I couldn't put the hemostat back." If the gripper still holds the item, the arm carries it home and sets it at the safe spot ("Setting the hemostat down."), then homes; it stays in the count.
 - Auto return (F1): if TrayStates show the same item in the return spot for `AUTO_RETURN_S` (2 s) with the arm idle and nothing queued, Scrub says "Returning the X." and runs the normal return; its `command` event has `source: "auto"`, `action: "return"`. Once per visit (the item must leave the spot first), never while stopped or busy, and `stop` interrupts it like any return.
 - Count from the camera (F2): `GET /state` and `count` events carry `out_camera` (empty slots minus the return-spot item, from a fresh TrayState; `null` without one). If it disagrees with `out`, the count line adds "Camera also sees the X gone." and/or "Camera sees the X back."; otherwise the line is unchanged.
 - `count` answers at once, even mid-handover. Up to 3 handovers queue; `stop` clears the queue.
@@ -72,6 +81,10 @@ websocat ws://localhost:8000/events      # or open http://localhost:8000/
 | `PULL_COLLAPSE_FRAC` | 0.3 | let go when the grip load falls to this share of the held load (0 = off) |
 | `GRIPPER_CLOSED` | 0.95 | gripper fraction at or above which a pick closed on nothing |
 | `SCRUB_TRIES_FILE` | `~/scrub-logs/skill-tries.json` | real-arm tries per item for `--skills auto` |
+| `TRAY_STALE_S` | 8 | seconds before a TrayState counts as no camera reading. Vision posts after each Perceptron detect (3.8 to 4.7 s on 640x480 trays), so keep it above that; it also sets the nurse console's stale label and the `/tray_check` fallback |
+| `HAND_CLOSED_READS` | 3 | Hand posts in a row with `open: false` that freeze the arm on the fast leg (0 = off) |
+| `SCRUB_STATE_FILE` | `data/controller-state-<port>.json` | where the count is saved across a restart (empty = off) |
+| `VISION_URL` | `http://localhost:8001` | vision, for `/tray_check` and `/camera/overhead` |
 
 ## Extra endpoints (not needed by other parts)
 
@@ -87,7 +100,7 @@ websocat ws://localhost:8000/events      # or open http://localhost:8000/
 - `GET /vision`: the last TrayState and Hand as posted, with `tray_age_s` and `hand_age_s` (for the nurse console).
 - `GET /tray_check` (X3): "check the tray". Calls vision's `GET {VISION_URL}/tray_check` (default `http://localhost:8001`, 3 s timeout, in a thread so `stop` never waits) and returns vision's fields plus `say`, `available`, `label` (the setting's label) and `items` (its item names). Always 200. Vision must answer, for the controller's current setting (item ids from `settings/<id>.json`):
   `{"ok": bool, "setting": "surgical", "missing": ["scalpel"], "wrong_slot": [{"item": "hemostat", "in_slot_of": "mayo_scissors"}], "extra": [], "stale": false, "t": 1760731200.1}`.
-  Missing fields are fine (`ok` defaults to "nothing missing or in the wrong slot"; a non-empty `missing` or `wrong_slot` always means not ok), extra fields are passed through. `say` is "Tray's ready: scalpel, hemostat, Mayo scissors." / "Missing the scalpel." / "The hemostat is in the Mayo scissors' slot." (plus "Extra on the tray: ..." when `extra` is set). Vision down, 404, timeout, not JSON or `stale: true`: `ok` false, "I can't check the tray right now." (`available` false unless it was just stale). A different `setting` from vision: `ok` false, "The camera is checking the bench tray, not the surgical tray." With no vision answering (the sim and backup stacks), a TrayState the controller got in the last 3 s answers instead (only missing items; it can't see a wrong slot).
+  Missing fields are fine (`ok` defaults to "nothing missing or in the wrong slot"; a non-empty `missing` or `wrong_slot` always means not ok), extra fields are passed through. `say` is "Tray's ready: scalpel, hemostat, Mayo scissors." / "Missing the scalpel." / "The hemostat is in the Mayo scissors' slot." (plus "Extra on the tray: ..." when `extra` is set). Vision down, 404, timeout, not JSON or `stale: true`: `ok` false, "I can't check the tray right now." (`available` false unless it was just stale). A different `setting` from vision: `ok` false, "The camera is checking the bench tray, not the surgical tray." With no vision answering (the sim and backup stacks), a TrayState the controller got in the last `TRAY_STALE_S` (8 s) answers instead (only missing items; it can't see a wrong slot).
 - `POST /fake/force` with `{"miss_grasp": 1, "out_of_region": 1, "skill_fail": 1, "no_pull": 1, "no_load": 1}`: the next fake-arm calls fail that way (testing C6). `{"collapse": 1}` makes the next pick's grip load fall toward zero at the hand (release on collapse); `{"hot": 1}` makes the next skill raise `ArmFault` (thermal stop). `{"api_error": 503}` (any status) makes the next `prepare` or `run_skill` raise the robot model's `APIError`; force it, then `POST /setting` to test the prepare path, or send a handover for the skill path.
 
 ## Clinic words overlay (X6)
@@ -96,7 +109,39 @@ websocat ws://localhost:8000/events      # or open http://localhost:8000/
 
 ## Tests
 
-`.venv/bin/python -m controller.test_flows` forces every failure case on the fake arm (grasp miss and retry, tray grasp check, stale tray, empty slot, no pull, no load reading, load drop, `got_it`, no hand, hand lost and path blocked holding until reset, failed set-down, arm exception, out of region, stop mid-pick, mid-move and while holding out, sharp set-down, return checked against the tray, count, auto return, count against the camera, case_id, rejects, the tray check against a fake vision, the clinic-words overlay and `POST /alias` on a temp settings folder, prepare at start and on setting change, Perceptron 401/409/503 on prepare and on a skill, prepare never blocking stop, judge mode and `--judge`, release on collapse, skill source in model, taught and auto modes, the tries record, telemetry and latency in `/state`, a thermal fault, `/ops` and `/design`). About 50 s, prints `77/77 passed`.
+`.venv/bin/python -m controller.test_flows` forces every failure case on the fake arm (grasp miss and retry, tray grasp check, stale tray, empty slot, no pull, no load reading, load drop, `got_it`, no hand, hand lost and path blocked holding until reset, failed set-down, arm exception, out of region, stop mid-pick, mid-move and while holding out, sharp set-down, return checked against the tray, count, auto return, count against the camera, case_id, rejects, the tray check against a fake vision, the clinic-words overlay and `POST /alias` on a temp settings folder, prepare at start and on setting change, Perceptron 401/409/503 on prepare and on a skill, prepare never blocking stop, judge mode and `--judge`, release on collapse, skill source in model, taught and auto modes, the tries record, telemetry and latency in `/state`, a thermal fault, `/ops` and `/design`, a closed hand on the fast leg against flicker and a grab at the hand, a failed return still holding the item, `TRAY_STALE_S` from the environment and a slow tray feed, and `ops.html` with a null skill source, a wake that raises). About 60 s, prints `85/85 passed`.
+
+`.venv/bin/python -m controller.test_doctor` checks the doctor with no network (prints `doctor ok`). `.venv/bin/python -m controller.trials --self-test` runs the trials runner's 20 offline tests, including two practice handovers in a row on the fake arm.
+
+## Whole stack (`run_all.py`)
+
+```
+.venv/bin/python -m controller.run_all                    # fake stack: fake arm, vision --fake, voice, opens the dashboard
+.venv/bin/python -m controller.run_all --real --tunnel     # judging
+.venv/bin/python -m controller.run_all reset               # between judges: clear the count, surgical tray, normal light
+.venv/bin/python -m controller.run_all backup [--offline] [--loop] [--pause 2]   # the arm failed: sim arm plus a scripted demo
+.venv/bin/python -m controller.run_all check               # full-stack check on its own fake stack
+```
+
+`--real` is `--arm real --vision real --ledger --judge --skills auto`; each can still be overridden. `--skills model|taught|auto` is passed to the controller, and `--real-arm` is the same as `--arm real`. At start it prints the dashboard, judge console, nurse console, ops page (`/ops`), tablet, `/state`, vision preview and stream, voice health, ledger page and tunnel URLs. Ctrl-C stops every child. `--base-port N` moves every port together for a test stack beside the live one; `--help` lists the rest.
+
+## Trials (`trials.py`)
+
+```
+.venv/bin/python -m controller.trials --plan-only                     # print the PLAN.md matrix, no HTTP
+.venv/bin/python -m controller.trials --settings surgical --items hemostat --lighting normal --actions handover --tries 2
+.venv/bin/python -m controller.trials --practice --yes --items hemostat --actions handover --tries 2   # fake or sim controller
+```
+
+Real trials ask the operator before each try and to confirm each outcome (`s`/`f`), then call `ledger.log_test`. `--practice` refuses a real controller and never writes to the ledger. Each run writes a JSONL journal (`--journal`, default `.env.trials-<id>.jsonl` at the repo root, git-ignored).
+
+## Doctor
+
+```
+.venv/bin/python -m controller.doctor [--no-ai] [--json]
+```
+
+Checks the controller, vision, voice, ledger, sim, recorder and thermal pages (2 s timeout each), lists which .env keys are set or missing and what each missing one turns off, shows the newest ~/scrub-logs files and recent controller error events, and reports whether SO101_PORT exists and who holds it. It does not open serial ports or cameras. Without --no-ai it sends only the findings text to Gemini and prints at most 8 lines of fixes; with no key or on failure it prints the raw findings. Exit code is 0 when the controller is up, 1 otherwise. Test: `.venv/bin/python -m controller.test_doctor`
 
 ## Full runs (Checkpoint 1, C8)
 

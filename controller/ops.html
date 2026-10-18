@@ -168,7 +168,8 @@ function renderSkills(s, events) {
   const names = [...new Set([...Object.keys(per), ...Object.keys(src)])];
   $('skills').innerHTML = names.length
     ? names.map(n => {
-        const v = per[n]; const sv = typeof v === 'object' ? (v.source ?? JSON.stringify(v)) : v;
+        const v = per[n];   // null: --skills taught and nothing recorded for this item
+        const sv = v === null ? 'no taught skill' : typeof v === 'object' ? (v.source ?? JSON.stringify(v)) : v;
         return `<tr><td>${esc(n)}</td><td>${esc(sv ?? 'no data')}</td><td>${esc(src[n] ?? 'none yet')}</td></tr>`;
       }).join('')
     : '<tr><td colspan="3" class="empty">No skill source data yet.</td></tr>';

@@ -27,8 +27,8 @@ def one(c: httpx.Client, action: str, item: str | None, human: bool, timeout: fl
     want = {"returned"} if action == "return" else {"released", "set_down"}
     end, pulled = time.time() + timeout, False
     while time.time() < end:
+        started = any(e["type"] != "command" for e in events_for(c, cid))  # events before state (see trials.py)
         step = c.get("/state").json()["step"]
-        started = any(e["type"] != "command" for e in events_for(c, cid))
         if started and step in ("idle", "stopped", "error"):
             break
         if step == "waiting_for_pull" and not human and not pulled:

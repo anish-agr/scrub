@@ -40,6 +40,9 @@ FEATURE = {
     "SO101_WRIST_CAMERA": "default camera 1",
     "PULL_LOAD_DELTA": "default 80",
     "GRIPPER_CLOSED": "default 0.95",
+    "PULL_COLLAPSE_FRAC": "default 0.3",
+    "TRAY_STALE_S": "default 8 s",
+    "HAND_CLOSED_READS": "default 3",
     "CAMERA_INDEX": "vision default camera 0",
     "CLINICIAN": "no saved hand height",
 }
