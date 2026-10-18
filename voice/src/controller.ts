@@ -13,7 +13,7 @@ export interface CommandReply { accepted: boolean; reason: string | null; say: s
 export interface ScrubEvent {
   type: string; t: number; item?: string | null; step?: string | null; say?: string | null;
   command_id?: string | null; setting?: string | null; lighting?: string | null;
-  request_to_hand_s?: number | null; retries?: number | null;
+  request_to_hand_s?: number | null; retries?: number | null; out?: string[] | null;
 }
 
 export function makeCommand(action: Action, item: string | null, heard: string): Command {

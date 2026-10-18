@@ -3,7 +3,7 @@
 import { HOLD_S } from "./config.js";
 import { followEvents, makeCommand, postCommand, postStop, type ScrubEvent } from "./controller.js";
 import { isEndCase, isStop, parse } from "./parse.js";
-import { currentSetting } from "./settings.js";
+import { currentSetting, forgetSetting } from "./settings.js";
 import { endCase, recordEvent } from "./summary.js";
 
 type Say = (line: string) => void;
@@ -34,7 +34,11 @@ function speak(line: string | null | undefined) {
 export function startEvents() {
   followEvents((e) => {
     recordEvent(e);
-    if (e.setting) settingId = e.setting;
+    if (e.setting && e.setting !== settingId) {
+      settingId = e.setting;
+      forgetSetting();
+      currentSetting(settingId).catch(() => {});  // warm the cache before the next turn
+    }
     let line = e.say;
     // "Scalpel down" call-out, if the controller didn't word one.
     if (!line && e.type === "set_down" && e.item) line = `${e.item.replace(/_/g, " ")} down`;
