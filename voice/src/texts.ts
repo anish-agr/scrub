@@ -5,7 +5,8 @@ import path from "node:path";
 import { GoogleGenAI, Type } from "@google/genai";
 import { GEMINI_API_KEY, GEMINI_MODEL, VOICE_DIR } from "./config.js";
 import { getState, postRestock, type State } from "./controller.js";
-import { isEndCase, isTrayCheck, parseAlias } from "./parse.js";
+import { isEndCase, isTrayCheck, parseAlias, readAction } from "./parse.js";
+import { handlePhoto, READ_ACTIONS, textRead, type Photo, type ReadAction } from "./reads.js";
 import { currentSetting, teach, type Setting } from "./settings.js";
 import type { AliasReply } from "./controller.js";
 import { closeCaseWithLink, getPhoton, photonConfigured, withTimeout } from "./summary.js";
@@ -15,7 +16,8 @@ import { HIDDEN_SETTINGS, JUDGE, KNOWN_SETTINGS, notSetUp, SETTING_IDS, settingA
 const ai = GEMINI_API_KEY ? new GoogleGenAI({ apiKey: GEMINI_API_KEY }) : null;
 
 export const SETTINGS = SETTING_IDS;  // offered: surgical, bench (dental is recognised only to say it isn't set up)
-const KINDS = ["restock", "count", "summary", "setting", "alias", "help"] as const;
+// read_sheet, read_tray, read_pack (OCR pass): the same Command as on the call, the reply is the `read` event's say.
+const KINDS = ["restock", "count", "summary", "setting", "alias", "help", "read_sheet", "read_tray", "read_pack"] as const;
 type Kind = typeof KINDS[number];
 export interface TextIntent { kind: Kind; item: string | null; qty: number; setting: string | null; alias?: string }
 
@@ -43,6 +45,9 @@ Kinds:
 - summary: they want the end-of-case summary, or say the case is over
 - setting: they want to start a case on, or switch to, a tray ("start a surgical case", "switch to the bench tray"). setting is that tray.
 - alias: they teach a word for an instrument on this tray ("call the hemostat a clamp", "clamp means the hemostat", "when I say clamp I mean the hemostat"). item is that instrument, alias is the new word, lowercase.
+- read_sheet: read the paper count sheet in view ("read the count sheet", "check the count sheet")
+- read_tray: read the tray tag or label to tell which tray this is ("what tray is this", "read the tray tag")
+- read_pack: read a sterile pack label, lot or expiry date ("read the pack", "is this pack expired")
 - help: anything else
 Instruments on the current tray:
 ${list}
@@ -88,6 +93,9 @@ export function localText(text: string, setting: Setting): TextIntent {
   const named = KNOWN_SETTINGS.find((id) => s.includes(` ${id} `)) || null;
   const taught = parseAlias(text, setting);
   if (taught) return { kind: "alias", item: taught.item, qty: 1, setting: null, alias: taught.alias };
+  // Before the count words: "count sheet" has "count" in it. "check the tray" is the tray check (handleText, first).
+  const read = readAction(text);
+  if (read) return { kind: read as Kind, item: null, qty: 1, setting: null };
   if (isEndCase(text) || /\b(summary|recap|wrap up)\b/.test(s)) return { kind: "summary", item: null, qty: 1, setting: named };
   if (/\b(what s out|whats out|what is out|count|how many|anything out)\b/.test(s)) return { kind: "count", item: null, qty: 1, setting: named };
   const asked = settingAsked(text);
@@ -135,9 +143,12 @@ export interface TextDeps {
   trayCheck: () => Promise<string>;
   switchTo: (id: string) => Promise<string>;
   teach: (item: string, alias: string) => Promise<AliasReply>;
+  read: (action: ReadAction, text: string) => Promise<string>;
+  photo: (photo: Photo, text: string, from: string | null) => Promise<string>;
 }
 const DEFAULTS: TextDeps = { state: getState, setting: currentSetting, parse: parseText, log: logRestock,
-  summary: () => closeCaseWithLink(), trayCheck: () => textTrayCheck(), switchTo: (id) => switchSetting(id), teach };
+  summary: () => closeCaseWithLink(), trayCheck: () => textTrayCheck(), switchTo: (id) => switchSetting(id), teach,
+  read: (action, text) => textRead(action, text), photo: (p, text, from) => handlePhoto(p, text, from) };
 
 // One text in -> the reply text.
 export async function handleText(text: string, from: string | null, deps: Partial<TextDeps> = {}): Promise<string> {
@@ -149,6 +160,7 @@ export async function handleText(text: string, from: string | null, deps: Partia
   console.log(`[text] ${from ?? "?"}: ${text} -> ${p.kind}${p.item ? ` ${p.qty} ${p.item}` : ""}`);
   if (p.kind === "count") return st ? countReply(st) : "I can't reach the arm controller.";
   if (p.kind === "summary") return d.summary();
+  if (READ_ACTIONS.includes(p.kind as ReadAction)) return st?.judge ? JUDGE : d.read(p.kind as ReadAction, text);
   // Judge mode: the controller only takes handover, count, stop and got_it. Don't post a switch, a word or a restock.
   if (st?.judge && (p.kind === "setting" || p.kind === "alias" || p.kind === "restock")) return JUDGE;
   if (p.kind === "setting") return p.setting ? d.switchTo(p.setting) : `Which tray? ${SETTINGS.join(", ")}.`;
@@ -168,13 +180,32 @@ export async function handleText(text: string, from: string | null, deps: Partia
 
 // The bits of Spectrum's [Space, Message] this uses, so tests can feed a fake stream.
 export interface InSpace { send(text: string): Promise<unknown> }
-export interface InMessage { direction: string; content: { type: string; text?: string }; sender?: { id: string } }
+// Spectrum (iMessage) content: a text is {type: "text"}; a photo alone is {type: "attachment", mimeType, name, read()}
+// (read() downloads the bytes); a photo with a caption is {type: "group", items: [Message, Message]}.
+export interface InContent { type: string; text?: string; mimeType?: string; name?: unknown; read?: () => Promise<Buffer>; items?: { content: InContent }[] }
+export interface InMessage { direction: string; content: InContent; sender?: { id: string } }
+
+// The text and the first image in a message (either may be missing).
+export function partsOf(c: InContent): { text: string; image: Photo | null } {
+  const all = c.type === "group" && Array.isArray(c.items) ? c.items.map((m) => m.content).filter(Boolean) : [c];
+  const text = all.filter((x) => x.type === "text" && x.text).map((x) => x.text!.trim()).join(" ").trim();
+  const img = all.find((x) => x.type === "attachment" && typeof x.read === "function" && /^image\//i.test(x.mimeType || ""));
+  return { text, image: img ? { mimeType: img.mimeType, name: typeof img.name === "string" ? img.name : undefined, read: img.read! } : null };
+}
 
 export async function runTexts(stream: AsyncIterable<[InSpace, InMessage]>, deps: Partial<TextDeps> = {}) {
   for await (const [space, msg] of stream) {
-    if (msg.direction !== "inbound" || msg.content.type !== "text" || !msg.content.text?.trim()) continue;
+    if (msg.direction !== "inbound" || !msg.content) continue;
+    const { text, image } = partsOf(msg.content);
+    if (!text && !image) continue;
+    const from = msg.sender?.id ?? null;
+    const photo = deps.photo ?? DEFAULTS.photo;
     // One text at a time: a reply that hangs (Photon, or a slow summary) must not hold up every text after it.
-    try { await withTimeout(handleText(msg.content.text.trim(), msg.sender?.id ?? null, deps).then((r) => space.send(r)), 30_000, "text reply"); }
+    // A photo gets longer: the download, then vision's read (up to 25 s).
+    try {
+      const reply = image ? photo(image, text, from) : handleText(text, from, deps);
+      await withTimeout(reply.then((r) => space.send(r)), image ? 45_000 : 30_000, "text reply");
+    }
     catch (e) { console.log(`[text] reply failed: ${(e as Error).message}`); }
   }
 }

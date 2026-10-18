@@ -41,6 +41,9 @@ PY = sys.executable
 LEDGER_BUFFER = Path(os.environ.get("LEDGER_BUFFER") or ROOT / "ledger" / "buffer.jsonl")  # read only
 COMMANDS = ("start", "reset", "backup", "check")
 TUNNEL_SCRIPTS = {"pinggy": "tunnel", "cf": "tunnel:cf", "ngrok": "tunnel:ngrok"}
+NO_LINE = "(no line yet: run `cd voice && npm run photon -- setup +1XXXXXXXXXX`, then put PHOTON_LINE in .env; voice/README.md Call setup)"
+AGENT_TRIES, AGENT_RETRY_S = 5, 10.0  # a failed agent update is retried this often before run_all gives up loudly
+TUNNEL_QUICK_DEATHS = 5               # a tunnel that dies within 20 s this many times in a row is given up on
 TUNNEL_RE = re.compile(r"https://[A-Za-z0-9.-]+\.(?:pinggy-free\.link|pinggy\.link|pinggy\.online|trycloudflare\.com"
                        r"|ngrok-free\.app|ngrok-free\.dev|ngrok\.app|ngrok\.io)\b")
 SETTING_ITEMS = {"surgical": {"scalpel", "hemostat", "mayo_scissors"},
@@ -250,7 +253,7 @@ def url_table(a, public_url: str | None = None, lan: str | None = None, skipped:
         if public_url:
             rows.append(("ElevenLabs LLM URL", f"{public_url}/v1"))
     if a.tunnel or phone:
-        rows.append(("phone (call it)", phone or "(no number yet: voice/README.md Call setup, npm run photon -- setup)"))
+        rows.append(("phone (call it)", phone or NO_LINE))
     return rows
 
 
@@ -329,14 +332,14 @@ def prepare_start(a, wiring: dict | None = None, holders=arm_holders, exists=os.
     return notes
 
 
-def agent_update(a, url: str, say=print) -> list[str]:
-    """Point the ElevenLabs agent at this tunnel (voice/scripts/agent.ts). Returns the phone numbers it lists."""
+def run_agent(a, url: str, say=print) -> tuple[bool, list[str]]:
+    """Point the ElevenLabs agent at this tunnel (voice/scripts/agent.ts). Returns (ok, phone numbers it lists)."""
     cmd = (shlex.split(a.agent_cmd) if a.agent_cmd else ["npm", "run", "-s", "agent", "--"]) + [url]
     try:
         out = subprocess.run(cmd, cwd=ROOT / "voice", capture_output=True, text=True, timeout=120)
     except (OSError, subprocess.TimeoutExpired) as e:
-        say(f"run_all: ElevenLabs agent not updated: {e}")
-        return []
+        say(f"run_all: !! ElevenLabs agent NOT updated: {e}. Calls will fail until: cd voice && npm run agent -- {url}")
+        return False, []
     phones = []
     for line in (out.stdout + out.stderr).splitlines():
         if line.startswith("PHONE "):
@@ -344,8 +347,31 @@ def agent_update(a, url: str, say=print) -> list[str]:
         if line.strip():
             say(f"[agent] {line}" if not line.startswith("[") else line)
     if out.returncode:
-        say(f"run_all: ElevenLabs agent update failed (exit {out.returncode}); Custom LLM URL is {url}/v1")
-    return phones
+        say(f"run_all: !! ElevenLabs agent update FAILED (exit {out.returncode}); Custom LLM URL should be {url}/v1. "
+            f"Calls will fail until: cd voice && npm run agent -- {url}")
+    return out.returncode == 0, phones
+
+
+def agent_update(a, url: str, say=print) -> list[str]:
+    return run_agent(a, url, say)[1]
+
+
+def public_check(url: str, say=print, tries: int = 8, delay: float = 2.0, get=None) -> bool:
+    """Self-check through the public URL: GET <url>/health must be 200 (a new tunnel can take a few seconds to resolve)."""
+    get, err = get or httpx.get, ""
+    for i in range(tries):
+        try:
+            r = get(f"{url}/health", timeout=5)
+            if r.status_code == 200:
+                say(f"run_all: public self-check OK: GET {url}/health -> 200")
+                return True
+            err = f"HTTP {r.status_code}"
+        except Exception as e:  # noqa: BLE001 - DNS not ready yet, tunnel down, TLS: all just "not reachable"
+            err = f"{type(e).__name__}: {e}"
+        if i < tries - 1:
+            time.sleep(delay)
+    say(f"run_all: !! public self-check FAILED: GET {url}/health -> {err}. Phone calls cannot reach voice through this URL.")
+    return False
 
 
 # ---------------------------------------------------------------- running children
@@ -356,6 +382,8 @@ class Stack:
         self.public_url: str | None = None
         self.agent_url: str | None = None  # the tunnel URL the ElevenLabs agent was last pointed at
         self.phones: list[str] = []
+        self.agent_fails, self.agent_next = 0, 0.0  # retry state for a failed agent update
+        self.tunnel_fails = 0                       # consecutive tunnels that died right after starting
         self.stopping = False
         self._out, self._lock = out or (lambda text: print(text, flush=True)), threading.Lock()
 
@@ -398,17 +426,21 @@ class Stack:
         return False
 
     def wait_tunnel(self, ch: Child, timeout: float) -> str | None:
-        end, ngrok = time.time() + timeout, "ngrok" in " ".join(ch.cmd)
+        end = time.time() + timeout
         while time.time() < end and not self.public_url and ch.proc.poll() is None:
-            if ngrok:  # ngrok draws a screen instead of printing; its local API has the URL
-                try:
-                    for t in httpx.get("http://127.0.0.1:4040/api/tunnels", timeout=1).json().get("tunnels", []):
-                        if t.get("public_url", "").startswith("https://"):
-                            self.public_url = t["public_url"]
-                except (httpx.HTTPError, ValueError):
-                    pass
+            self.poll_ngrok(ch)
             time.sleep(0.3)
         return self.public_url
+
+    def poll_ngrok(self, ch: Child) -> None:
+        if "ngrok" not in " ".join(ch.cmd) or self.public_url:
+            return
+        try:  # ngrok draws a screen instead of printing; its local API has the URL
+            for t in httpx.get("http://127.0.0.1:4040/api/tunnels", timeout=1).json().get("tunnels", []):
+                if t.get("public_url", "").startswith("https://"):
+                    self.public_url = t["public_url"]
+        except (httpx.HTTPError, ValueError):
+            pass
 
     def crashed(self) -> list[Child]:
         out = []
@@ -490,12 +522,26 @@ def bring_up(a, stack: Stack) -> tuple[bool, set]:
     return True, skipped
 
 
-def sync_agent(a, stack: Stack) -> None:
-    """Once per new tunnel URL: point the ElevenLabs agent at it."""
-    if not stack.public_url or stack.public_url == stack.agent_url or getattr(a, "no_agent", True):
+def sync_agent(a, stack: Stack, check=None) -> None:
+    """Once per new tunnel URL: point the ElevenLabs agent at it, then GET <url>/health through the public URL.
+    A failed update is retried (AGENT_TRIES times, AGENT_RETRY_S apart) and shouted each time."""
+    url = stack.public_url
+    if not url or url == stack.agent_url or getattr(a, "no_agent", True) or time.time() < stack.agent_next:
         return
-    stack.agent_url = stack.public_url
-    stack.phones = agent_update(a, stack.public_url, stack.say) or stack.phones
+    ok, phones = run_agent(a, url, stack.say)
+    stack.phones = phones or stack.phones
+    if ok:
+        stack.agent_url, stack.agent_fails = url, 0
+        (check or public_check)(url, stack.say)
+        return
+    stack.agent_fails += 1
+    if stack.agent_fails >= AGENT_TRIES:
+        stack.agent_url = url  # stop retrying this URL
+        stack.say(f"run_all: !! GAVE UP pointing the agent at {url} after {AGENT_TRIES} tries; "
+                  f"run: cd voice && npm run agent -- {url}")
+    else:
+        stack.agent_next = time.time() + AGENT_RETRY_S
+        stack.say(f"run_all: agent update failed (try {stack.agent_fails}/{AGENT_TRIES}); retrying in {AGENT_RETRY_S:.0f} s")
 
 
 def phone_number(a, stack: Stack, wiring: dict | None = None) -> str | None:
@@ -520,10 +566,18 @@ def open_pages(a) -> None:
         webbrowser.open(f"http://localhost:{P['sim']}/web/viewer.html")
 
 
-def restart_tunnel(stack: Stack, ch: Child) -> Child | None:
-    """A tunnel that ran a while and died (free tunnels expire) is started again; the new URL goes to the agent."""
-    if stack.stopping or time.time() - ch.started < 20:
+def restart_tunnel(stack: Stack, ch: Child, sleep=time.sleep) -> Child | None:
+    """A tunnel that died is started again and its new URL goes to the agent (a free one expires; cloudflared can crash).
+    One that dies right after starting is retried with a growing pause, up to TUNNEL_QUICK_DEATHS times in a row."""
+    if stack.stopping:
         return None
+    if time.time() - ch.started < 20:
+        stack.tunnel_fails += 1
+        if stack.tunnel_fails >= TUNNEL_QUICK_DEATHS:
+            return None
+        sleep(min(2.0 * stack.tunnel_fails, 10.0))
+    else:
+        stack.tunnel_fails = 0
     stack.public_url = None
     stack.say("run_all: restarting the tunnel; the ElevenLabs agent gets the new URL")
     return stack.start(Child(ch.name, ch.cmd, ch.cwd, ch.env, None))
@@ -533,6 +587,9 @@ def watch(stack: Stack, a=None) -> int:
     """Until Ctrl-C. A controller crash stops everything; any other crash is reported and the rest keeps going."""
     while True:
         if a is not None:
+            for ch in stack.children:
+                if ch.name == "tunnel" and ch.proc.poll() is None:
+                    stack.poll_ngrok(ch)
             sync_agent(a, stack)
         for ch in stack.crashed():
             stack.say(f"run_all: {ch.name} EXITED (code {ch.proc.returncode}). Last lines:")
@@ -542,7 +599,8 @@ def watch(stack: Stack, a=None) -> int:
                 stack.say("run_all: the controller is gone; stopping the rest")
                 return 1
             if ch.name == "tunnel" and not restart_tunnel(stack, ch):
-                stack.say("run_all: the tunnel died right away; rerun with --tunnel (or another kind, e.g. --tunnel pinggy)")
+                stack.say("run_all: !! the tunnel keeps dying and is NOT coming back; phone calls will fail. "
+                          "Rerun with another kind, e.g. --tunnel pinggy or --tunnel ngrok")
             stack.say(f"run_all: still running: {', '.join(c.name for c in stack.children if c.proc.poll() is None)}")
         time.sleep(0.5)
 
