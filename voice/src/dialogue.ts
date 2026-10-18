@@ -1,15 +1,22 @@
 // Short-lived questions are scoped to a call or a text thread, never to the robot globally.
 import { randomUUID } from "node:crypto";
-import { postClarify, type Action, type Candidate, type Clarification, type ClarifyLog, type Command, type Instance, type ScrubEvent } from "./controller.js";
+import { getStats, postClarify, type Action, type Candidate, type Clarification, type ClarifyLog, type Command, type Instance, type ScrubEvent } from "./controller.js";
+import { chooseCandidate } from "./choice.js";
 import { candidateFor, isGotIt, localParse, whichOne, type ParseResult } from "./parse.js";
 import type { Setting } from "./settings.js";
 
 const norm = (s: string) => s.toLowerCase().replace(/[^a-z0-9 ]/g, " ").replace(/\s+/g, " ").trim();
 export const QUESTION_MS = 15_000;
+export const TIMEOUT_LINE = "That question timed out. I'll wait for you to ask again.";
+export interface QuestionTimers { set(callback: () => void, ms: number): unknown; clear(timer: unknown): void }
+const realQuestionTimers: QuestionTimers = {
+  set: (callback, ms) => { const timer = setTimeout(callback, ms); timer.unref(); return timer; },
+  clear: (timer) => clearTimeout(timer as NodeJS.Timeout),
+};
 const CANCEL = /\b(cancel|never mind|nevermind|forget it)\b/;
 const CHOICE = /\b(left|right|closest|first|second|either|any|you pick|other|yes|no)\b/;
-interface Question { q: Clarification; setting: string; action: Action; at: number; confirm: boolean; chosen?: Candidate }
-interface Context { question?: Question; lastQuestion?: Question; lastHanded?: Candidate; setting?: string; latestCommand?: string }
+interface Question { q: Clarification; setting: string; action: Action; at: number; confirm: boolean; chosen?: Candidate; timer?: unknown; controllerId?: string }
+interface Context { question?: Question; expired?: Question; lastQuestion?: Question; lastHanded?: Candidate; setting?: string; latestCommand?: string; notify?: (line: string) => void }
 interface Origin { context: string; command: Command; setting: Setting; at: number; epoch: number; notify?: (line: string) => void }
 export type Answer = { say: string } | { parsed: ParseResult } | null;
 
@@ -18,18 +25,45 @@ export class Dialogue {
   private commands = new Map<string, Origin>();
   private epoch = 0;
   private caseId?: string;
-  constructor(private now = Date.now, private log: (row: ClarifyLog) => Promise<unknown> = postClarify) {}
-  private note(row: ClarifyLog) { void this.log(row).catch(() => {}); }
+  constructor(private now = Date.now, private log: (row: ClarifyLog) => Promise<unknown> = postClarify, private timers = realQuestionTimers) {}
+  private note(row: ClarifyLog) { try { void this.log(row).catch(() => {}); } catch { /* telemetry never blocks a stop */ } }
   private context(id: string, setting?: string): Context {
     let c = this.contexts.get(id);
-    if (!c || (setting && c.setting && c.setting !== setting)) { c = {}; this.contexts.set(id, c); }
+    if (!c || (setting && c.setting && c.setting !== setting)) {
+      if (c) this.close(id, c, "setting_changed", "cancelled");
+      c = { notify: c?.notify }; this.contexts.set(id, c);
+    }
     if (setting) c.setting = setting;
-    if (this.contexts.size > 128) this.contexts.delete(this.contexts.keys().next().value!);
+    if (this.contexts.size > 128) this.clear(this.contexts.keys().next().value!, "context_evicted");
     return c;
   }
-  clear(context?: string) {
-    if (context) this.contexts.delete(context);
-    else { this.contexts.clear(); this.epoch++; }
+  clear(context?: string, reason = "cancelled") {
+    if (context) {
+      const c = this.contexts.get(context);
+      if (c) this.close(context, c, reason, "cancelled");
+      this.contexts.delete(context);
+    } else {
+      for (const [id, c] of this.contexts) this.close(id, c, reason, "cancelled");
+      this.contexts.clear(); this.epoch++;
+    }
+  }
+  bind(context: string, notify?: (line: string) => void) { this.context(context).notify = notify; }
+  private close(context: string, c: Context, answer: string, status = "answered", say?: string) {
+    const q = c.question;
+    if (!q) return;
+    if (q.timer !== undefined) this.timers.clear(q.timer);
+    c.question = undefined; c.latestCommand = undefined;
+    this.note({ type: "clarify_answer", item: q.q.item, candidates: q.q.candidates, question_id: q.q.question_id,
+      answer, answer_ms: this.now() - q.at, context, status, ...(status !== "answered" ? { reason: answer } : {}), ...(say ? { say } : {}) });
+  }
+  private expire(context: string, q: Question) {
+    const c = this.contexts.get(context);
+    if (c?.question !== q) return;
+    const remaining = QUESTION_MS - (this.now() - q.at);
+    if (remaining > 0) { q.timer = this.timers.set(() => this.expire(context, q), remaining); return; }
+    this.close(context, c, "timeout", "timeout", TIMEOUT_LINE);
+    c.expired = q;
+    try { c.notify?.(TIMEOUT_LINE); } catch { /* closed sender; state and telemetry already updated */ }
   }
   version() { return this.epoch; }
   commandActive(id: string) {
@@ -37,6 +71,7 @@ export class Dialogue {
     return !!o && o.epoch === this.epoch && this.contexts.get(o.context)?.latestCommand === id;
   }
   pending(context: string) { const q = this.contexts.get(context)?.question; return !!q && this.now() - q.at < QUESTION_MS; }
+  remaining(context: string) { const q = this.contexts.get(context)?.question; return q ? Math.max(0, QUESTION_MS - (this.now() - q.at)) : 0; }
   track(context: string, command: Command, setting: Setting, notify?: (line: string) => void) {
     this.context(context, setting.id).latestCommand = command.id;
     for (const [id, o] of this.commands) if (this.now() - o.at > 300_000) this.commands.delete(id);
@@ -59,12 +94,25 @@ export class Dialogue {
   ask(context: string, question: Clarification, setting: Setting, action: Action = "handover", confirm = false, local = true): string {
     const c = this.context(context, setting.id);
     // The same controller question can arrive by HTTP and websocket, in either order.
-    if (question.question_id && c.question?.q.question_id === question.question_id) return c.question.q.say;
+    if (question.question_id && c.question?.q.question_id === question.question_id) {
+      c.question.confirm ||= confirm || question.confirm === true;
+      return c.question.q.say;
+    }
     const q = this.clean(question, setting);
     const previous = c.question;
-    if (previous && !question.question_id && previous.q.say === q.say && JSON.stringify(previous.q.candidates) === JSON.stringify(q.candidates)) return previous.q.say;
-    c.question = { q, setting: setting.id, action, at: this.now(), confirm };
+    const key = (x: Candidate) => JSON.stringify([x.item, x.id, x.label, x.variant, x.side, x.slot, x.instance?.variant, x.instance?.side, x.instance?.slot]);
+    if (previous && !question.question_id && previous.q.say === q.say && previous.q.candidates.length === q.candidates.length
+        && previous.q.candidates.every((x, i) => key(x) === key(q.candidates[i]))) {
+      previous.confirm ||= confirm || question.confirm === true;
+      return previous.q.say;
+    }
+    this.close(context, c, "superseded", "cancelled");
+    c.expired = undefined;
+    c.question = { q, setting: setting.id, action, at: this.now(), confirm: confirm || question.confirm === true,
+      ...(!local && question.question_id ? { controllerId: question.question_id } : {}) };
     c.lastQuestion = c.question;
+    const active = c.question;
+    active.timer = this.timers.set(() => this.expire(context, active), QUESTION_MS);
     if (local) c.latestCommand = undefined;
     if (local) this.note({ type: "clarify", ...q, context });
     return q.say;
@@ -82,20 +130,35 @@ export class Dialogue {
     // Even a model-parsed pronoun return must not invoke the controller's global last-out fallback.
     return p.action === "return" && !p.item && !p.clarify ? this.followup(context, "put it back", setting) : { parsed: p };
   }
-  answer(context: string, heard: string, setting: Setting): Answer {
+  async answerAsync(context: string, heard: string, setting: Setting, stats = getStats): Promise<Answer> {
+    const q = this.contexts.get(context)?.question;
+    if (!q || q.confirm || !/\b(either|any|you pick)\b/i.test(heard)) return this.answer(context, heard, setting);
+    let timer: NodeJS.Timeout | undefined;
+    const data = await Promise.race([
+      Promise.resolve().then(stats).catch(() => null),
+      new Promise<null>((resolve) => { timer = setTimeout(() => resolve(null), 1000); }),
+    ]).finally(() => clearTimeout(timer));
+    if (this.contexts.get(context)?.question !== q) return { say: "That question is no longer pending. Please ask again." };
+    return this.answer(context, heard, setting, chooseCandidate(q.q.candidates, data));
+  }
+  answer(context: string, heard: string, setting: Setting, preferred?: Candidate): Answer {
     const c = this.context(context, setting.id), q = c.question, s = norm(heard);
-    if (CANCEL.test(s)) { c.question = undefined; c.latestCommand = undefined; if (q) this.answered(context, q, heard); return { say: "Cancelled. Nothing will move." }; }
+    if (CANCEL.test(s)) { this.close(context, c, heard, "cancelled"); c.expired = undefined; c.latestCommand = undefined; return { say: "Cancelled. Nothing will move." }; }
+    if (!q && c.expired) {
+      const old = c.expired; c.expired = undefined;
+      const bareAnswer = CHOICE.test(s) || old.q.candidates.some((x) => [x.variant, x.instance?.variant, x.label].some((w) => w && norm(w) === s));
+      if (bareAnswer) return { say: TIMEOUT_LINE };
+    }
     const followup = q?.confirm ? null : this.followup(context, heard, setting);
-    if (followup) { c.question = undefined; return followup; }
+    if (followup) { this.close(context, c, "superseded", "cancelled"); return followup; }
     if (!q) return null;
     if (isGotIt(heard)) return null; // release must not be trapped behind a question
     if (this.now() - q.at >= QUESTION_MS) {
-      c.question = undefined;
-      c.latestCommand = undefined;
-      return { say: "That question timed out. Please ask for the instrument again." };
+      this.expire(context, q);
+      return { say: TIMEOUT_LINE };
     }
     if (q.confirm && /^(no|nope|not that|negative)( please)?$/.test(s)) {
-      c.question = undefined; this.answered(context, q, heard);
+      this.close(context, c, heard, "cancelled");
       return { say: "Cancelled. Nothing will move." };
     }
     let chosen: Candidate | undefined;
@@ -104,7 +167,7 @@ export class Dialogue {
     } else {
       if (/\b(first|1st)\b/.test(s) || /^(the )?one( please)?$/.test(s)) chosen = q.q.candidates[0];
       if (/\b(second|2nd)\b/.test(s) || /^(the )?two( please)?$/.test(s)) chosen = q.q.candidates[1];
-      if (/\b(either|any|you pick)\b/.test(s)) chosen = q.q.candidates[0];
+      if (/\b(either|any|you pick)\b/.test(s)) chosen = preferred || chooseCandidate(q.q.candidates);
       const side = s.match(/\b(left|right|closest)\b/)?.[1];
       if (side) {
         const sided = q.q.candidates.filter((x) => (x.instance?.side || x.side) === side);
@@ -123,18 +186,15 @@ export class Dialogue {
       if (/\bor\b/.test(s) && !/\b(either|any|you pick)\b/.test(s)) chosen = undefined;
     }
     if (chosen?.item) {
-      c.question = undefined; q.chosen = chosen; this.answered(context, q, heard);
-      return { parsed: { action: q.action, item: chosen.item, ...(Object.keys(chosen.instance || {}).length ? { instance: chosen.instance } : {}) } };
+      q.chosen = chosen; this.close(context, c, heard);
+      return { parsed: { action: q.action, item: chosen.item, ...(Object.keys(chosen.instance || {}).length ? { instance: chosen.instance } : {}),
+        ...(q.controllerId ? { question_id: q.controllerId } : {}) } };
     }
     if (q.confirm) return { say: q.q.say }; // no alternative wording can accidentally bypass the required yes
     // A new explicit non-choice command replaces the question. An unrecognized answer just repeats it.
     const local = localParse(heard, setting);
-    if (!CHOICE.test(s) && local.action !== "unknown" && !local.clarify) { c.question = undefined; return null; }
+    if (!CHOICE.test(s) && local.action !== "unknown" && !local.clarify) { this.close(context, c, "superseded", "cancelled"); return null; }
     return { say: q.q.say };
-  }
-  private answered(context: string, q: Question, answer: string) {
-    this.note({ type: "clarify_answer", item: q.q.item, candidates: q.q.candidates, question_id: q.q.question_id,
-      answer, answer_ms: this.now() - q.at, context });
   }
   private followup(context: string, heard: string, setting: Setting): Answer {
     const c = this.context(context, setting.id), s = norm(heard);
@@ -173,16 +233,28 @@ export class Dialogue {
       }
     }
     if (e.case_id) this.caseId = e.case_id;
-    if (e.type === "stopped") { this.clear(); return null; }
-    if (e.type === "returned") {
-      // A dashboard/automatic return also invalidates the person's last-out memory.
-      for (const c of this.contexts.values()) if (c.lastHanded?.item === e.item) c.lastHanded = undefined;
-    }
+    if (e.type === "stopped") { this.clear(undefined, "stop"); return null; }
     const o = e.command_id ? this.commands.get(e.command_id) : undefined;
+    if (e.type === "returned") {
+      const matched: Context[] = [];
+      for (const [id, c] of this.contexts) {
+        const last = c.lastHanded;
+        if (!last || last.item !== e.item) continue;
+        const keys = ["slot", "side", "variant"] as const;
+        const identity = keys.filter((k) => e.instance?.[k] !== undefined);
+        const stableSlot = last.instance?.slot !== undefined || e.instance?.slot !== undefined;
+        const matches = identity.length > 0 && (!stableSlot || last.instance?.slot === e.instance?.slot)
+          && identity.every((k) => String(last.instance?.[k] ?? "").toLowerCase() === String(e.instance![k]).toLowerCase());
+        if (matches) matched.push(c);
+        else if (!identity.length && o?.context === id) c.lastHanded = undefined;
+      }
+      // Variant-only metadata can describe several copies. Never erase two recipients on that evidence.
+      if (matched.length === 1) matched[0].lastHanded = undefined;
+    }
     if (!o || o.epoch !== this.epoch || this.now() - o.at > 300_000) return null;
     if (e.type === "clarify" && e.candidates && e.say) {
       if (!this.commandActive(o.command.id)) return { context: o.context, ignore: true };
-      const line = this.ask(o.context, { say: e.say, item: e.item, candidates: e.candidates, question_id: e.question_id }, o.setting, o.command.action, false, false);
+      const line = this.ask(o.context, { say: e.say, item: e.item, candidates: e.candidates, question_id: e.question_id, confirm: e.confirm }, o.setting, o.command.action, false, false);
       return { context: o.context, line, notify: o.notify };
     }
     if ((e.type === "released" || e.type === "handed") && e.item) {
