@@ -35,6 +35,7 @@ Text the Photon number (same iMessage thread as the end-of-case summary). The li
 | "what's out?", "count" | `Out (2): hemostat, scalpel.` from `GET /state` `out`, plus what the camera says (`out_camera`) when the controller has it |
 | "check the tray", "is the tray ready?", "tray check" | `Tray ready: Operating room, all 3 instruments in place.` when it passes, else the controller's line ("Missing the scalpel.", "I can't check the tray right now."). From `GET /tray_check`, matched before Gemini |
 | "summary", "end of case" | the end-of-case summary, and a new case starts |
+| "start a dental case", "switch to the bench tray", "surgical case" | `Dental case started: mouth mirror, explorer, cotton pliers.` (names from the setting file `POST /setting` returns). The controller starts a new `case_id`; the previous case's summary is not sent. 409: `The arm is busy. Stop or wait, then try again.` Saying it on the call does the same (a local phrase match before Gemini, `src/cases.ts`) |
 | anything else | one help line |
 
 Code in `src/texts.ts`; `npm test` runs it against a fake message stream and fake state, no network.
