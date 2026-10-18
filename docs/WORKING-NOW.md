@@ -8,7 +8,7 @@ Who is editing what right now, so nobody collides. Caiden's comb pass (`docs/COM
 
 ## Comb status
 
-The comb pass is done except one agent fixing small controller and voice bugs from the full-stack test (`controller/`, `voice/`, `ledger/shots.py`, `ledger/qr.py`). Everything else is committed: `docs/AUDIT.md` (all findings), `docs/STATE.md`, `docs/HARDWARE-TODO.md`, `docs/ACCOUNTS-TODO.md`, and `docs/LEFT.md` now points at those.
+The comb pass is finished and nothing is in flight. Everything is committed: `docs/AUDIT.md` (all findings), `docs/STATE.md`, `docs/HARDWARE-TODO.md`, `docs/ACCOUNTS-TODO.md`, and `docs/LEFT.md` now points at those.
 
 ## Already pushed by the comb (Evan, your folders changed)
 

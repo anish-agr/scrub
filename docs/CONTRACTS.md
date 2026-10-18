@@ -28,7 +28,7 @@ Every part codes against these. Build against fake inputs that match them, and t
 | --- | --- | --- |
 | `POST /command` | a Command | `{"accepted": bool, "reason": str or null, "say": str or null}` |
 | `POST /stop` | nothing | `{"accepted": true}`. Always accepted, skips the queue, freezes the arm |
-| `GET /state` | | a State |
+| `GET /state` | | a State. `out` and `case_id` survive a controller restart on the same port and setting within 6 h (`SCRUB_STATE_FILE`, default `data/controller-state-<port>.json`; empty turns it off) |
 | `POST /setting` | `{"setting": "surgical"}` | the loaded setting file. 409 if the arm is busy (idle or stopped only), 404 for an unknown id. Keeps `out`: an item still out of the last tray stays counted until it comes back or `POST /reset {"clear_count": true}`. Never clears a stop or error; only a reset rearms |
 | `POST /lighting` | `{"lighting": "bright" or "normal" or "dim", "lux": number or null}` | `{"ok": true}`. Tags later events for the tables |
 | `POST /vision/tray` | a TrayState | `{"ok": true}` |
@@ -47,7 +47,7 @@ Every part codes against these. Build against fake inputs that match them, and t
 | `GET /calibration` | | `vision/calibration.json`, 404 if missing (optional) |
 | `POST /alias` | `{"item": "hemostat", "alias": "clamp"}` | Always 200: `{"ok": bool, "say": str, "reason": str or null}` (X6 clinic words). `ok: false` for an unknown item, a bad word, a word another item already has, or judge mode (`reason` "judge mode"). Saved in `settings/<id>.local.json` (optional) |
 | `POST /restock` | `{"type": "restock", "item", "qty", "setting", "from", "heard", "case_id", "t"}` (voice texts) | `{"ok": bool}`: `false` when the ledger isn't loaded (voice then appends to `voice/restocks.jsonl`). Goes to `ledger.log` as a record with `type: "restock"`, not an Event (optional) |
-| `GET /tray_check` | | X3: vision's `GET /tray_check` for the current setting, plus `say`, `available` (vision answered), `label` and `items` (the setting's item names). Vision down, a timeout (3 s) or `stale: true`: `ok: false`, `say` "I can't check the tray right now." (optional) |
+| `GET /tray_check` | | X3: vision's `GET /tray_check` for the current setting, plus `say`, `available` (vision answered), `label` and `items` (the setting's item names). Vision down or a timeout (3 s): falls back to the controller's own TrayState when it is under 3 s old and not stale (reports missing items only). Otherwise `ok: false`, `say` "I can't check the tray right now." (optional) |
 | `POST /fake/force` | `{"miss_grasp", "out_of_region", "skill_fail", "no_pull", "no_load", "api_error"}` (ints, all optional) | the fake arm's pending forced failures. 400 unless `--fake-arm` (testing only, optional) |
 | `POST /fake/pull` | nothing | sim arm: a simulated tug; otherwise the same as a `got_it` command from the dashboard (testing only, optional) |
 | `GET /demo` | | the demo console page (optional) |

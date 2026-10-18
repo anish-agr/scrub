@@ -30,6 +30,6 @@ export const PUBLIC_URL = (env.SCRUB_PUBLIC_URL || "").trim().replace(/\/+$/, ""
 // Shared secret ElevenLabs sends as "Authorization: Bearer ..." (its OPENAI_API_KEY secret). Empty = no check.
 export const LLM_SECRET = keys.VOICE_LLM_SECRET || "";
 // How long a reply stays open to speak follow-up event lines (seconds).
-export const HOLD_S = Number(env.VOICE_HOLD_S || 8);
+export const HOLD_S = Number(env.VOICE_HOLD_S || 14);
 // How long the judge-mode flag from GET /state is trusted before asking again (ms).
 export const JUDGE_TTL_MS = Number(env.VOICE_JUDGE_TTL_MS || 3000);

@@ -43,12 +43,12 @@ main{display:grid;grid-template-columns:minmax(0,1.45fr) minmax(0,1fr);gap:12px;
 .cam{position:relative;background:#000;border:1px solid var(--line);aspect-ratio:16/9;display:none}
 .cam.on{display:block}
 .cam img{width:100%;height:100%;object-fit:contain;display:block}
-.armcams{display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-top:8px}
+.armcams{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr);gap:8px;margin-top:8px}
 .armcam{background:#000;border:1px solid var(--line);position:relative;display:grid;place-items:center;min-height:44px}
 .armcam.on{aspect-ratio:16/10}
 .armcam img{width:100%;height:100%;object-fit:contain;display:none;position:absolute;inset:0}
 .armcam.on img{display:block}
-.armcam span{font-family:var(--mono);font-size:10.5px;color:var(--mute);padding:8px 8px 8px 52px;text-align:left;justify-self:start}
+.armcam span{font-family:var(--mono);font-size:10.5px;color:var(--mute);padding:8px 8px 8px 52px;text-align:left;justify-self:start;overflow-wrap:anywhere;min-width:0}
 .armcam.on span{display:none}
 .armcam b{position:absolute;top:4px;left:6px;font-family:var(--mono);font-size:10px;color:var(--text);background:rgba(0,0,0,.6);padding:1px 4px;z-index:1}
 .pose{font-family:var(--mono);font-size:11.5px;color:var(--mute);margin-top:8px}
@@ -134,7 +134,7 @@ kbd{font-family:var(--mono);font-size:11px;border:1px solid var(--line);padding:
 <main>
   <div class="col">
     <section class="card">
-      <h2>Tray <small id="trayInfo">no TrayState yet</small></h2>
+      <h2>Tray <small id="trayInfo">no tray view yet</small></h2>
       <div class="cam" id="cam"><img id="camImg" alt="Tray camera"></div>
       <div class="armcams">
         <div class="armcam" id="cam-side"><b>SIDE</b><img alt="Arm side camera"><span>checking...</span></div>
@@ -144,7 +144,7 @@ kbd{font-family:var(--mono);font-size:11px;border:1px solid var(--line);padding:
     </section>
 
     <section class="card">
-      <h2>Request <small>sent as source "dashboard"</small></h2>
+      <h2>Request <small>typed or spoken here</small></h2>
       <div class="cmd">
         <button class="mic" id="mic" aria-label="Speak a request" title="Speak a request"><svg viewBox="0 0 24 24"><path d="M12 15a3 3 0 0 0 3-3V6a3 3 0 0 0-6 0v6a3 3 0 0 0 3 3zm5-3a5 5 0 0 1-10 0H5a7 7 0 0 0 6 6.9V22h2v-3.1A7 7 0 0 0 19 12z"/></svg></button>
         <input id="txt" placeholder='Type a request: "kelly", "return the scissors", "count"' aria-label="Typed request" autocomplete="off">
@@ -160,7 +160,7 @@ kbd{font-family:var(--mono);font-size:11px;border:1px solid var(--line);padding:
     </section>
 
     <section class="card fake" id="fakeCard">
-      <h2>Fake arm <small>testing only: POST /fake/*</small></h2>
+      <h2>Fake arm <small>testing only</small></h2>
       <div class="row" style="margin-top:0">
         <button class="btn sm alt" id="pull">Simulate pull</button>
         <button class="btn sm warn" data-force="miss_grasp">Miss next grasp</button>
@@ -182,15 +182,15 @@ kbd{font-family:var(--mono);font-size:11px;border:1px solid var(--line);padding:
     </section>
 
     <section class="card">
-      <h2>Hand <small id="handInfo">no Hand posts</small></h2>
+      <h2>Hand <small id="handInfo">no hand seen yet</small></h2>
       <div class="interlock"><span class="lamp" id="lSeen"></span><span id="tSeen">Seen: --</span></div>
       <div class="interlock"><span class="lamp" id="lOpen"></span><span id="tOpen">Open: --</span></div>
       <div class="interlock"><span class="lamp" id="lPath"></span><span id="tPath">Path: --</span></div>
-      <div class="sub" style="margin-top:6px">Without Hand posts the arm goes to the saved handoff spot.</div>
+      <div class="sub" style="margin-top:6px">Without hand tracking the arm goes to the saved handoff spot.</div>
     </section>
 
     <section class="card">
-      <h2>Request to hand <small>target line <span id="tgtLbl"></span> s, <code>?target=</code></small></h2>
+      <h2>Request to hand <small>target <span id="tgtLbl"></span> s</small></h2>
       <div class="statrow">
         <div class="stat"><b id="sLast">--</b><span>LAST (s)</span></div>
         <div class="stat"><b id="sMed">--</b><span>MEDIAN (s)</span></div>
@@ -201,7 +201,7 @@ kbd{font-family:var(--mono);font-size:11px;border:1px solid var(--line);padding:
   </div>
 
   <section class="card wide">
-    <h2>Event log <small>WS /events, newest first</small></h2>
+    <h2>Event log <small>newest first</small></h2>
     <div class="log" id="log"></div>
   </section>
 </main>
@@ -332,7 +332,7 @@ function renderSlots(){
     return '<div class="slot '+cls+'"><b>'+esc(it.name)+(it.sharp?'<span class="tag">SHARP</span>':'')+'</b><span class="st">'+esc(st)+'</span>'+btn+'</div>';
   }).join('');
   const t=vision&&vision.tray;
-  $('trayInfo').textContent=!t?'no TrayState yet (vision not running)':(vision.tray_age_s>3||t.stale)?'TrayState stale ('+vision.tray_age_s.toFixed(0)+' s)':'TrayState '+vision.tray_age_s.toFixed(1)+' s ago';
+  $('trayInfo').textContent=!t?'no tray view yet (camera not running)':(vision.tray_age_s>3||t.stale)?'tray view stale ('+vision.tray_age_s.toFixed(0)+' s)':'tray seen '+vision.tray_age_s.toFixed(1)+' s ago';
 }
 $('slots').onclick=e=>{
   const h=e.target.closest('[data-hand]');if(h)return cmd('handover',h.dataset.hand,'tap '+nm(h.dataset.hand));
@@ -371,9 +371,9 @@ function renderArm(){
 function lamp(id,cls,txt,tid){$(id).className='lamp'+(cls?' '+cls:'');$(tid).textContent=txt}
 function renderHand(){
   const h=vision&&vision.hand,age=vision&&vision.hand_age_s;
-  if(!h){$('handInfo').textContent='no Hand posts (saved spot)';lamp('lSeen','','Seen: no tracking','tSeen');lamp('lOpen','','Open: --','tOpen');lamp('lPath','','Path: --','tPath');return}
+  if(!h){$('handInfo').textContent='no hand tracking (saved spot)';lamp('lSeen','','Seen: no tracking','tSeen');lamp('lOpen','','Open: --','tOpen');lamp('lPath','','Path: --','tPath');return}
   const fresh=age<=0.5,tracking=age<=5;
-  $('handInfo').textContent=tracking?'last post '+age.toFixed(1)+' s ago':'tracking off ('+age.toFixed(0)+' s)';
+  $('handInfo').textContent=tracking?'seen '+age.toFixed(1)+' s ago':'tracking off ('+age.toFixed(0)+' s)';
   const seen=fresh&&h.seen;
   lamp('lSeen',seen?'on':tracking?'bad':'',  'Seen: '+(seen?'yes'+(h.palm_px?' at '+h.palm_px.join(', '):''):tracking?'lost':'tracking off'),'tSeen');
   lamp('lOpen',seen&&h.open?'on':seen?'warn':'','Open: '+(seen?(h.open?'open palm':'closed'):'--'),'tOpen');
@@ -479,14 +479,15 @@ async function pollPose(){
   if(!p){el.textContent='';return}
   if(!p.available){el.textContent='Pose: '+(p.reason||'not available');return}
   const f=v=>(+v).toFixed(3);
-  el.innerHTML='Tip <b>'+(p.tip_m?p.tip_m.map(f).join(', ')+' m':'--')+'</b>'+(p.tip_px?' at px <b>'+p.tip_px.map(v=>Math.round(v)).join(', ')+'</b>':p.calibrated?'':' (no calibration, B6)')+
+  el.innerHTML='Tip <b>'+(p.tip_m?p.tip_m.map(f).join(', ')+' m':'--')+'</b>'+(p.tip_px?' at px <b>'+p.tip_px.map(v=>Math.round(v)).join(', ')+'</b>':p.calibrated?'':' (no calibration)')+
     ', gripper <b>'+(p.gripper==null?'--':(p.gripper*100).toFixed(0)+'% closed')+'</b>, joints <b>'+p.joints_deg.map(v=>Math.round(v)).join(' / ')+'</b> deg';
 }
 async function armCam(name){
   const box=$('cam-'+name),im=box.querySelector('img'),msg=box.querySelector('span');
   try{
     const r=await fetch('/arm/camera/'+name,{cache:'no-store'});
-    if(!r.ok){let d='';try{d=(await r.json()).detail}catch(e){}msg.textContent=d||('HTTP '+r.status);box.classList.remove('on');setTimeout(()=>armCam(name),5000);return}
+    // 404: the arm has no cameras to share (fake arm, or none plugged in). Plain words, not the server's detail.
+    if(!r.ok){msg.textContent=r.status===404?'No arm camera on this arm.':'Arm camera not available right now.';box.classList.remove('on');setTimeout(()=>armCam(name),5000);return}
     im.onerror=()=>{box.classList.remove('on');msg.textContent='stream dropped, retrying';setTimeout(()=>armCam(name),3000)};
     im.src='/arm/stream/'+name;box.classList.add('on');
   }catch(e){msg.textContent='controller not answering';setTimeout(()=>armCam(name),5000)}

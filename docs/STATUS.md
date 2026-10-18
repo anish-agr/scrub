@@ -77,7 +77,7 @@ Agents: the first unchecked box in your person's section is the next task. Tick 
 - [x] L2 robot sessions pre-opened per tray; Perceptron 401/409/503 spoken as `error` events with `code` (`controller.test_flows` 53/53)
 - [x] L3 judge mode: `POST /judge`, `--judge`, J on `/demo`; only handover, count, stop, got it. Voice refuses tray switches, clinic words and restocks in judge mode (`cd voice && npm test`)
 - [x] L6 `python -m arm.check_setup` and `python -m arm.record` (official recorder over `explore/arm_session.py`, or `--lerobot`; appends `docs/DATA-LOG.md`); `unittest arm.test_record` 23 tests
-- [x] Q3 `docs/AUDIT.md`: the comb pass (contracts, line by line, safety checklist, full stack on the sim arm, public-repo scan). Criticals and highs fixed with tests; `controller.test_flows` 62/62
+- [x] Q3 `docs/AUDIT.md`: the comb pass (contracts, line by line, safety checklist, full stack on the sim arm, public-repo scan). Criticals and highs fixed with tests; `controller.test_flows` 66/66
 - [x] L7/L10 `python -m controller.run_all` (start, `reset`, `backup`, `check`): sim backup run clean, full-stack check 18/18 on a fake stack (`controller.test_run_all` 27 tests)
 
 ## Brandon
