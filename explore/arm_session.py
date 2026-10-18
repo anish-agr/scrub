@@ -40,6 +40,11 @@ import threading
 import time
 from pathlib import Path
 
+sys.path.insert(0, str(Path(__file__).resolve().parents[1]))  # repo root: the shared hardware layer in arm/
+from arm import handoff, hardware, thermal  # noqa: E402
+from arm.hardware import GRIP_CLOSED_POS, GRIP_TORQUE_HOLD, joint_limits  # noqa: E402
+from arm.thermal import COOL_RESUME, COOL_TRIP  # noqa: E402
+
 FOLLOWER = "/dev/tty.usbmodem5C821089781"
 LEADER = "/dev/tty.usbmodem5C821067211"
 CAM_STALL_MS = 2000  # LeRobot stops the whole session if a camera frame is over 500 ms old;
@@ -52,28 +57,14 @@ GRIP_LOAD_MAX = 300  # raw |Present_Load| (LeRobot caps the gripper near 500): a
 GRIP_LOAD_S = 1.0    # straining this long eases the claw open a unit per loop, before overload trips
 GRIP_TEMP_WARN = 55  # deg C: warn on the page
 GRIP_TEMP_EASE = 62  # deg C: open the claw until it cools (STS3215 shuts itself off near 70)
-GRIP_BACKOFF = 4.0
-# Gripper torque by situation (Torque_Limit, 0-1000 = 0-100%; LeRobot's cap is 500). It drew ~100 mA all the
-# time while still, closed 86% of a session, and ran 3-8 C hotter than the other joints.
-GRIP_TORQUE_IDLE = 150   # closed on nothing and still: enough to stay shut
-GRIP_TORQUE_HOLD = 350   # holding an object: plenty for a spatula or an instrument
-GRIP_TORQUE_MOVE = 500   # moving / opening: LeRobot's limit
-GRIP_CLOSED_POS = 6.0    # at or below this the jaws are shut on nothing
-GRIP_IDLE_S = 1.5
-GRIP_DEAD_ZONE = 3
-LIFT_M = 0.03            # gripper tip this much higher than at the grab = lifted off the table
-PULL_PEAK_MIN = 60       # a grasp whose |load| peaked at least this was really squeezing something
-PULL_DROP = 0.3          # then |load| falling below this share of the peak (and <= 25) ...
-PULL_S = 0.3             # ... for this long, while the leader still holds the claw shut = pulled out by a hand       # encoder steps either side (factory 1): stop chasing sub-degree errors   # on an overload reply, open this much per loop until the servo stops reporting it
+GRIP_BACKOFF = 4.0      # on an overload reply, open this much per loop until the servo stops reporting it
+# Gripper torque by situation, the dead zone, lift and pulled-out numbers: arm/hardware.py, arm/handoff.py.
 
 
 DROP_TARGET = [None, False]  # camera index for the SCRUB_DROP_CAMERA drill, done flag
 START = Path.home() / "scrub-logs" / "start-recording"  # the preview was confirmed (page button or Enter)
 COOLDOWN = Path.home() / "scrub-logs" / "cooldown.json"  # written when a motor trips the cool-down
-# deg C: fold to rest and stop at COOL_TRIP; resume once all <= COOL_RESUME, or when cooling has levelled
-# off. A powered motor idles at ~45 C (the leader, torque off, reads 45-47 C), so 45 is unreachable.
-COOL_TRIP, COOL_RESUME = 60, 50
-COOL_PLATEAU_S = 180  # no further drop for this long while <= COOL_TRIP - 5: resume anyway
+# Fold to rest and stop at COOL_TRIP; resume rule in arm/thermal.py (Cooling).
 REST = {"shoulder_lift": -98.0, "elbow_flex": 92.0, "wrist_flex": 70.0}  # folded, just off the stops
 try:  # the saved home pose (explore/home_pose.py save) replaces it: pan, roll and claw too
     _HOME = json.loads((Path(__file__).with_name("home_pose.json")).read_text())["deg"]
@@ -82,7 +73,6 @@ try:  # the saved home pose (explore/home_pose.py save) replaces it: pan, roll a
 except (OSError, ValueError, KeyError):
     _HOME = None
 REST_DEG_S = 30.0
-ROLL_LIMIT_DEG = 150.0  # wrist_roll is calibrated over a full turn; stay this far inside the ends
 LAST_ERROR = Path.home() / "scrub-logs" / "last-error.txt"  # a crashed session's reason, for the page
 CAM_SPECS: dict = {}         # starting OpenCV index -> (role, name spec), to find a camera again after a replug
 
@@ -193,14 +183,7 @@ def retry_bus_reads() -> None:
     """LeRobot reads the bus with zero retries, so one dropped reply ("There is no status packet")
     ends the session (Oct 17: twice in one hour, leader and follower). Retry a read up to 3 times."""
     from lerobot.motors.motors_bus import MotorsBus
-    sync_read, read = MotorsBus.sync_read, MotorsBus.read
-
-    def sync_read_retry(self, data_name, motors=None, *, normalize=True, num_retry=0):
-        return sync_read(self, data_name, motors, normalize=normalize, num_retry=max(num_retry, 3))
-
-    def read_retry(self, data_name, motor, *, normalize=True, num_retry=0):
-        return read(self, data_name, motor, normalize=normalize, num_retry=max(num_retry, 3))
-    MotorsBus.sync_read, MotorsBus.read = sync_read_retry, read_retry
+    hardware.retry_reads(MotorsBus)
 
 
 def lenient_motor_check() -> None:
@@ -221,21 +204,6 @@ def lenient_motor_check() -> None:
     MotorsBus.ping = ping
 
 
-def joint_limits(bus) -> dict:
-    """Each follower joint's calibrated range in LeRobot's units, 1 inside the ends."""
-    out = {}
-    for m, c in bus.calibration.items():
-        if m == "gripper":
-            out[m] = (1.0, 99.0)
-            continue
-        mid = (c.range_min + c.range_max) / 2
-        lo, hi = ((r - mid) * 360 / 4095 for r in (c.range_min, c.range_max))
-        out[m] = (lo + 1, hi - 1)
-    if "wrist_roll" in out:  # full-turn joint: keep clear of the encoder end (Oct 17: 4200 > 4095, overload)
-        out["wrist_roll"] = (max(out["wrist_roll"][0], -ROLL_LIMIT_DEG), min(out["wrist_roll"][1], ROLL_LIMIT_DEG))
-    return out
-
-
 def clamp_follower() -> None:
     """The leader's wrist reaches past the follower's range; a goal past a limit sets the motor's
     angle error, which later fails LeRobot's start-up check. Keep every goal inside the range."""
@@ -245,12 +213,7 @@ def clamp_follower() -> None:
     def clamped(self, action):
         lim = getattr(self, "_scrub_limits", None) or joint_limits(self.bus)
         self._scrub_limits = lim
-        action = dict(action)
-        for k, v in action.items():
-            m = k[:-4] if k.endswith(".pos") else None
-            if m in lim:
-                action[k] = min(lim[m][1], max(lim[m][0], v))
-        return send(self, action)
+        return send(self, hardware.clamp_action(action, lim))
     SOFollower.send_action = clamped
 
 
@@ -297,7 +260,7 @@ def _start_cooldown(temps: dict) -> None:
     """A motor hit COOL_TRIP: end the session (the arm folds to rest on disconnect) and let the
     supervisor wait for it to cool. A recording throws away only the episode in progress."""
     import json
-    hot = {m: t for m, t in temps.items() if t >= COOL_TRIP}
+    hot = thermal.too_hot(temps)
     COOLDOWN.parent.mkdir(parents=True, exist_ok=True)
     COOLDOWN.write_text(json.dumps({"t": time.time(), "temps": temps, "hot": hot}))
     _thermal_row({"kind": "event", "event": "cooldown_trip", "temps": temps, "hot": hot})
@@ -354,13 +317,12 @@ def guard_joints() -> None:
         if now - st["temp_t"] > 2.0:
             st["temp_t"] = now
             try:
-                st["temp"] = {k: int(v) for k, v in self.bus.sync_read("Present_Temperature", normalize=False).items()}
+                st["temp"] = thermal.read_temps(self.bus)
                 st["amps"] = {k: int(v) for k, v in self.bus.sync_read("Present_Current", normalize=False).items()}
                 st["volt"] = {k: int(v) for k, v in self.bus.sync_read("Present_Voltage", normalize=False).items()}
             except Exception:  # noqa: BLE001
                 pass
-        hottest = max(st["temp"].values(), default=0)
-        if hottest >= COOL_TRIP and not st.get("cooling"):
+        if thermal.too_hot(st["temp"]) and not st.get("cooling"):
             st["cooling"] = True
             _start_cooldown(st["temp"])
         # Park: "Home + motors off" on the page glides to home, then torque off; "Motors on" wakes in place.
@@ -379,9 +341,7 @@ def guard_joints() -> None:
             print(f"park: going home ({span:.0f} deg, {pk['dur']:.1f} s), then motors off", flush=True)
         elif req == "wake" and pk["state"]:
             if pk["state"] == "parked":
-                raw = self.bus.sync_read("Present_Position", normalize=False)
-                self.bus.sync_write("Goal_Position", raw, normalize=False)
-                self.bus.enable_torque()
+                hardware.wake(self.bus)
             pk["state"] = None
             st["slew"].clear()  # a big gap to the leader now catches up at EASE_DEG_S
             _thermal_row({"kind": "event", "event": "park_wake", "phase": phase_now})
@@ -400,7 +360,7 @@ def guard_joints() -> None:
             if f >= 1.0:
                 pk["done_t"] = pk["done_t"] or now
                 if now - pk["done_t"] > 1.0:  # settled at home: motors off
-                    self.bus.disable_torque()
+                    hardware.rest(self.bus)
                     pk["state"] = "parked"
                     _thermal_row({"kind": "event", "event": "park_rest", "temps": dict(st["temp"])})
                     print("park: at home, motors off", flush=True)
@@ -429,8 +389,7 @@ def guard_joints() -> None:
                 inside = lim[m][0] <= here <= lim[m][1]
                 if m in st["limp"] and inside:
                     # Moved back into its range by hand: hold where it is, then torque on again.
-                    raw = self.bus.sync_read("Present_Position", m, normalize=False)
-                    self.bus.sync_write("Goal_Position", raw, normalize=False)
+                    hardware.hold_present(self.bus, m)
                     self.bus.write("Torque_Enable", m, 1)
                     st["limp"].discard(m)
                     st["slew"][m] = here
@@ -526,9 +485,7 @@ def guard_joints() -> None:
             for m in self.bus.motors:  # RAM registers: no torque cycling (a raised arm would drop)
                 self.bus.write("Acceleration", m, GENTLE_ACCEL)
                 self.bus.write("Goal_Velocity", m, GENTLE_SPEED)
-            with self.bus.torque_disabled("gripper"):  # EEPROM; only the claw relaxes for a moment
-                self.bus.write("CW_Dead_Zone", "gripper", GRIP_DEAD_ZONE)
-                self.bus.write("CCW_Dead_Zone", "gripper", GRIP_DEAD_ZONE)
+            hardware.set_dead_zone(self.bus)  # EEPROM; only the claw relaxes for a moment
             print(f"gentle mode: acceleration {GENTLE_ACCEL}, speed cap {GENTLE_SPEED} steps/s", flush=True)
         except Exception as e:  # noqa: BLE001 - LeRobot's defaults still work
             print(f"gentle mode not applied ({type(e).__name__})", flush=True)
@@ -541,8 +498,7 @@ def guard_joints() -> None:
         pushing into the base. Folded at rest: torque off. Raised: hold where it is, no push."""
         try:
             if START.exists():  # preview ending because recording starts: keep holding, no limp arm
-                raw = self.bus.sync_read("Present_Position", normalize=False)
-                self.bus.sync_write("Goal_Position", raw, normalize=False)
+                hardware.hold_present(self.bus)
                 print("exit: preview over, holding the pose for the recording", flush=True)
                 return disconnect(self, *a, **kw)
             if COOLDOWN.exists():
@@ -555,8 +511,7 @@ def guard_joints() -> None:
                 self.bus.disable_torque()
                 print("exit: arm folded at rest, torque off so the motors cool", flush=True)
             else:
-                raw = self.bus.sync_read("Present_Position", normalize=False)
-                self.bus.sync_write("Goal_Position", raw, normalize=False)
+                hardware.hold_present(self.bus)
                 print(f"exit: arm raised (lift {p['shoulder_lift']:.0f}, elbow {p['elbow_flex']:.0f}), holding where it is",
                       flush=True)
         except Exception:  # noqa: BLE001 - the original disconnect still runs
@@ -638,25 +593,20 @@ def guard_gripper() -> None:
             st["strain"], st["eased"] = None, False
         g = st.get("grasp")
         if g is not None and load is not None:
-            g["peak"] = max(g["peak"], abs(load))
-            low = abs(load) <= max(25, PULL_DROP * g["peak"])
-            if st["hold"] is not None and g["peak"] >= PULL_PEAK_MIN and low and goal < st["hold"] + GRIP_SQUEEZE:
-                g["low_since"] = g.get("low_since") or now
-                if now - g["low_since"] >= PULL_S:  # squeezing stopped while the leader still holds shut
-                    try:
-                        import thermal_log
-                        thermal_log.event("pulled_out", held_s=round(now - g["t0"], 2), peak_load=g["peak"],
-                                          load_after=load, pos=round(pos, 1), hold=round(st["hold"], 1),
-                                          lifted=bool(thermal_log.EP.get("lifted_this_grasp")),
-                                          lift_m=round(thermal_log.EP.get("lift_max", 0.0), 3))
-                    except Exception:  # noqa: BLE001
-                        pass
-                    print(f"gripper guard: pulled out by hand (load {g['peak']} -> {load})", flush=True)
-                    st["hold"], st["ref"] = None, None
-                    _grasp_end(st, pos, goal, load, temp, now, how="pulled")
-                    _guard_ui(False, None)
-            else:
-                g["low_since"] = None
+            holding = st["hold"] is not None and goal < st["hold"] + GRIP_SQUEEZE
+            if handoff.pulled_out(g, load, now, holding):  # squeezing stopped while the leader still holds shut
+                try:
+                    import thermal_log
+                    thermal_log.event("pulled_out", held_s=round(now - g["t0"], 2), peak_load=g["peak"],
+                                      load_after=load, pos=round(pos, 1), hold=round(st["hold"], 1),
+                                      lifted=bool(thermal_log.EP.get("lifted_this_grasp")),
+                                      lift_m=round(thermal_log.EP.get("lift_max", 0.0), 3))
+                except Exception:  # noqa: BLE001
+                    pass
+                print(f"gripper guard: pulled out by hand (load {g['peak']} -> {load})", flush=True)
+                st["hold"], st["ref"] = None, None
+                _grasp_end(st, pos, goal, load, temp, now, how="pulled")
+                _guard_ui(False, None)
         if st["hold"] is not None:
             if goal >= st["hold"] + GRIP_SQUEEZE:  # leader opened past the contact point: let go
                 st["hold"], st["ref"] = None, None
@@ -692,17 +642,10 @@ def _tip_z(pos: dict):
     if _KIN["failed"]:
         return None
     try:
-        import numpy as np
         if _KIN["k"] is None:
-            root = str(Path(__file__).resolve().parents[1])
-            if root not in sys.path:
-                sys.path.insert(0, root)
             from arm.kinematics import Kinematics
             _KIN["k"] = Kinematics()
-        k = _KIN["k"]
-        deg = [pos[m] for m in ARM_JOINTS]
-        t, _, _ = k._chain(np.clip(k.to_urdf(deg), k.lower, k.upper))
-        return float((np.linalg.inv(k.base_to_urdf) @ t)[2, 3])
+        return handoff.tip_z(_KIN["k"], [pos[m] for m in ARM_JOINTS])
     except Exception:  # noqa: BLE001 - no model: lift tracking is off, nothing else changes
         _KIN["failed"] = True
         return None
@@ -717,12 +660,9 @@ def _track_lift(pos: dict) -> None:
         E["tip_z"] = round(z, 4) if z is not None else None
         if z is None or not E.get("grasp_active"):
             return
-        if E.get("z0") is None:
-            E["z0"] = z
-        rise = z - E["z0"]
-        E["lift_max"] = max(E.get("lift_max", 0.0), rise)
-        if rise >= LIFT_M and not E.get("lifted_this_grasp"):
-            E["lifted_this_grasp"] = E["lifted"] = True
+        rise = handoff.track_lift(E, z)
+        if rise is not None:
+            E["lifted"] = True
             thermal_log.event("lift", lift_m=round(rise, 3), tip_z=round(z, 3), z_at_grab=round(E["z0"], 3))
     except Exception:  # noqa: BLE001
         pass
@@ -777,21 +717,9 @@ def _grip_empty(st: dict, pos, goal, load, temp) -> None:
 
 def _grip_torque(bus, st: dict, pos: float, goal: float, now: float) -> None:
     """Idle shut -> 15%, holding something -> 35%, otherwise 50%. Writes only when the level changes."""
-    if st["hold"] is not None and pos > GRIP_CLOSED_POS:
-        want = GRIP_TORQUE_HOLD
-    elif pos <= GRIP_CLOSED_POS and goal <= pos + 1.0:
-        st["shut"] = st.get("shut") or now
-        want = GRIP_TORQUE_IDLE if now - st["shut"] > GRIP_IDLE_S else GRIP_TORQUE_MOVE
-    else:
-        st["shut"] = None
-        want = GRIP_TORQUE_MOVE
-    if want != st.get("torque"):
-        try:
-            bus.write("Torque_Limit", "gripper", want)
-            st["torque"] = want
-            _thermal_row({"kind": "event", "event": "gripper_torque", "torque_limit": want, "pos": round(pos, 1)})
-        except Exception:  # noqa: BLE001 - keep LeRobot's limit
-            pass
+    want = hardware.gripper_torque_want(st, pos, goal, st["hold"] is not None, now)
+    if hardware.set_gripper_torque(bus, st, want):
+        _thermal_row({"kind": "event", "event": "gripper_torque", "torque_limit": want, "pos": round(pos, 1)})
 
 
 def ease(follower_port: str, leader_port: str, seconds: float) -> None:
@@ -809,13 +737,7 @@ def ease(follower_port: str, leader_port: str, seconds: float) -> None:
         # The leader's wrist reaches past the follower's calibrated range. A target past a limit
         # sets the motor's angle error for a few seconds, and LeRobot's start-up ping then
         # counts that motor as missing. Keep every target 1 degree inside the follower's range.
-        for m, c in f.calibration.items():
-            if m == "gripper":
-                goal[m] = min(99.0, max(1.0, goal[m]))
-                continue
-            mid = (c.range_min + c.range_max) / 2
-            lo, hi = ((r - mid) * 360 / 4095 for r in (c.range_min, c.range_max))
-            goal[m] = min(hi - 1, max(lo + 1, goal[m]))
+        goal = hardware.clamp_action(goal, joint_limits(f))
         worst = max(abs(goal[m] - start[m]) for m in start)
         seconds = max(seconds, worst / EASE_DEG_S)
         print(f"easing follower to the leader's pose (largest gap {worst:.0f}) over {seconds:.0f} s", flush=True)
@@ -889,35 +811,9 @@ def bus_ok(port: str) -> bool:
 
 def stuck_motors(port: str) -> list[str]:
     """Follower motors that LeRobot's start-up would refuse: an overload/angle flag, usually because the
-    joint sits past its range (the target is clamped, it strains, the flag sticks). Says what to do."""
-    import scservo_sdk as scs
-    names = ["shoulder_pan", "shoulder_lift", "elbow_flex", "wrist_flex", "wrist_roll", "gripper"]
-    out = []
-    ph = scs.PortHandler(port)
-    try:
-        if not ph.openPort():
-            return []
-        ph.setBaudRate(1_000_000)
-        pk = scs.PacketHandler(0)
-        for i, n in enumerate(names, 1):
-            _m, comm, err = pk.ping(ph, i)
-            if comm != scs.COMM_SUCCESS or not err & 0x30:
-                continue
-            pos = pk.read2ByteTxRx(ph, i, 56)[0]
-            lo, hi = pk.read2ByteTxRx(ph, i, 9)[0], pk.read2ByteTxRx(ph, i, 11)[0]
-            pos = -(pos & 0x7FFF) if pos & 0x8000 else pos
-            if (lo or hi) and not lo <= pos <= hi:
-                out.append(f"{n} past its range ({pos} outside {lo}-{hi}): turn it back by hand (torque is off)")
-            else:
-                pk.write2ByteTxRx(ph, i, 42, pos)  # a fresh target at the present position clears overload
-    except Exception:  # noqa: BLE001
-        return []
-    finally:
-        try:
-            ph.closePort()
-        except Exception:  # noqa: BLE001
-            pass
-    return out
+    joint sits past its range (the target is clamped, it strains, the flag sticks). Says what to do.
+    A flagged motor that is in range gets its overload cleared (arm/hardware.py)."""
+    return hardware.stuck_motors(port)
 
 
 def silent_motors(port: str) -> list[int]:
@@ -1155,20 +1051,18 @@ def cool_down(a, arm_ui) -> None:
         arm_ui.S["phase"] = "cooling"
         arm_ui.start_server()
     started, said = time.time(), 0
-    best, best_t = None, time.time()
+    cooling = thermal.Cooling()
     while True:
         temps = motor_temps(a.follower)
         hot = max(temps.values()) if temps else None
-        if hot is not None and (best is None or hot < best):
-            best, best_t = hot, time.time()
-        level = hot is not None and hot <= COOL_TRIP - 5 and time.time() - best_t > COOL_PLATEAU_S
+        done = cooling.done(hot)
         _thermal_row({"kind": "cooling", "temps": temps})
         mins = (time.time() - started) / 60
         msg = (f"COOLING DOWN: hottest motor {hot} C, resumes at {COOL_RESUME} C ({mins:.0f} min so far)"
                if hot is not None else "COOLING DOWN: can't read the motors (power?)")
         arm_ui.S["waiting"] = [msg]
         print(msg, flush=True)
-        if hot is not None and (hot <= COOL_RESUME or level):
+        if done:
             COOLDOWN.unlink(missing_ok=True)
             _say("Cooled down. Starting again.")
             print("cool-down done: restarting the session", flush=True)

@@ -11,6 +11,7 @@ if __name__ == "__main__":
 
         log_cli(sys.argv[2:])
     else:
-        from ledger import stats
+        from ledger import stats, warm
 
+        warm()
         print(json.dumps(stats(), indent=2))

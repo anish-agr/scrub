@@ -4,14 +4,17 @@ import time
 import unittest
 from pathlib import Path
 from types import SimpleNamespace
+from unittest import mock
 from unittest.mock import Mock
 
 import numpy as np
 from PIL import Image
 
+from . import hardware, real_arm, taught
 from .backends import LeRobotBackend, SavedImageBackend
 from .real_arm import Arm
 from .sessions import DryPolicySession
+from .test_hardware import FakeBus
 
 
 class ArmTests(unittest.TestCase):
@@ -120,6 +123,7 @@ class ArmTests(unittest.TestCase):
         with self.assertRaisesRegex(RuntimeError, "unmeasured"):
             Arm().connect()
         arm, _ = self.arm()
+        arm.rig["home"] = None
         with self.assertRaisesRegex(RuntimeError, "home"):
             arm.go_home()
         self.assertFalse(arm.move_to(99, 99, 99))
@@ -189,6 +193,199 @@ class ArmTests(unittest.TestCase):
         self.assertTrue(arm.move_to(*target))
         self.assertLess(np.linalg.norm(kin.forward(backend.joints[:5]) - target), .002)
         self.assertEqual(backend.joints[5], 60)
+
+
+class BusBackend(SavedImageBackend):
+    """Saved images and fake joints, plus a fake LeRobot bus. Fails the test on a write while torque is off."""
+    def __init__(self, side, wrist, joints, bus):
+        super().__init__(side, wrist, joints=joints)
+        self.bus = bus
+
+    def read_joints(self):
+        self.bus.sync_read("Present_Position")  # goes through the arm's retries
+        return super().read_joints()
+
+    jaw_stop = None  # an item in the jaws: the gripper stops closing here
+
+    def send(self, row):
+        if not self.bus.torque:
+            raise AssertionError("position written while torque is off")
+        row = np.array(row, dtype=float)
+        if self.jaw_stop is not None:
+            row[5] = max(row[5], self.jaw_stop)
+        super().send(row)
+
+
+class HardwareLayerTests(ArmTests.__bases__[0]):
+    def setUp(self):
+        ArmTests.setUp(self)
+        patcher = mock.patch.object(real_arm, "THERMAL_EVERY_S", .05)
+        patcher.start()
+        self.addCleanup(patcher.stop)
+
+    def arm(self, joints=(0, 0, 0, 0, 0, 100), bus=None):
+        bus = bus or FakeBus()
+        backend = BusBackend(self.side, self.wrist, joints, bus)
+        arm = Arm(dry_run=True, backend=backend)
+        arm.connect()
+        self.addCleanup(arm.disconnect)
+        return arm, backend, bus
+
+    def wait_for(self, check, seconds=2.0):
+        end = time.time() + seconds
+        while time.time() < end:
+            if check():
+                return True
+            time.sleep(.02)
+        return False
+
+    def test_bus_reads_retry(self):
+        arm, backend, bus = self.arm()
+        bus.fail_reads = 3  # LeRobot alone would end the session on the first dropped reply
+        time.sleep(.2)
+        self.assertIsNone(arm._error)
+        bus.fail_reads = 2
+        self.assertTrue(self.wait_for(lambda: bus.fail_reads == 0))
+        self.assertIsNone(arm._error)
+
+    def test_rest_then_wake_writes_nothing_between(self):
+        arm, backend, bus = self.arm()
+        arm.rig["home"] = [8, 0, 0, 0, 0, 100]
+        arm.rest()
+        np.testing.assert_allclose(backend.joints[:5], [8, 0, 0, 0, 0], atol=1)
+        self.assertFalse(bus.torque)
+        sent = len(backend.sent)
+        time.sleep(.2)
+        self.assertEqual(len(backend.sent), sent)  # torque off: nothing written
+        with self.assertRaisesRegex(RuntimeError, "resting"):
+            arm.go_carry()
+        arm.rest()  # already resting: no-op
+        here = backend.joints.copy()
+        writes = len(bus.writes)
+        arm.wake()
+        new = [w for w in bus.writes[writes:] if w[0] in ("Goal_Position", "torque")]
+        self.assertEqual([w[0] for w in new[:2]], ["Goal_Position", "torque"])  # goal := present, then torque on
+        self.assertTrue(bus.torque)
+        self.assertTrue(self.wait_for(lambda: len(backend.sent) > sent))
+        np.testing.assert_allclose(backend.joints, here)  # nothing moved
+        arm.wake()  # awake: no-op
+
+    def test_rest_at_measured_home_skips_the_move(self):
+        home = [2.8, -102.2, 97.7, 72.3, -9.3, 4.8]  # past the URDF lift and elbow limits; must still connect
+        arm, backend, bus = self.arm(joints=home)
+        self.assertEqual(arm.rig["home"], home)
+        sent = len(backend.sent)
+        arm.rest()
+        self.assertFalse(bus.torque)
+        self.assertLessEqual(len(backend.sent) - sent, 3)  # a few hold ticks, no trajectory
+        np.testing.assert_allclose(backend.joints, home)
+        arm.wake()
+        self.assertTrue(bus.torque)
+        time.sleep(.1)
+        np.testing.assert_allclose(backend.joints, home)  # woken where it rests, not pulled to the limit
+
+    def test_joint_limits_clamp_moves(self):
+        arm, backend, bus = self.arm()
+        arm.rig["carry"] = [0, 0, 0, 0, 160, 100]
+        arm.go_carry()
+        self.assertAlmostEqual(backend.joints[4], 150, places=1)  # wrist_roll held to +-150
+
+    def test_gripper_torque_by_situation(self):
+        with mock.patch.object(hardware, "GRIP_IDLE_S", .1):
+            arm, backend, bus = self.arm(joints=(0, 0, 0, 0, 0, 0))  # shut on nothing (0 = closed)
+            limits = lambda: [w[2] for w in bus.writes if w[0] == "Torque_Limit"]  # noqa: E731
+            self.assertTrue(self.wait_for(lambda: limits()[-1:] == [hardware.GRIP_TORQUE_IDLE]))
+            self.assertEqual(limits()[0], hardware.GRIP_TORQUE_MOVE)
+            arm.open_gripper()
+            self.assertEqual(limits()[-1], hardware.GRIP_TORQUE_MOVE)
+            backend.jaw_stop = 40.0  # an instrument in the jaws
+            _, set_gripper, _ = arm.taught_controls()
+            self.assertTrue(set_gripper(1.0))  # the claw guard's hold at contact counts as done
+            self.assertIsNotNone(arm._grip["hold"])
+            self.assertTrue(self.wait_for(lambda: limits()[-1] == hardware.GRIP_TORQUE_HOLD))
+
+    def test_thermal_trip_stops_folds_home_and_raises(self):
+        arm, backend, bus = self.arm()
+        arm.rig["home"] = [0, 0, 0, 0, 0, 100]
+        arm.rig["carry"] = [30, 0, 0, 0, 0, 100]
+        threading.Timer(.3, lambda: bus.temps.update(elbow_flex=61)).start()
+        with self.assertRaisesRegex(hardware.ArmFault, "Too hot: elbow_flex 61 C. Cooling down."):
+            arm.go_carry()
+        self.assertEqual(arm.last_reason, "too_hot")
+        np.testing.assert_allclose(backend.joints[:5], [0, 0, 0, 0, 0], atol=1)  # empty jaw: folded home
+        self.assertTrue(arm.telemetry()["cooling"])
+        with self.assertRaises(hardware.ArmFault):
+            arm.run_skill("pick the hemostat", 1)
+        arm.go_home()  # home is allowed while cooling
+        bus.temps["elbow_flex"] = 50
+        self.assertTrue(self.wait_for(lambda: not arm.telemetry()["cooling"]))
+        arm.go_carry()
+
+    def test_thermal_trip_holding_an_item_holds_in_place(self):
+        arm, backend, bus = self.arm(joints=(0, 0, 0, 0, 0, 50))  # jaw half closed on an instrument
+        arm.rig["home"] = [0, 0, 0, 0, 0, 100]
+        arm.rig["carry"] = [30, 0, 0, 0, 0, 50]
+        threading.Timer(.8, lambda: bus.temps.update(gripper=62)).start()
+        with self.assertRaisesRegex(hardware.ArmFault, "gripper 62"):
+            arm.go_carry()
+        stopped = backend.joints.copy()
+        self.assertTrue(2 < stopped[0] < 29)  # stopped mid-move, not folded, not opened
+        self.assertEqual(stopped[5], 50)
+        time.sleep(.2)
+        np.testing.assert_allclose(backend.joints, stopped, atol=.5)
+
+    def test_thermal_trip_during_model_skill(self):
+        arm, backend, bus = self.arm()
+        arm._session_factory = lambda instruction: DryPolicySession(instruction, .02)
+        arm.rig["home"] = None  # nowhere to fold: hold where it stopped
+        threading.Timer(.3, lambda: bus.temps.update(shoulder_lift=60)).start()
+        with self.assertRaisesRegex(hardware.ArmFault, "shoulder_lift 60"):
+            arm.run_skill("pick the hemostat", 3)
+
+    def test_telemetry_shape(self):
+        arm, backend, bus = self.arm()
+        bus.loads["gripper"] = -87
+        self.assertTrue(self.wait_for(lambda: (arm.telemetry() or {}).get("loads", {}).get("gripper") == -87))
+        t = arm.telemetry()
+        self.assertEqual(set(t), {"temps", "loads", "hottest", "cooling", "t"})
+        self.assertEqual(set(t["temps"]), set(hardware.MOTORS))
+        self.assertEqual((t["hottest"], t["cooling"], t["loads"]["gripper"]), (40, False, -87))
+        dry, _ = ArmTests.arm(self)
+        self.assertIsNone(dry.telemetry())  # saved images: no bus, no numbers made up
+
+    def test_taught_source_plays_through_guarded_motion(self):
+        skill = {"item": "hemostat", "direction": "pick", "waypoints": [
+            {"name": "approach", "joints": {"shoulder_pan": 5, "shoulder_lift": 0, "elbow_flex": 0,
+                                            "wrist_flex": 0, "wrist_roll": 170}, "gripper": None, "speed": .5},
+            {"name": "grip", "joints": {"shoulder_pan": 5, "shoulder_lift": 2, "elbow_flex": 0,
+                                        "wrist_flex": 0, "wrist_roll": 140}, "gripper": .6, "speed": .5},
+            {"name": "carry", "joints": {"shoulder_pan": 0, "shoulder_lift": 0, "elbow_flex": 0,
+                                         "wrist_flex": 0, "wrist_roll": 140}, "gripper": None, "speed": 1}]}
+        arm, backend, bus = self.arm(joints=(0, 0, 0, 0, 140, 100))
+        calls = []
+        play = taught.play
+
+        def spy(s, *, goto, set_gripper, stopped):
+            def g(joints, speed):
+                ok = goto(joints, speed)
+                calls.append(backend.joints.copy())
+                return ok
+            return play(s, goto=g, set_gripper=set_gripper, stopped=stopped)
+
+        with mock.patch.object(taught, "load", return_value=skill) as load, mock.patch.object(taught, "play", spy):
+            self.assertTrue(arm.run_skill("pick the hemostat", 15, source="taught"))
+        load.assert_called_once_with("hemostat", "pick", setting=None)
+        self.assertEqual(arm.last_reason, "taught_done")
+        self.assertAlmostEqual(calls[0][4], 150, places=1)  # wrist_roll clamped like every other move
+        np.testing.assert_allclose(backend.joints, [0, 0, 0, 0, 140, 40], atol=1)  # 0.6 closed, kept to carry
+        with mock.patch.object(taught, "load", return_value=None):
+            with self.assertRaisesRegex(RuntimeError, "No taught skill"):
+                arm.run_skill("pick the hemostat", 5, source="taught")
+        with self.assertRaises(ValueError):
+            arm.run_skill("pick the hemostat", 5, source="other")
+        arm.freeze()
+        with mock.patch.object(taught, "load", return_value=skill):
+            self.assertFalse(arm.run_skill("pick the hemostat", 5, source="taught"))
 
 
 if __name__ == "__main__":

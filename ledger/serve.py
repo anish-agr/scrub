@@ -9,7 +9,7 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from urllib.parse import parse_qs, urlparse
 
-from ledger import stats, stored_rows
+from ledger import _kick_connect, stats, stored_rows
 from ledger.cases import case_view, list_cases
 from ledger.memory import answer, configured, notes
 from ledger.qr import png_bytes, public_url
@@ -153,6 +153,7 @@ class Handler(BaseHTTPRequestHandler):
 def serve() -> None:
     port = int(os.environ.get("PORT", "8080"))
     host = os.environ.get("HOST", "0.0.0.0")  # the server service sets 127.0.0.1: only nginx reaches it
+    _kick_connect()  # connect to Atlas now; requests never wait for it
     server = ThreadingHTTPServer((host, port), Handler)
     print(f"public page on http://127.0.0.1:{port}")
     server.serve_forever()
