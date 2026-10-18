@@ -4,7 +4,8 @@ Agents: the first unchecked box in your person's section is the next task. Tick 
 
 ## Anish
 
-- [ ] A1 workshop notes in `docs/ARM.md`
+- [x] A1 workshop notes in `docs/ARM.md`
+  - Covered by `explore/research/isaac-workshop-notes.md` and the capabilities block in `docs/ARM.md`.
 - [x] A2 `arm/perceptron.py`, `arm/train.py`, `arm/upload_dataset.py`
   - Client/CLI/uploader implemented; `python -m unittest arm.test_perceptron -v` passes 5 offline tests. Live `python -m arm.train capabilities` blocked by missing `PERCEPTRON_TEAM_API_KEY` (no root `.env`). Anish authorized A7/A6 work while this check waits.
 - [ ] A3 arm connected, both cameras, poses in `arm/rig.json`

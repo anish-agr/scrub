@@ -22,8 +22,6 @@ Evan's tasks (E1 to E7) aren't listed here; he's on them. As of 5 PM he has push
 | V1 | B5 tooling: `vision/mark_slots.py` works on a live frame or a saved image, writes boxes for all three trays in the settings format, and is tested with `--fake` | Antigravity (for Brandon) |
 | V2 | B6 tooling: `vision/calibrate.py` accepts both guided gripper points and `--pairs` from `explore` page 42, reports the fit error in cm, and the controller gets `target` once `vision/calibration.json` exists. Test with synthetic pairs | Antigravity (for Brandon) |
 | V3 | B8 tooling: a lighting test mode that records detection rate, hand-tracking rate and stale rate per lighting tag to a CSV. Also confirm live `/v1/detect` works with `PERCEPTRON_API_KEY` | Antigravity (for Brandon) |
-| G1 | `docs/PITCH.md`: tighten the 3-minute script and judge Q&A against what's built, with `[measured]` slots for the numbers. Plain words, no buzzwords, no em dashes | Antigravity |
-| G2 | Browser QA: start the stack with the fake arm and `vision --fake`, click through the dashboard and the public page, try every control, and write bugs by owner in `docs/QA.md` | Antigravity |
 
 ## After everyone finishes: the final pass
 
