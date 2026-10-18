@@ -42,6 +42,9 @@ export const getSetting = (): Promise<any> => call("GET", "/setting");
 export const getState = (): Promise<State> => call("GET", "/state");
 export const postRestock = (r: object): Promise<{ ok: boolean }> => call("POST", "/restock", r);
 export const getStats = (): Promise<unknown> => call("GET", "/stats");
+// For GET /health: is the controller up? Never throws.
+export const controllerUp = (): Promise<boolean> =>
+  fetch(CONTROLLER_URL + "/state", { signal: AbortSignal.timeout(1000) }).then((r) => r.ok, () => false);
 
 // Follow WS /events forever, reconnecting every second if the controller is down.
 export function followEvents(onEvent: (e: ScrubEvent) => void): void {

@@ -8,7 +8,9 @@ import path from "node:path";
 export const VOICE_DIR = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 export const REPO_DIR = path.resolve(VOICE_DIR, "..");
 const envFile = path.join(REPO_DIR, ".env");
-const keys: Record<string, string | undefined> = existsSync(envFile) ? parse(readFileSync(envFile)) : {};
+// VOICE_NO_KEYS=1 (npm test) ignores .env so nothing calls Gemini or Photon.
+const keys: Record<string, string | undefined> =
+  !process.env.VOICE_NO_KEYS && existsSync(envFile) ? parse(readFileSync(envFile)) : {};
 const env: Record<string, string | undefined> = { ...keys, ...process.env };  // wiring: the shell wins
 export const CONTROLLER_URL = env.CONTROLLER_URL || "http://localhost:8000";
 export const VOICE_PORT = Number(env.VOICE_PORT || 3000);
