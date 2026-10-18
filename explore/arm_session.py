@@ -56,6 +56,7 @@ GRIP_BACKOFF = 4.0   # on an overload reply, open this much per loop until the s
 
 
 DROP_TARGET = [None, False]  # camera index for the SCRUB_DROP_CAMERA drill, done flag
+START = Path.home() / "scrub-logs" / "start-recording"  # the preview was confirmed (page button or Enter)
 COOLDOWN = Path.home() / "scrub-logs" / "cooldown.json"  # written when a motor trips the cool-down
 COOL_TRIP, COOL_RESUME = 60, 45  # deg C: fold to rest and stop at COOL_TRIP; resume once all <= COOL_RESUME
 REST = {"shoulder_lift": -98.0, "elbow_flex": 92.0, "wrist_flex": 70.0}  # folded, just off the stops
@@ -689,6 +690,22 @@ def supervise(a, argv: list) -> None:
     arm_ui.cfg["root"] = a.root if record else None
     start_eps = dataset_episodes(a.root) if record else 0
     restarts, opened, serving, shown = 0, False, False, None
+    START.unlink(missing_ok=True)
+    confirmed = not record or a.no_confirm
+    live = {"proc": None}
+    if not confirmed:
+        import threading
+
+        def enter_to_start():
+            while True:
+                try:
+                    input()
+                except EOFError:
+                    return
+                if live["proc"] is not None and not START.exists():
+                    START.touch()
+                    live["proc"].send_signal(2)  # SIGINT: the preview ends, recording starts
+        threading.Thread(target=enter_to_start, daemon=True).start()
     if COOLDOWN.exists():  # left from a cool-down that was interrupted: finish it first
         cool_down(a, arm_ui)
     try:
@@ -724,17 +741,28 @@ def supervise(a, argv: list) -> None:
             if serving:
                 arm_ui.stop_server()
                 serving = False
-            env = {**os.environ, "SCRUB_CHILD": "1", "SCRUB_RESTARTS": str(restarts)}
+            env = {**os.environ, "SCRUB_CHILD": "1", "SCRUB_RESTARTS": str(restarts),
+                   "SCRUB_PREVIEW": "0" if confirmed else "1"}
+            if not confirmed:
+                print("PREVIEW: nothing is recorded yet. Check the cameras and tray on the page, then click "
+                      "'Start recording' there or press Enter here.", flush=True)
             if opened:
                 env["BROWSER"] = "true"  # the tab is already open; don't open another
             LAST_ERROR.unlink(missing_ok=True)
             proc = subprocess.Popen([sys.executable, str(Path(__file__).resolve()), *child], env=env)
+            live["proc"] = None if confirmed else proc
             opened = opened or not a.no_ui
             try:
                 rc = proc.wait()
             except KeyboardInterrupt:
                 proc.wait(timeout=15)
                 return
+            live["proc"] = None
+            if not confirmed and START.exists():
+                START.unlink(missing_ok=True)
+                confirmed = True
+                print("confirmed: recording starts", flush=True)
+                continue
             if COOLDOWN.exists():
                 cool_down(a, arm_ui)  # returns with the page server stopped
                 serving = False
@@ -832,6 +860,8 @@ def main() -> None:
     p.add_argument("--repo", default="local/scrub", help="dataset name; only matters if pushed later")
     p.add_argument("--ease-s", type=float, default=3.0)
     p.add_argument("--no-ui", action="store_true", help="skip the recorder page on http://localhost:8090")
+    p.add_argument("--no-confirm", action="store_true",
+                   help="record straight away (default: a teleop preview first, then Start recording)")
     p.add_argument("--check", action="store_true",
                    help="no hardware: is --root complete and ready to upload/train? (arm.train's check + upload list)")
     p.add_argument("--follower", default=FOLLOWER)
@@ -857,7 +887,8 @@ def main() -> None:
         spec = ", ".join(f"{k}: {{type: opencv, index_or_path: {v}, width: 640, height: 480, fps: 30}}"
                          for k, v in cams.items())
         robot.append(f"--robot.cameras={{{spec}}}")
-    if a.task:
+    preview = bool(a.task) and os.environ.get("SCRUB_PREVIEW") == "1"
+    if a.task and not preview:
         if len(cams) != 2:
             sys.exit("recording needs --side and --wrist")
         cmd = ["lerobot-record", *robot, *teleop, f"--dataset.repo_id={a.repo}",
@@ -892,10 +923,10 @@ def main() -> None:
     if not a.no_ui:
         import webbrowser
         import arm_ui
-        arm_ui.install("record" if a.task else "teleop", a.task, a.episodes, a.episode_s, a.reset_s,
-                       a.root if a.task else None, cams)
+        arm_ui.install("preview" if preview else "record" if a.task else "teleop", a.task, a.episodes,
+                       a.episode_s, a.reset_s, a.root if a.task else None, cams)
         webbrowser.open(f"http://localhost:{arm_ui.PORT}")
-    if a.task:
+    if a.task and not preview:
         from lerobot.scripts.lerobot_record import main as run
     else:
         from lerobot.scripts.lerobot_teleoperate import main as run

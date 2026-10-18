@@ -196,6 +196,9 @@ def install(mode: str, task, episodes, episode_s, reset_s, root, cams: dict) -> 
     if mode == "teleop":
         phase("teleop")
         note("teleop ready")
+    elif mode == "preview":
+        phase("preview")
+        note("PREVIEW: nothing is recorded yet. Check the cameras and tray, then Start recording")
 
     get_obs = SOFollower.get_observation
 
@@ -370,6 +373,13 @@ def status() -> dict:
 
 
 def control(action: str) -> bool:
+    if action == "start" and S["mode"] == "preview":
+        import os
+        import signal
+        (Path.home() / "scrub-logs" / "start-recording").touch()
+        note("page: start recording")
+        threading.Timer(0.2, lambda: os.kill(os.getpid(), signal.SIGINT)).start()  # end the preview
+        return True
     if not events or S["phase"] not in ("recording", "resetting"):
         return False
     if action == "rerecord":
