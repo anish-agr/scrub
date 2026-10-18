@@ -20,7 +20,8 @@ caller -> Photon number -> Photon Voice profile (SIP, TLS) -> ElevenLabs agent (
 - `npm run dev` (port 3000). `CONTROLLER_URL` and `VOICE_PORT` from the shell override `.env`, so a test copy can run beside the real one: `CONTROLLER_URL=http://localhost:8071 VOICE_PORT=3071 npm run dev`.
 - `curl localhost:3000/health`: `{"ok":true,"keys":{"gemini":..,"photon":..,"llm_secret":..},"controller":true}`. Booleans only, never key values.
 - No call needed: `npm run say -- "grab me the kelly"` sends what ElevenLabs sends and prints the streamed reply with timings. `VOICE_URL=https://<tunnel> npm run say -- "stop"` does it through the tunnel. `curl -XPOST localhost:3000/heard -d '{"text":"grab me the kelly"}'` returns the lines as JSON.
-- `npm test`: offline. Alias match, case summary counts, caller id and last-message rules, and the real server against a fake controller: SSE chunk shape, `[DONE]`, "stop" hits only `POST /stop` (no `/setting`, no Gemini, no `/command`), "check the tray" hits only `GET /tray_check`, `/health`. `VOICE_NO_KEYS=1` (set by `npm test`) ignores `.env`, so it never calls Gemini or Photon.
+- Robot-model errors: the controller's `error` events (optional `code` 401, 409 or 503, and a `say` line) are spoken like any event line, during a turn and in the hold window, and end the hold. The end-of-case summary does not count them as failed requests.
+- `npm test`: offline. Its fake controller and voice server use ports 8260-8269 and 3260-3269. Alias match, case summary counts, caller id and last-message rules, and the real server against a fake controller: SSE chunk shape, `[DONE]`, "stop" hits only `POST /stop` (no `/setting`, no Gemini, no `/command`), "check the tray" hits only `GET /tray_check`, `/health`. `VOICE_NO_KEYS=1` (set by `npm test`) ignores `.env`, so it never calls Gemini or Photon.
 - Gemini: checked Oct 17 live, kelly, mayo, "knife please", "what's out" and "stop" all map right. The first Gemini call after start can pass the 1.5 s timeout and fall back to the alias match.
 - The setting is cached for 30 s and dropped when an event shows a different setting, so a turn doesn't wait on `GET /setting` before Gemini.
 - Clinic words (X6): "call the hemostat a clamp", "clamp means the hemostat", "when I say clamp I mean the hemostat" are caught by a local pattern (`parseAlias` in `src/parse.ts`) before Gemini, on the call and by text (texts also have a Gemini `alias` kind). The item side has to name an item on the tray. They go to the controller's `POST /alias` (saved in `settings/<id>.local.json`), Scrub says its `say`, and the cached setting is dropped so the next turn hears the new word. The Command action enum is unchanged.
@@ -28,7 +29,7 @@ caller -> Photon number -> Photon Voice profile (SIP, TLS) -> ElevenLabs agent (
 
 ## Texts
 
-Text the Photon number (same iMessage thread as the end-of-case summary). The listener only starts when `PHOTON_PROJECT_ID` and `PHOTON_API_KEY` are in `.env`; otherwise the server logs `[texts] off`. Gemini reads the text (structured output, the current setting's item ids plus `surgical`/`dental`/`bench`); with no key or a Gemini error it falls back to a local match.
+Text the Photon number (same iMessage thread as the end-of-case summary). The listener only starts when `PHOTON_PROJECT_ID` and `PHOTON_API_KEY` are in `.env`; otherwise the server logs `[texts] off`. Gemini reads the text (structured output, the current setting's item ids plus `surgical`/`bench`); with no key or a Gemini error it falls back to a local match.
 
 | You text | Scrub replies |
 | --- | --- |
@@ -36,9 +37,11 @@ Text the Photon number (same iMessage thread as the end-of-case summary). The li
 | "what's out?", "count" | `Out (2): hemostat, scalpel.` from `GET /state` `out`, plus what the camera says (`out_camera`) when the controller has it |
 | "check the tray", "is the tray ready?", "tray check" | `Tray ready: Operating room, all 3 instruments in place.` when it passes, else the controller's line ("Missing the scalpel.", "I can't check the tray right now."). From `GET /tray_check`, matched before Gemini |
 | "summary", "end of case" | the end-of-case summary, and a new case starts (plus the case link line, below) |
-| "start a dental case", "switch to the bench tray", "surgical case" | `Dental case started: mouth mirror, explorer, cotton pliers.` (names from the setting file `POST /setting` returns). The controller starts a new `case_id`; the previous case's summary is not sent. 409: `The arm is busy. Stop or wait, then try again.` Saying it on the call does the same (a local phrase match before Gemini, `src/cases.ts`) |
+| "start a bench case", "switch to the bench tray", "surgical case", "start a robotics case" | `Bench case started: needle-nose pliers, wire cutters, hex key.` (names from the setting file `POST /setting` returns). The controller starts a new `case_id`; the previous case's summary is not sent. 409: `The arm is busy. Stop or wait, then try again.` Saying it on the call does the same (a local phrase match before Gemini, `src/cases.ts`). Voice offers surgical, then bench. Dental is hidden: "start a dental case" gets `The dental tray isn't set up for this demo.` and nothing is posted (the controller can still load it from the keyboard or dashboard) |
 | "call the hemostat a clamp", "clamp means the hemostat", "when I say clamp I mean the hemostat" | the controller's `POST /alias` line: `Got it: clamp means the hemostat.` (or `Clamp already means the X.`) |
-| anything else | one help line |
+| anything else | one help line (`Text me "add a hemostat to the surgical tray", "what's out?", "switch to the bench tray" or "summary".`) |
+
+Judge mode: when `GET /state` has `judge: true`, the controller only takes handover, count, stop and got_it. Voice then never posts `/setting`, `/alias` or `/restock` (tray switches, clinic words, restocks, by call or text) and answers `In judge mode I can hand you an instrument, read the count, or stop.` On the call the flag comes from `GET /state`, cached `VOICE_JUDGE_TTL_MS` (3000) and only asked on those paths, so stop and handover never wait on it. A 403 from `POST /setting` or `/alias` gets the same line.
 
 Code in `src/texts.ts`; `npm test` runs it against a fake message stream and fake state, no network.
 

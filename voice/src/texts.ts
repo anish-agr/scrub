@@ -10,17 +10,17 @@ import { currentSetting, teach, type Setting } from "./settings.js";
 import type { AliasReply } from "./controller.js";
 import { closeCase, closeCaseWithLink, getPhoton, photonConfigured } from "./summary.js";
 import { textTrayCheck } from "./tray.js";
-import { settingAsked, switchSetting } from "./cases.js";
+import { JUDGE, KNOWN_SETTINGS, SETTING_IDS, settingAsked, switchSetting } from "./cases.js";
 
 const ai = GEMINI_API_KEY ? new GoogleGenAI({ apiKey: GEMINI_API_KEY }) : null;
 
-export const SETTINGS = ["surgical", "dental", "bench"];
+export const SETTINGS = SETTING_IDS;  // offered: surgical, bench (dental is recognised only to say it isn't set up)
 const KINDS = ["restock", "count", "summary", "setting", "alias", "help"] as const;
 type Kind = typeof KINDS[number];
 export interface TextIntent { kind: Kind; item: string | null; qty: number; setting: string | null; alias?: string }
 
 export const RESTOCKS_FILE = path.join(VOICE_DIR, "restocks.jsonl");
-export const HELP = `Text me "add a hemostat to the surgical tray", "what's out?" or "summary".`;
+export const HELP = `Text me "add a hemostat to the surgical tray", "what's out?", "switch to the bench tray" or "summary".`;
 const name = (id: string) => id.replace(/_/g, " ");
 
 export async function parseText(text: string, setting: Setting): Promise<TextIntent> {
@@ -41,12 +41,12 @@ Kinds:
 - restock: they added instruments to a tray ("add a second hemostat to the surgical tray"). qty is how many were added (a second one = 1).
 - count: they want to know what's out
 - summary: they want the end-of-case summary, or say the case is over
-- setting: they want to start a case on, or switch to, a tray ("start a dental case", "switch to the bench tray"). setting is that tray.
+- setting: they want to start a case on, or switch to, a tray ("start a surgical case", "switch to the bench tray"). setting is that tray.
 - alias: they teach a word for an instrument on this tray ("call the hemostat a clamp", "clamp means the hemostat", "when I say clamp I mean the hemostat"). item is that instrument, alias is the new word, lowercase.
 - help: anything else
 Instruments on the current tray:
 ${list}
-item is the instrument id for restock or alias, otherwise "none". alias is the new word for alias, otherwise "none". setting is the tray they name (${SETTINGS.join(", ")}), otherwise "none".
+item is the instrument id for restock or alias, otherwise "none". alias is the new word for alias, otherwise "none". setting is the tray they name (${SETTINGS.join(" or ")}; "dental" only if they name the dental tray), otherwise "none".
 Text: "${text}"`,
     config: {
       responseMimeType: "application/json",
@@ -56,7 +56,7 @@ Text: "${text}"`,
           kind: { type: Type.STRING, enum: [...KINDS] },
           item: { type: Type.STRING, enum: [...ids, "none"] },
           qty: { type: Type.INTEGER },
-          setting: { type: Type.STRING, enum: [...SETTINGS, "none"] },
+          setting: { type: Type.STRING, enum: [...KNOWN_SETTINGS, "none"] },
           alias: { type: Type.STRING },
         },
         required: ["kind", "item", "qty", "setting", "alias"],
@@ -76,7 +76,7 @@ Text: "${text}"`,
     kind,
     item: kind === "restock" && ids.includes(out.item) ? out.item : null,
     qty: Number.isInteger(out.qty) && out.qty > 0 ? Math.min(out.qty, 20) : 1,
-    setting: SETTINGS.includes(out.setting) ? out.setting : null,
+    setting: KNOWN_SETTINGS.includes(out.setting) ? out.setting : null,
   };
 }
 
@@ -85,7 +85,7 @@ const NUMS: Record<string, number> = { two: 2, three: 3, four: 4, five: 5, six: 
 
 export function localText(text: string, setting: Setting): TextIntent {
   const s = ` ${norm(text)} `;
-  const named = SETTINGS.find((id) => s.includes(` ${id} `)) || null;
+  const named = KNOWN_SETTINGS.find((id) => s.includes(` ${id} `)) || null;
   const taught = parseAlias(text, setting);
   if (taught) return { kind: "alias", item: taught.item, qty: 1, setting: null, alias: taught.alias };
   if (isEndCase(text) || /\b(summary|recap|wrap up)\b/.test(s)) return { kind: "summary", item: null, qty: 1, setting: named };
@@ -149,6 +149,8 @@ export async function handleText(text: string, from: string | null, deps: Partia
   console.log(`[text] ${from ?? "?"}: ${text} -> ${p.kind}${p.item ? ` ${p.qty} ${p.item}` : ""}`);
   if (p.kind === "count") return st ? countReply(st) : "I can't reach the arm controller.";
   if (p.kind === "summary") return d.summary();
+  // Judge mode: the controller only takes handover, count, stop and got_it. Don't post a switch, a word or a restock.
+  if (st?.judge && (p.kind === "setting" || p.kind === "alias" || p.kind === "restock")) return JUDGE;
   if (p.kind === "setting") return p.setting ? d.switchTo(p.setting) : `Which tray? ${SETTINGS.join(", ")}.`;
   if (p.kind === "alias") {
     if (!p.item || !p.alias) return `Say it like: call the ${setting.items[0]?.name ?? "hemostat"} a clamp. On this tray: ${setting.items.map((i) => i.name).join(", ")}.`;
