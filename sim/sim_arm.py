@@ -184,7 +184,9 @@ class SimArm:
         return call.sleep(0.6)
 
     # ---- Arm interface ---------------------------------------------------
-    def run_skill(self, instruction, max_s=20.0):
+    def run_skill(self, instruction, max_s=20.0, source="model"):
+        """source "model" or "taught": the sim plays the same scripted motion for both."""
+        self.last_source = source
         call = _Call(self, max_s)
         m = re.match(r"\s*(pick|return)\s+(?:up\s+)?(?:the\s+|a\s+)?(.+?)\s*$", instruction.lower())
         if not m:
@@ -317,6 +319,14 @@ class SimArm:
         with self.lock:
             extra = 1.0 if time.time() < self._pull_until else 0.0
             return float(abs(self.data.actuator_force[5])) + extra
+
+    def telemetry(self):
+        """Plausible numbers for the ops page: actuator force as load, temperature a flat 30 C plus a little per N."""
+        with self.lock:
+            f = [float(abs(v)) for v in self.data.actuator_force[:6]]
+        temps = {n: round(30.0 + min(f[i], 10.0), 1) for i, n in enumerate(NAMES)}
+        return {"temps": temps, "loads": {n: round(f[i], 2) for i, n in enumerate(NAMES)},
+                "hottest": max(temps.values()), "cooling": bool(getattr(self, "resting", False)), "t": time.time()}
 
     def pull(self):
         """Test hook: simulate the clinician tugging the item for half a second."""

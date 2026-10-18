@@ -36,6 +36,7 @@ def path_blocked_down(name): return f"Something's in the way. {cap(name)} {'are'
 def returned(name): return f"{cap(name)} back in {'their' if _plural(name) else 'its'} slot."
 def couldnt_return(name): return f"I couldn't put the {name} back."
 def auto_return(name): return f"Returning the {name}."
+def no_taught(name): return f"I have no taught skill for the {name}."  # --skills taught and none recorded
 
 
 def _a(word): return ("an " if word[:1] in "aeiou" else "a ") + word

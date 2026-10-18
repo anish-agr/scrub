@@ -16,6 +16,8 @@ from .core import Controller
 DASHBOARD = Path(__file__).resolve().parent.parent / "dashboard"
 DEMO = Path(__file__).resolve().parent / "demo.html"  # copy of explore/prototypes/48-judge-run.html
 NURSE = Path(__file__).resolve().parent / "nurse.html"  # live port of explore/prototypes/24-scrub-nurse.html
+OPS = Path(__file__).resolve().parent / "ops.html"
+DESIGN = Path(__file__).resolve().parent.parent / "design"  # shared scrub.css for every page
 
 
 class Command(BaseModel):
@@ -51,6 +53,8 @@ class Force(BaseModel):
     skill_fail: int = 0
     no_pull: int = 0
     no_load: int = 0
+    collapse: int = 0  # the next pick's grip load drops toward zero at the hand instead of jumping
+    hot: int = 0       # the next skill raises ArmFault (thermal stop)
     api_error: int = 0  # an HTTP status: the next prepare or run_skill raises the robot model's APIError
 
 
@@ -195,7 +199,16 @@ def make_app(ctl: Controller, extra=None) -> FastAPI:
         """Nurse console: tray, requests, step track, handoff time per request, what's out, event log."""
         return NURSE.read_text()
 
+    @app.get("/ops", response_class=HTMLResponse)
+    async def ops():
+        """Ops page: step, events, skill source per item, arm temperatures, latencies."""
+        if OPS.exists():
+            return OPS.read_text()
+        return "<!doctype html><meta charset=utf-8><title>Scrub ops</title><p>controller/ops.html is not here yet. See <a href=/state>/state</a>."
+
     armview.routes(app, ctl)
+    if DESIGN.is_dir():
+        app.mount("/design", StaticFiles(directory=DESIGN), name="design")
     if extra:
         extra(app)
     if (DASHBOARD / "index.html").exists():
