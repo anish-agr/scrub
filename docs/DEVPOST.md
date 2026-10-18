@@ -2,7 +2,7 @@
 
 Owner: Evan. Ready to paste before 10:30 PM Saturday. Plain words. No buzzwords. No em dashes.
 
-Paste into the Devpost form from **Project name** through **Built with**. Leave this note out. Leave the video sections out of the form. Evan submits the draft by 10:00 PM Saturday (see `docs/PLAN.md`).
+Paste into the Devpost form from **Project name** through **Built with**. Leave this note out. Leave the video sections out of the form. Evan submits the draft by 10:00 PM Saturday (see `team/PLAN.md`).
 
 Measured arm numbers stay as `[measured]` until the tests are logged on Sunday morning. Do not invent a success rate.
 
@@ -17,16 +17,13 @@ A robot arm that passes instruments when you ask out loud.
 ## Tracks to tick, and where each one is used
 
 - **Community Kitchen (title).** The job itself: a clinician asks, and Scrub passes the instrument so they do not turn away from the patient to search the tray.
-- **Perceptron Robotics.** The SO-101 arm. A fine-tuned Isaac 0.5 model runs "pick the hemostat" and "return the hemostat" from our own demonstrations.
+- **Perceptron Robotics (pending).** The SO-101 arm and the fine-tune pipeline work offline and the team key is accepted. There is no deployment yet. Claim "fine-tuned" and live inference only after training run 1 finishes and a model-driven pick is recorded (`docs/INTEGRATION.md`, Track claims).
 - **Perceptron Perception.** Their vision API on the overhead camera. It says which slots are full and whether the return spot holds an instrument. That drives the grasp check, the automatic return, the count check and "check the tray".
-- **Photon (including best voice agent).** The whole case runs over a call to the Photon number. Texts in (restock, what's out) and the end-of-case summary out use the same thread.
-- **DubHacks NEXT.** The business case (`docs/NEXT-PASS-PROMPT.md`, section "Earlier next-steps notes"): surgery centers first, a monthly fee per operating room, with the break-even worked out.
+- **Photon (pending).** Designed: a case over a call to a Photon number, with texts in (restock, what's out) and the end-of-case summary out on the same thread. The phone line is not set up and no real text has gone out. Claim it only after one does.
+- **DubHacks NEXT.** The business case (`docs/BUSINESS.md`): surgery centers first, a monthly fee per operating room, with the break-even worked out.
 - **MLH Gemini API.** Turns what was said into one command from the current tray, with structured output. It cannot invent an instrument that is not on the tray. It also writes the end-of-case summary and reads texts.
-- **MLH Tiger Data.** Each handoff is a point on a time series. With `TIGER_DATABASE_URL` set, those points go into a Tiger Data hypertable, and the public series page reads them back. Without it, the same page counts the local ledger.
-- **MLH Backboard.** Notes of what was asked, and an answer for what usually comes next. With `BACKBOARD_API_KEY` and `BACKBOARD_ASSISTANT_ID` set, the notes are stored in Backboard and the question is answered there. Until then the answer comes from the local ledger.
 - **MLH MongoDB Atlas.** Stores every event and every measured trial. The success tables are read from there.
 - **MLH Vultr.** The public judge page runs on a Vultr server.
-- **MLH GoDaddy Registry.** Our domain points at that page. It is on the QR code at the table.
 - **MLH Commit Fellowship.** The form Anish sends after we submit.
 - **MLH DEV writing.** A post after the event (draft at the end of this file).
 
@@ -53,15 +50,15 @@ Plain names work. So do the names people actually say. "Kelly" is the hemostat. 
 
 ## How we built it
 
-A phone on speaker calls a Photon number. ElevenLabs turns the speech into text. Gemini turns that text into one command from the current tray. The word "stop" never waits on Gemini. It freezes the arm immediately.
+The designed path is a phone on speaker calling a Photon number, with an ElevenLabs agent turning the speech into text. The phone number is pending, so the demo also takes typed lines and the browser. Gemini turns that text into one command from the current tray. The word "stop" never waits on Gemini. It freezes the arm immediately.
 
-A camera watches the tray and the clinician's hand. MediaPipe finds the open hand. Perceptron's vision model says which slots are full. The Isaac 0.5 model, trained on our own demonstrations, runs the pick and the return on an SO-101 arm. Those demonstrations are being recorded this weekend.
+A camera watches the tray and the clinician's hand. MediaPipe finds the open hand. Perceptron's vision model says which slots are full. The Isaac 0.5 model, to be fine-tuned on our own demonstrations, is meant to run the pick and the return on an SO-101 arm. The demonstrations are being recorded and no model is deployed yet. Until one is, taught waypoint skills do the picks and the events say which source moved the arm.
 
 Only the controller moves the arm. It checks the grasp, sends sharps to the safe spot, and stops on the word "stop", the spacebar, or the button on the dashboard. After a stop, the arm stays frozen until someone presses reset.
 
 MongoDB Atlas stores every event and every measured trial. If Atlas is down, the same events sit in a local file and upload when the connection comes back. The dashboard shows the live camera, the current step, the current lighting, what is out, the handoff time, and the success tables. Each rate shows the number of tries and a 95% range. If the tray camera is reusing an old reading, the page says "vision stale."
 
-The public page (hosted for judges) has the count, those tables, and a link to each case. A case page lists every event, the handoff times, and what was out at each moment. A series page shows handoffs by minute, from Tiger Data when that database is connected. A memory page answers what usually comes next, from Backboard when that key is connected. A tablet view across the room shows the step, what is out, and stop and reset in large type. The dashboard can also name the instrument that usually comes next. That line is only a suggestion. The arm does not move until someone asks.
+The public page (hosted for judges) has the count, those tables, and a link to each case. A case page lists every event, the handoff times, and what was out at each moment. A series page shows handoffs by minute and a memory page answers what usually comes next. Both read the local ledger. A tablet view across the room shows the step, what is out, and stop and reset in large type. The dashboard can also name the instrument that usually comes next. That line is only a suggestion. The arm does not move until someone asks.
 
 ## Screenshots
 
@@ -113,11 +110,11 @@ Surgery centers are the first customers, as a monthly fee per operating room. At
 
 ## Built with
 
-Python, FastAPI, HTML, JavaScript, MongoDB Atlas, Tiger Data, Backboard, Gemini, ElevenLabs, Photon, Perceptron (Isaac 0.5 and the vision API), MediaPipe, LeRobot, SO-101, Vultr, GoDaddy
+Python, FastAPI, HTML, JavaScript, MongoDB Atlas, Gemini, ElevenLabs, Photon (texts; phone line pending), Perceptron (vision API; Isaac 0.5 fine-tune pending), MediaPipe, LeRobot, SO-101, Vultr
 
 ## Video shot list (after the arm works, not pasted into the Devpost form)
 
-Edit a 2 to 3 minute video from these shots once the real arm can hand an instrument over. Record each one a few times and keep the cleanest take. The spoken script is in `docs/PITCH.md`. Phone audio has to be clear: put a second phone or the laptop mic next to the speakerphone.
+Edit a 2 to 3 minute video from these shots once the real arm can hand an instrument over. Record each one a few times and keep the cleanest take. The spoken script is in `team/PITCH.md`. Phone audio has to be clear: put a second phone or the laptop mic next to the speakerphone.
 
 - [ ] 1. Title card, about 5 seconds.
 - [ ] 2. Brandon's hands are busy. He says "hemostat" to the speakerphone. Close-up of the pick, the hand receiving it handle first, and the gripper opening when he pulls. Dashboard shows the handoff seconds.
@@ -163,10 +160,9 @@ Edit notes:
 - Export H.264, 1080p, 30 fps, stereo from the mic that was next to the speakerphone.
 - Separate file, not part of this cut: Anish's unedited roll of picks and returns for the robotics track, with the success table at the end.
 
-## MLH DEV blog post (draft for after the event)
+## DEV post
 
-This section is the DEV.to post for the MLH DEV writing track. It is not part of the Devpost form. Publish steps are in `docs/ACCOUNTS-TODO.md`. Fill every `[measured]` from the dashboard tables first, or cut the sentence.
-
+This section is the DEV.to post for the MLH DEV writing track. It is not part of the Devpost form. Publish steps are in `team/ACCOUNTS-TODO.md`. Fill every `[measured]` from the dashboard tables first, or cut the sentence.
 
 Post title: Building Scrub: a robot arm that passes surgical instruments by voice
 
@@ -186,9 +182,9 @@ Scrub is our weekend answer. You ask for an instrument out loud. A small open-so
 
 Five parts, built in parallel by four people, talking over a short list of HTTP and WebSocket messages:
 
-1. **Voice.** A phone on speaker calls a Photon number. An ElevenLabs agent hears the words. Its language model is our voice server, where Gemini turns them into one action and one item from the current tray. Clinic words work: "Kelly" is the hemostat, "Mayo" is the scissors. "Stop" skips Gemini and goes straight to the controller.
+1. **Voice.** A phone on speaker calls a Photon number (the number is pending). An ElevenLabs agent hears the words. Its language model is our voice server, where Gemini turns them into one action and one item from the current tray. Clinic words work: "Kelly" is the hemostat, "Mayo" is the scissors. "Stop" skips Gemini and goes straight to the controller.
 2. **Vision.** One overhead camera. MediaPipe finds the open hand about 10 times a second. Perceptron's vision API finds the instruments and says which slots are full.
-3. **Arm.** An SO-101 runs Perceptron's Isaac 0.5, fine-tuned on our own demonstrations, for the pick and the return. The move to the hand is planned from the camera, because the hand is somewhere new every time.
+3. **Arm.** An SO-101 is meant to run Perceptron's Isaac 0.5, fine-tuned on our own demonstrations, for the pick and the return. Until the model is deployed, taught waypoint skills do the picks, and every event says which one moved the arm. The move to the hand is planned from the camera, because the hand is somewhere new every time.
 4. **Controller.** The only thing that moves the arm. It checks every grasp, sends sharps to the safe spot, and freezes on "stop".
 5. **Ledger and dashboard.** Every event goes to MongoDB Atlas. The dashboard shows the step, what's out, the handoff time and the success tables.
 

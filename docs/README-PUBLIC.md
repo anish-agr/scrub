@@ -21,9 +21,9 @@ Hospitals can't hire enough scrub techs. A surgical tech job takes about 120 day
 
 ![System diagram](docs/media/system.svg)
 
-- A phone on speaker calls a Photon number. An ElevenLabs voice agent hears the words. Gemini turns them into one command from the current tray.
+- Designed path: a phone on speaker calls a Photon number, an ElevenLabs voice agent hears the words, and Gemini turns them into one command from the current tray. The phone number is pending. Today the same voice server takes typed lines (`npm run say`) and the browser.
 - One overhead camera finds the open hand (MediaPipe) and reads the tray (Perceptron's vision API).
-- Perceptron's Isaac 0.5, fine-tuned on our own demonstrations, does the pick and the return on the SO-101.
+- Perceptron's Isaac 0.5, to be fine-tuned on our own demonstrations, is meant to do the pick and the return on the SO-101. No model is deployed yet. Until one is, taught waypoint skills do the picks and every event says which source moved the arm (`--skills model|taught|auto`).
 - Only the controller moves the arm. Everything else sends it information.
 - Every event goes to MongoDB Atlas. The dashboard and the public page show the count and the success tables.
 
@@ -72,7 +72,7 @@ Drive one spoken line without a phone:
 cd voice && npm run say -- "grab me the kelly"
 ```
 
-The real arm is `--arm real --vision real`. It needs the arm plugged in, a camera, `PERCEPTRON_TEAM_API_KEY` and a deployment id from training. The phone call needs Photon and ElevenLabs set up as in `voice/README.md`.
+The real arm is `--arm real --vision real`. The judging preset is `.venv/bin/python -m controller.run_all --real --tunnel` (real arm, real camera, ledger page, judge mode, taught or model skills per item, public voice URL). It needs the arm plugged in and a camera. The model path also needs `PERCEPTRON_TEAM_API_KEY` and a deployment id from training. The phone call needs Photon and ElevenLabs set up as in `voice/README.md`.
 
 Tests:
 
@@ -88,16 +88,13 @@ cd voice && npm test
 | Track | Where it shows up |
 | --- | --- |
 | Community Kitchen | A working assistant for a real staffing gap in health care |
-| Perceptron Robotics | Isaac 0.5 fine-tuned on our own demonstrations, on the SO-101 |
-| Perceptron Perception | Their vision API: tray state, grasp check, automatic return, count check, tray check |
-| Photon (and best voice agent) | The whole case over a phone call, texts in, and the summary text on the same thread |
-| DubHacks NEXT | Business case: surgery centers first, a monthly fee per operating room (`docs/NEXT-PASS-PROMPT.md` (section "Earlier next-steps notes")) |
+| Perceptron Robotics (pending) | Fine-tune pipeline and arm client work offline. No deployment yet, so no fine-tuned claim until training run 1 finishes |
+| Perceptron Perception | Their vision API: tray state, grasp check, automatic return, count check |
+| Photon (pending) | Designed: the case over a phone call, texts in, summary text on the same thread. The line is not set up and no real text has been sent |
+| DubHacks NEXT | Business case: surgery centers first, a monthly fee per operating room (`docs/BUSINESS.md`) |
 | MLH Gemini API | Speech becomes one command from the current tray. Also the summary and texts |
 | MLH MongoDB Atlas | The event log, case replays and success tables |
-| MLH Tiger Data | Handoff times by minute on the series page |
-| MLH Backboard | What was asked, and what usually comes next, on the memory page |
 | MLH Vultr | The public page's server |
-| MLH GoDaddy Registry | The domain on the QR code |
 
 ## Team
 
