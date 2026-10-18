@@ -2,16 +2,11 @@
 
 A robot arm that passes surgical instruments when you ask out loud. Built at DubHacks '26 (Oct 17 to 18, 2026) by Anish, Caiden, Brandon and Evan.
 
-A surgeon asks for an instrument. The SO-101 arm picks it from the tray, brings it to their open hand handle first, and lets go when they pull or say "got it." A scalpel goes to a fixed safe spot instead of hand to hand. An instrument set in the return spot goes back to its slot. Scrub keeps a count, checks it with the camera, and reads back what is still out.
+You ask for the scalpel, the hemostat or the Mayo scissors. The SO-101 arm picks it from the tray and holds it out at the handoff point. It lets go when you pull it or say "let go", then goes straight home. "Stop" freezes the arm where it is.
 
-Surgical first. The robotics bench tray is the second setting, to show that a new tray needs new demonstrations and a settings file, not new code.
+On the real arm, the picks are taught skills: replays of demonstrations we recorded ourselves (29 episodes, 24 usable). We did not run a fine-tuning job, so no model drives the arm. In the simulation, the controller slows the arm for the last stretch to the handoff point.
 
-| Setting | Items |
-| --- | --- |
-| Operating room | scalpel handle, hemostat, Mayo scissors |
-| Robotics bench | needle-nose pliers, wire cutters, hex key |
-
-Scrub is a research prototype, not a medical device. It makes no clinical claims.
+Scrub is a research prototype, not a medical device. It never touches the patient and makes no clinical claims.
 
 ## Why
 
@@ -19,29 +14,19 @@ Hospitals can't hire enough scrub techs. A surgical tech job takes about 120 day
 
 ## How it works
 
-![System diagram](docs/media/system.svg)
+- **Voice.** A call to the Photon number reaches an ElevenLabs voice agent, whose language model is our voice server (`voice/`). Gemini turns the words into one command from the tray's fixed list. Known names and "stop" skip Gemini. Without a phone: `cd voice && npm run say -- "grab me the kelly"`.
+- **Arm.** The real arm runs through the recording station (`explore/station/`), which replays each instrument's recorded demonstration. The controller (`controller/`) runs the same flow on a fake arm or a MuJoCo sim arm.
+- **Vision.** Perceptron's vision API reads the tray and, with OCR, the printed count sheet (`vision/`).
+- **Sim.** A MuJoCo SO-101 (`sim/`) runs the controller's flow when the real arm is busy.
+- **Ledger.** Every event goes to MongoDB Atlas (`ledger/`). The public page runs on Vultr.
 
-- Designed path: a phone on speaker calls a Photon number, an ElevenLabs voice agent hears the words, and Gemini turns them into one command from the current tray. The phone number is pending. Today the same voice server takes typed lines (`npm run say`) and the browser.
-- One overhead camera finds the open hand (MediaPipe) and reads the tray (Perceptron's vision API).
-- Perceptron's Isaac 0.5, to be fine-tuned on our own demonstrations, is meant to do the pick and the return on the SO-101. No model is deployed yet. Until one is, taught waypoint skills do the picks and every event says which source moved the arm (`--skills model|taught|auto`).
-- Only the controller moves the arm. Everything else sends it information.
-- Every event goes to MongoDB Atlas. The dashboard and the public page show the count and the success tables.
+## Safety
 
-Stop is its own path. The word "stop", the spacebar or the button on the page freezes the arm without waiting on a model. The arm stays frozen until someone resets it.
-
-## Pictures
-
-From a fake-arm case.
-
-![Dashboard](docs/media/dashboard.png)
-
-![Tablet view, for someone across the room](docs/media/tablet.png)
-
-![One case, played back](docs/media/case.png)
-
-![Public page](docs/media/public.png)
-
-The same page at phone width: [docs/media/public-phone.png](docs/media/public-phone.png).
+- "Stop" freezes the arm where it is. In the controller it stays frozen until a reset (`controller/core.py`).
+- Motor temperatures are checked every couple of seconds. At 60 C the arm goes home and turns the motors off until they cool (`arm/thermal.py`, `explore/station/station.py`).
+- Every move is speed-capped: 45 degrees a second peak on the real arm, slower once a motor passes 52 C (`explore/station/autopick.py`).
+- In the controller, joint commands are clamped to the arm's limits and the grasp is checked before carrying (`arm/real_arm.py`, `controller/core.py`).
+- It lets go when you pull the instrument or tell it to.
 
 ## How to run
 
@@ -55,24 +40,17 @@ cd voice && npm install && cd ..
 cp .env.example .env                                  # fill in your own keys; never commit .env
 ```
 
-One command starts the whole stack and prints every URL (Ctrl-C stops it all):
+One command starts the stack and prints every URL (Ctrl-C stops it all):
 
 ```
 .venv/bin/python -m controller.run_all                 # fake arm, fake camera, voice
-.venv/bin/python -m controller.run_all --arm fake      # same as the line above
 .venv/bin/python -m controller.run_all --arm sim       # MuJoCo arm, viewer at :8002/web/viewer.html
 .venv/bin/python -m controller.run_all --ledger        # also the public page on :8080
 ```
 
-Then open http://localhost:8000/ for the dashboard and http://localhost:8000/tablet.html for the large view. With `--ledger`, the public page is http://127.0.0.1:8080/. Series is `/series.html`. Memory is `/memory.html`. Cases are `/cases.html`. The table card is `/card.html`.
+Then open http://localhost:8000/ for the dashboard. With `--ledger`, the public page is http://127.0.0.1:8080/.
 
-Drive one spoken line without a phone:
-
-```
-cd voice && npm run say -- "grab me the kelly"
-```
-
-The real arm is `--arm real --vision real`. The judging preset is `.venv/bin/python -m controller.run_all --real --tunnel` (real arm, real camera, ledger page, judge mode, taught or model skills per item, public voice URL). It needs the arm plugged in and a camera. The model path also needs `PERCEPTRON_TEAM_API_KEY` and a deployment id from training. The phone call needs Photon and ElevenLabs set up as in `voice/README.md`.
+The real arm needs the SO-101 plugged in and `explore/station/run_station.sh`; voice finds the station on `localhost:8090` by itself. The phone call needs Photon and ElevenLabs set up as in `voice/README.md`.
 
 Tests:
 
@@ -85,17 +63,17 @@ cd voice && npm test
 
 ## Tracks
 
-| Track | Where it shows up |
+| Track | Proof |
 | --- | --- |
-| Community Kitchen | A working assistant for a real staffing gap in health care |
-| Perceptron Robotics (pending) | Fine-tune pipeline and arm client work offline. No deployment yet, so no fine-tuned claim until training run 1 finishes |
-| Perceptron Perception | Their vision API: tray state, grasp check, automatic return, count check |
-| Photon (pending) | Designed: the case over a phone call, texts in, summary text on the same thread. The line is not set up and no real text has been sent |
-| DubHacks NEXT | Business case: surgery centers first, a monthly fee per operating room (`docs/BUSINESS.md`) |
-| MLH Gemini API | Speech becomes one command from the current tray. Also the summary and texts |
-| MLH MongoDB Atlas | The event log, case replays and success tables |
-| MLH Vultr | The public page's server |
+| Community Kitchen | The project |
+| Perceptron Robotics | The arm on video, picks labeled as taught skills. No fine-tuning job (0 jobs, 0 deployments) |
+| Perceptron Perception | Tray check and OCR read on video, with latency |
+| Photon | A call to +1 785 867 1047 on video (not yet confirmed) |
+| DubHacks NEXT | `docs/BUSINESS.md` |
+| MLH Gemini API | Words to one command from the tray's fixed list |
+| MLH MongoDB Atlas | Event log and arm temperature log |
+| MLH Vultr | The public judge page |
 
 ## Team
 
-Anish (arm and training), Caiden (controller and voice), Brandon (camera and hand tracking), Evan (dashboard, ledger and data).
+Anish (arm and training), Caiden (controller and voice), Brandon (camera), Evan (dashboard, ledger and data).
