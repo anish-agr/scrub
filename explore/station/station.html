@@ -175,7 +175,7 @@ kbd{border:1px solid var(--hair);padding:0 4px;font:inherit}
         <button id="b-stop" class="big">Stop<small>ends the run, home, motors off</small></button>
       </div>
       <div class="grid2" id="autopick-row" style="margin-top:10px">
-        <button id="b-pick">Pick &amp; hand over<small>picks it like the demos, holds it out, lets go on "let go" or a pull</small></button>
+        <button id="b-pick">Pick &amp; hand over<small>replays your most typical demo smoothly, holds it out, lets go on "let go"</small></button>
         <button id="b-cal">Calibrate camera<small>arm maps the camera to the tray by itself (~1 min, claw stays shut); hands clear</small></button>
       </div>
       <div class="grid2" style="margin-top:8px">
@@ -402,7 +402,7 @@ $("b-run").onclick=()=>{
 $("b-stop").onclick=()=>send("stop");
 $("b-letgo").onclick=()=>send("release");
 $("b-look").onclick=()=>send("run",{driver:"autopick",args:{mode:"look"}});
-$("b-pick").onclick=()=>send("run",{driver:"autopick",args:{mode:"learned"}});
+$("b-pick").onclick=()=>send("run",{driver:"autopick",args:{mode:"replay_demo"}});
 let calArmed=null;
 function calArm(on){
   clearTimeout(calArmed); calArmed=null;

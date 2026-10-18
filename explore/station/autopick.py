@@ -431,11 +431,22 @@ def demo_keyposes(state, fps=30):
     if a.ndim != 2 or a.shape[1] < 6 or len(a) < fps:
         return None
     g = a[:, 5]
-    i_open = int(np.argmax(g[: max(2, int(len(g) * 0.8))]))
-    after = g[i_open:]
-    g_open, g_min = float(g[i_open]), float(after.min())
-    if g_open - g_min < 8:  # the jaw never really closed
+    away = np.abs(a[:, :5] - a[0, :5]).sum(axis=1)  # how far the arm is from where the demo started
+    # every jaw closing: falls by >= 8 within 1 s; the grasp is the one done farthest from the start pose
+    # (a jaw opened and shut at home before moving is not a grasp)
+    best = None
+    w = max(3, int(fps))
+    for i in range(w, len(g)):
+        drop = float(g[i - w: i].max() - g[i])
+        if drop >= 8 and g[i] < g[i - 1] and (best is None or away[i] > away[best] + 1e-6):
+            if away[i] >= 25:
+                best = i
+    if best is None:
         return None
+    i_open = best - w + int(np.argmax(g[best - w: best]))
+    g_open = float(g[i_open])
+    after = g[i_open:]
+    g_min = float(after[: int(1.5 * fps)].min())
     thr = g_open - 0.7 * (g_open - g_min)
     i_grasp = i_open + int(np.argmax(after < thr))  # the arm's pose as the jaw closes (lifting starts right after)
     i_closed = min(len(a) - 1, i_grasp + int(0.3 * fps))  # the jaw's own value once it has finished closing
@@ -450,6 +461,46 @@ def demo_keyposes(state, fps=30):
     if i_hand is not None and i_hand > i_lift:
         out["handoff"] = pose(i_hand)
     return out
+
+
+REPLAY_SPEED = 0.8   # the chosen demo plays at 80% of the speed it was recorded at
+REPLAY_SMOOTH_S = 0.3  # moving-average window that takes out hand jitter
+
+
+def pick_demo(task, min_episode=0, folder=None):
+    """The most typical usable demo of a task: the one whose grasp pose is closest (summed over the others)
+    to the other demos' grasp poses. Returns (episode, state array, keyposes, fps) or None."""
+    rows = []
+    for f in sorted(Path(folder or EPISODES_DIR).glob("ep-*.json")):
+        if "-start" in f.name:
+            continue
+        try:
+            d = json.loads(f.read_text())
+        except Exception:  # noqa: BLE001
+            continue
+        if d.get("task") != task or int(d.get("episode_index", -1)) < min_episode:
+            continue
+        fps = int(d.get("fps") or 30)
+        k = demo_keyposes(d["state"], fps)
+        if k and "handoff" in k:
+            rows.append((int(d["episode_index"]), np.asarray(d["state"], float), k, fps))
+    if not rows:
+        return None
+    G = np.array([[r[2]["grasp"][m] for m in JOINTS] for r in rows])
+    cost = [float(np.abs(G - g).sum()) for g in G]
+    return rows[int(np.argmin(cost))]
+
+
+def smooth_track(state, fps, i_end, speed=REPLAY_SPEED, smooth_s=REPLAY_SMOOTH_S):
+    """The demo's joint track from its start to i_end, moving-average smoothed, retimed to `speed`.
+    Returns (times s, poses list of dicts)."""
+    a = np.asarray(state, float)[: i_end + 1]
+    w = max(1, int(smooth_s * fps)) | 1
+    if len(a) > w:
+        pad = np.pad(a, ((w // 2, w // 2), (0, 0)), mode="edge")
+        a = np.stack([np.convolve(pad[:, j], np.ones(w) / w, mode="valid") for j in range(a.shape[1])], axis=1)
+    t = np.arange(len(a)) / fps / speed
+    return t, [{m: float(r[k]) for k, m in enumerate(ALL_JOINTS)} for r in a]
 
 
 def learn_demos(task, min_episode=0, folder=None):
@@ -492,7 +543,7 @@ class AutoPick:
         self.mode = args.get("mode", "handoff")
         self.task = args.get("task", "pick the scalpel")
         self.min_episode = int(args.get("min_episode", 18))  # demos from the current setup (camera moved after 17)
-        if self.mode not in ("handoff", "hold", "offer", "calibrate", "look", "learned"):
+        if self.mode not in ("handoff", "hold", "offer", "calibrate", "look", "learned", "replay_demo"):
             raise ValueError("mode must be 'handoff' (wait for a hand, release, go home) or 'hold' (bring it home)")
         self.align = bool(args.get("align", True))  # wrist-camera line-up before going down
         self.detector_kind = args.get("detector", "local")
@@ -545,6 +596,38 @@ class AutoPick:
         self._choice_st = st
         self.start_pose = {m: float(st.joints[m]) for m in JOINTS}
         self.start_pose["gripper"] = float(st.gripper if st.gripper is not None else JAW_OPEN)
+        if self.mode == "replay_demo":  # play the most typical demo back, smoothed; offer; let go on command
+            got = pick_demo(self.task, self.min_episode)
+            if got is None:
+                self._phase, self._detail = "failed", f"no usable demos for {self.task!r} (episode >= {self.min_episode})"
+                st.note("autopick: " + self._detail)
+                return
+            ep, state, kp, fps = got
+            i_end = kp["frames"]["handoff"]  # stop holding it at the hand-off spot, before the demo opened
+            times, poses = smooth_track(state, fps, i_end)
+            i_g = kp["frames"]["grasp"]
+            closed = max(0.0, kp["grip_closed"] - 3.0)  # a little past where the demo's jaw stopped: firm hold
+            for i in range(i_g, len(poses)):
+                poses[i]["gripper"] = closed
+            first = poses[0]
+            ease = max(MIN_MOVE_S, max(abs(first[m] - self.start_pose[m]) for m in JOINTS) * MJ_PEAK / MAX_DEG_S)
+            self.plan = [{"name": "to start", "from": dict(self.start_pose), "to": first, "dur": round(ease, 2),
+                          "hold": 0.2, "detail": f"to where demo {ep} began"}]
+            step = max(1, int(fps * 0.1))  # one segment per 0.1 s of the demo, followed linearly
+            for i in range(step, len(poses), step):
+                j = min(i, len(poses) - 1)
+                name = "approach" if i < i_g - fps else ("grip" if i < i_g + fps // 2 else "carry")
+                span = max(abs(poses[j][m] - poses[i - step][m]) for m in JOINTS)
+                dur = max(float(times[j] - times[i - step]), span / MAX_DEG_S)  # never faster than the cap
+                self.plan.append({"name": name, "from": poses[i - step], "to": poses[j],
+                                  "dur": round(dur, 3), "hold": 0.0, "lin": True, "detail": f"following demo {ep}"})
+            self.plan[-1]["name"], self.plan[-1]["hold"] = "present", 0.3
+            self.grip_hold = closed
+            self.found = {"demo": ep, "frames": kp["frames"]}
+            self.mode = "handoff"
+            self._phase = self.plan[0]["name"]
+            st.note(f"autopick: replaying demo {ep} smoothly ({times[-1]:.0f} s), then holding it out for 'let go'")
+            return
         if self.mode == "learned":  # replay what the demos taught: smooth, then offer and let go on command
             demo = learn_demos(self.task, self.min_episode)
             if "grasp" not in demo:
@@ -599,7 +682,8 @@ class AutoPick:
                 return out
             seg = self.plan[self.seg]  # alignment finished and re-planned from here
             self.seg_t0 = now
-        f = min_jerk((now - self.seg_t0) / seg["dur"])
+        s_ = (now - self.seg_t0) / seg["dur"] if seg["dur"] > 0 else 1.0
+        f = min(1.0, max(0.0, s_)) if seg.get("lin") else min_jerk(s_)
         pose = {k: seg["from"][k] + (seg["to"][k] - seg["from"][k]) * f for k in seg["to"]}
         self._track_jaw(st, now, seg, pose["gripper"])
         if self.grip_hold is not None and seg["to"]["gripper"] <= JAW_CLOSE + 0.01:
