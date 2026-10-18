@@ -1,0 +1,35 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Scrub memory</title>
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <header class="top">
+    <span class="mark">Scrub</span>
+    <nav>
+      <a href="/">Count</a>
+      <a href="series.html">Series</a>
+    </nav>
+  </header>
+  <p id="status" class="banner" hidden></p>
+  <main class="has-rows">
+    <section>
+      <p class="kicker">What comes next</p>
+      <p id="mode" class="note"></p>
+      <form id="ask">
+        <input id="q" name="q" placeholder="what usually follows hemostat" autocomplete="off">
+        <button type="submit">Ask</button>
+      </form>
+      <p id="answer" class="summary"></p>
+    </section>
+    <section>
+      <p class="kicker">Notes</p>
+      <ul id="notes" class="cases"></ul>
+    </section>
+  </main>
+  <script src="memory.js"></script>
+</body>
+</html>

@@ -155,8 +155,25 @@ def log(event: dict) -> None:
         doc = dict(event)
         doc.setdefault("t", time.time())
         _store("event", doc)
+        _side_tracks(doc)
     except Exception:
         return
+
+
+def _side_tracks(doc: dict) -> None:
+    """Tiger Data inserts only when its URL is set. Backboard uploads only when its key is set. Never raises."""
+    try:
+        from ledger.tiger import remember_event as remember_tiger
+
+        remember_tiger(doc)
+    except Exception:
+        pass
+    try:
+        from ledger.memory import remember_event as remember_memory
+
+        remember_memory(doc)
+    except Exception:
+        pass
 
 
 def log_test(
