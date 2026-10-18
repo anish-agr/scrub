@@ -45,10 +45,12 @@ The page is `python -m ledger serve` on port 8080. nginx proxies port 80 to it a
 From the repo root, after `.env` contains `MONGODB_URI`:
 
 ```
-powershell -File deploy/push_public.ps1 -Target root@SERVER_IP
+bash ledger/push_public.sh root@SERVER_IP
 ```
 
-That copies `ledger/`, `deploy/`, and `.env` to `/opt/scrub` and runs `deploy/setup_public.sh`. Open `http://SERVER_IP/`. The count and the two tables should match `python -m ledger serve` on the laptop.
+On Windows: `powershell -File deploy/push_public.ps1 -Target root@SERVER_IP`.
+
+Either copies `ledger/` (without `buffer.jsonl`) and `deploy/` to `/opt/scrub`, writes a server `.env` that holds only `MONGODB_URI` and `SCRUB_PUBLIC_URL`, and runs `deploy/setup_public.sh`. This is the only server path (`ledger/install_public.sh` calls the same script). Open `http://SERVER_IP/`. The count and the two tables should match `python -m ledger serve` on the laptop.
 
 ### GoDaddy (MLH offer)
 

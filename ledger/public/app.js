@@ -83,7 +83,7 @@ async function loadCases() {
   const list = document.getElementById("replays");
   if (!list) return;
   try {
-    const response = await fetch("/api/cases", { cache: "no-store" });
+    const response = await fetch("/api/cases", { cache: "no-store", signal: AbortSignal.timeout(3000) });
     if (!response.ok) throw new Error("bad");
     const rows = await response.json();
     if (!Array.isArray(rows)) throw new Error("bad");
@@ -110,7 +110,7 @@ async function loadCases() {
 
 async function refresh() {
   try {
-    const response = await fetch("/api/stats", { cache: "no-store" });
+    const response = await fetch("/api/stats", { cache: "no-store", signal: AbortSignal.timeout(3000) });
     if (!response.ok) throw new Error("bad");
     const report = await response.json();
     paint(report);

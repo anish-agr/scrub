@@ -98,6 +98,18 @@ class StatsTests(unittest.TestCase):
         self.assertEqual(report["by_item"][0]["successes"], 1)
         self.assertEqual(report["out"], ["hemostat"])
 
+    def test_fake_arm_events_stay_out_of_the_medians(self):
+        for t, secs, fake in ((1, 30.0, True), (2, 6.0, False), (3, 8.0, False)):
+            ledger.log({"type": "handed", "item": "hemostat", "request_to_hand_s": secs,
+                        "setting": "surgical", "fake_arm": fake, "out": ["hemostat"], "t": t})
+        self.assertEqual(ledger.stats()["median_request_to_hand_s"], 7.0)
+        self.assertEqual(ledger.stats(include_sim=True)["median_request_to_hand_s"], 8.0)
+        self.assertEqual(ledger.stats()["out"], ["hemostat"])
+
+    def test_untagged_events_still_count(self):
+        ledger.log({"type": "handed", "item": "hemostat", "request_to_hand_s": 5.0, "out": ["hemostat"], "t": 1})
+        self.assertEqual(ledger.stats()["median_request_to_hand_s"], 5.0)
+
     def test_likely_next_uses_what_usually_follows(self):
         stamp = 1
         for case, second in enumerate(("scalpel", "scalpel", "mayo_scissors")):
@@ -218,3 +230,26 @@ class LogbookTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class CorsTests(unittest.TestCase):
+    def test_api_allows_any_origin_to_read(self):
+        import threading
+        import urllib.request
+        from http.server import ThreadingHTTPServer
+
+        from ledger.serve import Handler
+
+        server = ThreadingHTTPServer(("127.0.0.1", 0), Handler)
+        threading.Thread(target=server.serve_forever, daemon=True).start()
+        try:
+            port = server.server_address[1]
+            with urllib.request.urlopen(f"http://127.0.0.1:{port}/api/public", timeout=5) as reply:
+                self.assertEqual(reply.headers["Access-Control-Allow-Origin"], "*")
+            request = urllib.request.Request(f"http://127.0.0.1:{port}/api/stats", method="OPTIONS")
+            with urllib.request.urlopen(request, timeout=5) as reply:
+                self.assertEqual(reply.status, 204)
+                self.assertIn("GET", reply.headers["Access-Control-Allow-Methods"])
+        finally:
+            server.shutdown()
+            server.server_close()

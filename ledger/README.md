@@ -61,21 +61,19 @@ python -m ledger log --setting surgical --item hemostat --direction hand-out --l
 
 ## Public page on a server
 
-The page is this process. It does not ship the MongoDB URI to the browser.
+One official path: `deploy/setup_public.sh`. The page is `python -m ledger serve` on 127.0.0.1:8080 (systemd `scrub-public`), nginx answers on port 80, and certbot adds HTTPS. The page does not ship the MongoDB URI to the browser. The Vultr and GoDaddy clicks are in `deploy/README.md`.
 
-On the Ubuntu server, from a checkout at `/opt/scrub` that contains `ledger/` and a root `.env` with `MONGODB_URI`:
-
-```
-sudo bash ledger/install_public.sh
-```
-
-That writes a systemd service, binds port 80, and restarts on failure. From a laptop that can SSH to the server:
+From a laptop that can SSH to the server:
 
 ```
 bash ledger/push_public.sh root@THE_SERVER_IP
 ```
 
-The exact Vultr and GoDaddy clicks are in the comments at the top of `ledger/install_public.sh`.
+That copies `ledger/` (without `buffer.jsonl`) and `deploy/`, writes a server `.env` with only `MONGODB_URI` and `SCRUB_PUBLIC_URL`, and runs `deploy/setup_public.sh`. `ledger/install_public.sh` just calls the same script.
+
+Fake-arm and sim runs: the controller may add `"fake_arm": true` (or `"sim": true`) to an event. `stats()` leaves those events out of the rates and the median (`GET /api/stats?sim=1` or `stats(include_sim=True)` counts them). The count `out` always reads every event. Untagged events count as real.
+
+The `/api/*` routes send `Access-Control-Allow-Origin: *` and answer `OPTIONS`. They are read-only GETs.
 
 Each results row also has `wilson_low` and `wilson_high`. `next_likely` is a suggestion only.
 

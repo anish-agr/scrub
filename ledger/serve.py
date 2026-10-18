@@ -35,9 +35,19 @@ class Handler(BaseHTTPRequestHandler):
         self.send_response(status)
         self.send_header("Content-Type", "application/json")
         self.send_header("Cache-Control", "no-store")
+        self.send_header("Access-Control-Allow-Origin", "*")  # read-only GETs, any origin may read
         self.send_header("Content-Length", str(len(body)))
         self.end_headers()
         self.wfile.write(body)
+
+    def do_OPTIONS(self) -> None:
+        self.send_response(204)
+        self.send_header("Access-Control-Allow-Origin", "*")
+        self.send_header("Access-Control-Allow-Methods", "GET, OPTIONS")
+        self.send_header("Access-Control-Allow-Headers", "Content-Type")
+        self.send_header("Access-Control-Max-Age", "600")
+        self.send_header("Content-Length", "0")
+        self.end_headers()
 
     def do_GET(self) -> None:
         try:
@@ -51,8 +61,14 @@ class Handler(BaseHTTPRequestHandler):
     def _route(self) -> None:
         parsed = urlparse(self.path)
         path = parsed.path
+        if path == "/favicon.ico":
+            self.send_response(204)  # no icon file; stops the browser's 404 in the console
+            self.send_header("Content-Length", "0")
+            self.end_headers()
+            return
         if path == "/api/stats":
-            self._json(stats())
+            sim = (parse_qs(parsed.query).get("sim") or [""])[0] in ("1", "true")
+            self._json(stats(include_sim=sim))  # ?sim=1 also counts fake-arm and sim rows
             return
         if path == "/api/cases":
             self._json(list_cases())
@@ -106,6 +122,7 @@ class Handler(BaseHTTPRequestHandler):
 
 def serve() -> None:
     port = int(os.environ.get("PORT", "8080"))
-    server = ThreadingHTTPServer(("0.0.0.0", port), Handler)
+    host = os.environ.get("HOST", "0.0.0.0")  # the server service sets 127.0.0.1: only nginx reaches it
+    server = ThreadingHTTPServer((host, port), Handler)
     print(f"public page on http://127.0.0.1:{port}")
     server.serve_forever()
