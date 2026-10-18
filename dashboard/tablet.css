@@ -1,0 +1,13 @@
+:root { color: #fff; background: #111; font-family: "Avenir Next", "Segoe UI", sans-serif; }
+* { box-sizing: border-box; }
+body { margin: 0; min-height: 100vh; padding: 24px; display: flex; flex-direction: column; gap: 8px; }
+.link { margin: 0; letter-spacing: 0.08em; text-transform: uppercase; color: #bdbdbd; }
+h1 { margin: 0; font-size: clamp(64px, 14vw, 160px); line-height: 0.9; letter-spacing: -0.04em; }
+h1.moving { color: #7dffa8; }
+h1.stopped, h1.error { color: #ff5a3c; }
+#item { margin: 0; font-size: clamp(28px, 5vw, 48px); min-height: 1.2em; }
+.kicker { margin: 12px 0 0; letter-spacing: 0.08em; text-transform: uppercase; color: #bdbdbd; }
+#out { margin: 0; font-size: clamp(36px, 7vw, 72px); font-weight: 700; }
+button { border: 0; border-radius: 16px; font: inherit; font-weight: 800; letter-spacing: 0.06em; text-transform: uppercase; cursor: pointer; }
+#reset { margin-top: auto; background: #fff; color: #111; font-size: clamp(28px, 4vw, 40px); padding: 18px; }
+#stop { background: #ff2a00; color: #fff; font-size: clamp(40px, 8vw, 72px); padding: 28px; }
