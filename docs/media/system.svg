@@ -1,0 +1,67 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1220 640" width="1220" height="640" role="img" aria-label="Scrub system diagram">
+<title>Scrub system diagram</title>
+<defs>
+<marker id="a" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="8" markerHeight="8" orient="auto"><path d="M0 0L10 5L0 10z" fill="#334155"/></marker>
+<marker id="ad" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="8" markerHeight="8" orient="auto"><path d="M0 0L10 5L0 10z" fill="#b45309"/></marker>
+<style>
+text{font-family:Helvetica,Arial,sans-serif}
+.t1{font-size:19px;font-weight:700;fill:#0f172a}
+.t2{font-size:14px;fill:#475569}
+.lb{font-size:14px;fill:#475569}
+.ft{font-size:16px;fill:#0f172a}
+</style>
+</defs>
+<rect width="1220" height="640" fill="#f8fafc"/>
+<rect x="40" y="90" width="220" height="80" rx="10" fill="#ffffff" stroke="#334155" stroke-width="2"/>
+<text x="150.0" y="126.0" class="t1" text-anchor="middle">Phone on speaker</text>
+<text x="150.0" y="148.0" class="t2" text-anchor="middle">clinician asks out loud</text>
+<rect x="330" y="90" width="220" height="80" rx="10" fill="#ffffff" stroke="#334155" stroke-width="2"/>
+<text x="440.0" y="126.0" class="t1" text-anchor="middle">Photon number</text>
+<text x="440.0" y="148.0" class="t2" text-anchor="middle">phone call in</text>
+<rect x="620" y="90" width="220" height="80" rx="10" fill="#ffffff" stroke="#334155" stroke-width="2"/>
+<text x="730.0" y="126.0" class="t1" text-anchor="middle">ElevenLabs agent</text>
+<text x="730.0" y="148.0" class="t2" text-anchor="middle">speech to text and back</text>
+<rect x="910" y="90" width="220" height="80" rx="10" fill="#eff6ff" stroke="#1d4ed8" stroke-width="2"/>
+<text x="1020.0" y="126.0" class="t1" text-anchor="middle">voice/</text>
+<text x="1020.0" y="148.0" class="t2" text-anchor="middle">Gemini: words to one command</text>
+<rect x="860" y="270" width="320" height="100" rx="10" fill="#fef3c7" stroke="#b45309" stroke-width="2"/>
+<text x="1020.0" y="316.0" class="t1" text-anchor="middle">controller/</text>
+<text x="1020.0" y="338.0" class="t2" text-anchor="middle">the only thing that moves the arm</text>
+<rect x="570" y="285" width="220" height="70" rx="10" fill="#ffffff" stroke="#334155" stroke-width="2"/>
+<text x="680.0" y="316.0" class="t1" text-anchor="middle">arm/</text>
+<text x="680.0" y="338.0" class="t2" text-anchor="middle">LeRobot wrapper</text>
+<rect x="300" y="285" width="220" height="70" rx="10" fill="#ecfdf5" stroke="#047857" stroke-width="2"/>
+<text x="410.0" y="316.0" class="t1" text-anchor="middle">Perceptron Isaac 0.5</text>
+<text x="410.0" y="338.0" class="t2" text-anchor="middle">fine-tuned on our demos</text>
+<rect x="40" y="285" width="210" height="70" rx="10" fill="#ffffff" stroke="#334155" stroke-width="2"/>
+<text x="145.0" y="316.0" class="t1" text-anchor="middle">SO-101 arm</text>
+<text x="145.0" y="338.0" class="t2" text-anchor="middle">picks and hands over</text>
+<rect x="1000" y="500" width="180" height="80" rx="10" fill="#eff6ff" stroke="#1d4ed8" stroke-width="2"/>
+<text x="1090.0" y="536.0" class="t1" text-anchor="middle">vision/</text>
+<text x="1090.0" y="552.0" class="t2" text-anchor="middle">overhead camera: hands</text>
+<text x="1090.0" y="568.0" class="t2" text-anchor="middle">+ tray (Perceptron)</text>
+<rect x="700" y="500" width="200" height="70" rx="10" fill="#ffffff" stroke="#334155" stroke-width="2"/>
+<text x="800.0" y="531.0" class="t1" text-anchor="middle">ledger/</text>
+<text x="800.0" y="553.0" class="t2" text-anchor="middle">MongoDB: events, tables</text>
+<rect x="430" y="500" width="200" height="70" rx="10" fill="#ffffff" stroke="#334155" stroke-width="2"/>
+<text x="530.0" y="531.0" class="t1" text-anchor="middle">dashboard/</text>
+<text x="530.0" y="553.0" class="t2" text-anchor="middle">count, tables, stop</text>
+<path d="M260 130H325" fill="none" stroke="#334155" stroke-width="2.5" marker-end="url(#a)"/>
+<path d="M550 130H615" fill="none" stroke="#334155" stroke-width="2.5" marker-end="url(#a)"/>
+<path d="M840 130H905" fill="none" stroke="#334155" stroke-width="2.5" marker-end="url(#a)"/>
+<path d="M1020 170V265" fill="none" stroke="#334155" stroke-width="2.5" marker-end="url(#a)"/>
+<text x="1030" y="222" class="lb" text-anchor="start">one command</text>
+<path d="M855 320H795" fill="none" stroke="#334155" stroke-width="2.5" marker-end="url(#a)"/>
+<path d="M565 320H525" fill="none" stroke="#334155" stroke-width="2.5" marker-end="url(#a)"/>
+<path d="M295 320H255" fill="none" stroke="#334155" stroke-width="2.5" marker-end="url(#a)"/>
+<path d="M1090 495V375" fill="none" stroke="#334155" stroke-width="2.5" marker-end="url(#a)"/>
+<text x="1100" y="445" class="lb" text-anchor="start">hand + tray state</text>
+<path d="M880 375V495" fill="none" stroke="#334155" stroke-width="2.5" marker-end="url(#a)"/>
+<text x="870" y="440" class="lb" text-anchor="end">events</text>
+<path d="M860 345H845V425H530V495" fill="none" stroke="#334155" stroke-width="2.5" marker-end="url(#a)"/>
+<text x="690" y="418" class="lb" text-anchor="middle">events, stop button</text>
+<path d="M1020 85V55H150V85" fill="none" stroke="#b45309" stroke-width="2.5" marker-end="url(#ad)" stroke-dasharray="7 5"/>
+<text x="585" y="45" class="lb" text-anchor="middle">end-of-case summary text back to the phone (Photon)</text>
+<rect x="920" y="188" width="200" height="2" fill="none"/><text x="1130" y="185" class="lb" text-anchor="end">stop skips Gemini</text>
+<text x="40" y="620" class="ft">Only controller/ moves the arm. Everything else sends it information. Training and research prototype.</text>
+</svg>
