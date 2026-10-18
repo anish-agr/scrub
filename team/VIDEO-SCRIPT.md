@@ -17,9 +17,11 @@ Card: "Scrub. A robot arm that passes surgical instruments when you ask." No one
 | V11-Anish-1 | Anish | Surgeons work with a scrub tech who hands them each instrument. Hospitals can't hire enough of them. |
 | V11-Anish-2 | Anish | When nobody is there, the surgeon looks away from the patient and searches the tray. |
 | (on camera) | lab coat | "Hemostat." |
-| V11-Anish-3 | Anish | This is Scrub. You ask out loud, on the phone. It picks the hemostat with a skill we taught it. |
+| V11-Anish-3 | Anish | This is Scrub. You ask out loud. It picks the hemostat with a skill we taught it. |
 | V11-Anish-4 | Anish | It slows down as it nears the handoff point and holds the handle out. |
 | V11-Anish-5 | Anish | It lets go when you pull, then goes straight home on its own. |
+
+A real Photon call is unconfirmed. Don't say "on the phone" or "phone call" in narration or on a card unless a real call is on video; then Anish-3 can become "You ask out loud, on a phone call." The thermal guard reads motor temperatures every 2 s; if you add a number to the thermal line, use that one.
 
 ## V2 Mayo scissors
 

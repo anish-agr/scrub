@@ -42,7 +42,7 @@ BEATS = [
                           "enough of them."),
                 ("Anish", "When nobody is there, the surgeon looks away from the patient and searches the tray."),
                 (None, "\"Hemostat.\""),
-                ("Anish", "This is Scrub. You ask out loud, on the phone. It picks the hemostat with a skill we "
+                ("Anish", "This is Scrub. You ask out loud. It picks the hemostat with a skill we "
                           "taught it."),
                 ("Anish", "It slows down as it nears the handoff point and holds the handle out."),
                 ("Anish", "It lets go when you pull, then goes straight home on its own.")]),
@@ -159,7 +159,7 @@ def draw_cards():
         if b.get("film"):
             _page(b["title"], [b["film"]], kicker=f"To film: {b['slot']}").save(out / f"todo-{b['slot']}.png")
     _page("How it works", [
-        "1. You ask for an instrument out loud, on the phone.",
+        "1. You ask for an instrument out loud.",
         "2. Gemini turns what you said into one instrument from the tray.",
         "3. Perceptron's vision finds it on the tray.",
         "4. The arm runs a skill we taught it, then slows as it nears the handoff point.",
