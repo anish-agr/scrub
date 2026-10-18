@@ -171,6 +171,7 @@ function render(s){
   const L=$("log"), stick=L.scrollTop+L.clientHeight>=L.scrollHeight-30;
   L.textContent=(s.log||[]).join("\n"); if(stick)L.scrollTop=L.scrollHeight;
   $("startbox").style.display=s.mode==="preview"?"block":"none";
+  $("b-next").firstChild.textContent=s.phase==="resetting"?"Start next episode":"Done: save episode";
   const show=s.mode==="record"&&(s.phase==="recording"||s.phase==="resetting");
   $("btns").style.display=show?"flex":"none";
   if(!show)disarm();
