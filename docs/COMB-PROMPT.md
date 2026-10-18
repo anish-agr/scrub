@@ -46,7 +46,9 @@ Compare the plan (`docs/PLAN.md`, `docs/TASKS.md`, `docs/LEFT.md`, `docs/PROPOSA
 9. `docs/SLIDES.md` final text for the 5-slide backup deck.
 10. Every open bug in `docs/QA.md` and every row in `docs/LEFT.md` that is software.
 11. Dental hidden everywhere it's user-facing (dashboard, tablet, voice prompts, texts, judge page, Devpost, pitch). Keep the file.
-12. Anything else in the plan that has no code yet.
+12. **The pitch.** Rewrite `docs/PITCH.md` as a 3-minute pitch spoken over the live demo, split across four speakers: Caiden and Anish carry most of it, Evan and Brandon each have a short part (for example, Evan on the data, the dashboard and the tables; Brandon on vision and hand tracking). Lead with the statistics (the surgical tech shortage, retained surgical items, sharps injuries, time spent searching the tray) and show step by step how Scrub works. Surgical first; the bench tray proves "new setting, no new code". Every statistic has a source link and is checked against that source (drop any number you can't confirm). Use `[measured]` where our own numbers go. Plain words, short sentences, no em dashes, no buzzwords, nothing that sounds AI-written.
+13. **Everything presented says the same thing.** The pitch, `docs/DEMO.md`, `docs/QNA.md`, `docs/SLIDES.md`, `docs/DEVPOST.md`, `docs/NEXT.md` (the business case), the judge page, the table card and `docs/README-PUBLIC.md` must tell one consistent story with the same numbers, the same item names, the same tracks and the same speaker roles. Fix any mismatch.
+14. Anything else in the plan that has no code yet.
 
 ## Phase 2: the comb
 
