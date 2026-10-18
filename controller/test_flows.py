@@ -101,8 +101,8 @@ def put_back_moves_it(arm, scene):
     """The fake arm's return skill moves the item from the return spot into its slot."""
     orig = arm.run_skill
 
-    def run_skill(instruction, max_s=20.0):
-        ok = orig(instruction, max_s)
+    def run_skill(instruction, max_s=20.0, source="model"):
+        ok = orig(instruction, max_s, source)
         if ok and instruction.startswith("return") and scene["spot"]:
             scene["empty"].discard(scene["spot"])
             scene["spot"] = None
@@ -1019,9 +1019,9 @@ def stop_never_lets_a_queued_job_run():
     skills = []
     orig_skill, orig_freeze = arm.run_skill, arm.freeze
 
-    def run_skill(instruction, max_s=20.0):
+    def run_skill(instruction, max_s=20.0, source="model"):
         skills.append(instruction)
-        return orig_skill(instruction, max_s)
+        return orig_skill(instruction, max_s, source)
 
     def slow_freeze():
         orig_freeze()
@@ -1143,6 +1143,167 @@ def a_closed_page_never_breaks_events():
     ctl.listeners.append((dead, asyncio.Queue()))
     _, evs = run(ctl, HANDOVER)
     assert "released" in types(evs) and ctl.step == "idle", types(evs)
+
+
+@test
+def collapse_releases_at_the_hand():
+    """Release on pull: the grip load falls toward zero (under the pull delta) and the gripper opens."""
+    ctl, arm = make()
+    arm.force["collapse"] = 1
+    _, evs = run(ctl, HANDOVER)
+    rel = [e for e in evs if e["type"] == "released"]
+    assert rel and rel[0]["release"] == "collapse" and ctl.out == ["hemostat"], types(evs)
+
+
+@test
+def release_says_why():
+    ctl, arm = make()
+    _, evs = run(ctl, HANDOVER)
+    assert next(e for e in evs if e["type"] == "released")["release"] == "pull"
+    old, core.PULL_COLLAPSE = core.PULL_COLLAPSE, 0.0  # collapse off: a drop under the delta is no pull
+    try:
+        ctl, arm = make()
+        arm.force["collapse"] = 1
+        _, evs = run(ctl, HANDOVER)
+        assert types(evs) == ["command", "picked", "handed", "set_down"], types(evs)
+    finally:
+        core.PULL_COLLAPSE = old
+
+
+@test
+def collapse_ignores_noise_near_zero():
+    """No grip to speak of (held load under the delta): a reading near zero is not a collapse."""
+    ctl, arm = make(pull_s=None)
+    arm.gripper_load = lambda: 20.0 if ctl.step != "waiting_for_pull" else 2.0
+    _, evs = run(ctl, HANDOVER)
+    assert "set_down" in types(evs) and "released" not in types(evs), types(evs)
+
+
+class Taught:
+    """Stands in for arm/taught.py's available()."""
+    def __init__(self, have):
+        self.have, self.saved = have, None
+
+    def __enter__(self):
+        self.saved, core._taught_available = core._taught_available, lambda sid: self.have
+        return self
+
+    def __exit__(self, *_):
+        core._taught_available = self.saved
+
+
+def sources(evs):
+    return {e["type"]: e.get("skill_source") for e in evs if e["type"] != "step"}
+
+
+@test
+def model_skills_by_default_on_every_pick_event():
+    ctl, arm = make()
+    _, evs = run(ctl, HANDOVER)
+    src = sources(evs)
+    assert src["picked"] == src["handed"] == src["released"] == "model", src
+    assert any(e["step"] == "picking" and e.get("skill_source") == "model" for e in evs)
+    assert "skill_source" not in next(e for e in evs if e["type"] == "command")
+    assert arm.last_source == "model" and ctl.state()["skills"] == {
+        "mode": "model", "items": {i["id"]: "model" for i in ctl.setting["items"]}}
+    _, evs = run(ctl, {"action": "return", "item": "hemostat"})
+    assert sources(evs)["returned"] == "model", sources(evs)
+
+
+@test
+def taught_skills_play_taught_or_refuse():
+    with Taught({"hemostat": {"pick", "return"}}):
+        ctl = Controller(RecordingArm(motion_s=0.1, auto_pull_s=0.2), fake_arm=True, skills="taught")
+        _, evs = run(ctl, HANDOVER)
+        assert sources(evs)["released"] == "taught" and ctl.arm.last_source == "taught", sources(evs)
+        reply = ctl.submit({"action": "handover", "item": "mayo_scissors"})
+        assert not reply["accepted"] and reply["say"] == lines.no_taught(settings.item(ctl.setting, "mayo_scissors")["name"]), reply
+        assert ctl.state()["skills"]["items"]["mayo_scissors"] is None
+
+
+@test
+def auto_skills_model_once_proven():
+    tmp = Path(tempfile.mkdtemp())
+    try:
+        with Taught({"hemostat": {"pick", "return"}}):
+            ctl = Controller(RecordingArm(motion_s=0.1), fake_arm=True, skills="auto", tries_file=tmp / "t.json")
+            assert ctl.state()["skills"]["items"]["hemostat"] == "taught"  # taught recorded, model unproven
+            assert ctl.state()["skills"]["items"]["mayo_scissors"] == "model"  # nothing taught: the model
+            ok = [{"direction": "pick", "source": "model", "ok": True, "t": 1}] * 3
+            (tmp / "t.json").write_text(json.dumps({"surgical/hemostat": ok}))
+            ctl = Controller(RecordingArm(motion_s=0.1, auto_pull_s=0.2), fake_arm=True, skills="auto",
+                             tries_file=tmp / "t.json")
+            _, evs = run(ctl, HANDOVER)
+            assert sources(evs)["released"] == "model", sources(evs)
+            no_dep = Controller(RecordingArm(motion_s=0.1), fake_arm=True, skills="auto", deployment=False,
+                                tries_file=tmp / "t.json")
+            assert no_dep.state()["skills"]["items"]["hemostat"] == "taught"
+            bad = ok[:2] + [{"direction": "pick", "source": "model", "ok": False, "t": 2}]
+            (tmp / "t.json").write_text(json.dumps({"surgical/hemostat": bad}))
+            ctl = Controller(RecordingArm(motion_s=0.1), fake_arm=True, skills="auto", tries_file=tmp / "t.json")
+            assert ctl.state()["skills"]["items"]["hemostat"] == "taught"
+    finally:
+        shutil.rmtree(tmp)
+
+
+@test
+def real_tries_are_recorded_fake_ones_are_not():
+    tmp = Path(tempfile.mkdtemp())
+    try:
+        ctl = Controller(RecordingArm(motion_s=0.1, auto_pull_s=0.2), fake_arm=False, tries_file=tmp / "t.json")
+        run(ctl, HANDOVER)
+        assert wait_for(lambda: (tmp / "t.json").exists())
+        rows = json.loads((tmp / "t.json").read_text())["surgical/hemostat"]
+        assert rows[-1]["ok"] and rows[-1]["source"] == "model" and rows[-1]["direction"] == "pick", rows
+        ctl = Controller(RecordingArm(motion_s=0.1, auto_pull_s=0.2), fake_arm=True, tries_file=tmp / "f.json")
+        run(ctl, HANDOVER)
+        assert not (tmp / "f.json").exists()
+    finally:
+        shutil.rmtree(tmp)
+
+
+@test
+def state_has_telemetry_and_latency():
+    old, core.TELEMETRY_S = core.TELEMETRY_S, 0.05
+    try:
+        ctl, arm = make()
+        run(ctl, HANDOVER)
+        assert wait_for(lambda: ctl.state()["arm_telemetry"] is not None)
+        st = ctl.state()
+        tel, lat = st["arm_telemetry"], st["latency_ms"]
+        assert set(tel) >= {"temps", "loads", "hottest", "cooling", "t"} and len(tel["temps"]) == 6, tel
+        assert lat["skill"] and lat["skill"] >= 50 and lat["skill_p50"] and lat["skill_n"] == 1, lat
+    finally:
+        core.TELEMETRY_S = old
+    arm = FakeArm()
+    cool = arm.telemetry()["hottest"]
+    arm._busy, arm._heat_t = 1, arm._heat_t - 10  # ten seconds of moving
+    hot = arm.telemetry()
+    assert hot["hottest"] > cool and not hot["cooling"], (cool, hot)
+
+
+@test
+def thermal_fault_says_why_and_holds():
+    ctl, arm = make()
+    arm.force["hot"] = 1
+    _, evs = run(ctl, HANDOVER)
+    err = [e for e in evs if e["type"] == "error"]
+    assert ctl.step == "error" and arm._frozen.is_set(), ctl.step
+    assert err and err[-1]["say"] == "Too hot: shoulder_lift 71 C. Cooling down.", says(evs)
+    assert not ctl.submit(dict(HANDOVER))["accepted"]  # holds until a reset
+
+
+@test
+def ops_page_and_design_are_served():
+    from fastapi.testclient import TestClient
+    from . import server
+    ctl, _ = make()
+    client = TestClient(server.make_app(ctl))
+    r = client.get("/ops")
+    assert r.status_code == 200 and "<" in r.text
+    assert client.get("/design/scrub.css").status_code == 200
+    st = client.get("/state").json()
+    assert {"skills", "latency_ms", "arm_telemetry"} <= set(st), st
 
 
 def main():

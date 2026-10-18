@@ -1,4 +1,4 @@
-"""python -m controller [--fake-arm | --real-arm] [--port 8000] [--setting surgical|bench] [--judge]"""
+"""python -m controller [--fake-arm | --real-arm] [--port 8000] [--setting surgical|bench] [--judge] [--skills model|taught|auto]"""
 import argparse
 import os
 import signal
@@ -36,6 +36,9 @@ def main() -> None:
     p.add_argument("--motion-s", type=float, default=1.0, help="fake arm seconds per motion")
     p.add_argument("--pull-s", type=float, default=2.0,
                    help="fake arm: simulated pull after this many seconds at the hand; 0 = wait for got_it")
+    p.add_argument("--skills", default="model", choices=["model", "taught", "auto"],
+                   help="model (default): the robot model; taught: recorded skills from arm/skills/ only; "
+                        "auto: model for items it passed 3 real tries in a row, else taught if recorded, else model")
     a = p.parse_args()
 
     if a.real_arm:
@@ -54,9 +57,13 @@ def main() -> None:
     if state_file is None:
         state_file = ROOT / "data" / f"controller-state-{a.port}.json"
     arm.connect()
-    ctl = Controller(arm, fake_arm=not a.real_arm, setting_id=a.setting, judge=a.judge, state_file=state_file or None)
+    # A deployment exists on the real arm only with PERCEPTRON_DEPLOYMENT_ID; fake and sim always count as having one.
+    deployment = bool(os.environ.get("PERCEPTRON_DEPLOYMENT_ID")) if a.real_arm else True
+    ctl = Controller(arm, fake_arm=not a.real_arm, setting_id=a.setting, judge=a.judge, state_file=state_file or None,
+                     skills=a.skills, deployment=deployment)
     print(f"controller: {'real' if a.real_arm else 'sim' if a.sim_arm else 'fake'} arm, setting {a.setting} "
-          f"({ctl.setting['_source']}), ledger {'on' if core.ledger else 'off'}{', judge mode' if a.judge else ''}", flush=True)
+          f"({ctl.setting['_source']}), ledger {'on' if core.ledger else 'off'}, skills {a.skills}"
+          f"{', judge mode' if a.judge else ''}", flush=True)
     # SIGTERM acts like Ctrl-C, so the finally below always disconnects the arm (frees the serial port). In the sim
     # the servers run in threads and uvicorn installs no handlers; otherwise uvicorn re-raises the signal once it
     # has shut down, and with the default handler that killed the process before the finally ran.
