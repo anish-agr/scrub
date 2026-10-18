@@ -184,7 +184,7 @@ function renderState(s) {
   $('step').textContent = s.step ?? '--';
   $('item').textContent = s.item ?? 'none';
   $('queue').textContent = (s.queue || []).length;
-  $('out').textContent = (s.out || []).length;
+  $('out').textContent = scrubOutItems(s).length;
   $('ctlmeta').textContent = `setting ${s.setting ?? '?'} · lighting ${s.lighting ?? '?'} · hand ${s.hand_seen ? 'seen' : 'not seen'} · ${s.fake_arm ? 'fake arm' : 'arm'} · case ${s.case_id ?? 'none'}`;
 }
 
