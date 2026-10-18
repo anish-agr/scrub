@@ -400,6 +400,152 @@ class PreviewServerTests(unittest.TestCase):
         runtime.grabber.stop()
 
 
+class ToolingTests(unittest.TestCase):
+    def test_fake_mark_writes_settings_for_all_three_trays(self):
+        from vision.mark_slots import main
+        from vision.service import ROOT
+
+        out = Path(tempfile.mkdtemp())
+        main(["--fake", "--repo", str(ROOT), "--out", str(out)])
+        for setting_id in ("surgical", "dental", "bench"):
+            document = json.loads((out / f"{setting_id}.json").read_text(encoding="utf-8"))
+            self.assertEqual(document["id"], setting_id)
+            self.assertEqual(len(document["items"]), 3)
+            for item in document["items"]:
+                self.assertEqual(len(item["slot"]), 4)
+                self.assertTrue(all(isinstance(value, int) for value in item["slot"]))
+            self.assertEqual(len(document["return_spot"]), 4)
+            original = json.loads((ROOT / "settings" / f"{setting_id}.json").read_text(encoding="utf-8"))
+            self.assertIsNone(original["return_spot"])
+            image = cv2.imread(str(out / f"{setting_id}.jpg"))
+            self.assertIsNotNone(image)
+
+    def test_saved_image_and_clicks_keep_the_settings_shape(self):
+        from vision.mark_slots import main
+
+        directory = Path(tempfile.mkdtemp())
+        image_path = directory / "tray.jpg"
+        cv2.imwrite(str(image_path), np.zeros((480, 640, 3), dtype=np.uint8))
+        out = directory / "surgical.json"
+        clicks = "10,20,110,80,120,20,220,80,230,20,330,80,400,300,520,380"
+        main(["--setting", "surgical", "--repo", str(Path(__file__).resolve().parents[1]), "--image", str(image_path), "--clicks", clicks, "--out", str(out)])
+        document = json.loads(out.read_text(encoding="utf-8"))
+        self.assertEqual(document["id"], "surgical")
+        self.assertEqual(document["items"][0]["slot"], [10, 20, 110, 80])
+        self.assertEqual(document["items"][0]["id"], "scalpel")
+        self.assertEqual(document["return_spot"], [400, 300, 520, 380])
+        self.assertIn("kelly", document["items"][1]["aliases"])
+
+    def test_pairs_file_reports_centimeters_and_the_hand_post_has_a_target(self):
+        import contextlib
+        import io
+
+        from vision.calibrate import load_calibration, main
+
+        directory = Path(tempfile.mkdtemp())
+        pairs = {
+            "image_points": [[100, 80], [500, 80], [500, 400], [100, 400], [300, 200], [180, 300]],
+            "arm_points": [
+                [0.10, 0.08, 0.18],
+                [0.50, 0.08, 0.18],
+                [0.50, 0.40, 0.18],
+                [0.10, 0.40, 0.18],
+                [0.30, 0.20, 0.18],
+                [0.18, 0.30, 0.18],
+            ],
+            "hand_height_m": 0.18,
+            "image_size": [1280, 720],
+            "rms_mm": 1.2,
+            "names": ["m1", "m2", "m3", "m4", "m5", "m6"],
+            "camera_source": "MOCK (not a real camera)",
+        }
+        pairs_path = directory / "pairs.json"
+        pairs_path.write_text(json.dumps(pairs), encoding="utf-8")
+        out = directory / "calibration.json"
+        buffer = io.StringIO()
+        with contextlib.redirect_stdout(buffer):
+            main(["--pairs", str(pairs_path), "--out", str(out)])
+        self.assertIn("cm", buffer.getvalue())
+        calibration = load_calibration(out)
+        self.assertLess(calibration["max_error_m"], 0.02)
+
+        capture = FakeCapture()
+        lock_controls(capture)
+        runtime = build_runtime(
+            capture,
+            fake_hands=lambda _frame: [synthetic_landmarks(True)],
+            detector=ScriptDetector([]),
+            calibration_path=out,
+            heights_path=directory / "heights.json",
+        )
+        poster = RecordingPoster()
+        runtime.poster = poster
+        message = publish_hand(runtime)
+        runtime.grabber.stop()
+        self.assertIsInstance(message["target"], list)
+        self.assertEqual(len(message["target"]), 3)
+        self.assertTrue(all(isinstance(value, float) for value in message["target"]))
+        posted = [payload for path, payload in poster.posts if path == "/vision/hand"]
+        self.assertEqual(posted[-1]["target"], message["target"])
+
+    def test_guided_point_lines_fit(self):
+        import contextlib
+        import io
+
+        from vision.calibrate import main, parse_guided_lines
+
+        lines = [
+            "0 0 0 0 0.18",
+            "100 0 0.2 0 0.18",
+            "100 100 0.2 0.2 0.18",
+            "0 100 0 0.2 0.18",
+            "50 40 0.1 0.08 0.18",
+            "20 80 0.04 0.16 0.18",
+        ]
+        image_points, arm_points = parse_guided_lines(lines)
+        self.assertEqual(len(image_points), 6)
+        self.assertEqual(len(arm_points[0]), 3)
+        directory = Path(tempfile.mkdtemp())
+        points = directory / "points.txt"
+        points.write_text("\n".join(lines) + "\n", encoding="utf-8")
+        out = directory / "calibration.json"
+        buffer = io.StringIO()
+        with contextlib.redirect_stdout(buffer):
+            main(["--points", str(points), "--out", str(out), "--hand-height", "0.18"])
+        self.assertRegex(buffer.getvalue(), r"max error \d+\.\d{2} cm")
+        self.assertTrue(out.exists())
+
+    def test_lighting_csv_records_rates_per_tag(self):
+        from vision.camera import FrameGrabber
+        from vision.lighting import _FlakyDetector, append_csv, sample_rates
+
+        capture = FakeCapture()
+        lock_controls(capture)
+        grabber = FrameGrabber(capture).start()
+        try:
+            sample = sample_rates(
+                grabber,
+                _FlakyDetector(fail_on={1, 3}),
+                lambda _frame: [synthetic_landmarks(True)],
+                ["hemostat"],
+                0.35,
+            )
+        finally:
+            grabber.stop()
+        self.assertGreater(sample["frames"], 2)
+        self.assertGreater(sample["hand_rate"], 0.9)
+        self.assertGreater(sample["stale"], 0)
+        self.assertLess(sample["detect_rate"], 1)
+        path = Path(tempfile.mkdtemp()) / "lighting_tests.csv"
+        append_csv(path, "bright", 0.35, sample)
+        append_csv(path, "dim", 0.35, sample)
+        rows = path.read_text(encoding="utf-8").splitlines()
+        self.assertTrue(rows[0].startswith("t,lighting,"))
+        self.assertIn("stale_rate", rows[0])
+        self.assertIn(",bright,", rows[1])
+        self.assertIn(",dim,", rows[2])
+
+
 def _free_port() -> int:
     import socket
 

@@ -275,8 +275,18 @@ def _rate_rows(tests: list[dict], events: list[dict], key: str) -> list[dict]:
 
 
 def _out(events: list[dict]) -> list[str]:
+    """The count on the newest event.
+
+    The controller puts its current `out` list on every event, including the
+    step it emits after a reset or a tray change. Replaying `handed` and
+    `returned` from the whole history keeps items that were cleared.
+    """
+    ordered = sorted(events, key=lambda event: float(event.get("t") or 0))
+    for event in reversed(ordered):
+        listed = event.get("out")
+        if isinstance(listed, list):
+            return [item for item in listed if isinstance(item, str) and item]
     held: list[str] = []
-    ordered = sorted(events, key=lambda event: event.get("t") or 0)
     for event in ordered:
         item = event.get("item")
         kind = event.get("type")

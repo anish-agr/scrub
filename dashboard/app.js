@@ -56,10 +56,13 @@ const model = {
   handoff: null,
   events: [],
   catalog: SETTINGS.surgical,
+  serverCatalog: null,
+  settingPending: false,
 };
 
 let socket = null;
 let pollTimer = null;
+let statsTimer = null;
 let fakeTimers = [];
 let samplePlayed = false;
 
@@ -93,7 +96,15 @@ function render() {
   $("hand-seen").textContent = model.handSeen == null ? "—" : model.handSeen ? "seen" : "lost";
   $("queue").textContent = String(model.queue.length);
   $("arm-mode").textContent = model.fakeArm == null ? "—" : model.fakeArm ? "fake" : "real";
+  $("lighting-now").textContent = model.lighting || "—";
   $("handoff").textContent = model.handoff == null ? "—" : `${model.handoff.toFixed(1)}s`;
+  const recent = model.events
+    .filter((event) => event.request_to_hand_s != null)
+    .slice(-6)
+    .map((event) => seconds(event.request_to_hand_s));
+  $("handoffs").textContent = recent.length ? `Recent handoffs ${recent.join(", ")}` : "";
+  const reset = $("reset");
+  if (reset) reset.hidden = !(model.live && (model.step === "stopped" || model.step === "error"));
 
   const out = $("out");
   out.replaceChildren();
@@ -176,9 +187,13 @@ function applyState(state) {
   model.item = state.item || null;
   model.queue = Array.isArray(state.queue) ? state.queue : [];
   model.out = Array.isArray(state.out) ? state.out : [];
-  if (state.setting && SETTINGS[state.setting]) {
+  if (state.setting && !model.settingPending) {
     model.setting = state.setting;
-    model.catalog = SETTINGS[state.setting];
+    if (model.serverCatalog && model.serverCatalog.id === state.setting) {
+      model.catalog = model.serverCatalog;
+    } else if (SETTINGS[state.setting]) {
+      model.catalog = SETTINGS[state.setting];
+    }
   }
   if (state.lighting) model.lighting = state.lighting;
   model.fakeArm = Boolean(state.fake_arm);
@@ -460,6 +475,11 @@ function fillTable(tableId, rows, labelKey) {
 function paintStats(report) {
   const rows = (report && report.by_item ? report.by_item.length : 0) + (report && report.by_lighting ? report.by_lighting.length : 0);
   $("median").textContent = `Median handoff ${seconds(report && report.median_request_to_hand_s)}`;
+  const recent = model.events
+    .filter((event) => event.request_to_hand_s != null)
+    .slice(-6)
+    .map((event) => seconds(event.request_to_hand_s));
+  $("handoffs").textContent = recent.length ? `Recent handoffs ${recent.join(", ")}` : "";
   fillTable("by-item", (report && report.by_item) || [], "item");
   fillTable("by-lighting", (report && report.by_lighting) || [], "lighting");
   document.querySelector(".tables").classList.toggle("has-rows", rows > 0);
@@ -486,22 +506,63 @@ async function pollState() {
   }
 }
 
+function catalogFrom(document) {
+  const known = SETTINGS[document.id] || { id: document.id, label: document.id, items: [] };
+  const items = (document.items || known.items).map((item) => ({
+    id: item.id,
+    name: item.name || item.id,
+    sharp: Boolean(item.sharp),
+  }));
+  return { id: document.id, label: document.label || known.label, items };
+}
+
+async function pullRecent() {
+  try {
+    const response = await fetch("/events/recent?n=40", { cache: "no-store" });
+    if (!response.ok) return;
+    const events = await response.json();
+    if (Array.isArray(events)) events.forEach(pushEvent);
+  } catch (error) {
+    /* the live socket still fills the log */
+  }
+}
+
+async function pullSetting() {
+  const response = await fetch("/setting", { cache: "no-store" });
+  if (!response.ok) return;
+  const document = await response.json();
+  if (!document || !document.id) return;
+  model.serverCatalog = catalogFrom(document);
+  model.catalog = model.serverCatalog;
+  model.setting = document.id;
+}
+
 async function changeSetting(settingId) {
+  const previous = model.setting;
   model.setting = settingId;
   model.catalog = SETTINGS[settingId] || SETTINGS.surgical;
+  model.settingPending = true;
   render();
-  if (!model.live) return;
+  if (!model.live) {
+    model.settingPending = false;
+    return;
+  }
   try {
     const loaded = await postJson("/setting", { setting: settingId });
-    if (loaded && loaded.id && SETTINGS[loaded.id]) {
-      model.catalog = {
-        ...SETTINGS[loaded.id],
-        items: loaded.items || SETTINGS[loaded.id].items,
-      };
-      render();
+    if (loaded && loaded.id) {
+      model.serverCatalog = catalogFrom(loaded);
+      model.catalog = model.serverCatalog;
+      model.setting = loaded.id;
     }
+    $("banner").hidden = true;
   } catch (error) {
-    /* picker already shows the choice */
+    model.setting = previous;
+    model.catalog = (model.serverCatalog && model.serverCatalog.id === previous && model.serverCatalog) || SETTINGS[previous] || model.catalog;
+    $("banner").hidden = false;
+    $("banner").textContent = "Could not switch trays. Wait until the arm is idle, or reset a stop first.";
+  } finally {
+    model.settingPending = false;
+    render();
   }
 }
 
@@ -516,16 +577,75 @@ async function changeLighting(lighting) {
   }
 }
 
+function visionOrigin() {
+  const host = location.hostname || "127.0.0.1";
+  return `http://${host}:8001`;
+}
+
 function onCamera() {
   const image = $("camera");
   const frame = image.parentElement;
-  const show = () => frame.classList.add("has-stream");
-  const hide = () => frame.classList.remove("has-stream");
-  image.addEventListener("load", show);
-  image.addEventListener("error", hide);
-  if (image.complete) {
-    if (image.naturalWidth > 0) show();
-    else hide();
+  let streamOn = false;
+  const check = () => {
+    const probe = new Image();
+    probe.onload = () => {
+      if (!streamOn) {
+        image.src = `${visionOrigin()}/stream`;
+        streamOn = true;
+      }
+      frame.classList.add("has-stream");
+    };
+    probe.onerror = () => {
+      streamOn = false;
+      image.removeAttribute("src");
+      frame.classList.remove("has-stream");
+    };
+    probe.src = `${visionOrigin()}/snapshot?t=${Date.now()}`;
+  };
+  check();
+  setInterval(check, 3000);
+}
+
+async function pollVision() {
+  const banner = $("vision-stale");
+  let tray = null;
+  let age = null;
+  try {
+    const response = await fetch("/vision", { cache: "no-store" });
+    if (response.ok) {
+      const body = await response.json();
+      tray = body && body.tray ? body.tray : null;
+      if (body && body.tray_age_s != null) age = Number(body.tray_age_s);
+    }
+  } catch (error) {
+    tray = null;
+  }
+  if (!tray) {
+    try {
+      const response = await fetch(`${visionOrigin()}/vision/tray`, { cache: "no-store" });
+      if (!response.ok) throw new Error("down");
+      tray = await response.json();
+    } catch (error) {
+      banner.hidden = true;
+      return;
+    }
+  }
+  if (!tray || !tray.slots) {
+    banner.hidden = true;
+    return;
+  }
+  if (age == null && tray.t) age = Date.now() / 1000 - Number(tray.t);
+  banner.hidden = !(tray.stale || (age != null && age > 3));
+}
+
+async function resetArm() {
+  if (!model.live) return;
+  try {
+    await postJson("/reset", {});
+    $("banner").hidden = true;
+  } catch (error) {
+    $("banner").hidden = false;
+    $("banner").textContent = "Reset did not go through. Stop the arm first if it is still moving.";
   }
 }
 
@@ -533,6 +653,7 @@ function wire() {
   fillSettings();
   onCamera();
   $("stop").addEventListener("click", stopArm);
+  $("reset").addEventListener("click", resetArm);
   $("setting").addEventListener("change", (event) => changeSetting(event.target.value));
   $("lighting").addEventListener("change", (event) => changeLighting(event.target.value));
   document.body.addEventListener("click", (event) => {
@@ -543,27 +664,48 @@ function wire() {
   document.addEventListener("keydown", (event) => {
     if (event.code !== "Space" || event.repeat) return;
     const tag = event.target && event.target.tagName;
-    if (tag === "INPUT" || tag === "TEXTAREA" || tag === "SELECT") return;
+    if (tag === "INPUT" || tag === "TEXTAREA" || tag === "SELECT" || tag === "BUTTON") return;
     event.preventDefault();
     stopArm();
   });
 }
 
+function goLive(state) {
+  clearFakeTimers();
+  model.live = true;
+  model.events = [];
+  samplePlayed = false;
+  $("banner").hidden = true;
+  applyState(state);
+  openSocket();
+  if (pollTimer) clearInterval(pollTimer);
+  pollTimer = setInterval(pollState, 400);
+  pullSetting().then(render);
+  pullRecent();
+  loadStats();
+  if (!statsTimer) statsTimer = setInterval(loadStats, 2000);
+}
+
 async function connect() {
   wire();
+  pollVision();
+  setInterval(pollVision, 2000);
   try {
     const response = await fetch("/state", { cache: "no-store", signal: AbortSignal.timeout(800) });
     if (!response.ok) throw new Error("no state");
-    model.live = true;
-    model.events = [];
-    $("banner").hidden = true;
-    applyState(await response.json());
-    openSocket();
-    pollTimer = setInterval(pollState, 400);
-    loadStats();
-    setInterval(loadStats, 2000);
+    goLive(await response.json());
   } catch (error) {
     showSampleList();
+    setInterval(async () => {
+      if (model.live) return;
+      try {
+        const response = await fetch("/state", { cache: "no-store" });
+        if (!response.ok) return;
+        goLive(await response.json());
+      } catch (err) {
+        /* stay on the sample until the controller answers */
+      }
+    }, 2000);
   }
 }
 

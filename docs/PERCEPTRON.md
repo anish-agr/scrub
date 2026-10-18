@@ -13,7 +13,9 @@ Training and inference for the arm are a different API: see `docs/PERCEPTRON-ROB
 
 The vision process calls this about once a second from `vision/tray.py`. `reasoning_effort` is `none` so the call stays on the fast path. Categories are the current setting's item names (underscores written as spaces), plus `robot arm` and `gripper` for the blocked-path check.
 
-A live timed call has not been made from this machine yet: `.env` has no `PERCEPTRON_API_KEY`. The shapes below are the ones the docs say work, and the ones `vision/tray.py` sends.
+Check a live call with `python -m vision.lighting --check-api`. It prints HTTP status, latency, and how many detections came back. It does not print the key.
+
+Checked Oct 17, 2026 from Evan's laptop: there is no repo-root `.env`, so `PERCEPTRON_API_KEY` is unset and no live call was sent. The shapes below are the ones the docs say work, and the ones `vision/tray.py` sends. Put the key in `.env` and run the command above to fill in the measured latency.
 
 ## Request that works
 

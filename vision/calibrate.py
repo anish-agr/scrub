@@ -89,6 +89,61 @@ def calibration_from_points(image_points, arm_points, hand_height_m: float = 0.1
     }
 
 
+def format_fit(calibration: dict) -> str:
+    """One line, error in centimeters."""
+    cm = float(calibration["max_error_m"]) * 100.0
+    return f"max error {cm:.2f} cm"
+
+
+def load_pairs(path: Path) -> tuple[list, list, float]:
+    """Read explore page 42's pairs.json. Extra fields are ignored. Arm x,y are meters."""
+    payload = json.loads(path.read_text(encoding="utf-8"))
+    image_points = [[float(point[0]), float(point[1])] for point in payload["image_points"]]
+    height = payload.get("hand_height_m")
+    arm_points = []
+    for point in payload["arm_points"]:
+        x, y = float(point[0]), float(point[1])
+        z = float(point[2]) if len(point) > 2 else float(height if height is not None else 0.18)
+        arm_points.append([x, y, z])
+    if height is None:
+        height = arm_points[0][2] if arm_points else 0.18
+    return image_points, arm_points, float(height)
+
+
+def parse_guided_lines(lines: list[str]) -> tuple[list, list]:
+    """Each line is pixel_x pixel_y arm_x arm_y arm_z. Blank lines are skipped."""
+    image_points = []
+    arm_points = []
+    for raw in lines:
+        line = raw.strip()
+        if not line:
+            continue
+        parts = [float(part) for part in line.replace(",", " ").split()]
+        if len(parts) != 5:
+            raise ValueError("expected pixel_x pixel_y arm_x arm_y arm_z")
+        image_points.append(parts[:2])
+        arm_points.append(parts[2:])
+    return image_points, arm_points
+
+
+def fake_calibration() -> dict:
+    """A stand-in fit so `python -m vision --fake` can post a hand target.
+
+    The synthetic palm (about 335, 353 on a 640x480 frame) maps near the
+    controller's saved handoff spot, inside arm/rig.json's handoff region.
+    """
+    image_points = [[335, 353], [435, 353], [435, 253], [235, 253], [300, 300], [380, 320]]
+    arm_points = [
+        [0.264, -0.120, 0.18],
+        [0.344, -0.120, 0.18],
+        [0.344, -0.040, 0.18],
+        [0.184, -0.040, 0.18],
+        [0.236, -0.080, 0.18],
+        [0.300, -0.090, 0.18],
+    ]
+    return calibration_from_points(image_points, arm_points, hand_height_m=0.18)
+
+
 def save_calibration(path: Path, calibration: dict) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(json.dumps(calibration, indent=2), encoding="utf-8")
@@ -100,40 +155,45 @@ def load_calibration(path: Path) -> dict | None:
     return json.loads(path.read_text(encoding="utf-8"))
 
 
+def _read_guided(hand_height: float) -> tuple[list, list, float]:
+    print("Gripper points. One per line: pixel_x pixel_y arm_x arm_y arm_z")
+    print("Arm x,y,z are meters. 6 to 8 points. A blank line finishes.")
+    lines = []
+    index = 1
+    while True:
+        try:
+            line = input(f"point {index}> ")
+        except EOFError:
+            break
+        if not line.strip():
+            break
+        lines.append(line)
+        index += 1
+    image_points, arm_points = parse_guided_lines(lines)
+    return image_points, arm_points, hand_height
+
+
 def main(argv: list[str] | None = None) -> None:
     import argparse
 
     parser = argparse.ArgumentParser(description="Fit vision/calibration.json from gripper points")
-    parser.add_argument("--pairs", help="JSON file with image_points and arm_points")
+    parser.add_argument("--pairs", help="JSON from explore page 42 (image_points, arm_points, hand_height_m)")
+    parser.add_argument("--points", help="text file of guided lines: pixel_x pixel_y arm_x arm_y arm_z")
     parser.add_argument("--out", default="vision/calibration.json")
     parser.add_argument("--hand-height", type=float, default=0.18)
     args = parser.parse_args(argv)
 
     if args.pairs:
-        payload = json.loads(Path(args.pairs).read_text(encoding="utf-8"))
-        image_points = payload["image_points"]
-        arm_points = payload["arm_points"]
-        height = float(payload.get("hand_height_m", args.hand_height))
-    else:
-        print("Type one point per line: pixel_x pixel_y arm_x arm_y arm_z")
-        print("Need 6 to 8 points. Blank line finishes.")
-        image_points = []
-        arm_points = []
-        while True:
-            line = input("> ").strip()
-            if not line:
-                break
-            parts = [float(part) for part in line.split()]
-            if len(parts) != 5:
-                print("expected 5 numbers")
-                continue
-            image_points.append(parts[:2])
-            arm_points.append(parts[2:])
+        image_points, arm_points, height = load_pairs(Path(args.pairs))
+    elif args.points:
+        image_points, arm_points = parse_guided_lines(Path(args.points).read_text(encoding="utf-8").splitlines())
         height = args.hand_height
+    else:
+        image_points, arm_points, height = _read_guided(args.hand_height)
 
     calibration = calibration_from_points(image_points, arm_points, height)
     save_calibration(Path(args.out), calibration)
-    print(f"max error {calibration['max_error_m'] * 100:.2f} cm")
+    print(format_fit(calibration))
     print(f"wrote {args.out}")
     if calibration["max_error_m"] > 0.02:
         print("error is over 2 cm; remeasure the points")

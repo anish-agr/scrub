@@ -4,5 +4,17 @@ Owner: Evan. One row per batch of demos. Targets per item: 15 hand-out and 10 pu
 
 Fill a row when a batch is recorded with Anish. Direction is `hand-out` or `put-back`. Lighting is `bright`, `normal`, or `dim`. Demos is how many clips are in that batch. Dataset name is the Hub name, or `local` if it stayed on the laptop.
 
+From the repo root, after the batch:
+
+```
+python -m ledger log --setting surgical --item hemostat --direction hand-out --lighting bright --demos 5 --dataset local --notes "cadence ok"
+```
+
+`--item` accepts the id (`mayo_scissors`) or a name people say (`kelly`, `mayo`). The line it appends is the one `arm/record.py` should append too (that script is not in the repo yet). Setting is the tray label, item is the name from the settings file:
+
+```
+| 2026-10-17 18:05 | Operating room | hemostat | hand-out | bright | 5 | local | cadence ok |
+```
+
 | Time | Setting | Item | Direction | Lighting | Demos | Dataset name | Notes |
 | --- | --- | --- | --- | --- | --- | --- | --- |
