@@ -41,10 +41,8 @@ From `docs/PROPOSAL.md` ("What's next", the tracks) and `explore/research/04-bui
 
 | # | What | Track it serves | Who | May edit |
 | --- | --- | --- | --- | --- |
-| X3 | **Tray check before a case:** vision compares the tray to the setting's item list and reports what's missing or in the wrong slot; "check the tray" by voice or text answers it. The sterile-processing use from the proposal | Perceptron Perception, Photon | Antigravity (vision side), Caiden (command) | `vision/`, `docs/PERCEPTRON.md` / `controller/`, `voice/` |
+| X3 | **Tray check before a case (vision side):** vision's `GET /tray_check` compares the tray to the setting's item list and reports what's missing or in the wrong slot. The command side is done: "check the tray" by voice or text asks the controller's `GET /tray_check`, which calls vision; the shape to return is in `controller/README.md` (Extra endpoints). Until it exists Scrub says "I can't check the tray right now." | Perceptron Perception, Photon | Antigravity | `vision/`, `docs/PERCEPTRON.md` |
 | X4 | **Find events in video:** vision keeps short clips around each event per `case_id`; after the case, Perceptron's video or caption capability (check docs.perceptron.inc for what exists) labels them ("scalpel set at the safe spot, 14:02"), shown in the replay | Perceptron Perception | Antigravity | `vision/`, `docs/PERCEPTRON.md` |
-| X5 | **Photon extras:** a "tray ready" text when the tray check passes; texting "start a dental case" switches the setting; a short reply with the case link (public page) after the summary | Photon | Caiden | `voice/`, `controller/` |
-| X6 | **Clinic words:** when Scrub doesn't understand, it asks, and "call the hemostat a clamp" (spoken or texted) adds the alias. Saved in `settings/<id>.local.json` (an overlay the controller merges), so Evan's files stay untouched | Gemini, Photon, Community Kitchen | Caiden | `controller/`, `voice/` |
 | X9 | **Data and model links:** the Hugging Face dataset and the deployment id shown on the dashboard and in the Devpost text, filled in by `arm.train pipeline` | Perceptron Robotics | Codex | `arm/` |
 
 ## Blockers only people can clear
