@@ -1,24 +1,28 @@
 <!DOCTYPE html>
-<html lang="en">
+<!-- STYLE: Swiss nurse-station case register on warm paper. -->
+<html lang="en" data-theme="paper">
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>Scrub cases</title>
   <link rel="stylesheet" href="style.css">
 </head>
-<body>
+<body class="scrub-ui" data-page="cases">
   <header class="top">
-    <span class="mark">Scrub</span>
+    <div><span class="mark">Scrub</span><span class="subtitle">Case register</span></div>
     <a href="/">Count</a>
     <span class="pill">cases</span>
   </header>
-  <p id="status" class="banner" hidden></p>
+  <p id="status" class="banner warning" role="status" hidden></p>
   <main>
     <section>
       <p class="kicker">Cases</p>
+      <h1>Case record</h1>
+      <p class="note">Open a case to read its requests, handoff times and instrument count.</p>
       <ul id="cases" class="cases"></ul>
     </section>
   </main>
+  <footer>Team Scrub · DubHacks '26 <a href="#">Terms</a><a href="#">Privacy</a></footer>
   <script src="cases.js"></script>
 </body>
 </html>
