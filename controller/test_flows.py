@@ -1426,6 +1426,262 @@ def ops_page_and_design_are_served():
     assert nurse.count(f"tray_age_s>{core.TRAY_STALE_S:g}") == 2 and "tray_age_s>3" not in nurse
 
 
+class fake_reader:
+    """A tiny vision answering POST /read/<kind> from `answers[kind]` (a dict, or None for a 404), after `delay` s.
+    Points VISION_URL at it; on exit shuts it down and puts VISION_URL back. `bodies` keeps each request body."""
+    def __init__(self, **answers):
+        self.answers, self.delay, self.bodies = answers, 0.0, []
+
+    def __enter__(self):
+        from http.server import BaseHTTPRequestHandler, HTTPServer
+        outer = self
+
+        class Vision(BaseHTTPRequestHandler):
+            def do_POST(self):
+                n = int(self.headers.get("content-length") or 0)
+                outer.bodies.append((self.path, json.loads(self.rfile.read(n) or b"{}")))
+                time.sleep(outer.delay)
+                ans = outer.answers.get(self.path.rsplit("/", 1)[-1])
+                self.send_response(200 if ans is not None else 404)
+                self.send_header("content-type", "application/json")
+                self.end_headers()
+                self.wfile.write(json.dumps(ans if ans is not None else {"detail": "Not Found"}).encode())
+
+            def log_message(self, *a):
+                pass
+        self.server = HTTPServer(("127.0.0.1", 0), Vision)
+        threading.Thread(target=self.server.serve_forever, daemon=True).start()
+        self.old = os.environ.get("VISION_URL")
+        os.environ["VISION_URL"] = f"http://127.0.0.1:{self.server.server_port}"
+        return self
+
+    def __exit__(self, *exc):
+        self.server.shutdown()
+        self.server.server_close()
+        if self.old is None:
+            os.environ.pop("VISION_URL", None)
+        else:
+            os.environ["VISION_URL"] = self.old
+
+
+def sheet(rows, tray="surgical"):
+    """A vision count_sheet answer. rows: {item: (expected, initial, closing)}."""
+    return {"ok": True, "method": "perceptron", "latency_ms": 1800, "error": None, "tray": tray, "setting": "surgical",
+            "items": [{"item": i, "name": i, "expected": e, "initial": a, "closing": c} for i, (e, a, c) in rows.items()]}
+
+
+def read_event(ctl, cmd, timeout=5.0):
+    """Submit a read_* command; (reply, the read event it caused or None)."""
+    reply = ctl.submit(dict(cmd))
+    cid = cmd.get("id") or next(e["command_id"] for e in reversed(ctl.history) if e["type"] == "command")
+    got = lambda: next((e for e in list(ctl.history) if e["type"] == "read" and e["command_id"] == cid), None)  # noqa: E731
+    wait_for(got, timeout)
+    return reply, got()
+
+
+@test
+def read_sheet_initial_counts_against_expected():
+    ctl, _ = make()
+    rows = {"scalpel": (1, 1, None), "hemostat": (2, 1, None), "mayo_scissors": (1, 1, None)}
+    with fake_reader(count_sheet=sheet(rows)) as v:
+        reply, ev = read_event(ctl, {"action": "read_sheet", "source": "voice"})
+    assert reply["accepted"] and reply["say"] == "Reading the count sheet.", reply
+    assert v.bodies == [("/read/count_sheet", {"source": "overhead", "setting": "surgical"})], v.bodies
+    assert ev["say"] == "Sheet says 1 hemostat at the start, 2 expected.", ev["say"]
+    r = ev["read"]
+    assert r["kind"] == "count_sheet" and r["ok"] and r["method"] == "perceptron" and r["latency_ms"] == 1800, r
+    assert r["compare"] == "initial" and r["mismatch"] == [{"item": "hemostat", "sheet": 1, "expected": 2}], r
+    st = ctl.state()["sheet"]
+    assert st["tray"] == "surgical" and st["method"] == "perceptron" and st["t"], st
+    assert st["items"]["hemostat"] == {"expected": 2, "initial": 1, "closing": None}, st
+    rows["hemostat"] = (2, 2, None)
+    with fake_reader(count_sheet=sheet(rows)):
+        _, ev = read_event(ctl, {"action": "read_sheet"})
+    assert ev["say"] == lines.SHEET_MATCHES and ev["read"]["mismatch"] == [], ev
+    with fake_reader(count_sheet=sheet({"scalpel": (1, None, None)})):
+        _, ev = read_event(ctl, {"action": "read_sheet"})
+    assert ev["say"] == lines.SHEET_NO_COUNTS and ev["read"]["compare"] is None, ev
+
+
+@test
+def read_sheet_closing_counts_against_what_is_out():
+    ctl, _ = make()
+    ctl.out = ["hemostat"]  # Scrub's on-tray hemostats: 1 expected - 1 out = 0
+    rows = {"scalpel": (1, 1, 1), "hemostat": (1, 1, 1), "mayo_scissors": (1, 1, 1)}
+    with fake_reader(count_sheet=sheet(rows)):
+        _, ev = read_event(ctl, {"action": "read_sheet"})
+    assert ev["say"] == "Sheet says 1 hemostat back, I count 0.", ev["say"]
+    assert ev["read"]["compare"] == "closing" and ev["read"]["mismatch"] == [{"item": "hemostat", "sheet": 1, "scrub": 0}]
+    ctl.out = []
+    rows = {"scalpel": (1, 1, 1), "hemostat": (1, 1, 0), "mayo_scissors": (2, 2, 2)}  # the spec's example line
+    with fake_reader(count_sheet=sheet(rows)):
+        _, ev = read_event(ctl, {"action": "read_sheet"})
+    assert ev["say"] == "Sheet says 0 hemostats back, I count 1.", ev["say"]
+    # the count adds sheet_mismatch and names it
+    _, evs = run(ctl, {"action": "count"})
+    c = next(e for e in evs if e["type"] == "count")
+    assert c["sheet_mismatch"] == [{"item": "hemostat", "sheet": 0, "scrub": 1}], c
+    assert c["say"] == "Everything's on the tray. Sheet disagrees on the hemostat.", c["say"]
+    ctl.out = ["hemostat"]
+    _, evs = run(ctl, {"action": "count"})
+    c = next(e for e in evs if e["type"] == "count")
+    assert c["sheet_mismatch"] == [] and c["say"] == "Out: hemostat.", c
+
+
+@test
+def count_has_no_sheet_mismatch_without_closing_counts():
+    ctl, _ = make()
+    _, evs = run(ctl, {"action": "count"})
+    assert "sheet_mismatch" not in next(e for e in evs if e["type"] == "count")
+    with fake_reader(count_sheet=sheet({"hemostat": (1, 1, None)})):
+        read_event(ctl, {"action": "read_sheet"})
+    _, evs = run(ctl, {"action": "count"})
+    assert "sheet_mismatch" not in next(e for e in evs if e["type"] == "count")
+
+
+@test
+def read_sheet_for_another_tray_says_so_and_a_new_case_clears_it():
+    with scratch_settings():
+        ctl, _ = make()
+        with fake_reader(count_sheet=sheet({"hemostat": (1, 1, None)}, tray="bench")):
+            _, ev = read_event(ctl, {"action": "read_sheet"})
+        assert ev["say"] == "This sheet is for the robotics bench tray, not the operating room tray. Sheet matches my count.", ev["say"]
+        assert ctl.state()["sheet"]
+        ctl.set_setting("bench")
+        assert ctl.state()["sheet"] is None and ctl.state()["packs"] == []
+
+
+@test
+def read_tray_switches_when_idle_or_stopped():
+    with scratch_settings():
+        ctl, _ = make()
+        tag = {"ok": True, "method": "qr", "latency_ms": 12, "error": None, "tray": "bench", "text": "scrub:tray:bench"}
+        with fake_reader(tray_tag=tag):
+            case = ctl.case_id
+            reply, ev = read_event(ctl, {"action": "read_tray"})
+            assert reply["say"] == "Reading the tray tag."
+            assert ev["say"] == "This is the robotics bench tray. Switched.", ev["say"]
+            assert ev["read"]["switched"] and ev["read"]["method"] == "qr" and ctl.setting["id"] == "bench", ev
+            assert ev["setting"] == "bench" and ev["case_id"].startswith("bench-") and case.startswith("surgical-"), ev
+            _, ev = read_event(ctl, {"action": "read_tray"})
+            assert ev["say"] == "This is the robotics bench tray." and not ev["read"]["switched"], ev
+            ctl.set_setting("surgical")
+            ctl.stop()
+            _, ev = read_event(ctl, {"action": "read_tray"})
+            assert ev["say"] == "This is the robotics bench tray. Switched." and ctl.step == "stopped", ev
+
+
+@test
+def read_tray_busy_and_unknown():
+    with scratch_settings():
+        ctl, _ = make()
+        tag = {"ok": True, "method": "perceptron", "latency_ms": 900, "error": None, "tray": "bench", "text": "BENCH"}
+        with fake_reader(tray_tag=tag):
+            with ctl.lock:
+                ctl.step = "moving_to_hand"
+            _, ev = read_event(ctl, {"action": "read_tray"})
+            with ctl.lock:
+                ctl.step = "idle"
+        assert ev["say"] == "This is the robotics bench tray. I can't switch while I'm busy.", ev["say"]
+        assert ctl.setting["id"] == "surgical" and not ev["read"]["switched"]
+        for bad in ({"ok": False, "method": None, "latency_ms": 3000, "error": "no known tray", "tray": None},
+                    {"ok": True, "method": "gemini", "latency_ms": 10, "tray": "operating_theatre"}):
+            with fake_reader(tray_tag=bad):
+                _, ev = read_event(ctl, {"action": "read_tray"})
+            assert ev["say"] == "I can't read the tray tag." and ctl.setting["id"] == "surgical", ev
+
+
+@test
+def read_pack_says_expiry_and_warns_when_expired():
+    ctl, _ = make()
+    labels = {"ok": True, "method": "perceptron", "latency_ms": 2100, "error": None, "expired": True, "today": "2026-10-18",
+              "labels": [{"item": "hemostat", "item_text": "Kelly hemostat", "lot": "L-4471", "expires": "2027-04-30", "expired": False},
+                         {"item": "mayo_scissors", "item_text": "Mayo scissors", "lot": "L-0930", "expires": "2026-09-30", "expired": True},
+                         {"item": None, "item_text": "Army-Navy retractor", "lot": None, "expires": None, "expired": False}]}
+    with fake_reader(pack_label=labels):
+        reply, ev = read_event(ctl, {"action": "read_pack"})
+    assert reply["say"] == "Reading the pack label."
+    assert ev["say"] == ("Hemostat pack, expires 2027-04-30. Expired: mayo scissors pack, 2026-09-30. Don't open it. "
+                         "Army-Navy retractor pack, no expiry date."), ev["say"]
+    assert ctl.state()["packs"] == [{"item": "hemostat", "lot": "L-4471", "expires": "2027-04-30", "expired": False},
+                                    {"item": "mayo_scissors", "lot": "L-0930", "expires": "2026-09-30", "expired": True},
+                                    {"item": None, "lot": None, "expires": None, "expired": False}], ctl.state()["packs"]
+    assert ev["read"]["kind"] == "pack_label" and ev["read"]["latency_ms"] == 2100
+
+
+@test
+def reads_with_vision_down_or_failing():
+    ctl, _ = make()
+    with fake_reader(count_sheet={"ok": False, "method": None, "latency_ms": 9000, "error": "perceptron: timeout"}):
+        _, ev = read_event(ctl, {"action": "read_sheet"})
+    assert ev["say"] == lines.CANT_READ_SHEET and not ev["read"]["ok"] and ctl.state()["sheet"] is None, ev
+    with fake_reader() as v:  # every reader 404s, then vision is gone
+        _, ev = read_event(ctl, {"action": "read_pack"})
+        assert ev["say"] == lines.CANT_READ_PACK and ev["read"]["error"] == "vision unreachable", ev
+    _, ev = read_event(ctl, {"action": "read_tray"})
+    assert ev["say"] == lines.CANT_READ_TAG and ev["read"] == {**ev["read"], "kind": "tray_tag", "ok": False, "method": None}, ev
+    with fake_reader(count_sheet={"ok": False, "error": "no overhead frame yet"}):  # vision's 503 body
+        _, ev = read_event(ctl, {"action": "read_sheet"})
+    assert ev["say"] == lines.CANT_READ_SHEET, ev
+    assert v.bodies
+
+
+@test
+def stop_during_a_read_returns_at_once_and_one_read_at_a_time():
+    ctl, arm = make()
+    with fake_reader(count_sheet=sheet({"hemostat": (1, 1, None)})) as v:
+        v.delay = 1.0
+        assert ctl.submit({"action": "read_sheet"})["accepted"]
+        again = ctl.submit({"action": "read_sheet"})
+        assert not again["accepted"] and again["say"] == lines.STILL_READING, again
+        t0 = time.time()
+        ctl.stop()
+        assert time.time() - t0 < 0.2 and ctl.step == "stopped"
+        assert wait_for(lambda: any(e["type"] == "read" for e in ctl.history), 4.0)
+        assert wait_for(lambda: not ctl._reading)
+        assert ctl.submit({"action": "read_sheet"})["accepted"]  # the first one is done
+
+
+@test
+def judge_mode_refuses_reads():
+    ctl, _ = make()
+    ctl.set_judge(True)
+    r = ctl.submit({"action": "read_pack"})
+    assert not r["accepted"] and r["say"] == lines.JUDGE_ONLY
+
+
+@test
+def read_events_and_captions_go_to_the_ledger():
+    from fastapi.testclient import TestClient
+    from . import server
+    ctl, _ = make()
+    logged = []
+
+    class Ledger:
+        log = staticmethod(logged.append)
+    saved, core.ledger = core.ledger, Ledger
+    try:
+        with fake_reader(pack_label={"ok": True, "method": "gemini", "latency_ms": 5, "labels": [
+                {"item": "scalpel", "lot": "1", "expires": "2027-01-31", "expired": False}]}):
+            read_event(ctl, {"action": "read_pack"})
+        assert wait_for(lambda: any(r["type"] == "read" for r in logged))
+        rec = next(r for r in logged if r["type"] == "read")
+        assert rec["case_id"] == ctl.case_id and rec["read"]["method"] == "gemini", rec
+        client = TestClient(server.make_app(ctl))
+        cap = {"case_id": "surgical-1792297259", "event_type": "handed", "item": "hemostat", "t": 1792297260.5,
+               "label": "arm holds a hemostat out to a gloved hand, 6.4 s", "label_source": "perceptron", "agrees": True,
+               "caption_item": "hemostat", "caption_action": "handed", "caption_latency_ms": 2400,
+               "filename": "handed_hemostat_1792297260.mp4"}
+        n = len(ctl.history)
+        assert client.post("/vision/caption", json=cap).json() == {"ok": True}
+        assert wait_for(lambda: any(r["type"] == "caption" for r in logged))
+        rec = next(r for r in logged if r["type"] == "caption")
+        assert rec == {**rec, **cap, "type": "caption", "fake_arm": True}, rec
+        assert len(ctl.history) == n  # not an Event
+    finally:
+        core.ledger = saved
+
+
 def main():
     failed = 0
     for fn in TESTS:
