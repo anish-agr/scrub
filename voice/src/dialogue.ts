@@ -144,7 +144,7 @@ export class Dialogue {
   }
   answer(context: string, heard: string, setting: Setting, preferred?: Candidate): Answer {
     const c = this.context(context, setting.id), q = c.question, s = norm(heard);
-    if (CANCEL.test(s)) { this.close(context, c, heard, "cancelled"); c.expired = undefined; c.latestCommand = undefined; return { say: "Cancelled. Nothing will move." }; }
+    if (CANCEL.test(s)) { this.close(context, c, heard, "cancelled"); c.expired = undefined; c.latestCommand = undefined; return { say: "Cancelled." }; }
     if (!q && c.expired) {
       const old = c.expired; c.expired = undefined;
       const bareAnswer = !!selectorOf(s) || freeChoice(s) || /^(yes|no)$/.test(s)
@@ -166,7 +166,7 @@ export class Dialogue {
     }
     if (q.confirm && /^(no|nope|not that|negative)( please)?$/.test(s)) {
       this.close(context, c, heard, "cancelled");
-      return { say: "Cancelled. Nothing will move." };
+      return { say: "Cancelled." };
     }
     let chosen: Candidate | undefined;
     if (q.confirm) {
