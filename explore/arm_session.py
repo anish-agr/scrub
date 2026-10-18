@@ -64,6 +64,7 @@ COOL_TRIP, COOL_RESUME = 60, 50
 COOL_PLATEAU_S = 180  # no further drop for this long while <= COOL_TRIP - 5: resume anyway
 REST = {"shoulder_lift": -98.0, "elbow_flex": 92.0, "wrist_flex": 70.0}  # folded, just off the stops
 REST_DEG_S = 30.0
+ROLL_LIMIT_DEG = 150.0  # wrist_roll is calibrated over a full turn; stay this far inside the ends
 LAST_ERROR = Path.home() / "scrub-logs" / "last-error.txt"  # a crashed session's reason, for the page
 CAM_SPECS: dict = {}         # starting OpenCV index -> (role, name spec), to find a camera again after a replug
 
@@ -212,6 +213,8 @@ def joint_limits(bus) -> dict:
         mid = (c.range_min + c.range_max) / 2
         lo, hi = ((r - mid) * 360 / 4095 for r in (c.range_min, c.range_max))
         out[m] = (lo + 1, hi - 1)
+    if "wrist_roll" in out:  # full-turn joint: keep clear of the encoder end (Oct 17: 4200 > 4095, overload)
+        out["wrist_roll"] = (max(out["wrist_roll"][0], -ROLL_LIMIT_DEG), min(out["wrist_roll"][1], ROLL_LIMIT_DEG))
     return out
 
 
@@ -651,6 +654,39 @@ def bus_ok(port: str) -> bool:
     return not silent_motors(port)
 
 
+def stuck_motors(port: str) -> list[str]:
+    """Follower motors that LeRobot's start-up would refuse: an overload/angle flag, usually because the
+    joint sits past its range (the target is clamped, it strains, the flag sticks). Says what to do."""
+    import scservo_sdk as scs
+    names = ["shoulder_pan", "shoulder_lift", "elbow_flex", "wrist_flex", "wrist_roll", "gripper"]
+    out = []
+    ph = scs.PortHandler(port)
+    try:
+        if not ph.openPort():
+            return []
+        ph.setBaudRate(1_000_000)
+        pk = scs.PacketHandler(0)
+        for i, n in enumerate(names, 1):
+            _m, comm, err = pk.ping(ph, i)
+            if comm != scs.COMM_SUCCESS or not err & 0x30:
+                continue
+            pos = pk.read2ByteTxRx(ph, i, 56)[0]
+            lo, hi = pk.read2ByteTxRx(ph, i, 9)[0], pk.read2ByteTxRx(ph, i, 11)[0]
+            pos = -(pos & 0x7FFF) if pos & 0x8000 else pos
+            if (lo or hi) and not lo <= pos <= hi:
+                out.append(f"{n} past its range ({pos} outside {lo}-{hi}): turn it back by hand (torque is off)")
+            else:
+                pk.write2ByteTxRx(ph, i, 42, pos)  # a fresh target at the present position clears overload
+    except Exception:  # noqa: BLE001
+        return []
+    finally:
+        try:
+            ph.closePort()
+        except Exception:  # noqa: BLE001
+            pass
+    return out
+
+
 def silent_motors(port: str) -> list[int]:
     """Motor ids 1-6 that don't answer a ping, [0] if the port won't open (only while no session owns it)."""
     import scservo_sdk as scs
@@ -675,6 +711,8 @@ def missing_devices(a) -> list[str]:
     for name, port in (("follower arm", a.follower), ("leader arm", a.leader)):
         if not os.path.exists(port):
             out.append(f"{name} USB ({Path(port).name})")
+        elif name == "follower arm" and (stuck := stuck_motors(port)):
+            out.extend(stuck)
         elif silent := silent_motors(port):
             if silent == [0] or len(silent) == 6:
                 out.append(f"{name} motors (power or cable)")
