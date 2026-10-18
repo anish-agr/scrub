@@ -1,9 +1,15 @@
-// Offline checks for parsing and the case summary: `npm test`. No keys, no controller needed.
+// Offline checks for parsing, the case summary and the custom-LLM endpoint: `npm test`.
+// No keys (VOICE_NO_KEYS=1 ignores .env), no real controller: the server runs against a fake one here.
 import assert from "node:assert/strict";
 import { mkdtempSync, readFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import type { State } from "../src/controller.js";
+import { spawn } from "node:child_process";
+import http from "node:http";
+import type { AddressInfo } from "node:net";
+import { WebSocketServer } from "ws";
+import { callerFrom, heardFrom } from "../src/chat.js";
 import { localParse } from "../src/parse.js";
 import { caseFacts, clock, endCase, newCase, recordEvent, setCaller, templateSummary } from "../src/summary.js";
 import type { Setting } from "../src/settings.js";
@@ -132,4 +138,82 @@ newCase();
 ev("released", { command_id: "x", item: "hemostat" });
 assert.equal(caseFacts().case_id, `surgical-${start}`);  // still the controller's last case
 assert.deepEqual(caseFacts().passed, { hemostat: 1 });
+// What ElevenLabs sends: caller id from the system prompt, act only on a trailing user message.
+const sys = (c: string) => ({ role: "system", content: c });
+assert.equal(callerFrom([sys("You are Scrub.\nCaller: +1 (555) 555-0123")]), "+15555550123");
+assert.equal(callerFrom([sys("Caller: {{system__caller_id}}")]), "");
+assert.equal(callerFrom([sys("Caller: ")]), "");
+assert.equal(heardFrom([sys("x"), { role: "user", content: [{ type: "text", text: "knife please" }] }]), "knife please");
+assert.equal(heardFrom([sys("x"), { role: "user", content: "kelly" }, { role: "assistant", content: "Hemostat coming." }]), "");
+
+// The real server against a fake controller: SSE chunk shape, stop skips Gemini and /command, caller id.
+const hits: string[] = [];
+const ctl = http.createServer((req, res) => {
+  hits.push(`${req.method} ${req.url}`);
+  let raw = "";
+  req.on("data", (d) => (raw += d));
+  req.on("end", () => {
+    res.setHeader("content-type", "application/json");
+    if (req.url === "/setting") return res.end(JSON.stringify({ id: "surgical", label: "Operating room",
+      items: [{ id: "hemostat", name: "hemostat", aliases: ["kelly"] }, { id: "scalpel", name: "scalpel", aliases: ["knife"], sharp: true }] }));
+    if (req.url === "/stop") { emit({ type: "stopped", say: "Stopped." }); return res.end('{"accepted":true}'); }
+    if (req.url === "/command") {
+      const c = JSON.parse(raw);
+      if (c.action === "handover") setTimeout(() => {
+        emit({ type: "command", command_id: c.id, item: c.item, say: "Hemostat coming." });
+        emit({ type: "handed", command_id: c.id, item: c.item });
+      }, 20);
+      return res.end(JSON.stringify({ accepted: true, reason: null, say: null }));
+    }
+    res.end("{}");
+  });
+});
+const wss = new WebSocketServer({ server: ctl });
+const emit = (e: object) => wss.clients.forEach((c) => c.send(JSON.stringify({ t: Date.now() / 1000, ...e })));
+await new Promise<void>((r) => ctl.listen(0, r));
+const ctlPort = (ctl.address() as AddressInfo).port;
+const voicePort = 3900 + Math.floor(Math.random() * 90);
+const out: string[] = [];
+const child = spawn(process.execPath, ["--import", "tsx", "src/server.ts"], { cwd: path.resolve(import.meta.dirname, ".."),
+  env: { ...process.env, VOICE_NO_KEYS: "1", CONTROLLER_URL: `http://localhost:${ctlPort}`, VOICE_PORT: String(voicePort), VOICE_HOLD_S: "2" } });
+child.stdout.on("data", (d) => out.push(String(d)));
+child.stderr.on("data", (d) => out.push(String(d)));
+const base = `http://localhost:${voicePort}`;
+try {
+  for (let i = 0; i < 100 && !out.join("").includes("[events] connected"); i++) await new Promise((r) => setTimeout(r, 100));
+  assert.ok(out.join("").includes("[events] connected"), out.join(""));
+
+  const turn = async (heard: string) => {
+    const res = await fetch(`${base}/v1/chat/completions`, { method: "POST", headers: { "content-type": "application/json" },
+      body: JSON.stringify({ model: "scrub", stream: true, temperature: 0.5, max_tokens: 5000, tools: [], elevenlabs_extra_body: {},
+        messages: [sys("You are Scrub.\nCaller: +15555550123"), { role: "assistant", content: "Scrub here." }, { role: "user", content: heard }] }) });
+    assert.match(res.headers.get("content-type") || "", /text\/event-stream/);
+    const raw = await res.text();
+    assert.ok(raw.endsWith("data: [DONE]\n\n"), raw);
+    const chunks = raw.split("\n\n").filter((l) => l.startsWith("data: {")).map((l) => JSON.parse(l.slice(6)));
+    for (const c of chunks) {
+      assert.equal(c.object, "chat.completion.chunk");
+      assert.equal(c.choices.length, 1);
+      assert.equal(c.choices[0].index, 0);
+    }
+    assert.deepEqual(chunks[0].choices[0].delta, { role: "assistant", content: "" });
+    assert.equal(chunks.at(-1).choices[0].finish_reason, "stop");
+    return chunks.map((c) => c.choices[0].delta.content || "").join("");
+  };
+
+  assert.equal(await turn("grab me the kelly"), "Hemostat coming.");
+  assert.ok(hits.includes("POST /command"));
+  assert.ok(out.join("").includes("[case] caller +15555550123"));
+  hits.length = 0;
+  assert.equal(await turn("stop"), "Stopped.");
+  assert.deepEqual(hits, ["POST /stop"]);  // no GET /setting, no Gemini, no /command
+  assert.ok(!out.join("").includes("[gemini]"));
+
+  const health = await (await fetch(`${base}/health`)).json();
+  assert.deepEqual(health, { ok: true, keys: { gemini: false, photon: false, llm_secret: false }, controller: true });
+} finally {
+  child.kill();
+  wss.close();
+  ctl.close();
+}
 console.log("voice tests passed");
