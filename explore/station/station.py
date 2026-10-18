@@ -68,7 +68,7 @@ def make_hardware(follower: str, leader: str, side: str, wrist: str):
         print(f"{role} camera: index {idx} ({spec})", flush=True)
     robot = SOFollower(SO101FollowerConfig(
         port=follower, id="scrub_follower", use_degrees=True, disable_torque_on_disconnect=False,
-        max_relative_target=15, cameras=cams))
+        max_relative_target=15.0, cameras=cams))  # LeRobot only accepts a float (int -> TypeError)
     teleop = SOLeader(SO101LeaderConfig(port=leader, id="scrub_leader", use_degrees=True))
     return robot, teleop
 
