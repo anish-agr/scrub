@@ -863,15 +863,31 @@ class Station:
 
     # ---- Run mode: a driver produces the follower's action instead of the leader; nothing is recorded
     def _run(self, name: str, args: dict):
-        if self.auto is not None:
+        retry = False
+        if self.state == "running" and self.auto is not None and self.auto_run.get("driver") == "autopick":
+            try:
+                retry = self.auto.status().get("phase") == "clarify_timeout"
+            except Exception:  # a broken status is never permission to replace a moving driver
+                pass
+        if self.auto is not None and not retry:
             return False, f"run: {self.auto_run.get('driver')} is already running"
-        if self.state != "idle":
+        if self.state != "idle" and not retry:
             return False, f"run: not while {self.state}" + (" (press Motors on)" if self.state in ("parked", "off") else "")
+        drv = None
         try:
             drv = load_driver(name)(args)
             drv.start(self)
         except Exception as e:  # noqa: BLE001 - a bad driver or bad args never moves the arm
+            if drv is not None:
+                try:
+                    drv.abort()
+                except Exception:
+                    pass
             return False, f"run {name}: {type(e).__name__}: {str(e)[:160]}"
+        # Controls run on the loop thread: the old driver holds throughout construction/start, and no
+        # tick can observe the brief auto=None in _auto_end. Never enter idle or request a home here.
+        if retry:
+            self._auto_end("clarify_timeout", then="hold")
         self.auto = drv
         self.auto_run = {"id": int(time.time() * 1000), "driver": name, "args": dict(args),
                          "started": time.strftime("%H:%M:%S"), "t0": time.perf_counter(), "result": None}
