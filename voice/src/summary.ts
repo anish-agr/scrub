@@ -3,7 +3,8 @@ import { GoogleGenAI } from "@google/genai";
 import { Spectrum } from "spectrum-ts";
 import { imessage } from "spectrum-ts/providers/imessage";
 import { GEMINI_API_KEY, GEMINI_MODEL, PHOTON_PROJECT_ID, PHOTON_SECRET, PUBLIC_URL, SUMMARY_TO } from "./config.js";
-import { getState, getStats, type ScrubEvent } from "./controller.js";
+import { getState, getStats, type ScrubEvent, type State } from "./controller.js";
+import { closingMismatch, initialMismatch, summarySheetLine, type Mismatch } from "./sheet.js";
 
 const ai = GEMINI_API_KEY ? new GoogleGenAI({ apiKey: GEMINI_API_KEY }) : null;
 
@@ -78,6 +79,9 @@ export function caseFacts() {
   let derived: string[] = [];
   const used: string[] = [];  // items passed or set down, in first-use order
   let setting: string | null = caseId?.replace(/-[\d.]+$/, "") || null;
+  // Reading (OCR pass): the newest count sheet comparison, and expired packs read this case (call, text or photo).
+  let sheet: { compare: string | null; mismatch: Mismatch[] | null } | null = null;
+  const expired = new Map<string, { item: string; expires: string | null }>();
   const add = (id: string) => { derived = [...derived.filter((i) => i !== id), id]; if (!used.includes(id)) used.push(id); };
   for (const e of caseEvents) {
     if (Array.isArray(e.out)) reported = e.out;
@@ -96,6 +100,14 @@ export function caseFacts() {
     }
     if (e.type === "returned") { returned++; if (e.item) derived = derived.filter((i) => i !== e.item); }
     if (e.type === "stopped") stops++;
+    if (e.type === "read" && e.read?.ok && e.read.kind === "count_sheet") {
+      const m = e.read.mismatch;
+      sheet = { compare: (e.read.compare as string | null | undefined) ?? null, mismatch: Array.isArray(m) ? m as Mismatch[] : [] };
+    }
+    if (e.type === "count" && Array.isArray(e.sheet_mismatch)) sheet = { compare: "closing", mismatch: e.sheet_mismatch };
+    if (e.type === "read" && e.read?.ok && e.read.kind === "pack_label" && Array.isArray(e.read.labels)) {
+      for (const lab of e.read.labels as any[]) if (lab?.expired) addExpired(expired, lab.item || lab.item_text, lab.expires);
+    }
   }
   const by = { model: 0, taught: 0 };
   for (const c of cmds.values()) {
@@ -112,8 +124,36 @@ export function caseFacts() {
     set_down_at_safe_spot: setDown, returned, failed_requests: failed, picks_retried: retried, stops,
     median_request_to_hand_s: median,
     handovers_by_source: seenSource ? by : null,
+    count_sheet: sheet as { compare: string | null; mismatch: Mismatch[] | null } | null,
+    expired_packs: [...expired.values()],
   };
 }
+
+function addExpired(m: Map<string, { item: string; expires: string | null }>, item: unknown, expires: unknown) {
+  const it = String(item || "instrument"), ex = typeof expires === "string" ? expires : null;
+  m.set(`${it}|${ex}`, { item: it, expires: ex });
+}
+
+// GET /state's `sheet` and `packs` (optional): a closing count on the sheet is compared with the final count
+// (the freshest answer); the controller's packs add any expired pack the events didn't show (voice restarted).
+export function withState(f: ReturnType<typeof caseFacts>, st: State | null) {
+  if (st?.sheet && st.sheet.items) {
+    const closing = closingMismatch(st.sheet, f.still_out);
+    if (closing) f.count_sheet = { compare: "closing", mismatch: closing };
+    else if (!f.count_sheet) {
+      const initial = initialMismatch(st.sheet);
+      f.count_sheet = { compare: initial ? "initial" : null, mismatch: initial ?? [] };
+    }
+  }
+  const m = new Map(f.expired_packs.map((p) => [`${p.item}|${p.expires}`, p]));
+  for (const p of st?.packs || []) if (p?.expired) addExpired(m, p.item, p.expires);
+  f.expired_packs = [...m.values()];
+  return f;
+}
+
+export const sheetLine = (f: ReturnType<typeof caseFacts>) => summarySheetLine(f.count_sheet, (id) => id.replace(/_/g, " "));
+export const packLines = (f: ReturnType<typeof caseFacts>) =>
+  f.expired_packs.map((p) => `Expired pack: ${p.item.replace(/_/g, " ")}${p.expires ? `, ${p.expires}` : ""}.`);
 
 const name = (id: string) => id.replace(/_/g, " ");
 const list = (r: Record<string, number>) => Object.entries(r).map(([i, n]) => `${name(i)} x${n}`).join(", ");
@@ -121,6 +161,7 @@ const list = (r: Record<string, number>) => Object.entries(r).map(([i, n]) => `$
 export function templateSummary(f: ReturnType<typeof caseFacts>): string {
   const lines = [
     f.still_out.length ? `Still out: ${f.still_out.map(name).join(", ")}. Check the count.` : "Count: everything is back on the tray.",
+    ...[sheetLine(f), ...packLines(f)].filter((l): l is string => !!l),
     `Scrub case: ${f.setting ?? "case"}, started ${f.started} (${f.minutes} min)`,
     `Used: ${f.used.map(name).join(", ") || "none"}`,
     `Passed: ${list(f.passed) || "none"}`,
@@ -139,7 +180,8 @@ export function templateSummary(f: ReturnType<typeof caseFacts>): string {
 // Item names instead of ids, so the text says "mayo scissors", not "mayo_scissors".
 const renamed = (r: Record<string, number>) => Object.fromEntries(Object.entries(r).map(([i, n]) => [name(i), n]));
 const readable = (f: ReturnType<typeof caseFacts>) =>
-  ({ ...f, used: f.used.map(name), still_out: f.still_out.map(name), passed: renamed(f.passed), set_down_at_safe_spot: renamed(f.set_down_at_safe_spot) });
+  ({ ...f, used: f.used.map(name), still_out: f.still_out.map(name), passed: renamed(f.passed), set_down_at_safe_spot: renamed(f.set_down_at_safe_spot),
+    count_sheet: undefined, expired_packs: undefined, count_sheet_line: sheetLine(f), expired_pack_lines: packLines(f) });
 
 export async function writeSummary(): Promise<string> {
   const facts = caseFacts();
@@ -147,6 +189,7 @@ export async function writeSummary(): Promise<string> {
   const st = await getState().catch(() => null);
   if (st && Array.isArray(st.out)) facts.still_out = st.out;
   if (st && !facts.setting) facts.setting = st.setting;  // no events yet (voice just restarted)
+  withState(facts, st);
   if (!ai) return templateSummary(facts);
   const stats = await getStats().catch(() => null);
   try {
@@ -154,6 +197,7 @@ export async function writeSummary(): Promise<string> {
       model: GEMINI_MODEL,
       contents: `Write the end-of-case text message from Scrub, a robot arm that passed instruments to a clinician.
 Plain text, no markdown, under 400 characters, short lines. Start with the count: name every item still out, or say everything is back on the tray.
+If count_sheet_line is set, put it right after the count, word for word. Then each of expired_pack_lines, word for word.
 Then name the case: the setting and its start time (as given, e.g. "2:41 PM"). Then the items used, what was passed, anything set at the safe spot, failed requests and stops, and the median request-to-hand time if known.
 Use only the numbers below. No greetings or sign-off.
 This case: ${JSON.stringify(readable(facts))}

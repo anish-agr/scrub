@@ -26,6 +26,13 @@ export interface State {
   step: string; out: string[]; setting: string; t: number;
   out_camera?: string[] | null; case_id?: string | null;
   judge?: boolean | null;  // judge mode: the controller only takes handover, count, stop, got_it; refuses /alias
+  // The last count sheet read this case, and pack labels read this case (optional, the OCR pass).
+  sheet?: SheetState | null;
+  packs?: { item: string | null; lot?: string | null; expires: string | null; expired: boolean }[] | null;
+}
+export interface SheetState {
+  tray?: string | null; method?: string | null; t?: number;
+  items: Record<string, { expected: number | null; initial: number | null; closing: number | null }>;
 }
 
 export function makeCommand(action: Action, item: string | null, heard: string): Command {

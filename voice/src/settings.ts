@@ -64,6 +64,12 @@ function withOverlay(s: Setting): Setting {
   return s;
 }
 
+// "robotics bench" for bench, like the controller's tray label: settings/<id>.json, else the built-in default, else the id.
+export function trayLabel(id: string): string {
+  try { return String(JSON.parse(readFileSync(path.join(REPO_DIR, "settings", `${id}.json`), "utf8")).label || id).toLowerCase(); }
+  catch { return (FALLBACK[id]?.label || id).toLowerCase(); }
+}
+
 export async function currentSetting(lastId: string): Promise<Setting> {
   if (cache && cache.setting.id === lastId && Date.now() - cache.at < CACHE_MS) return cache.setting;
   try {

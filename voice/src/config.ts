@@ -33,3 +33,5 @@ export const LLM_SECRET = keys.VOICE_LLM_SECRET || "";
 export const HOLD_S = Number(env.VOICE_HOLD_S || 14);
 // How long the judge-mode flag from GET /state is trusted before asking again (ms).
 export const JUDGE_TTL_MS = Number(env.VOICE_JUDGE_TTL_MS || 3000);
+// Vision (port 8001), for a photo texted to the Photon thread: POST {VISION_URL}/read/<kind>.
+export const VISION_URL = (env.VISION_URL || "http://localhost:8001").replace(/\/+$/, "");

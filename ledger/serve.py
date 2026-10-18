@@ -32,8 +32,23 @@ FILES = {
     "/series.js": ("series.js", "text/javascript; charset=utf-8"),
     "/memory.html": ("memory.html", "text/html; charset=utf-8"),
     "/memory.js": ("memory.js", "text/javascript; charset=utf-8"),
+    "/data.html": ("data.html", "text/html; charset=utf-8"),
     "/qr.png": ("qr.png", "image/png"),
 }
+REPO = PUBLIC.parent.parent
+DATA_FILES = [REPO / "data" / "analysis.json", REPO / "docs" / "media" / "data" / "analysis.json"]  # fresh, then committed
+
+
+def analysis() -> dict | None:
+    """The newest python -m explore.analysis output, read from disk per request. Never touches MongoDB."""
+    for path in DATA_FILES:
+        try:
+            report = json.loads(Path(path).read_text(encoding="utf-8"))
+        except (OSError, ValueError):
+            continue
+        if isinstance(report, dict):
+            return report
+    return None
 
 
 class Handler(BaseHTTPRequestHandler):
@@ -76,6 +91,17 @@ class Handler(BaseHTTPRequestHandler):
         if path == "/api/stats":
             sim = (parse_qs(parsed.query).get("sim") or [""])[0] in ("1", "true")
             self._json(stats(include_sim=sim))  # ?sim=1 also counts fake-arm and sim rows
+            return
+        if path == "/api/data":
+            report = analysis()
+            if report is None:
+                self._json({"error": "no analysis yet"}, 404)
+                return
+            try:
+                report["live"] = stats()  # real-arm rows only; a dead Atlas must not break the page
+            except Exception:
+                report["live"] = None
+            self._json(report)
             return
         if path == "/api/cases":
             self._json(list_cases())
