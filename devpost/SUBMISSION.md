@@ -1,6 +1,6 @@
 # Scrub: Devpost submission answers
 
-Every field of the DubHacks '26 Devpost form, ready to paste, in form order. Facts follow `team/FACTS-0718.md` (07:20 Sunday) and the logs it cites; numbers from `docs/DATA.md` are the 06:49 refresh. Lines in `<!-- -->` are notes for whoever submits, not form text.
+Every field of the DubHacks '26 Devpost form, ready to paste, in form order. Facts follow `devpost/FACTS-0718.md` (07:20 Sunday) and the logs it cites; numbers from `docs/DATA.md` are the 06:49 refresh. Lines in `<!-- -->` are notes for whoever submits, not form text.
 
 **Thumbnail:** `media/scrub-logo.png` is the Devpost thumbnail and the first gallery image.
 
@@ -174,12 +174,12 @@ Python, TypeScript, JavaScript, HTML, CSS, Node.js, FastAPI, Uvicorn, LeRobot, N
 
 ## Tracks to tick
 
-<!-- Rules from the Hacker Guide (team/CONTEXT.md, "Rules that shape our strategy"): exactly 1 title track, at most 3 SPONSORED side tracks (Perceptron Robotics, Perceptron Perception and Photon each count), unlimited non-sponsored. No MLH ElevenLabs track appears in the guide or the MLH prize list we read, so ElevenLabs goes in "Built with" only. -->
+<!-- Rules from the DubHacks Hacker Guide: exactly 1 title track, at most 3 SPONSORED side tracks (Perceptron Robotics, Perceptron Perception and Photon each count), unlimited non-sponsored. No MLH ElevenLabs track appears in the guide or the MLH prize list we read, so ElevenLabs goes in "Built with" only. -->
 
-- **Community Kitchen (title track).** Scrub targets operating rooms that can't staff a scrub tech: a surgical tech job takes about 120 days to fill ([Periop Leader, 2024](https://www.periopleader.com/survey-staffing-woes-ease-slightly-but-challenges-remain/)). Proof: the whole repo, `docs/OVERVIEW.md`.
+- **Community Kitchen (title track).** Scrub targets operating rooms that can't staff a scrub tech: a surgical tech job takes about 120 days to fill ([Periop Leader, 2024](https://www.periopleader.com/survey-staffing-woes-ease-slightly-but-challenges-remain/)). Proof: the whole repo, `README.md`.
 - **Perceptron Robotics (sponsored 1 of 3).** We ran Perceptron's provided SO-101 and recorded 29 demonstration episodes for their checkpoint. The real arm handed a scalpel to a hand at 06:39:20 and 07:02:37 on Oct 18, both replays of our own demonstrations. Proof: `~/scrub-logs/station-20261018-061828.log`, `~/scrub-logs/station-20261018-065728.log`, dataset refresh commit `828b958`, `explore/station/autopick.py`.
 - **Perceptron Perception (sponsored 2 of 3).** Detect checks the tray (HTTP 200 in 1.8 s) and OCR on `perceptron-mk1.5` reads the printed count sheet (5 of 5 rendered sheets correct, 1.8 to 2.3 s). Proof: `vision/tray.py`, `vision/reading.py`, `docs/INTEGRATION.md` rows "Perceptron vision" and "Perceptron OCR: count sheet".
-- **Photon (sponsored 3 of 3), only if a call is confirmed.** The number +1 785 867 1047 routes through Photon SIP to our ElevenLabs agent and `voice/`. No log ties a call on it to an arm move yet, and the texts listener errors. Tick it only after someone finds a call in Photon "Recent calls" or ElevenLabs "Call history" for 07:00 to 07:03 (the voice-driven handoff was at 07:02:14). Proof: `voice/scripts/photon.ts`, commit `fa1a800`, `team/FACTS-0718.md` section a.
+- **Photon (sponsored 3 of 3), only if a call is confirmed.** The number +1 785 867 1047 routes through Photon SIP to our ElevenLabs agent and `voice/`. No log ties a call on it to an arm move yet, and the texts listener errors. Tick it only after someone finds a call in Photon "Recent calls" or ElevenLabs "Call history" for 07:00 to 07:03 (the voice-driven handoff was at 07:02:14). Proof: `voice/scripts/photon.ts`, commit `fa1a800`, `devpost/FACTS-0718.md` section a.
 - **SideShift (sponsored, the third pick if Photon is not confirmed).** SideShift judges the strongest startup idea of the weekend, any stack, in person. Scrub's case is in `docs/BUSINESS.md`: the buyer (hospital perioperative leadership), the price, and break-even at about 22 operating-room minutes a month at about $36 a minute ([Childers and Maggard-Gibbons, JAMA Surgery 2018](https://jamanetwork.com/journals/jamasurgery/fullarticle/2673385)). Tick SideShift or Photon, not both with the two Perceptron tracks (3 sponsored at most).
 - **DubHacks NEXT (non-sponsored).** Buyer, price and break-even math (about 22 OR minutes a month at about $36 a minute). Proof: `docs/BUSINESS.md`.
 - **MLH Best Use of Gemini API.** `gemini-3.8-flash` turns a spoken request into one command whose item must come from the tray's fixed list (structured output with an enum of item ids). Proof: `voice/src/parse.ts` lines 89-91 and 126, `docs/INTEGRATION.md` Gemini row (HTTP 200 at 07:20).
@@ -213,7 +213,7 @@ None.
 
 **Perceptron vision API.** Detect answered the tray check in 1.8 s (HTTP 200), and the recognition bench found 0.4 of items on 5 synthetic cases at a median 2.7 s, so detection on our tray was weak. OCR on `perceptron-mk1.5` with a strict JSON schema read the count sheet correctly on 5 of 5 rendered sheets in 1.8 to 2.3 s and pack labels 4 of 4 in 2.4 to 2.7 s. Strict schema output made the reads easy to validate and fall back from. We only tested rendered props, not photos of the printed sheet.
 
-**Gemini API.** Structured output with an enum of the tray's item ids is the reason we trusted it near an arm: it can't name an instrument that isn't on the tray, and a "clarify" action lets it ask back. `gemini-3.8-flash` at thinking level low took 2.8 s to parse a request with no instrument name (`team/STATE.md`). Through the tunnel at 2:30 AM, 9 parsed turns had a 624 ms median (509 to 818 ms). The first call after start often went past our 1.5 s timeout and fell back to the alias match, so known names and "stop" skip Gemini entirely.
+**Gemini API.** Structured output with an enum of the tray's item ids is the reason we trusted it near an arm: it can't name an instrument that isn't on the tray, and a "clarify" action lets it ask back. `gemini-3.8-flash` at thinking level low took 2.8 s to parse a request with no instrument name. Through the tunnel at 2:30 AM, 9 parsed turns had a 624 ms median (509 to 818 ms). The first call after start often went past our 1.5 s timeout and fell back to the alias match, so known names and "stop" skip Gemini entirely.
 
 **ElevenLabs.** The Custom LLM option let the voice agent call our server's `/v1/chat/completions` directly, so our code decides every reply and the command. Interruptions had to stay on in `client_events` for a caller to say "stop" over Scrub mid-sentence, and with a local "stop" match that came back in 0.07 to 0.11 s through the tunnel. `GET /v1/convai/conversations` returned 0 conversations with our key, so we couldn't confirm call history from code.
 
@@ -228,7 +228,7 @@ None.
 ## AI tools used this weekend
 
 - [x] Anthropic (Claude Code). 360 commits carry `Co-Authored-By: Claude Opus 5.5`.
-- [x] OpenAI (Codex). `team/RUN-WHICH-ONE.md` is a Codex prompt (commit `88ece03`), followed by Anish's "ask which one" commits `afc56bb` and `bff59d3`; `team/PROMPTS.md` assigns Anish to Codex. <!-- No Codex co-author lines in git; evidence is the prompt file and the commits that follow it. Confirm with Anish. -->
+- [x] OpenAI (Codex). Commit `88ece03` adds a Codex prompt, followed by Anish's "ask which one" commits `afc56bb` and `bff59d3`. <!-- No Codex co-author lines in git; evidence is the prompt in 88ece03 and the commits that follow it. Confirm with Anish. -->
 - [x] Hugging Face (LeRobot). Recording on LeRobot's `SOFollower`/`SOLeader` and `LeRobotDataset` (`explore/station/README.md`); `HF_TOKEN` passes whoami for the dataset repo (`docs/INTEGRATION.md`).
 - [x] Gemini. `voice/src/parse.ts`, `vision/reading.py` OCR fallback, `controller/doctor.py`.
 - [x] ElevenLabs. Voice agent `Scrub` with Custom LLM (`voice/scripts/agent.ts`), speech in the room (`explore/arm_voice.py`).
@@ -238,7 +238,7 @@ None.
 
 ## Generative AI in the hack
 
-Gemini (`gemini-3.8-flash`, thinking level low) turns what a person said into one command, using structured output whose item field is an enum of the tray's fixed item ids, so it can't request an instrument that isn't there. Known instrument names and "stop" are matched locally and never reach Gemini. ElevenLabs does speech to text and speaks Scrub's replies on calls, through a Custom LLM endpoint that points at our voice server. Perceptron's vision API detects what is on the tray and reads the printed count sheet with OCR. Perceptron's Robotics model was not used to move the arm: no fine-tuning job was submitted (0 jobs, 0 deployments per `team/FACTS-0718.md`), and the picks on video are replays of our own recorded demonstrations. Most of the code was written with Claude Code, Cursor and Codex and tested by us on the hardware.
+Gemini (`gemini-3.8-flash`, thinking level low) turns what a person said into one command, using structured output whose item field is an enum of the tray's fixed item ids, so it can't request an instrument that isn't there. Known instrument names and "stop" are matched locally and never reach Gemini. ElevenLabs does speech to text and speaks Scrub's replies on calls, through a Custom LLM endpoint that points at our voice server. Perceptron's vision API detects what is on the tray and reads the printed count sheet with OCR. Perceptron's Robotics model was not used to move the arm: no fine-tuning job was submitted (0 jobs, 0 deployments per `devpost/FACTS-0718.md`), and the picks on video are replays of our own recorded demonstrations. Most of the code was written with Claude Code, Cursor and Codex and tested by us on the hardware.
 
 ## Gemini Project Number
 
@@ -254,7 +254,7 @@ Steps for a person:
 
 ## Final checklist
 
-1. Paste every text field from `team/DEVPOST.md` and these sections. Submit before 9:30 AM (the form locks at 10:00).
+1. Paste every text field from this file. Submit before 9:30 AM (the form locks at 10:00).
 2. Video: upload unlisted to YouTube, paste the URL in the Devpost video field, and open it once logged out to check it plays.
 3. Thumbnail: upload `media/scrub-logo.png`.
 4. Tracks: tick Community Kitchen, Perceptron Robotics, Perceptron Perception, DubHacks NEXT, MLH Gemini, MLH MongoDB Atlas, MLH Vultr, MLH Commit Fellowship. Tick Photon only if a call is confirmed in call history. No more than 3 sponsored tracks.

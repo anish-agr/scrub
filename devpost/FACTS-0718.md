@@ -9,7 +9,7 @@ Checked read-only by the H7 facts agent between 07:15 and 07:25. Each line names
 | Photon call on +1 785 867 1047 moved the real arm, logged | **Not confirmed.** A voice turn moved the real arm at 07:02:14 (scalpel), but no log says it came over the phone line | voice log, station log, ElevenLabs API (below) |
 | Gemini lines in `.env` | All 4 present. `GEMINI_MODEL=gemini-3.8-flash` | `grep -c '^NAME=.\+' .env` |
 | Perceptron training | 0 jobs, 0 deployments | `Perceptron().jobs()`, `python -m arm.train deployments` |
-| Real tries in the ledger | 0 trustworthy. The 30 `fake_arm:false` handed rows are test data | MongoDB via `ledger._read_mongo()`, `team/NOTES-DATA.md` line 16 |
+| Real tries in the ledger | 0 trustworthy. The 30 `fake_arm:false` handed rows are test data | MongoDB via `ledger._read_mongo()`, `controller/test_flows.py` |
 | Real station runs today | 35 runs (7 calibrate). Real handoffs taken by a hand: scalpel 06:39 and 07:02 | `~/scrub-logs/thermal/*.jsonl` run_end, station logs |
 | Dataset | 29 episodes, 24 usable | git `828b958` "data: refresh 06:49", `docs/DATA.md` |
 | Lighting per try | Not logged on the real arm (no lighting field in run_end or episodes) | run_end rows, `docs/DATA.md` "Per task" |
@@ -26,19 +26,19 @@ Checked read-only by the H7 facts agent between 07:15 and 07:25. Each line names
 
 ## b. Gemini lines in `/Users/caide_1/Documents/dubhacks/dubhacks-2026/.env`
 
-GEMINI_MODEL 1, GEMINI_TIMEOUT_MS 1, GEMINI_THINKING_LEVEL 1, GEMINI_MAX_OUTPUT_TOKENS 1. `GEMINI_MODEL=gemini-3.8-flash` (matches `team/LEFT.md` line 17). Nothing to add.
+GEMINI_MODEL 1, GEMINI_TIMEOUT_MS 1, GEMINI_THINKING_LEVEL 1, GEMINI_MAX_OUTPUT_TOKENS 1. `GEMINI_MODEL=gemini-3.8-flash`. Nothing to add.
 
 ## c. Perceptron training
 
 - `GET /v1/jobs`: 0 jobs. `python -m arm.train deployments`: `{"items": []}`.
-- `arm.train capabilities`: `successful_jobs_per_team` 5; shared GPU budget 90.6 h used (it was about 65 h at 02:05 per `team/LEFT.md`; that budget is shared, not ours).
+- `arm.train capabilities`: `successful_jobs_per_team` 5; shared GPU budget 90.6 h used (it was about 65 h at 02:05; that budget is shared, not ours).
 - So: no fine-tuned model. Real picks are recorded demo replays (taught skills).
 
 ## d. Real tries
 
 Ledger (MongoDB Atlas, read via `ledger._read_mongo()`; local buffer `ledger/buffer.jsonl`):
 - 70975 events, 0 trial rows. By tag: `fake_arm:true` 51864, untagged 17561, sim 971, fake 157, `fake_arm:false` 422.
-- The 422 `fake_arm:false` rows (30 picked, 30 handed, 30 released, all hemostat, all lighting normal, 22:03 to 02:29) are `controller/test_flows.py` writing to Atlas, per `team/NOTES-DATA.md` line 16 (all 0.41-0.43 s, no misses). Not real.
+- The 422 `fake_arm:false` rows (30 picked, 30 handed, 30 released, all hemostat, all lighting normal, 22:03 to 02:29) are `controller/test_flows.py` writing to Atlas (all 0.41-0.43 s, no misses). Not real.
 - The local buffer's 66 rows (06:32-06:59) come from the :8000 fake-arm controller, which runs older code that doesn't tag `fake_arm`, so `ledger.stats()` would wrongly count them as real if the buffer flushes. Don't quote ledger rates.
 - Real-arm ledger tries: **0**.
 

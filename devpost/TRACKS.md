@@ -1,6 +1,6 @@
 # Tracks: what we enter and what we can say at each table
 
-Rules (Hacker Guide): exactly 1 title track, at most 3 sponsored side tracks, any number of non-sponsored ones. Facts follow `team/FACTS-0718.md`. Each track lists what its judges want, what we can claim, the proof to show, and what not to say.
+Rules (Hacker Guide): exactly 1 title track, at most 3 sponsored side tracks, any number of non-sponsored ones. Facts follow `devpost/FACTS-0718.md`. Each track lists what its judges want, what we can claim, the proof to show, and what not to say.
 
 Recommended: Community Kitchen; Perceptron Robotics, Perceptron Perception and SideShift (or Photon in place of SideShift only if a call is found in Photon "Recent calls" or ElevenLabs "Call history" for 07:00 to 07:03 Sunday); DubHacks NEXT, MLH Gemini, MLH MongoDB Atlas, MLH Vultr, MLH Commit Fellowship, and MLH DEV if the post is published.
 
@@ -50,7 +50,7 @@ Recommended: Community Kitchen; Perceptron Robotics, Perceptron Perception and S
 | MLH Best Use of MongoDB Atlas | Atlas holds the event ledger (70,975 events) and the arm's motor temperature log (`scrub.thermal`) | `ledger/logbook.py`, `explore/thermal_log.py`, `docs/DATA.md` |
 | MLH Best Use of Vultr | The public judge page runs on a Vultr server | http://144.202.95.111/, `deploy/` (confirm the page shows current text first) |
 | MLH Commit Fellowship | Working prototype on a real staffing problem | Tick it, then mlh.link/commit-fellowship-form after submitting |
-| MLH DEV writing | Only if a post is published on dev.to | the draft at the end of `team/DEVPOST.md` |
+| MLH DEV writing | Only if a post is published on dev.to | the draft in `devpost/DEV-POST.md` |
 
 ## Not entering
 
