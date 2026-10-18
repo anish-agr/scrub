@@ -129,7 +129,8 @@ caption { text-align: left; font-weight: 700; margin-bottom: 6px; }
 
 th, td {
   text-align: left;
-  padding: 7px 0;
+  padding: 7px 10px 7px 0;
+  vertical-align: top;
   border-bottom: 1px solid var(--line);
   font-variant-numeric: tabular-nums;
 }
@@ -157,5 +158,5 @@ main:not(.has-rows) .table-wrap { display: none; }
   .diagram { display: none; }
   .stack { display: block; }
   .lead { font-size: 20px; }
-  th, td { font-size: 14px; }
+  th, td { font-size: 14px; padding-right: 8px; }
 }

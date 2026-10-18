@@ -6,6 +6,8 @@ After=network.target
 Type=simple
 WorkingDirectory=/opt/scrub
 Environment=PORT=8080
+Environment=HOST=127.0.0.1
+Environment=PYTHONUNBUFFERED=1
 ExecStart=/opt/scrub/.venv/bin/python -m ledger serve
 Restart=on-failure
 RestartSec=2

@@ -28,7 +28,7 @@ function showError(text) {
 async function loadCases() {
   const list = document.getElementById("cases");
   try {
-    const response = await fetch("/api/cases", { cache: "no-store" });
+    const response = await fetch("/api/cases", { cache: "no-store", signal: AbortSignal.timeout(3000) });
     if (!response.ok) throw new Error("bad");
     const rows = await response.json();
     if (!Array.isArray(rows)) throw new Error("bad");
@@ -58,7 +58,7 @@ async function loadCase() {
   const caseId = new URLSearchParams(location.search).get("id") || "";
   document.getElementById("case-id").textContent = caseId || "Case";
   try {
-    const response = await fetch(`/api/case?id=${encodeURIComponent(caseId)}`, { cache: "no-store" });
+    const response = await fetch(`/api/case?id=${encodeURIComponent(caseId)}`, { cache: "no-store", signal: AbortSignal.timeout(3000) });
     if (!response.ok) throw new Error("missing");
     const view = await response.json();
     document.getElementById("summary").textContent = view.summary || "";

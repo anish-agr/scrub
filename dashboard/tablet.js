@@ -49,7 +49,7 @@ function notice(text) {
 
 async function refresh() {
   try {
-    const response = await fetch("/state", { cache: "no-store" });
+    const response = await fetch("/state", { cache: "no-store", signal: AbortSignal.timeout(3000) });
     if (!response.ok) throw new Error("down");
     paint(await response.json());
   } catch (error) {
