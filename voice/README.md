@@ -34,12 +34,15 @@ Text the Photon number (same iMessage thread as the end-of-case summary). The li
 | "add a second hemostat to the surgical tray", "added 2 kellys" | `Logged: +1 hemostat on the surgical tray.` Logged to the ledger through the controller's `POST /restock`; if that fails or the ledger isn't loaded, appended to `voice/restocks.jsonl` (git-ignored) |
 | "what's out?", "count" | `Out (2): hemostat, scalpel.` from `GET /state` `out`, plus what the camera says (`out_camera`) when the controller has it |
 | "check the tray", "is the tray ready?", "tray check" | `Tray ready: Operating room, all 3 instruments in place.` when it passes, else the controller's line ("Missing the scalpel.", "I can't check the tray right now."). From `GET /tray_check`, matched before Gemini |
-| "summary", "end of case" | the end-of-case summary, and a new case starts |
+| "summary", "end of case" | the end-of-case summary, and a new case starts (plus the case link line, below) |
+| "start a dental case", "switch to the bench tray", "surgical case" | `Dental case started: mouth mirror, explorer, cotton pliers.` (names from the setting file `POST /setting` returns). The controller starts a new `case_id`; the previous case's summary is not sent. 409: `The arm is busy. Stop or wait, then try again.` Saying it on the call does the same (a local phrase match before Gemini, `src/cases.ts`) |
 | anything else | one help line |
 
 Code in `src/texts.ts`; `npm test` runs it against a fake message stream and fake state, no network.
 
 The end-of-case text (saying "end of case" on the call, or `POST /summary`) goes to the number that called (`Caller:` in the agent's system prompt) or else `PHOTON_SUMMARY_TO`, on that same thread. It names the case: count first, then `Scrub case: surgical, started 2:41 PM (23 min)`, the items used, what was passed, set down or failed, and the median request-to-hand time. Events are grouped by the controller's `case_id` (a new `case_id` starts a new case); without it, one case runs until "end of case".
+
+Case link: with `SCRUB_PUBLIC_URL` set (non-secret, `.env` or shell, the ledger public page's URL), a second short text follows the summary: `Case replay: <SCRUB_PUBLIC_URL>/case.html?id=<case_id>` (Evan's replay page on the ledger public site). A "summary" text gets the same line after the summary in its reply. Unset, or no `case_id` from the controller: nothing extra.
 
 ## Tunnel
 

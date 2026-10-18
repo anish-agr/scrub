@@ -22,6 +22,8 @@ export const PHOTON_PROJECT_ID = keys.PHOTON_PROJECT_ID || keys.SPECTRUM_PROJECT
 export const PHOTON_SECRET = keys.PHOTON_API_KEY || keys.SPECTRUM_PROJECT_SECRET || "";
 // Who gets the end-of-case text when the call didn't carry a caller id.
 export const SUMMARY_TO = env.PHOTON_SUMMARY_TO || "";
+// Public dashboard base for the "Case replay: <url>/case.html?id=<case_id>" text after the summary. Empty = no link.
+export const PUBLIC_URL = (env.SCRUB_PUBLIC_URL || "").trim().replace(/\/+$/, "");
 // Shared secret ElevenLabs sends as "Authorization: Bearer ..." (its OPENAI_API_KEY secret). Empty = no check.
 export const LLM_SECRET = keys.VOICE_LLM_SECRET || "";
 // How long a reply stays open to speak follow-up event lines (seconds).
