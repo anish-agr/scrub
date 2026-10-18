@@ -322,6 +322,13 @@ class SimArm:
         """Test hook: simulate the clinician tugging the item for half a second."""
         self._pull_until = time.time() + 0.5
 
+    def rest(self):
+        """Parked at home with torque off between commands (the real arm cools; the sim just notes it)."""
+        self.resting = True
+
+    def wake(self):
+        self.resting = False
+
     def freeze(self):
         self._gen += 1
         with self.lock:

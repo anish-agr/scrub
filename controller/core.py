@@ -33,6 +33,7 @@ APPROACH_BACK_M = 0.08      # stop this far short at normal speed, then creep in
 SPEED_NORMAL, SPEED_NEAR = 0.3, 0.1
 MAX_QUEUE = 3
 DEFAULT_SPOT = [0.22, -0.10, 0.18]  # clinician's saved spot when no hand tracking
+REST_AFTER_S = 2.0          # home and nothing queued this long: arm.rest() (torque off) until the next command
 AUTO_RETURN_S = 2.0         # an item in the return spot this long with the arm idle goes back on its own
 PREPARE_TRIES = 3           # pre-opening the robot model's sessions (L2): tries per setting change
 PREPARE_RETRY_S = 5.0
@@ -128,6 +129,8 @@ class Controller:
         self.history: deque = deque(maxlen=500)
         self.listeners: list = []       # (loop, asyncio.Queue)
         self.cmd = None                 # command being run
+        self.resting = False            # arm parked at home with torque off (arm.rest); woken per command
+        self._idle_since = time.time()
         self.held = None                # item id picked and not yet released, set down or returned
         self._ledger_pool = ThreadPoolExecutor(1)
         self._flow_gen = 0              # gen of the job the worker is running
@@ -184,7 +187,7 @@ class Controller:
                 "out": list(self.out), "setting": self.setting["id"], "lighting": self.lighting,
                 "fake_arm": self.fake_arm, "hand_seen": self._hand_fresh() is not None,
                 "out_camera": self._camera_out()[0], "case_id": self.case_id, "judge": self.judge,
-                "t": time.time(),
+                "resting": self.resting, "t": time.time(),
             }
 
     # ---------- inputs ----------
@@ -531,13 +534,35 @@ class Controller:
     # ---------- worker ----------
     def _worker(self) -> None:
         while True:
+            rest_now = False
             with self.lock:
                 while not self.jobs:
-                    self.jobs_cv.wait()
-                cmd = self.jobs.popleft()
-                gen = self.gen
-                self._flow_gen = gen
-                self.cmd = cmd
+                    # Parked at home with nothing to do: torque off (the servos heat up just holding).
+                    if not self.resting and self.step == "idle" and callable(getattr(self.arm, "rest", None)):
+                        left = REST_AFTER_S - (time.time() - self._idle_since)
+                        if left <= 0:
+                            rest_now = True
+                            break
+                        self.jobs_cv.wait(timeout=left)
+                    else:
+                        self.jobs_cv.wait()
+                if not rest_now:
+                    cmd = self.jobs.popleft()
+                    gen = self.gen
+                    self._flow_gen = gen
+                    self.cmd = cmd
+            if rest_now:
+                try:
+                    self.arm.rest()
+                    self.resting = True
+                except Exception:  # noqa: BLE001 - stay awake rather than fail
+                    self._idle_since = time.time() + 60  # don't retry every loop
+                continue
+            if self.resting:
+                try:
+                    self.arm.wake()  # torque on, holding the parked pose, before any motion
+                finally:
+                    self.resting = False
             try:
                 if cmd["action"] == "handover":
                     self._handover(cmd, gen)
@@ -558,6 +583,7 @@ class Controller:
                         pass
             finally:
                 self.cmd = None
+                self._idle_since = time.time()
 
     def _call(self, gen: int, fn, *args, **kw):
         """Run one arm call; raise Stopped if stop came before or during it."""
