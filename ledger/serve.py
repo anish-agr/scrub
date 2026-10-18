@@ -11,6 +11,7 @@ from urllib.parse import parse_qs, urlparse
 
 from ledger import stats
 from ledger.cases import case_view, list_cases
+from ledger.qr import public_url
 
 _CASE_ID = re.compile(r"^[A-Za-z0-9._-]{1,80}$")
 
@@ -23,6 +24,8 @@ FILES = {
     "/cases.html": ("cases.html", "text/html; charset=utf-8"),
     "/case.html": ("case.html", "text/html; charset=utf-8"),
     "/cases.js": ("cases.js", "text/javascript; charset=utf-8"),
+    "/card.html": ("card.html", "text/html; charset=utf-8"),
+    "/qr.png": ("qr.png", "image/png"),
 }
 
 
@@ -44,6 +47,9 @@ class Handler(BaseHTTPRequestHandler):
             return
         if path == "/api/cases":
             self._json(list_cases())
+            return
+        if path == "/api/public":
+            self._json({"url": public_url()})
             return
         if path == "/api/case":
             case_id = (parse_qs(parsed.query).get("id") or [""])[0]
