@@ -47,7 +47,7 @@ GRAB_SUSTAIN_S = 0.15
 AFTER_GRAB_S = 3.0        # keep holding this long after the grab, then let go
 RELEASE_S = 1.5           # jaw open this long for the hand to take it
 SQUEEZE = 1.5             # once the jaw stalls on the handle, hold this far past the contact point
-EMPTY_JAW = 5.0           # a jaw that stops at or below this closed on nothing
+EMPTY_JAW = 8.0           # a jaw that stops at or below this closed on nothing (empty reads 4.5-6.5, the handle 9-11)
 MIN_MOVE_S = 0.8
 
 
@@ -149,10 +149,10 @@ def detect_handle(bgr, detector=None, label="scalpel handle", in_reach=None, use
     A box the detector itself calls the label gets a small bonus; in_reach(u, v) drops out-of-reach ones."""
     if use_gemini and detector is None:
         box = gemini_box(bgr, label)
-        if box is not None:
-            u, v, ang = handle_midpoint(bgr, box)
-            if in_reach is None or in_reach(u, v):
-                return u, v, ang, box
+        r = _dark_rod(bgr, box) if box is not None else None
+        # Gemini once boxed the steel scissors: only trust a box holding a dark rod
+        if r is not None and r[4] >= HANDLE_DARK and (in_reach is None or in_reach(r[1], r[2])):
+            return r[1], r[2], r[3], box
     if detector is None:
         from dotenv import dotenv_values
         from vision.tray import PerceptronDetector
@@ -186,7 +186,7 @@ class AutoPick:
     def __init__(self, args: dict | None = None, calib: dict | None = None, detector=None, kin=None):
         args = dict(args or {})
         self.mode = args.get("mode", "handoff")
-        if self.mode not in ("handoff", "hold"):
+        if self.mode not in ("handoff", "hold", "offer"):
             raise ValueError("mode must be 'handoff' (wait for a hand, release, go home) or 'hold' (bring it home)")
         offer = args.get("offer_xyz", OFFER_XYZ)
         try:
@@ -225,6 +225,12 @@ class AutoPick:
         self._aborted = False
         self.start_pose = {m: float(st.joints[m]) for m in JOINTS}
         self.start_pose["gripper"] = float(st.gripper if st.gripper is not None else JAW_OPEN)
+        if self.mode == "offer":  # test the hand detection: grip in place and wait for a hand
+            self.grip_hold = max(0.0, self.start_pose["gripper"] - SQUEEZE)
+            self.plan = [{"name": "grip", "from": dict(self.start_pose), "to": {**self.start_pose, "gripper": self.grip_hold},
+                          "dur": MIN_MOVE_S, "hold": 0.2, "detail": "gripping in place"}]
+            self.mode, self._phase = "handoff", "grip"
+            return
         self._phase, self._detail, self._progress = "detect", "looking for the " + self.label, 0.0
         frame = self._frame(st)
         self._detect_thread = threading.Thread(target=self._detect, args=(st, frame), daemon=True, name="autopick-detect")
@@ -323,6 +329,10 @@ class AutoPick:
             jb = float(np.median([b[0] for b in self.h_base])) if self.h_base else jaw
             lb = [b[1] for b in self.h_base if b[1] is not None]
             l0, ln = (float(np.median(lb)), float(np.std(lb))) if lb else (None, 0.0)
+            self._detail = (f"take it from the jaw | jaw {jaw} (base {jb:.1f}) load {load} (base {l0}, noise {ln:.0f})"
+                            if jb is not None else "take it from the jaw")
+            if load is not None and l0 is not None:
+                self.h_peak = max(getattr(self, "h_peak", 0.0), abs(load - l0))
             moved = jaw is not None and jb is not None and abs(jaw - jb) >= GRAB_JAW
             tugged = load is not None and l0 is not None and abs(load - l0) >= max(GRAB_LOAD, 4 * ln)
             if moved or tugged:
@@ -341,7 +351,8 @@ class AutoPick:
                 self.plan.append({"name": "home", "from": pose, "to": to, "dur": round(dur, 2), "hold": 0.5,
                                   "detail": "nobody took it: home, still holding"})
                 self.seg, self.seg_t0 = len(self.plan) - 1, None
-                st.note("autopick: nobody took it in time; going home holding it, then motors off")
+                st.note(f"autopick: nobody took it in time (biggest load change {getattr(self, 'h_peak', 0):.0f}, "
+                        f"load reading {'missing' if load is None else 'ok'}); going home holding it, then motors off")
             return self._hold_action(pose)
         if self.hand == "grabbed":
             pose["gripper"] = self.grip_hold if self.grip_hold is not None else JAW_CLOSE
@@ -450,7 +461,8 @@ class AutoPick:
             self.found = {"pixel": [round(u), round(v)], "angle_deg": ang and round(ang), "xy_m": np.round(xy, 3).tolist(),
                           "box": [round(t) for t in box]}
             self.plan = self._make_plan(st, xy)
-            st.note(f"autopick: {self.label} midpoint at x {xy[0]:.3f} m, y {xy[1]:.3f} m; picking it up")
+            st.note(f"autopick: {self.label} box {[round(t) for t in box]} midpoint px ({u:.0f}, {v:.0f}) -> "
+                    f"x {xy[0]:.3f} m, y {xy[1]:.3f} m; picking it up")
             self._phase = self.plan[0]["name"]
         except Exception as e:  # noqa: BLE001
             self._phase, self._detail = "failed", str(e)
