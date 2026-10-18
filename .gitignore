@@ -31,3 +31,6 @@ vision/models/
 
 # simulation model files (fetched by python -m sim.fetch_model)
 sim/models/
+
+# agent worktrees
+.claude/

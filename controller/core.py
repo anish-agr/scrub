@@ -169,7 +169,8 @@ class Controller:
         it = settings.item(self.setting, item_id or "")
         if it is None:
             return False, f"{item_id!r} is not in {self.setting['id']}", lines.NOT_IN_SETTING
-        return True, None, lines.queued(it["name"]) if busy else lines.coming(it["name"])
+        coming = lines.coming_sharp if it.get("sharp") else lines.coming
+        return True, None, lines.queued(it["name"]) if busy else coming(it["name"])
 
     def stop(self) -> None:
         self.gen += 1      # first, so an arm call failing from the freeze already looks stopped
