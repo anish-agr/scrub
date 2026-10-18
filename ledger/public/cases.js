@@ -78,7 +78,21 @@ async function loadCase() {
       if (event.request_to_hand_s != null) bits.push(`${Number(event.request_to_hand_s).toFixed(1)} s`);
       if (event.skill_source) bits.push(event.skill_source === "taught" ? "taught skill" : "model");
       if (Array.isArray(event.out)) bits.push("out: " + (event.out.map(nameOf).join(", ") || "nothing"));
+      if (event.read_line) {
+        bits.length = 1;
+        bits.push(event.read_line);
+        if (event.say) bits.push(event.say);
+      }
+      if (Array.isArray(event.sheet_mismatch) && event.sheet_mismatch.length) {
+        bits.push("sheet mismatch: " + event.sheet_mismatch.map((m) => `${nameOf(m.item)} sheet ${m.sheet}, scrub ${m.scrub}`).join("; "));
+      }
       li.textContent = bits.join(" · ");
+      if (event.caption && event.caption.label) {
+        const note = document.createElement("div");
+        note.className = "caption";
+        note.textContent = `Camera: ${event.caption.label}` + (event.caption.disagrees ? " (camera disagrees)" : "");
+        li.appendChild(note);
+      }
       list.appendChild(li);
     });
   } catch (error) {

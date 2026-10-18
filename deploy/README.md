@@ -16,12 +16,12 @@ Same thing: `python deploy/check_env.py` from the repo root.
 | arm | controller | `CONTROLLER_URL` (default `http://localhost:8000`) |
 | arm | arm | `PERCEPTRON_TEAM_API_KEY`, `PERCEPTRON_DEPLOYMENT_ID`, `HF_TOKEN`, `SO101_PORT` |
 | arm | ledger | `MONGODB_URI` |
-| arm | vision | `PERCEPTRON_API_KEY`, `CAMERA_INDEX` (default 0), `VISION_URL` (default `http://localhost:8001`) |
-| voice | voice | `GEMINI_API_KEY`, `ELEVENLABS_API_KEY`, `ELEVENLABS_AGENT_ID`, `PHOTON_API_KEY`, `PHOTON_PROJECT_ID`. Optional: `VOICE_LLM_SECRET`, `PHOTON_SUMMARY_TO`, `VOICE_PORT` (default 3000), `CONTROLLER_URL` |
+| arm | vision | `PERCEPTRON_API_KEY`, `CAMERA_INDEX` (default 0), `VISION_URL` (default `http://localhost:8001`), `SIM_URL` (optional, default `http://127.0.0.1:8002`) |
+| voice | voice | `GEMINI_API_KEY`, `ELEVENLABS_API_KEY`, `ELEVENLABS_AGENT_ID`, `PHOTON_API_KEY`, `PHOTON_PROJECT_ID`. Optional: `VOICE_LLM_SECRET`, `PHOTON_SUMMARY_TO`, `SCRUB_PUBLIC_URL`, `VOICE_PORT` (default 3000), `CONTROLLER_URL`. Empty Photon names fall back to `SPECTRUM_PROJECT_ID` and `SPECTRUM_PROJECT_SECRET` |
 
-Optional `SCRUB_PUBLIC_URL` or `SCRUB_SERVER_IP` (the Vultr page); the check reads `/api/stats` from it.
+Optional `SCRUB_PUBLIC_URL` or `SCRUB_SERVER_IP` (the Vultr page). The stats check reads `/api/stats` from that address. The page check also opens `http://144.202.95.111/` and `SCRUB_PUBLIC_URL` and looks for the word Scrub. A missing public URL is FAIL.
 
-Live probes: Perceptron `GET https://robotics.perceptron.inc/v1/capabilities`, Perceptron `GET /v1/deployments` (the id in `PERCEPTRON_DEPLOYMENT_ID` must be listed), the Vultr page `GET /api/stats`, Perceptron `POST https://api.perceptron.inc/v1/detect`, Gemini model list, ElevenLabs `GET /v1/user` (and the agent when `ELEVENLABS_AGENT_ID` is set), Photon `GET /v1/projects/{id}`, MongoDB `ping`, Hugging Face `whoami-v2`, controller `GET /state`, vision `GET /health`, voice `GET /health`.
+Live probes: Perceptron `GET https://robotics.perceptron.inc/v1/capabilities`, Perceptron `GET /v1/deployments` (the id in `PERCEPTRON_DEPLOYMENT_ID` must be listed), the Vultr page `GET /api/stats`, the same page's HTML on the Vultr IP and on `SCRUB_PUBLIC_URL`, Perceptron `POST https://api.perceptron.inc/v1/detect`, Gemini model list, ElevenLabs `GET /v1/user` (and the agent when `ELEVENLABS_AGENT_ID` is set), Photon `GET /v1/projects/{id}`, MongoDB `ping`, Hugging Face `whoami-v2`, controller `GET /state`, vision `GET /health`, voice `GET /health`.
 
 Offline check of the table formatting: `python -m unittest deploy.test_check_env`
 

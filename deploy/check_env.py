@@ -43,6 +43,7 @@ ROLES = {
             ("PERCEPTRON_API_KEY", True),
             ("CAMERA_INDEX", False),
             ("VISION_URL", False),
+            ("SIM_URL", False),
         ],
     },
     "voice laptop": {
@@ -54,6 +55,8 @@ ROLES = {
             ("PHOTON_API_KEY", True),
             ("PHOTON_PROJECT_ID", True),
             ("PHOTON_SUMMARY_TO", False),
+            ("SCRUB_PUBLIC_URL", False),
+            ("SCRUB_SERVER_IP", False),
             ("VOICE_PORT", False),
             ("CONTROLLER_URL", False),
         ],
@@ -321,6 +324,23 @@ def check_hf() -> tuple[str, str, str]:
         return row("Hugging Face", False, type(exc).__name__)
 
 
+VULTR_PAGE = "http://144.202.95.111/"
+
+
+def check_page(name: str, url: str) -> tuple[str, str, str]:
+    """The judge page. A 200 that contains the Scrub title counts as up."""
+    if not url:
+        return row(name, False, "missing SCRUB_PUBLIC_URL")
+    try:
+        response = httpx.get(url, timeout=8, follow_redirects=True)
+    except httpx.HTTPError as exc:
+        return row(name, False, type(exc).__name__)
+    text = response.text[:400]
+    if response.status_code == 200 and "Scrub" in text:
+        return row(name, True, "HTTP 200")
+    return row(name, False, f"HTTP {response.status_code}")
+
+
 def check_port(name: str, url: str) -> tuple[str, str, str]:
     try:
         response = httpx.get(url, timeout=3)
@@ -366,6 +386,8 @@ def live_rows() -> list[tuple[str, str, str]]:
         check_port("controller :8000", controller + "/state"),
         check_port("vision :8001", vision + "/health"),
         check_port("voice :3000", f"http://127.0.0.1:{voice_port}/health"),
+        check_page("public page", VULTR_PAGE),
+        check_page("public url", value("SCRUB_PUBLIC_URL")),
     ]
 
 

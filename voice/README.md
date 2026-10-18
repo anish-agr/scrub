@@ -91,6 +91,9 @@ Only a human can do these. Order: Photon, ElevenLabs agent, import the number, t
 | "what's out" | `[command] count` | "Out: hemostat, scalpel." |
 | "stop" | `[command] stop (POST /stop)` | "Stopped." |
 | "check the tray", "is the tray ready", "tray check" | `[tray] ready` (or `not ready`, `can't check`) | the controller's `GET /tray_check` `say`: "Tray's ready: scalpel, hemostat, Mayo scissors." / "Missing the scalpel." / "I can't check the tray right now." A pass also texts `Tray ready: Operating room, all 3 instruments in place.` to the caller's thread |
+| "read the count sheet", "read the sheet", "check the count sheet" | `[command] read_sheet` | the `say` of the controller's `read` event (the sheet's tray and counts). The reply waits up to 25 s for it |
+| "what tray is this", "which tray is this", "read the tray tag" | `[command] read_tray` | the `read` event's `say` (the tray it read, and the switch when idle). "check the tray" is still the tray check |
+| "read the pack", "read the pack label", "check the pack", "is this pack expired" | `[command] read_pack` | the `read` event's `say` (item, lot, expiry, a warning when the date has passed) |
 | "hand me the bovie" | `[command] unknown` | "Which instrument? You can say: call the hemostat a crile." |
 | "call the hemostat a crile" | `[alias] crile -> hemostat` | "Got it: crile means the hemostat." Then "crile please" hands the hemostat |
 

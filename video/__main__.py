@@ -65,6 +65,10 @@ def parser():
     fi.add_argument("--manifest", default="manifest.json")
     fi.add_argument("--cut", action="store_true")
     fi.add_argument("--gemini", action="store_true", help="report optional scorer availability; never uploads by default")
+    fi.add_argument("--no-captions", action="store_true", help="rank by ledger and sharpness only; ignore camera captions")
+    fi.add_argument("--clips-dir", help="folder of <case_id>/metadata.json (default vision/clips)")
+    fi.add_argument("--vision-url", help="also GET <url>/clips?case_id= from a running vision service (e.g. $VISION_URL)")
+    fi.add_argument("--qa", help="explore.dataset.qa_video JSON report; matched by the ledger rows' episode number")
     ov=sub.add_parser('overlay',help='burn ledger-backed request, timing, steps, lighting and count')
     ov.add_argument('--input',required=True)
     ov.add_argument('--events',help='ledger JSONL; default <root>/events.jsonl from export-ledger')
@@ -129,7 +133,7 @@ def main(argv=None):
                 args.faces,args.keep_team,args.idle_speed,args.cut_idle,args.idle_confirmed,args.analyze_only,args.audio,args.upscale)
         elif args.command == "find":
             from .takes import find
-            result = find(ws,args.events or default_events(ws),args.manifest,args.cut,args.gemini)
+            result = find(ws,args.events or default_events(ws),args.manifest,args.cut,args.gemini,not args.no_captions,args.clips_dir,args.vision_url,args.qa)
         elif args.command == 'overlay':
             from .overlay import overlay
             result=overlay(ws,args.input,args.events or default_events(ws),args.output,args.case_id,args.allow_synthetic)

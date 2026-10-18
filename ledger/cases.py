@@ -16,7 +16,10 @@ _FIELDS = (
     "setting",
     "case_id",
     "skill_source",
+    "sheet_mismatch",
 )
+
+CAPTION_WINDOW_S = 10.0
 
 
 def _cid(event: dict) -> str:
@@ -31,9 +34,96 @@ def _name(item: str) -> str:
     return str(item).replace("_", " ")
 
 
+def _is_caption(event: dict) -> bool:
+    return event.get("type") == "caption"
+
+
+def _split(events: list[dict]) -> tuple[list[dict], list[dict]]:
+    """Real events and caption records. Captions are notes on events, never events."""
+    return [e for e in events if not _is_caption(e)], [e for e in events if _is_caption(e)]
+
+
+def _ratio(entry: dict) -> str:
+    name = _name(entry.get("name") or entry.get("item") or "item")
+    start = entry.get("initial")
+    end = entry.get("closing")
+    if end is not None:
+        return f"{name} {start if start is not None else '?'}/{end}"
+    if start is not None:
+        return f"{name} {start}/{entry.get('expected', '?')}"
+    return f"{name} {entry.get('expected', '?')}"
+
+
+def _read_line(event: dict) -> str | None:
+    """One plain line for a read event. None when the event has no read object."""
+    read = event.get("read")
+    if not isinstance(read, dict):
+        return None
+    kind = read.get("kind")
+    title = {"count_sheet": "Count sheet", "tray_tag": "Tray tag", "pack_label": "Pack label"}.get(kind, "Paper")
+    if read.get("ok") is False:
+        title += " not read"
+    else:
+        title += " read"
+    how = []
+    if read.get("method"):
+        how.append(str(read["method"]))
+    ms = _num(read.get("latency_ms"))
+    if ms is not None:
+        how.append(f"{ms / 1000:.1f} s")
+    head = title + (f" ({', '.join(how)})" if how else "")
+    parts = []
+    if kind == "count_sheet":
+        if read.get("tray"):
+            parts.append(f"tray {read['tray']}")
+        items = [i for i in read.get("items") or [] if isinstance(i, dict)]
+        parts.extend(_ratio(i) for i in items)
+    elif kind == "tray_tag":
+        if read.get("tray"):
+            parts.append(f"tray {read['tray']}")
+    elif kind == "pack_label":
+        for label in read.get("labels") or []:
+            if not isinstance(label, dict):
+                continue
+            text = _name(label.get("item") or label.get("item_text") or "pack")
+            if label.get("lot"):
+                text += f" lot {label['lot']}"
+            if label.get("expires"):
+                text += f" expires {label['expires']}"
+            if label.get("expired"):
+                text += " EXPIRED"
+            parts.append(text)
+    return head + (": " + ", ".join(parts) if parts else "")
+
+
+def _attach_captions(rows: list[dict], captions: list[dict]) -> None:
+    """Put each caption under the closest event with the same case, type and item, within the window."""
+    free = list(captions)
+    for row in rows:
+        stamp = _stamp(row)
+        best = None
+        gap = CAPTION_WINDOW_S + 1
+        for cap in free:
+            if cap.get("event_type") != row.get("type") or cap.get("item") != row.get("item"):
+                continue
+            distance = abs(_stamp(cap) - stamp)
+            if distance <= CAPTION_WINDOW_S and distance < gap:
+                best, gap = cap, distance
+        if best is None:
+            continue
+        free.remove(best)
+        if best.get("label_source") == "perceptron" and best.get("label"):
+            row["caption"] = {
+                "label": best.get("label"),
+                "agrees": best.get("agrees"),
+                "disagrees": best.get("agrees") is False,
+            }
+
+
 def list_cases(events: list[dict] | None = None) -> list[dict]:
     if events is None:
         events, _tests = stored_rows()
+    events, _captions = _split(events)
     groups: dict[str, list[dict]] = {}
     for event in events:
         groups.setdefault(_cid(event), []).append(event)
@@ -100,13 +190,20 @@ def _summary(group: list[dict]) -> str:
 def case_view(case_id: str, events: list[dict] | None = None) -> dict | None:
     if events is None:
         events, _tests = stored_rows()
+    events, captions = _split(events)
     group = [event for event in events if _cid(event) == case_id]
     if not group:
         return None
     group.sort(key=_stamp)
     slim = []
     for event in group:
-        slim.append({field: event.get(field) for field in _FIELDS})
+        row = {field: event.get(field) for field in _FIELDS}
+        line = _read_line(event)
+        if line:
+            row["read_line"] = line
+            row["read"] = event.get("read")
+        slim.append(row)
+    _attach_captions(slim, [c for c in captions if _cid(c) == case_id])
     return {
         "case_id": case_id,
         "setting": next((event.get("setting") for event in group if event.get("setting")), None),
