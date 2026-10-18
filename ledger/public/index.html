@@ -6,19 +6,13 @@
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>Scrub</title>
   <link rel="stylesheet" href="style.css">
-  <style>
-    main{display:grid;grid-template-columns:minmax(0,1.25fr) minmax(0,1fr);gap:0 32px}
-    .intro{grid-column:1;grid-row:1}.live-count{grid-column:2;grid-row:1}.method,.results,.recent-cases,.team,.tracks-section{grid-column:1/-1}
-    .intro p:not(.lead):not(.kicker){max-width:65ch}.live-count .out li{font-size:32px}.live-count .median{padding-top:20px;border-top:1px solid var(--hair)}
-    .diagram{font:12px/1.6 var(--m);white-space:pre-wrap;overflow-wrap:anywhere;background:var(--paper2);padding:16px;margin:16px 0}
-    .stack{display:none;padding-left:20px}.stack li{padding:8px 0}.tracks{columns:2;column-gap:32px}.tracks li{break-inside:avoid}
-    @media(max-width:800px){main{grid-template-columns:minmax(0,1fr)}.intro,.live-count{grid-column:1;grid-row:auto}.diagram{display:none}.stack{display:block}.tracks{columns:1}}
-  </style>
+  <link rel="stylesheet" href="pages.css">
 </head>
 <body class="scrub-ui" data-page="judge">
   <header class="top">
     <div><span class="mark">Scrub</span><span class="subtitle">Instrument count and case record</span></div>
     <nav>
+      <a href="/" aria-current="page">Count</a>
       <a href="cases.html">Cases</a>
       <a href="series.html">Series</a>
       <a href="memory.html">Memory</a>
@@ -58,14 +52,19 @@ vision/ (camera: tray state + hand position) -&gt; controller/ -&gt; arm/ -&gt; 
     </section>
 
     <section class="live-count">
-      <p class="kicker">Out right now</p>
-      <ul id="out" class="out"></ul>
-      <p id="median" class="median">Median handoff</p>
+      <p class="kicker">Live from the ledger <span id="live-word" class="pill offline">connecting</span></p>
+      <div class="readouts">
+        <div><p class="label">Out right now</p><ul id="out" class="out"></ul></div>
+        <div><p class="label">Real-arm handoffs</p><p id="handoffs" class="readout">--</p></div>
+        <div><p id="median" class="median label-top">Median handoff</p></div>
+      </div>
+      <p id="next" class="note" hidden></p>
+      <p id="live-note" class="note"></p>
     </section>
 
     <section class="results">
       <p class="kicker">Results</p>
-      <p class="note">Each rate includes the tries and a 95% range.</p>
+      <p class="note">Real-arm tries only. Each rate includes the tries and a 95% range.</p>
       <div class="table-wrap">
         <table id="by-item">
           <caption>By item</caption>
@@ -112,7 +111,7 @@ vision/ (camera: tray state + hand position) -&gt; controller/ -&gt; arm/ -&gt; 
       </ul>
     </section>
   </main>
-  <footer>Team Scrub · DubHacks '26 <a href="#">Terms</a><a href="#">Privacy</a></footer>
+  <footer>Team Scrub · DubHacks '26</footer>
   <script src="app.js"></script>
 </body>
 </html>
