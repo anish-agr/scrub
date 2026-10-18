@@ -24,7 +24,7 @@ Done when: a fake-arm handover shows live, and a judge can follow a whole reques
 
 Saturday Oct 17, with `python -m controller --fake-arm` and `python -m vision --fake` already up.
 
-- Dashboard at http://127.0.0.1:8000/, desktop and a 390px phone width. No horizontal overflow. The picker lists Operating room and Robotics bench. Dental stays in `settings/dental.json` and is not in the picker. The page showed Idle, hemostat out, the handoff seconds, and the success table. No console errors.
+- Dashboard at http://127.0.0.1:8000/, desktop and a 390px phone width. No horizontal overflow. The picker listed Operating room and Robotics bench (since Oct 18 it lists only Operating room). Dental stays in `settings/dental.json` and is not in the picker. The page showed Idle, hemostat out, the handoff seconds, and the success table. No console errors.
 - Count from the page appended a count line to the log.
 - Closing the event socket changed the pill to "reconnecting". About a second later it was "live" again on a new socket.
 - A bad `GET /stats` body and an empty body did not throw. The empty body shows "No measured trials yet" and hides the table headers.
