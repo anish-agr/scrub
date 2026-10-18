@@ -1,8 +1,8 @@
 {
   "name": "scrub-voice",
   "version": "1.0.0",
-  "description": "Owner: Caiden. Tasks C3, C4, C7 in `docs/TASKS.md`.",
-  "main": "index.js",
+  "description": "Scrub voice server: ElevenLabs Custom LLM endpoint, controller client, Photon texts",
+  "main": "src/server.ts",
   "scripts": {
     "test": "tsx scripts/test.ts",
     "dev": "tsx src/server.ts",
@@ -16,7 +16,7 @@
   "author": "",
   "license": "ISC",
   "type": "module",
-  "private": "true",
+  "private": true,
   "dependencies": {
     "@google/genai": "^2.30.0",
     "dotenv": "^18.0.8",

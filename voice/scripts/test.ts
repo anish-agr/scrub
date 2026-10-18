@@ -91,6 +91,19 @@ newCase();
 ev("released", { command_id: "t2", item: "hemostat", skill_source: "taught" });
 assert.match(templateSummary(caseFacts()), /1 handover: 0 by the model, 1 by a taught skill/);
 newCase();
+// AUDIT Low: an event seen live and again in the reconnect backfill counts once. A backfilled event older than
+// what is here goes in time order (the count still reads the newest `out`), and one from an older case_id is dropped.
+const dup = { type: "released", t: 5000, command_id: "d1", item: "hemostat", out: ["hemostat"] } as any;
+recordEvent(dup);
+recordEvent({ ...dup });
+ev("released", { t: 5002, command_id: "d3", item: "scalpel", out: ["hemostat", "scalpel"] });
+recordEvent({ type: "released", t: 5001, command_id: "d2", item: "mayo_scissors", out: ["hemostat", "mayo_scissors"] } as any);
+recordEvent({ type: "released", t: 4000, command_id: "d0", item: "scalpel", case_id: "surgical-100" } as any);
+assert.deepEqual(caseFacts().passed, { hemostat: 1, mayo_scissors: 1, scalpel: 1 });
+assert.deepEqual(caseFacts().still_out, ["hemostat", "scalpel"]);
+assert.equal(caseFacts().case_id, null);
+t = 5002;
+newCase();
 
 // Texts in (F3): fake message stream, fake controller state, local parse only (never Gemini or Photon).
 const surgical: Setting = { id: "surgical", label: "Operating room", items: [
@@ -381,6 +394,7 @@ const ctl = http.createServer((req, res) => {
     if (req.url === "/setting") return res.end(JSON.stringify({ id: "surgical", label: "Operating room",
       items: [{ id: "hemostat", name: "hemostat", aliases: ["kelly", ...clinic] }, { id: "scalpel", name: "scalpel", aliases: ["knife"], sharp: true }] }));
     if (req.url === "/tray_check") return res.end(JSON.stringify(trayAnswer));
+    if (req.url?.startsWith("/events/recent")) return res.end(JSON.stringify(history));
     if (req.url === "/alias") {
       const a = JSON.parse(raw);
       if (a.alias === "knife") return res.end(JSON.stringify({ ok: false, say: "Knife already means the scalpel.", reason: "already scalpel" }));
@@ -419,13 +433,19 @@ const ctl = http.createServer((req, res) => {
 let trayAnswer: object = READY;
 let judgeOn = false, errorLater = false, preopenError = false;
 const wss = new WebSocketServer({ server: ctl });
-const emit = (e: object) => wss.clients.forEach((c) => c.send(JSON.stringify({ t: Date.now() / 1000, ...e })));
-// Test ports 8260-8268 and 3260-3268 (the live controller and voice server stay on 8000 and 3000). npm test points
-// in-process code at 8269, where nothing listens, so a call a test forgot to fake never reaches the real arm.
-const offset = Math.floor(Math.random() * 9);
-await new Promise<void>((r) => ctl.listen(8260 + offset, r));
+const history: object[] = [];  // GET /events/recent, like the controller's
+const emit = (e: object) => {
+  const ev = { t: Date.now() / 1000, ...e };
+  history.push(ev);
+  wss.clients.forEach((c) => { if (c.readyState === c.OPEN) c.send(JSON.stringify(ev)); });
+};
+// Test ports 3020-3029: the fake controller on 3020-3023, the voice server on 3024-3027 (the live controller and
+// voice server stay on 8000 and 3000). npm test points in-process code at 3029, where nothing listens, so a call a
+// test forgot to fake never reaches the real arm.
+const offset = Math.floor(Math.random() * 4);
+await new Promise<void>((r) => ctl.listen(3020 + offset, r));
 const ctlPort = (ctl.address() as AddressInfo).port;
-const voicePort = 3260 + offset;
+const voicePort = 3024 + offset;
 const out: string[] = [];
 const child = spawn(process.execPath, ["--import", "tsx", "src/server.ts"], { cwd: path.resolve(import.meta.dirname, ".."),
   env: { ...process.env, VOICE_NO_KEYS: "1", CONTROLLER_URL: `http://localhost:${ctlPort}`, VOICE_PORT: String(voicePort), VOICE_HOLD_S: "2", VOICE_JUDGE_TTL_MS: "0" } });
@@ -536,6 +556,22 @@ try {
   assert.equal(health.gemini_ms, null);  // no key: Gemini never ran
   assert.equal(health.gemini_p50_ms, null);
   assert.equal((await fetch(`${base}/health`)).headers.get("access-control-allow-origin"), "*");
+
+  // AUDIT Low: passes made while the events socket is down are counted after the reconnect (GET /events/recent).
+  await fetch(`${base}/summary`, { method: "POST" });  // a fresh case
+  const connects = () => out.join("").split("[events] connected").length - 1;
+  const before2 = connects();
+  wss.clients.forEach((c) => c.terminate());
+  await new Promise((r) => setTimeout(r, 100));
+  emit({ type: "released", command_id: "gap1", item: "scalpel", out: [] });  // nobody connected: history only
+  emit({ type: "released", command_id: "gap2", item: "hemostat", out: [] });
+  for (let i = 0; i < 60 && !out.join("").includes("[events] backfill checked"); i++) await new Promise((r) => setTimeout(r, 100));
+  assert.equal(connects(), before2 + 1, out.join(""));
+  assert.ok(hits.some((h) => h.startsWith("GET /events/recent")), hits.join());
+  emit({ type: "released", command_id: "live", item: "hemostat", out: [] });  // live again: counted once
+  await new Promise((r) => setTimeout(r, 100));
+  const summed = await (await fetch(`${base}/summary`, { method: "POST" })).json();
+  assert.match(summed.text, /Passed: scalpel x1, hemostat x2/, summed.text);
 } finally {
   child.kill();
   wss.close();

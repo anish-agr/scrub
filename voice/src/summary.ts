@@ -26,8 +26,23 @@ export function withTimeout<T>(p: Promise<T>, ms: number, what: string): Promise
 // A day of step events stays well under this; past it the oldest go (the counts read `out` from the newest).
 const MAX_EVENTS = 5000;
 
+// The same event can arrive live and again from the reconnect backfill (GET /events/recent): count it once.
+const eventKey = (e: ScrubEvent) => `${e.t}|${e.type}|${e.command_id ?? ""}|${e.item ?? ""}`;
+const seenKeys = new Set<string>();
+
 // Events with a new case_id start a new case. Without case_id: one case until "end of case" (newCase).
+// A backfilled event can be older than ones already here: it goes in time order, and one from an earlier case is dropped.
 export function recordEvent(e: ScrubEvent) {
+  const key = eventKey(e);
+  if (seenKeys.has(key)) return;
+  seenKeys.add(key);
+  if (seenKeys.size > MAX_EVENTS) seenKeys.delete(seenKeys.values().next().value!);
+  const last = caseEvents.at(-1);
+  if (last && e.t < last.t) {
+    if (e.case_id && e.case_id !== caseId) return;  // from a case that already ended
+    caseEvents.splice(caseEvents.findIndex((x) => x.t > e.t), 0, e);
+    return;
+  }
   if (e.case_id && e.case_id !== caseId) {
     const start = Number(e.case_id.match(/-(\d+(\.\d+)?)$/)?.[1]) || e.t;
     // A changed case_id is a new case at the controller. The first one seen may predate a voice "end of case".
