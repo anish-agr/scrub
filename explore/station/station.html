@@ -1,0 +1,166 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Scrub Station</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@500;700&family=IBM+Plex+Sans:wght@400;600;700&display=swap" rel="stylesheet">
+<style>
+:root{
+  --bg:#0b0d10; --panel:#14181d; --panel2:#1d232a; --line:#2c343e;
+  --text:#f2f5f8; --muted:#8c97a4;
+  --red:#ff3b3b; --amber:#ffb020; --blue:#3b9cff; --grey:#5b6470; --teal:#14c8b4; --green:#3ddc84;
+}
+*{box-sizing:border-box;border-radius:0}
+html,body{margin:0;background:var(--bg);color:var(--text);font-family:"IBM Plex Sans",system-ui,sans-serif;overflow-x:hidden}
+body{padding:12px;display:flex;flex-direction:column;gap:10px;min-height:100vh}
+.mono{font-family:"IBM Plex Mono",ui-monospace,Menlo,monospace}
+#top{display:flex;flex-wrap:wrap;align-items:center;gap:14px;background:var(--panel);padding:12px 16px;border:1px solid var(--line)}
+#badge{font-size:clamp(24px,3.4vw,44px);font-weight:700;letter-spacing:.04em;padding:6px 20px;background:var(--grey);color:#fff;white-space:nowrap}
+#badge.recording{background:var(--red);animation:pulse 1.2s infinite}
+#badge.idle{background:var(--teal);color:#021a17}
+#badge.homing,#badge.parked{background:var(--blue)}
+#badge.cooling{background:var(--amber);color:#1a1200}
+#badge.killed,#badge.error{background:#000;color:var(--red);outline:3px solid var(--red)}
+@keyframes pulse{0%,100%{opacity:1}50%{opacity:.55}}
+#taskbox{flex:1;min-width:260px;display:flex;gap:8px}
+#task{flex:1;font:inherit;font-size:clamp(18px,2vw,26px);font-weight:600;background:var(--panel2);color:var(--text);border:1px solid var(--line);padding:8px 12px}
+#task:focus{outline:2px solid var(--blue)}
+#settask{font:inherit;font-weight:700;padding:0 16px;background:var(--panel2);color:var(--text);border:1px solid var(--line);cursor:pointer}
+#clock{font-size:clamp(36px,5vw,72px);font-weight:700;line-height:1}
+#counts{font-size:15px;color:var(--muted);line-height:1.4;text-align:right}
+#warn{display:none;background:var(--red);color:#fff;padding:10px 16px;font-size:clamp(16px,1.8vw,24px);font-weight:700}
+#disc{display:none;background:var(--amber);color:#1a1200;padding:12px 16px;font-size:22px;font-weight:700;text-align:center}
+#main{display:grid;grid-template-columns:minmax(0,2fr) minmax(300px,1fr);gap:10px;flex:1}
+#cams{display:grid;grid-template-columns:1fr 1fr;gap:10px;align-content:start}
+.cam{position:relative;aspect-ratio:4/3;background:#000;border:2px solid var(--line);overflow:hidden}
+.cam.rec{border-color:var(--red)}
+.cam img{width:100%;height:100%;object-fit:cover;display:block}
+.lbl{position:absolute;left:0;top:0;background:rgba(0,0,0,.75);padding:4px 12px;font-size:18px;font-weight:700}
+.chip{position:absolute;right:0;bottom:0;background:rgba(0,0,0,.8);padding:4px 10px;font-size:15px}
+.chip.bad{background:var(--red)}
+#side{display:flex;flex-direction:column;gap:10px}
+button.big{font:inherit;font-size:24px;font-weight:700;padding:20px 10px;border:0;color:#fff;cursor:pointer;width:100%;background:var(--blue)}
+button.big small{display:block;font-size:12px;font-weight:600;opacity:.8;margin-top:2px}
+button.big:disabled{opacity:.3;cursor:default}
+#b-toggle{background:var(--green);color:#03170b}
+#b-toggle.save{background:var(--blue);color:#fff}
+#b-discard{background:var(--grey)}
+#b-kill{background:var(--red);font-size:40px;padding:26px 10px;letter-spacing:.08em;border:4px solid #fff}
+.pair{display:grid;grid-template-columns:1fr 1fr;gap:10px}
+#b-home,#b-wake,#b-reconnect{font-size:18px;padding:14px 8px;background:var(--panel2);border:1px solid var(--line)}
+#b-reconnect{display:none;background:var(--amber);color:#1a1200}
+.card{background:var(--panel);border:1px solid var(--line);padding:10px 12px}
+.card h3{margin:0 0 8px;font-size:13px;letter-spacing:.08em;text-transform:uppercase;color:var(--muted)}
+#temps{display:grid;grid-template-columns:repeat(3,1fr);gap:6px}
+.t{padding:6px 8px;background:var(--panel2);font-size:13px}
+.t b{display:block;font-size:22px}
+.t.ok b{color:var(--green)} .t.amber{background:var(--amber);color:#1a1200} .t.red{background:var(--red);color:#fff}
+#joints{font-size:14px;color:var(--muted);margin-top:8px;line-height:1.5}
+#log{flex:1;min-height:120px;max-height:260px;overflow-y:auto;background:#000;border:1px solid var(--line);padding:8px 10px;font-size:13px;line-height:1.45;color:#b8c4d0;white-space:pre-wrap}
+#keys{font-size:12px;color:var(--muted)}
+@media (max-width:900px){#main{grid-template-columns:1fr}#cams{grid-template-columns:1fr}#counts{text-align:left}}
+</style>
+</head>
+<body>
+<div id="top">
+  <div id="badge">CONNECTING</div>
+  <div id="taskbox"><input id="task" placeholder="task, e.g. pick the spatula" autocomplete="off"><button id="settask">Set task</button></div>
+  <div id="clock" class="mono">00:00</div>
+  <div id="counts" class="mono"></div>
+</div>
+<div id="disc">Disconnected: is station.py running?</div>
+<div id="warn"></div>
+<div id="main">
+  <div id="cams">
+    <div class="cam" id="cam-side"><img alt=""><div class="lbl">Side</div><div class="chip mono">--</div></div>
+    <div class="cam" id="cam-wrist"><img alt=""><div class="lbl">Wrist</div><div class="chip mono">--</div></div>
+  </div>
+  <div id="side">
+    <button class="big" id="b-toggle">Start episode<small>Space / Enter in the terminal</small></button>
+    <button class="big" id="b-discard">Discard<small>Backspace: throw this episode away</small></button>
+    <button class="big" id="b-kill">KILL<small>Escape: motors off now (a raised arm drops)</small></button>
+    <div class="pair">
+      <button class="big" id="b-home">Home + motors off<small>glides home, torque off</small></button>
+      <button class="big" id="b-wake">Motors on<small>holds, then follows</small></button>
+    </div>
+    <button class="big" id="b-reconnect">Reconnect arms<small>after a USB or power drop</small></button>
+    <div class="card"><h3>Motor temperatures</h3><div id="temps"></div><div id="joints" class="mono"></div></div>
+    <div id="log" class="mono"></div>
+    <div id="keys">Space start/save &middot; Esc KILL &middot; Backspace discard (not while typing the task)</div>
+  </div>
+</div>
+<script>
+const $=id=>document.getElementById(id);
+const M=["shoulder_pan","shoulder_lift","elbow_flex","wrist_flex","wrist_roll","gripper"];
+const LABEL={idle:"TELEOP",recording:"RECORDING",homing:"GOING HOME",parked:"PARKED",cooling:"COOLING",killed:"KILLED",error:"ERROR"};
+let st=null, fails=0, taskDirty=false;
+const fmt=s=>{s=Math.max(0,Math.floor(s));return String(Math.floor(s/60)).padStart(2,"0")+":"+String(s%60).padStart(2,"0");};
+async function send(action,extra){
+  try{const r=await fetch("/control",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({action,...extra})});
+    const j=await r.json(); if(!j.ok&&j.msg)flash(j.msg); poll();}catch(e){flash("control failed");}
+}
+let flashT=null;
+function flash(m){const w=$("warn");w.style.display="block";w.textContent=m;clearTimeout(flashT);flashT=setTimeout(()=>{if(st)render(st);},2500);}
+function setCam(name,s){
+  const box=$("cam-"+name), img=box.querySelector("img"), c=(s.cameras||{})[name], chip=box.querySelector(".chip");
+  box.classList.toggle("rec",s.state==="recording");
+  if(!c){chip.textContent="no camera";return;}
+  if(!img.dataset.on){img.dataset.on="1";img.src="/stream/"+name+"?t="+Date.now();}
+  chip.textContent=c.down?"DOWN":`${c.fps!=null?c.fps.toFixed(0):"--"} fps`+(c.stalls?` · ${c.stalls} stalls`:"");
+  chip.classList.toggle("bad",c.down||(c.fps!=null&&c.fps<25));
+}
+["side","wrist"].forEach(n=>{const img=$("cam-"+n).querySelector("img");
+  img.addEventListener("error",()=>setTimeout(()=>{img.src="/stream/"+n+"?t="+Date.now();},2000));});
+function render(s){
+  const b=$("badge"); b.className=s.state; b.textContent=LABEL[s.state]||String(s.state).toUpperCase();
+  if(!taskDirty&&document.activeElement!==$("task"))$("task").value=s.task||"";
+  $("clock").textContent=fmt(s.recording_s||0); $("clock").style.color=s.state==="recording"?"var(--red)":"var(--muted)";
+  $("counts").innerHTML=`${s.state==="recording"?"episode "+s.episode_index+" · "+s.frames+" frames<br>":""}`+
+    `saved this session ${s.episodes_session} · dataset ${s.episodes_total??"?"}<br>loop ${s.loop_hz!=null?s.loop_hz.toFixed(1):"--"} Hz`+(s.saving?" · saving":"");
+  const w=s.warnings||[]; $("warn").style.display=w.length?"block":"none";
+  $("warn").replaceChildren(...w.map(x=>{const d=document.createElement("div");d.textContent=x;return d;}));
+  setCam("side",s); setCam("wrist",s);
+  const rec=s.state==="recording", tg=$("b-toggle");
+  tg.classList.toggle("save",rec); tg.firstChild.textContent=rec?"Save episode":"Start episode";
+  tg.disabled=!(rec||(s.state==="idle"&&!s.saving));
+  $("b-discard").disabled=!rec;
+  $("b-home").disabled=rec||!["idle"].includes(s.state);
+  $("b-wake").disabled=!(["parked","homing","killed"].includes(s.state)||(s.killed&&s.state!=="cooling"));
+  $("b-reconnect").style.display=s.state==="error"?"block":"none";
+  $("temps").replaceChildren(...M.map(m=>{const t=(s.temps||{})[m], d=document.createElement("div");
+    d.className="t "+(t==null?"":t>=60?"red":t>=55?"amber":"ok");
+    d.innerHTML=`${m.replace("_"," ")}<b class="mono">${t==null?"--":t+" C"}</b>`;return d;}));
+  const j=s.joints||{};
+  $("joints").textContent=Object.entries(j).map(([k,v])=>`${k} ${v.toFixed(0)}`).join("  ")+(s.gripper!=null?`  gripper ${s.gripper.toFixed(0)}`:"");
+  const L=$("log"), stick=L.scrollTop+L.clientHeight>=L.scrollHeight-30;
+  L.textContent=(s.log||[]).join("\n"); if(stick)L.scrollTop=L.scrollHeight;
+}
+async function poll(){
+  try{const r=await fetch("/status",{cache:"no-store"}); if(!r.ok)throw 0; st=await r.json(); fails=0;
+    $("disc").style.display="none"; render(st);}
+  catch(e){if(++fails>=3){$("disc").style.display="block";$("badge").className="";$("badge").textContent="OFFLINE";}}
+}
+setInterval(poll,250); poll();
+$("b-toggle").onclick=()=>send("toggle");
+$("b-discard").onclick=()=>send("discard");
+$("b-kill").onclick=()=>send("kill");
+$("b-home").onclick=()=>send("home");
+$("b-wake").onclick=()=>send("wake");
+$("b-reconnect").onclick=()=>send("reconnect");
+document.querySelectorAll("button").forEach(b=>b.addEventListener("click",()=>b.blur()));  // Space never double-fires
+$("task").addEventListener("input",()=>taskDirty=true);
+const setTask=()=>{send("task",{task:$("task").value});taskDirty=false;$("task").blur();};
+$("settask").onclick=setTask;
+$("task").addEventListener("keydown",e=>{if(e.key==="Enter"){e.preventDefault();setTask();}});
+document.addEventListener("keydown",e=>{
+  if(e.key==="Escape"){e.preventDefault();send("kill");return;}       // works even while typing
+  const typing=document.activeElement&&document.activeElement.tagName==="INPUT";
+  if(typing)return;
+  if(e.key===" "){e.preventDefault();if(!e.repeat)send("toggle");}
+  else if(e.key==="Backspace"){e.preventDefault();if(!e.repeat)send("discard");}
+});
+</script>
+</body>
+</html>

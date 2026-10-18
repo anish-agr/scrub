@@ -249,7 +249,7 @@ def main(argv: list[str] | None = None) -> None:
     parser.add_argument("--clicks", help="x,y,x,y,... two corners per slot, then the return spot")
     parser.add_argument("--image", help="saved tray photo to click on")
     parser.add_argument("--live", action="store_true", help="grab one frame from the overhead camera, then click")
-    parser.add_argument("--fake", action="store_true", help="write boxes for all three trays, no camera and no window")
+    parser.add_argument("--fake", action="store_true", help="write boxes for the surgical and bench trays from a synthetic frame (never settings/)")
     parser.add_argument("--write-settings", action="store_true", help="write boxes directly to settings/<id>.json in settings format")
     parser.add_argument("--out", help="JSON file, or a directory when --fake writes all three")
     args = parser.parse_args(argv)
@@ -271,8 +271,6 @@ def main(argv: list[str] | None = None) -> None:
             grab_live_frame(frame_path, fake=True)
             clicks = scripted_clicks(len(setting.get("items") or []))
             _mark_one(repo, setting_id, clicks, folder / f"{setting_id}.json")
-            if args.write_settings:
-                apply_boxes_to_setting(setting, labeled_boxes(setting, boxes_from_clicks(clicks)))
         return
 
     settings_to_run = ["surgical", "bench"] if args.all else [args.setting]

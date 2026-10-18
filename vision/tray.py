@@ -57,8 +57,6 @@ def load_setting(repo: Path, setting_id: str) -> dict:
             _missing_settings.add(setting_id)
             logger.info("settings/%s.json missing; using item ids with null boxes", setting_id)
         return fallback_setting(setting_id)
-    import json
-
     with path.open(encoding="utf-8") as handle:
         return json.load(handle)
 
@@ -115,12 +113,17 @@ def _slot_hit(detection_box_px, slot) -> bool:
 
 
 class PerceptronDetector:
-    """POST /v1/detect. Boxes come back in pixels. The API does not return confidence."""
+    """POST /v1/detect. Boxes come back in pixels. The API does not return confidence.
 
-    def __init__(self, api_key: str, url: str = DETECT_URL, timeout: float = 4.0):
+    Frames wider than max_width are shrunk before upload and the boxes are scaled back to the full frame.
+    docs/RECOGNITION.md measured 3.8 to 4.7 s per call on 640x480 trays, so the default timeout is 6 s.
+    """
+
+    def __init__(self, api_key: str, url: str = DETECT_URL, timeout: float = 6.0, max_width: int = 640):
         self.api_key = api_key
         self.url = url
         self.timeout = timeout
+        self.max_width = max_width
         self.last_latency_s: float | None = None
         # One client for every call: keeps the TLS connection open instead of a new handshake each second.
         self._client: httpx.Client | None = None
@@ -128,6 +131,11 @@ class PerceptronDetector:
     def detect(self, bgr, categories: list[str]) -> list[dict]:
         if not self.api_key:
             raise RuntimeError("PERCEPTRON_API_KEY is empty")
+        height, width = bgr.shape[:2]
+        if self.max_width and width > self.max_width:
+            small = (self.max_width, max(1, round(height * self.max_width / width)))
+            bgr = cv2.resize(bgr, small, interpolation=cv2.INTER_AREA)
+        sx, sy = width / bgr.shape[1], height / bgr.shape[0]
         ok, encoded = cv2.imencode(".jpg", bgr, [int(cv2.IMWRITE_JPEG_QUALITY), 70])
         if not ok:
             raise RuntimeError("could not encode frame")
@@ -151,7 +159,13 @@ class PerceptronDetector:
         body = response.json()
         if body.get("error"):
             raise RuntimeError(body["error"].get("message") or "detect error")
-        return list(body.get("detections") or [])
+        detections = list(body.get("detections") or [])
+        if sx != 1.0 or sy != 1.0:
+            for detection in detections:
+                for corner in (detection.get("point_box") or {}).values():
+                    if isinstance(corner, dict) and "x" in corner and "y" in corner:
+                        corner["x"], corner["y"] = float(corner["x"]) * sx, float(corner["y"]) * sy
+        return detections
 
 
 class FakeDetector:

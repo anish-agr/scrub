@@ -3,6 +3,7 @@
   .venv/bin/python -m controller.run_all                       # fake arm, vision --fake, voice, opens the dashboard
   .venv/bin/python -m controller.run_all --arm sim             # MuJoCo arm (sim_vision stands in for vision/)
   .venv/bin/python -m controller.run_all --arm real --vision real --tunnel --judge
+  .venv/bin/python -m controller.run_all --real --tunnel        # judging: real arm + real vision + voice + ledger page, --judge, --skills auto
   .venv/bin/python -m controller.run_all --base-port 8240 --no-voice --no-open   # a test stack beside the live one
   .venv/bin/python -m controller.run_all reset                 # between judges: clear the count, surgical tray, normal light
   .venv/bin/python -m controller.run_all backup [--loop]       # the arm failed: sim arm stack plus a scripted demo run
@@ -54,6 +55,11 @@ def parse(argv: list[str] | None = None) -> argparse.Namespace:
     p = argparse.ArgumentParser(prog=f"python -m controller.run_all [{'|'.join(COMMANDS[1:])}]",
                                 description=__doc__.split("\n")[0])
     p.add_argument("--arm", choices=["fake", "sim", "real"], default=None, help="fake (default; sim for backup)")
+    p.add_argument("--real-arm", dest="arm", action="store_const", const="real", help="same as --arm real")
+    p.add_argument("--real", action="store_true",
+                   help="judging preset: --arm real --vision real --ledger --judge --skills auto (each can still be overridden)")
+    p.add_argument("--skills", choices=["model", "taught", "auto"], default=None,
+                   help="passed to the controller: model (default), taught, or auto (model where trained, taught for the rest)")
     p.add_argument("--vision", choices=["real", "fake", "none"], default=None,
                    help="fake (default), none with --arm sim (sim_vision posts the tray in-process)")
     p.add_argument("--no-voice", action="store_true", help="don't start voice/ (skipped anyway without node_modules)")
@@ -80,6 +86,11 @@ def parse(argv: list[str] | None = None) -> argparse.Namespace:
     p.add_argument("--verbose", action="store_true", help="also print vision's per-request HTTP log lines")
     a = p.parse_args(argv)
     a.cmd = cmd
+    if a.real and cmd == "start":
+        a.arm = a.arm or "real"
+        a.vision = a.vision or "real"
+        a.ledger, a.judge = True, True
+        a.skills = a.skills or "auto"
     if a.base_port is None:
         a.base_port = 8100 if cmd == "check" and not a.url else 8000
     if a.arm is None:
@@ -175,6 +186,8 @@ def plan(a, judge_ok: bool | None = None) -> tuple[list[Child], list[str]]:
             c += ["--motion-s", str(a.motion_s)]
         if a.pull_s is not None:
             c += ["--pull-s", str(a.pull_s)]
+    if a.skills:
+        c += ["--skills", a.skills]
     if a.judge:
         if judge_ok is None:
             judge_ok = controller_has_judge()
@@ -210,6 +223,7 @@ def url_table(a, public_url: str | None = None, lan: str | None = None, skipped:
     P, skipped = ports(a), skipped or set()
     c = f"http://localhost:{P['controller']}"
     rows = [("dashboard", dashboard_url(a)), ("judge console", f"{c}/demo"), ("nurse console", f"{c}/nurse"),
+            ("ops", f"{c}/ops"),
             ("tablet", f"{c}/tablet.html"), ("state", f"{c}/state")]
     if lan:
         rows.append(("tablet (LAN)", f"http://{lan}:{P['controller']}/tablet.html"))

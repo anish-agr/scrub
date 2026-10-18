@@ -942,6 +942,9 @@ class ExtensionTests(unittest.TestCase):
         capture = FakeCapture()
         lock_controls(capture)
         runtime = build_runtime(capture, fake_hands=lambda _f: [], detector=FakeDetector())
+        from vision.clips import ClipManager
+
+        runtime.clips = ClipManager(clips_dir=Path(tempfile.mkdtemp()))  # not vision/clips/
         client = _client(runtime)
 
         case_id = f"case-http-{int(time.time() * 1000)}"
@@ -1080,6 +1083,124 @@ def _free_port() -> int:
     port = sock.getsockname()[1]
     sock.close()
     return port
+
+
+class NextPassTests(unittest.TestCase):
+    def test_detect_sends_a_640_wide_frame_and_scales_boxes_back(self):
+        import base64
+
+        from vision.tray import PerceptronDetector
+
+        sent = {}
+
+        class FakeClient:
+            def post(self, url, json=None, headers=None, timeout=None):
+                raw = base64.b64decode(json["media"]["image_url"].split(",", 1)[1])
+                image = cv2.imdecode(np.frombuffer(raw, np.uint8), cv2.IMREAD_COLOR)
+                sent["shape"], sent["timeout"] = image.shape[:2], timeout
+                box = {"top_left": {"x": 100, "y": 50}, "bottom_right": {"x": 200, "y": 90}}
+                body = {"detections": [{"mention": "scalpel", "point_box": box}]}
+
+                class Response:
+                    def raise_for_status(self):
+                        pass
+
+                    def json(self):
+                        return body
+
+                return Response()
+
+        detector = PerceptronDetector("k", timeout=6.0)
+        detector._client = FakeClient()
+        out = detector.detect(np.zeros((720, 1280, 3), np.uint8), ["scalpel"])
+        self.assertEqual(sent["shape"], (360, 640))
+        self.assertEqual(sent["timeout"], 6.0)
+        box = out[0]["point_box"]
+        self.assertEqual((box["top_left"]["x"], box["top_left"]["y"]), (200.0, 100.0))
+        self.assertEqual((box["bottom_right"]["x"], box["bottom_right"]["y"]), (400.0, 180.0))
+        sent.clear()
+        detector.detect(np.zeros((480, 640, 3), np.uint8), ["scalpel"])
+        self.assertEqual(sent["shape"], (480, 640))  # already small: sent as is
+
+    def test_detect_timeout_and_width_come_from_env(self):
+        from unittest.mock import patch
+
+        env = {"VISION_DETECT_TIMEOUT_S": "7.5", "VISION_DETECT_WIDTH": "0", "PERCEPTRON_API_KEY": ""}
+        with patch.dict(os.environ, env):
+            runtime = build_runtime(FakeCapture(), fake_hands=lambda _f: [])
+        runtime.grabber.stop()
+        self.assertEqual(runtime.detector.timeout, 7.5)
+        self.assertEqual(runtime.detector.max_width, 0)
+
+    def test_tray_check_waits_out_a_slow_live_detect(self):
+        from unittest.mock import patch
+
+        from vision.app import tray_stale_s
+        from vision.tray import PerceptronDetector
+
+        self.assertEqual(tray_stale_s(PerceptronDetector("k")), 8.0)
+        self.assertEqual(tray_stale_s(ScriptDetector([])), 3.0)
+        with patch.dict(os.environ, {"VISION_TRAY_STALE_S": "5"}):
+            self.assertEqual(tray_stale_s(PerceptronDetector("k")), 5.0)
+        capture = FakeCapture()
+        lock_controls(capture)
+        runtime = build_runtime(capture, fake_hands=lambda _f: [], detector=ScriptDetector([]))
+        runtime.poster = RecordingPoster()
+        try:
+            publish_tray(runtime)
+            runtime.detector = PerceptronDetector("k")
+            runtime.tray["t"] -= 5  # a 5 s detect is within the 6 s timeout
+            self.assertFalse(_client(runtime).get("/tray_check").json()["stale"])
+        finally:
+            runtime.grabber.stop()
+
+    def test_tray_check_uses_the_controllers_setting_aliases(self):
+        class AliasPoster(RecordingPoster):
+            def get_json(self, path):
+                if path == "/setting":
+                    items = [{"id": "hemostat", "name": "hemostat", "aliases": ["kelly clamp"], "slot": None}]
+                    return {"id": "surgical", "items": items, "return_spot": None}
+                return None
+
+        capture = FakeCapture()
+        lock_controls(capture)
+        runtime = build_runtime(capture, fake_hands=lambda _f: [], detector=ScriptDetector([]))
+        runtime.poster = AliasPoster()
+        try:
+            box = {"top_left": {"x": 10, "y": 10}, "bottom_right": {"x": 50, "y": 50}}
+            runtime.detections = [{"mention": "kelly clamp", "point_box": box}]
+            body = _client(runtime).get("/tray_check").json()
+            self.assertEqual(body["correct"], ["hemostat"])
+            self.assertEqual(body["missing"], [])
+        finally:
+            runtime.grabber.stop()
+
+    def test_fake_camera_runs_at_webcam_rate(self):
+        from vision.camera import FrameGrabber
+
+        grabber = FrameGrabber(FakeCapture()).start()
+        time.sleep(1.3)
+        grabber.stop()
+        self.assertGreater(grabber.fps, 20)
+        self.assertLess(grabber.fps, 35)
+
+    def test_vision_binds_localhost_unless_told(self):
+        from unittest.mock import patch
+
+        import vision.__main__ as entry
+
+        seen = {}
+        with patch.object(entry.uvicorn, "run", lambda app, host, port, log_level: seen.update(host=host, port=port)), \
+                patch.object(entry, "start_loops", lambda runtime: None), patch.object(entry, "load_dotenv", lambda *_a: None):
+            with patch.dict(os.environ, {"VISION_HOST": ""}):
+                os.environ.pop("VISION_HOST")
+                entry.main(["--fake", "--port", "8159"])
+                self.assertEqual(seen, {"host": "127.0.0.1", "port": 8159})
+                entry.main(["--fake", "--port", "8159", "--host", "0.0.0.0"])
+                self.assertEqual(seen["host"], "0.0.0.0")
+            with patch.dict(os.environ, {"VISION_HOST": "0.0.0.0"}):
+                entry.main(["--fake", "--port", "8159"])
+                self.assertEqual(seen["host"], "0.0.0.0")
 
 
 if __name__ == "__main__":

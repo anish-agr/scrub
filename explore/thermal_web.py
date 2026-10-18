@@ -55,7 +55,7 @@ _DIRECT = {"t": 0.0, "temps": None}
 def _direct() -> dict | None:
     """With no recorder running, read the follower directly (every 5 s at most), so the page stays live."""
     import subprocess
-    if subprocess.run(["pgrep", "-f", "arm_session.py|lerobot-"], capture_output=True).stdout:
+    if subprocess.run(["pgrep", "-f", "arm_session.py|lerobot-|station/station.py"], capture_output=True).stdout:
         return None  # the recorder owns the port; it logs samples itself
     if time.time() - _DIRECT["t"] > 5:
         _DIRECT["t"] = time.time()
@@ -160,9 +160,31 @@ document.getElementById("win").onchange=tick; tick(); setInterval(tick,3000); ar
 _ARM_LOCK = __import__("threading").Lock()
 
 
+STATION = "http://127.0.0.1:8090"
+
+
+def _station_status():
+    """The recording station (explore/station/station.py) when it's up, else None."""
+    import urllib.request
+    try:
+        with urllib.request.urlopen(STATION + "/status", timeout=1.5) as r:
+            st = json.loads(r.read())
+        return st if "episodes_total" in st else None
+    except Exception:  # noqa: BLE001
+        return None
+
+
+def _station_control(action: str) -> dict:
+    import urllib.request
+    req = urllib.request.Request(STATION + "/control", data=json.dumps({"action": action}).encode(),
+                                 headers={"Content-Type": "application/json"}, method="POST")
+    with urllib.request.urlopen(req, timeout=15) as r:
+        return json.loads(r.read())
+
+
 def _recorder_running() -> bool:
     import subprocess
-    return bool(subprocess.run(["pgrep", "-f", "arm_session.py|lerobot-"], capture_output=True).stdout)
+    return bool(subprocess.run(["pgrep", "-f", "arm_session.py|lerobot-|station/station.py"], capture_output=True).stdout)
 
 
 @app.post("/api/arm/{action}")
@@ -171,6 +193,13 @@ def arm_action(action: str):
     import home_pose
     if action not in ("home", "on", "off"):
         return {"ok": False, "error": "unknown action"}
+    if _station_status() is not None:  # the station owns the arm: send it the button
+        try:
+            r = _station_control({"home": "home", "on": "wake", "off": "kill"}[action])
+            return {"ok": bool(r.get("ok", True)), "result": r, "via": "station",
+                    "error": r.get("error") or r.get("message")}
+        except Exception as e:  # noqa: BLE001
+            return {"ok": False, "error": f"station: {type(e).__name__}: {e}"}
     if _recorder_running():
         return {"ok": False, "error": "a recording session owns the arm: stop it first"}
     if not _ARM_LOCK.acquire(blocking=False):
@@ -190,6 +219,10 @@ def arm_action(action: str):
 
 @app.get("/api/arm")
 def arm_state():
+    st = _station_status()
+    if st is not None:
+        tq = 0 if (st.get("killed") or st.get("parked")) else 6
+        return {"free": True, "torque_on": tq, "of": 6, "via": "station", "state": st.get("state")}
     if _recorder_running():
         return {"free": False}
     try:

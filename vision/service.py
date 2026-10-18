@@ -392,7 +392,11 @@ def build_runtime(
     controller_url = controller_url or os.environ.get("CONTROLLER_URL", "http://localhost:8000")
     api_key = os.environ.get("PERCEPTRON_API_KEY", "")
     if detector is None:
-        detector = PerceptronDetector(api_key)
+        detector = PerceptronDetector(
+            api_key,
+            timeout=float(os.environ.get("VISION_DETECT_TIMEOUT_S") or 6.0),
+            max_width=int(os.environ.get("VISION_DETECT_WIDTH") or 640),
+        )
     calibration_path = calibration_path or (repo / "vision" / "calibration.json")
     cal = load_calibration(calibration_path)
     if cal is None and fake_calibration:
