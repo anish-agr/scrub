@@ -631,6 +631,10 @@ class Station:
             self._auto_abort(action)
         if action == "run":
             return self._run(str(payload.get("driver") or ""), payload.get("args") or {})
+        if action == "clarify_answer":
+            if self.state != "running" or self.auto is None or not callable(getattr(self.auto, "answer", None)):
+                return False, "which one: no active question"
+            return self.auto.answer(self, payload.get("question_id"), payload.get("side"))
         if action == "stop":
             if self.auto is None:
                 return False, "stop: nothing is running"
@@ -1267,7 +1271,7 @@ def make_handler(st: Station):
             except ValueError:
                 body = {}
             out = st.control(str(body.get("action", "")), body.get("task"),
-                             payload={k: body[k] for k in ("driver", "args", "result") if k in body})
+                             payload={k: body[k] for k in ("driver", "args", "result", "question_id", "side") if k in body})
             self._send(200, json.dumps(out).encode(), "application/json")
 
         def _stream(self, name: str):

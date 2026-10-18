@@ -101,10 +101,62 @@ From the station, a driver can use `st.joints`, `st.gripper`, `st.temps()` (per 
 
 `replay` eases from the current pose to the episode's first frame (at most 30 deg/s, at least 1.5 s), then plays its actions at `speed` (0.1 to 1). It only grabs the object if the object is where it was in that demo. Episodes in the file LeRobot is still writing can't be replayed until the station restarts.
 
+### AutoPick: which one?
+
+AutoPick keeps every reachable matching handle, instead of silently choosing the darkest one. A single
+candidate works as before. When two or more remain, it holds the observed joint positions (including the
+jaw; never follows the leader), asks **Which one?**, and shows **My left / My right** on the Run page.
+With more than two, those mean the extreme left/right; **C** chooses the closest (or answer through the
+API). No grasp plan or motion starts until a valid choice. Leave the tray still while
+answering; candidates are from that detection frame, not live-tracked objects.
+
+**Orientation is surgeon-relative, not camera-relative.** The station assumes the surgeon stands opposite
+the side camera across the tray, looking toward it; the feed is unmirrored. Surgeon-left is image-right
+(larger image x), surgeon-right is image-left, and closest is the image-top/far-camera edge (smallest image y).
+Slots are **one-based, sorted surgeon-left to right**, not saved tray-slot ids. Confirm this orientation at
+the bench before use; moving the camera or standing on its side invalidates these descriptions and the
+existing grasp calibration. `closest` is this image-depth convention, not distance from the robot base.
+
+You may skip the question with an optional selector in run args:
+
+```json
+{"action":"run","driver":"autopick","args":{"instance":{"side":"left"}}}
+```
+
+`instance` accepts `side: "left" | "right" | "closest"`, `slot: <positive integer>` and/or `variant: <string>`.
+A variant must be verified by the detector, never inferred from position: the current dark-handle detector
+does not classify variants, so unverified variants hold and report an error rather than selecting another
+tool. If a selector still leaves multiple candidates, it asks. An absent slot likewise holds; it never picks
+a different slot. Bad selector syntax refuses the run before starting.
+
+`GET /status` exposes the active question as `run.driver_status.question` (`null` when cleared), with `id`,
+`item`, `say`, `count`, `choices`, `orientation`, and `timeout_s`. Answer with:
+
+```json
+{"action":"clarify_answer","question_id":"<question.id>","side":"right"}
+```
+
+`side: "closest"` is also accepted by that control. The existing localhost-only control restriction applies.
+Stale ids, duplicate answers, invalid sides and answers after **15 seconds** are refused. Timeout clears
+the question and keeps the run holding (`clarify_timeout`); press Stop/Home to end it deliberately. An
+unresolvable selector similarly holds (`clarify_failed`). Stop, Home, KILL, reconnect, cool-down, bus error
+and exit abort the worker and clear the question immediately. KILL still cuts torque; a raised arm drops.
+
+Telemetry records `clarify` and `clarify_answer`, linked by `question_id`; the answer includes `answer_ms`,
+`side` and selected `slot`. A valid local detection makes **no network calls**, even with `detector: "gemini"`;
+that option enables cloud fallback only when local finds nothing. Gemini still requires two agreeing votes
+out of at most three detection votes per frame, now for each candidate; its existing model fallback,
+spend log/cap and Perceptron
+fallback are unchanged. Duplicate category boxes for the same physical rod are not counted twice.
+
 ## Test (no hardware)
 
 ```
-.venv/bin/python -m pytest explore/station/test_station.py explore/station/test_run.py -q
+.venv/bin/python -m pytest explore/station -q
 ```
 
 The test uses a fake follower, leader and cameras, writes to a temp dataset, and sends telemetry to a temp folder with MongoDB off. It also checks the task rules (startup `--task` refusal, Set task refusal, `--any-task` warning), the quick and video QA flags on small synthetic videos, the QA banner and `qa_ack`, per-task counts, and `use_degrees`/`task` in the cadence file. It runs the HTTP API on port 8197 and covers start, save, discard, kill, wake, home, park, the cool-down lock, the Enter toggle, a camera going down, a bus loss followed by Reconnect, a refused remote POST and discard-on-exit. It then checks that the saved episodes load back with `LeRobotDataset` and that resuming the dataset appends a third episode.
+
+`test_instances.py` and `test_autopick.py` also run without LeRobot: synthetic handles, fake motors, no
+API calls. They cover selectors, orientation, two/three candidates, voting, holds, timeout, stale/double
+answers, abort and the real HTTP control route. Run just those two files if LeRobot is not installed.
