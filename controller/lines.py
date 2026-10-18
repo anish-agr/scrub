@@ -15,6 +15,17 @@ RESET = "Reset. Ready."
 NEEDS_RESET = "I'm stopped. Reset me first."
 SAY_GOT_IT = "Say got it when you have it."
 SET_DOWN_FAILED = "Couldn't set it down. Holding."
+CHOICE_EXPIRED = "That choice expired. Ask for the instrument again."
+CHOICE_UNVERIFIED = "I can't verify that instrument's position. I won't move."
+CHOICE_TIMEOUT = "No choice received. I won't move."
+
+
+def with_you(name): return f"The {name} {'are' if _plural(name) else 'is'} with you."
+def quantity(name, n): return f"{n} {name if _plural(name) or name.endswith('s') else name + 's'}"
+def which_one(name, labels):
+    return (f"Which {name}: " + " or ".join(labels) + "?" if labels
+            else f"I can't distinguish the {name}. Check the tray and ask again.")
+def other_instance(name): return f"The {name} is with you. Would you like the other one on the tray?"
 
 
 def cap(s): return s[:1].upper() + s[1:]
