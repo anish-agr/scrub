@@ -125,7 +125,12 @@ def get(meta: dict | None = None) -> ThermalLog:
 
 
 # What the current episode has seen so far (reset by arm_ui at episode start, read at episode end).
-EP: dict = {"active": False, "grasps": 0, "empty_closes": 0, "peak_temps": {}}
+EP: dict = {"active": False, "grasps": 0, "empty_closes": 0, "peak_temps": {},
+            # handoff: grab -> lift off the table -> a person pulls it out of the claw
+            "lift_max": 0.0, "lifted": False, "pulled": 0, "released": 0,
+            "grasp_active": False, "z0": None, "tip_z": None, "lifted_this_grasp": False}
+EP_RESET = dict(grasps=0, empty_closes=0, peak_temps={}, lift_max=0.0, lifted=False, pulled=0, released=0,
+                grasp_active=False, z0=None, lifted_this_grasp=False)
 
 
 def event(kind: str, **fields) -> None:

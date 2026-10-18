@@ -53,7 +53,8 @@ def _tevent(kind: str, **fields) -> None:
 def _episode_begin(index) -> None:
     try:
         import thermal_log
-        thermal_log.EP.update(active=True, grasps=0, empty_closes=0, peak_temps={})
+        thermal_log.EP.update(active=True, **{k: (dict(v) if isinstance(v, dict) else v)
+                                               for k, v in thermal_log.EP_RESET.items()})
         ep.update(open=True, start=time.perf_counter(), index=index, why=None)
         _tevent("episode_start", episode=index, task=S["task"], root=str(cfg["root"]) if cfg["root"] else None)
     except Exception:  # noqa: BLE001
@@ -83,7 +84,9 @@ def _episode_finish(default: str = "done") -> None:
         E["active"] = False
         _tevent("episode_end", episode=ep["index"], reason=reason, duration_s=round(dur, 2),
                 frames=ep["obs"], grasps=E["grasps"], empty_closes=E["empty_closes"],
-                peak_temps=dict(E["peak_temps"]))
+                peak_temps=dict(E["peak_temps"]), lift_m=round(E["lift_max"], 3), lifted=E["lifted"],
+                pulled=E["pulled"], released=E["released"],
+                handoff_success=bool(E["grasps"] and E["lifted"] and E["pulled"]))
     except Exception:  # noqa: BLE001
         pass
 
