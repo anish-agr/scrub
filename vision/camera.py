@@ -79,6 +79,8 @@ class FrameGrabber:
         self._lock = threading.Lock()
         self._frame = None
         self._t = 0.0
+        self._misses = 0
+        self.reads_ok = False
         self._stop = threading.Event()
         self._thread = None
 
@@ -91,11 +93,16 @@ class FrameGrabber:
         while not self._stop.is_set():
             ok, frame = self.capture.read()
             if not ok or frame is None:
+                self._misses += 1
+                if self._misses >= 15:
+                    self.reads_ok = False
                 time.sleep(0.02)
                 continue
             with self._lock:
                 self._frame = frame
                 self._t = time.time()
+                self._misses = 0
+                self.reads_ok = True
 
     def latest(self):
         with self._lock:
@@ -121,6 +128,7 @@ class FakeCapture:
         self.props: dict = {}
         self.lamp = 40
         self.opened = True
+        self.unplugged = False
         self._target_mean = 110.0
 
     def isOpened(self):
@@ -136,6 +144,8 @@ class FakeCapture:
         return 0.0
 
     def read(self):
+        if self.unplugged:
+            return False, None
         frame = np.full((self.height, self.width, 3), int(np.clip(self.lamp, 0, 255)), dtype=np.uint8)
         auto = float(self.props.get(cv2.CAP_PROP_AUTO_EXPOSURE, 0.75))
         if not is_manual_exposure(auto):
