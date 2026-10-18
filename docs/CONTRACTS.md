@@ -134,7 +134,8 @@ Every part codes against these. Build against fake inputs that match them, and t
 }
 ```
 
-- `stale` (optional): `true` when the Perceptron call failed or timed out; the body is the last good read with a new `t`. The controller treats a stale TrayState, or one older than `TRAY_STALE_S` (default 8 s, set in `.env`), as no camera reading (the count and the grasp check fall back to the gripper and `out`).
+- `stale` (optional): `true` when the Perceptron call failed or timed out and the local slot check could not answer; the body is the last good read with a new `t`. The controller treats a stale TrayState, or one older than `TRAY_STALE_S` (default 8 s, set in `.env`), as no camera reading (the count and the grasp check fall back to the gripper and `out`).
+- `detector` (optional): `perceptron` when `/v1/detect` answered within its timeout (6 s unless `VISION_DETECT_TIMEOUT_S` is set), `local` when that call was slow, failed, or out of credits and each slot was judged full or empty from the image, `none` when neither answered and `stale` is true.
 - Perceptron gives no confidence, so a fresh read uses `1.0`.
 
 ## Hand (vision to the controller, about 10 times a second)
