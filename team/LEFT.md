@@ -128,6 +128,19 @@ https://dev.to, New Post, the writeup from the last section of `team/DEVPOST.md`
 
 ## Tonight's plan
 
+### Training re-plan at 2:40 AM (Chat A, `team/RUN-TRAIN.md`; this replaces the training rows of the table below)
+
+Checked: 5 successful jobs per team, 0 used, 0 deployments. The station is stopped. Side camera (C920) 30.0 fps. Wrist camera (icspring) 22.6 fps in every mode (default, MJPG, YUY2) at brightness 147, so light is not the cause; ffmpeg gets 22.58 fps at 640x480@30 too. All four USB devices (both arm buses, both cameras) share one USB 2.0 hub on one Mac port, and the Mac's two other USB controllers are empty.
+
+| Clock | Step | Who |
+| --- | --- | --- |
+| now | Move the wrist camera (icspring) off the hub to a free Mac port (USB-C adapter), then `.venv/bin/python explore/camera_fps.py icspring`. If it still prints under 29, record anyway with the override below and say so | person at the arm |
+| 2:50 to 3:40 | Run 1 data: `.venv/bin/python explore/station/station.py --task "pick the hemostat" --root ~/scrub-surgical --port 8090`. 24 `pick the hemostat`, 12 `return the hemostat` (task buttons on the page), under 20 s each, hemostat shifted a little in its slot each time, normal and bright light. A red RE-RECORD banner means record that one again. Push each batch: `.venv/bin/python explore/dataset/to_mongo.py --root ~/scrub-surgical` | Anish drives, Evan resets |
+| 3:40 | Stop the station (Ctrl-C). `.venv/bin/python -m arm.train preflight ~/scrub-surgical` must print `PREFLIGHT PASS`. If the wrist stayed slow: `SCRUB_ACCEPT_CAMERA_FPS=wrist=22 .venv/bin/python -m arm.train preflight ~/scrub-surgical` (printed as a warning, written in `docs/TRAINING.md`) | Chat A |
+| 3:45 | Run 1: `.venv/bin/python -m arm.train pipeline ~/scrub-surgical --cadence-report ~/scrub-surgical-cadence.json --idempotency-key scrub-run-1` (direct upload, standard, expert_only, 1000 steps). Same env override if used | Chat A |
+| 3:50 to 4:40 | While run 1 trains: same station, same root, `pick/return the mayo scissors` and `pick the scalpel` (to the safe spot), 25 to 30 each. Run 2 on the whole root as soon as it passes preflight (key `scrub-run-2`) | Anish, Evan |
+| deployment ready | 10 real tries per item with `--skills model`, every try in the ledger with `skill_source: model` | all |
+
 Written 00:45 for 00:45 to 09:30. Goal: a fine-tuned model that passes real tries, and a Perceptron arm video. Training is the only thing on a clock, so the data steps come first and everything else runs while it trains. Times are targets; if a step slips, cut in the order at the end. At 1:45 nothing in the repo shows step 1 or later done, and no recorder holds the ports.
 
 Rule for every step: one process owns the arm ports and the cameras. Stop the one before it first. The recorder is `.venv/bin/python -m arm.record` (over `explore/arm_session.py`) or the persistent station `.venv/bin/python explore/station/station.py --task "pick the hemostat" --root ~/scrub-dataset` (page http://localhost:8090; Space starts and saves, Backspace discards, Escape is KILL and drops a raised arm).
