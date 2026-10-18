@@ -80,3 +80,91 @@ explore/arm_session.py is running. Keep every change small and measured.
 | Date | Change | Session | Hottest motor C/min | Peak C | Verdict |
 | --- | --- | --- | --- | --- | --- |
 | Oct 17 | Torque-on hold at rest, no movement | experiment rows (kind "experiment") | ~3 in minute 1, ~0.5 after | 55 (gripper) | Self-heating with torque on is the main term |
+
+### Oct 17 continuation: telemetry audit; baseline still required
+
+Read MongoDB with `thermal_analyze.py --hours 12` from Anish's Windows checkout
+(`C:\Users\anish\Documents\GitHub\dubhacks-2026`); no local `.venv`, so used Python 3.10.11.
+159 rows across five sessions: two snapshots, 24 experiment rows, 126 recorder samples,
+two guard events and five session rows. Report: [telemetry-review-20261017.md](telemetry-review-20261017.md).
+No hardware ports/cameras opened, no arm moved, no servo settings changed.
+
+**Analysis correction:** the old analyzer joined different recorder sessions into 60 s windows,
+including gaps. Its apparent recording rates (e.g. gripper 2.61 C/min) were not valid
+within-session measurements. Reports now separate sessions, split windows at phase changes
+and outages, require at least 54 s coverage, report heat/current correlation, and keep missing
+measurements unknown. Experiment rows now have their own per-motor whole-run/early/late rates.
+Offline checks: `python -m unittest discover -s explore -p test_thermal_analyze.py -v`.
+
+#### Measured hold (not a new experiment or a 10-minute baseline)
+
+Change: existing torque-on hold, phase `torque_on_hold`, session **20261017-231317-0f3d**,
+24 readings over 230.2 s. Rates below are OLS over the whole run; temperature is nonlinear
+(the early heating is faster). Peak is the highest reported value, not an external measurement.
+
+| Motor | C/min | Start / end / peak C | Reported current mA range | Verdict |
+| --- | --- | --- | --- | --- |
+| shoulder_pan | 1.03 | 46 / 51 / 51 | 0-6 | Heats while holding with little reported current |
+| shoulder_lift | 1.07 | 48 / 53 / 53 | 312-358 | Largest holding current, not fastest heating |
+| elbow_flex | 0.84 | 46 / 50 / 50 | 0 | Heats despite reported zero current |
+| wrist_flex | 0.95 | 48 / 53 / 53 | 0 | Heats despite reported zero current |
+| wrist_roll | 0.99 | 49 / 53 / 53 | 0 | Heats despite reported zero current |
+| gripper | 1.13 | 50 / 55 / 55 | 46-91 | Fastest whole-run heating; hottest |
+
+This supports torque-on self-heating as a concern, but **does not establish driver/electronics
+losses as the dominant cause**: reported current resolution, thermal lag, starting temperatures
+and the absence of a matched torque-off control prevent that conclusion. The hold has no load
+series. Heating does not simply rank with current across motors; no reliable within-motor
+heat/load/current correlation is available from the short recorder runs.
+
+| Change / phase | Session | Duration | C/min per motor | Verdict |
+| --- | --- | --- | --- | --- |
+| Existing preview | 20261017-232247-e34f | 2.0 s | All unknown (too short) | Cannot compare holding vs moving or phases |
+| Existing recording | 20261017-232326-6dbb | 11.6 s | All unknown (too short) | shoulder_lift hold guard fired once; no thermal ranking |
+| Existing preview | 20261017-232721-a219 | 48.1 s | All unknown (too short) | elbow_flex hold guard fired once; peak gripper 55 C |
+
+No resetting samples exist in this window. **Do not conclude recording is hotter than preview,
+or holding hotter than moving.** No run establishes a plateau below 60 C for long sessions.
+
+#### Caiden: next action is experiment #1, not new motor settings
+
+1. Be physically at the arm. Check follower/leader servo labels before another 12 V run:
+   C001 is the 7.4 V variant; if present or uncertain, stop and resolve the supply rating.
+   Keep supply, airflow, payload and software unchanged for the baseline; note room temperature.
+2. From the Mac repo, check `pgrep -fl '[a]rm_session.py'`. If anything is running, **do not**
+   start another session, snapshot or idle monitor. Read `http://localhost:8090/status` or
+   `.venv/bin/python explore/thermal_log.py watch` instead (MongoDB only). Stop the old session
+   normally and confirm the port is free before continuing; stop any standalone idle monitor too.
+3. With the recorder stopped: `.venv/bin/python explore/thermal_log.py snapshot`.
+   Start only with every follower motor at or below 47 C. If powered idle cannot reach that,
+   stop and report it rather than changing the starting-temperature criterion.
+4. With a clear workspace, empty claw initially and the leader aligned for safe start-up, run:
+
+   ```sh
+   .venv/bin/python explore/arm_session.py
+   ```
+
+   This is camera-free teleop, matching experiment #1. Repeat the same reach, grab a blunt
+   instrument (e.g. spatula), lift, hold 5 s, return, release and fold routine for up to 10 min.
+   Keep the rhythm/payload identical in the later fan run. Watch the live motor temperatures,
+   guard notices, binding, grip strain, sag and USB losses. End early on unsafe behavior or if
+   a motor approaches 60 C; never bypass the 60 C cool-down. Note elapsed time/temperature and
+   any guard/cool-down. Do not let the supervisor silently restart into a second measured run.
+   Fold safely before normal Ctrl-C; a raised arm intentionally keeps torque on at exit.
+5. After the run, without opening hardware, run:
+
+   ```sh
+   .venv/bin/python explore/thermal_analyze.py
+   .venv/bin/python explore/thermal_analyze.py --session <session-id-from-report> --out explore/research/overheating/baseline-report.md
+   ```
+
+   Send the session id, elapsed time, label codes, room temperature, airflow/payload and any
+   observed issue. If the Mac was offline, with network restored run
+   `.venv/bin/python explore/thermal_log.py upload` so this agent can read the session.
+   We will append per-motor C/min and the verdict here, then proceed to **#2 fan only** after
+   cooling back to the same start condition. #3 reset torque-off and register experiments remain
+   unimplemented/pending, not stacked onto the baseline.
+
+Git sync was attempted but `git pull --rebase` refused the existing unrelated dirty files.
+They were not stashed, committed or altered. This checkout was already six commits ahead;
+do not push those unrelated commits as part of this thermal review without coordination.
