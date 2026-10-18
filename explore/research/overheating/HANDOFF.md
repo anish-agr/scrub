@@ -80,3 +80,17 @@ explore/arm_session.py is running. Keep every change small and measured.
 | Date | Change | Session | Hottest motor C/min | Peak C | Verdict |
 | --- | --- | --- | --- | --- | --- |
 | Oct 17 | Torque-on hold at rest, no movement | experiment rows (kind "experiment") | ~3 in minute 1, ~0.5 after | 55 (gripper) | Self-heating with torque on is the main term |
+
+## For Anish: rest at home between commands (real arm)
+
+The controller now parks the arm: after a command finishes at home and nothing is queued for 2 s it calls `arm.rest()`, and it calls `arm.wake()` before the next command (`controller/core.py`, `REST_AFTER_S`; test `rests_at_home_then_wakes_for_the_next_command`). It skips this when the arm has no `rest`, so `arm/real_arm.py` needs:
+
+- `rest()`: be at home (call `go_home()` if not), then torque off on all six motors (`bus.disable_torque()`); the playback loop must not re-enable torque while resting.
+- `wake()`: write Goal_Position = Present_Position for all six, then `bus.enable_torque()`. Nothing moves.
+
+Home (measured Oct 18, folded, stays put with torque off: `explore/home_pose.py test` PASS, drift under 1 deg) for `arm/rig.json` `"home"`, raw steps in joint order pan, lift, elbow, wrist_flex, wrist_roll, gripper:
+
+```
+[2063, 849, 3041, 2825, 1942, 1511]
+```
+Degrees: pan 2.8, lift -102.2, elbow 97.7, wrist_flex 72.3, wrist_roll -9.3, gripper 4.8. Also in `explore/home_pose.json`.

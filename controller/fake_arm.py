@@ -125,6 +125,15 @@ class FakeArm:
             return LOAD_IDLE
         return LOAD_PULLED if time.time() - held > self.auto_pull_s else LOAD_IDLE
 
+    def rest(self) -> None:
+        """Parked at home: torque off so the servos don't heat up while waiting."""
+        self.resting = True
+        self.rest_count = getattr(self, "rest_count", 0) + 1
+
+    def wake(self) -> None:
+        """Torque on, holding the parked pose, before the next command."""
+        self.resting = False
+
     def freeze(self) -> None:
         self._frozen.set()
 
