@@ -1081,6 +1081,13 @@ class CombTests(unittest.TestCase):
         self.assertEqual(mgr.buffer[0][1].shape, (360, 640, 3))
 
 
+def load_tests(loader, standard_tests, pattern):
+    suite = unittest.TestSuite()
+    suite.addTests(standard_tests)
+    suite.addTests(loader.loadTestsFromName("vision.test_pipeline"))
+    return suite
+
+
 def _free_port() -> int:
     import socket
 
