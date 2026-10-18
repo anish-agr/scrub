@@ -18,6 +18,7 @@ const vm=require("node:vm"), assert=require("node:assert/strict");
 const nodes=new Map();
 function node(id){
   if(!nodes.has(id))nodes.set(id,{value:"autopick",hidden:false,disabled:false,textContent:"",dataset:{},style:{},
+    options:[{value:"autopick",disabled:false}],firstChild:{textContent:""},
     classList:{toggle(){}},querySelector:()=>node(id+"-small"),addEventListener(){},blur(){}});
   return nodes.get(id);
 }

@@ -181,7 +181,9 @@ def test_real_local_detector_keeps_two_close_components():
     img = np.full((480, 640, 3), 235, np.uint8)
     for y in (300, 315):
         cv2.line(img, (250, y), (350, y), (40, 40, 40), 3)
-    H = [[0.001, 0, 0], [0, 0.001, -0.3], [0, 0, 1]]
+    # Synthetic 100 px rods map to the middle of the current measured length range.
+    scale = sum(AP.LOCAL_LEN_CM) / 2 / 100 / 100
+    H = [[scale, 0, 0.3 - 300 * scale], [0, 0.001, -0.3], [0, 0, 1]]
     ws = {"x": [0.1, 0.5], "y": [-0.1, 0.1]}
     hits = AP.local_detect(img, H, ws, all_candidates=True)
     assert len(hits) == 2
