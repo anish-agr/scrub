@@ -32,6 +32,12 @@ PEN = (28, 38, 120)
 FILLED = {"initial": [1, 1, 1], "closing": [1, 0, 1]}
 FILLED_FIELDS = {"date": "2026-10-18", "case": "C-0417", "counted_by": "J. Rivera"}
 
+
+def filled_value(key: str, i: int) -> int:
+    """The handwritten count for row i; trays longer than FILLED repeat it (bench has 5 rows)."""
+    return FILLED[key][i % len(FILLED[key])]
+
+
 # 4 sterile pack labels. Items come from the surgical tray.
 PACKS = [
     {"item": "scalpel", "lot": "SC-24-0917", "sterilized": "2026-09-02", "expires": "2027-03-15"},
@@ -237,7 +243,7 @@ def draw_count_sheet(tray: dict, filled: bool = False, seed: int = 7) -> Image.I
             y = TABLE_Y + HEAD_H + i * rh + rh / 2
             for col, key in ((2, "initial"), (3, "closing")):
                 cx = (xs[col] + xs[col + 1]) / 2 + rng.uniform(-0.08, 0.08)
-                hand_digit(ld, str(FILLED[key][i]), cx * ppi * ss, (y + rng.uniform(-0.05, 0.05)) * ppi * ss,
+                hand_digit(ld, str(filled_value(key, i)), cx * ppi * ss, (y + rng.uniform(-0.05, 0.05)) * ppi * ss,
                            rh * 0.55 * ppi * ss, rng)
         layer_img = layer_img.resize(c.img.size, Image.LANCZOS)
         c.img.paste(layer_img, (0, 0), layer_img)
@@ -409,8 +415,8 @@ def html_pack_labels() -> str:
 def count_truth(tray: dict, filled: bool, angle: int = 0) -> dict:
     items = []
     for i, it in enumerate(tray["items"]):
-        items.append({**it, "initial": FILLED["initial"][i] if filled else None,
-                      "closing": FILLED["closing"][i] if filled else None})
+        items.append({**it, "initial": filled_value("initial", i) if filled else None,
+                      "closing": filled_value("closing", i) if filled else None})
     t = {"kind": "count_sheet", "tray_id": tray["id"], "tray_label": tray["label"], "title": "Scrub count sheet",
          "qr": qr_payload(tray["id"]), "items": items, "angle_deg": angle}
     t.update(FILLED_FIELDS if filled else {"date": None, "case": None, "counted_by": None})

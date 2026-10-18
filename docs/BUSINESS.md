@@ -6,7 +6,7 @@ Scrub is a research prototype, not a medical device. We make no clinical claims.
 
 ## Summary
 
-Scrub is a robot arm that passes instruments when a surgeon asks out loud. It brings each one to the open hand, handle first. It sets scalpels on a safe spot instead of passing them hand to hand. It puts used instruments back in their slots and keeps a count it checks with a camera.
+Scrub is a robot arm that passes instruments when a surgeon asks out loud. It carries each one to the handoff point, slows down as it gets there, lets go when the surgeon pulls it, and goes straight home. It keeps a running count of what's out.
 
 Operating rooms can't hire enough scrub techs. We would sell Scrub per operating room per month, starting with surgery centers, and first in training labs where no patient is involved.
 
@@ -24,12 +24,10 @@ Operating rooms can't hire enough scrub techs. We would sell Scrub per operating
 
 Scrub helps scrub techs. It doesn't replace them.
 
-- **Handoff by voice.** The surgeon says "hemostat" or "Mayo scissors." Scrub brings it to the open hand.
-- **Sharps on a safe spot.** A scalpel is never passed hand to hand.
+- **Handoff by voice.** The surgeon says "hemostat" or "Mayo scissors." Scrub brings it to the handoff point and slows down as it gets there.
 - **Lets go on a pull.** It opens when the clinician takes the tool, or says "got it."
-- **Puts things back.** A tool set in the return spot goes back to its slot.
+- **Goes home.** After each handoff the arm goes straight home on its own. Putting a tool back is manual in this prototype.
 - **Keeps the count.** "Count" reads back what's out, checked against the camera. "Check the tray" says what's missing before the case.
-- **Case summary.** "End of case" texts a summary with a link to the case replay.
 
 That leaves the scrub tech free for the sterile field and the next step of the case.
 
@@ -69,11 +67,13 @@ How to read this:
 
 ## 6. What we proved this weekend
 
-1. **A second setting with no new code.** The same system runs the operating room tray (scalpel handle, hemostat, Mayo scissors) and a robotics bench tray (needle-nose pliers, wire cutters, hex key). The bench needed new demonstrations and one settings file. Time to add it: [measured] minutes.
-2. **A checked grasp.** The gripper and the overhead camera both check each pick. A miss is retried once, then reported out loud. Grasp check accuracy: [measured].
-3. **Glare.** Steel reflects operating lights. The camera locks exposure and white balance, and every try is tagged bright, normal or dim. Success by lighting: [measured].
-4. **Hand-safe motion.** The camera finds the open hand about 10 times a second. The arm slows near it and holds still if the hand is lost or the path is blocked. Freeze time: [measured] ms.
-5. **Sharps never hand to hand.** The scalpel goes to a safe spot.
+1. **Voice to handoff on a $250 arm.** A spoken request picks one of three instruments (scalpel handle, hemostat, Mayo scissors) and carries it to the handoff point with a skill we taught it from our own demonstrations.
+2. **A checked grasp.** The gripper checks each pick before carrying.
+3. **Gentle motion.** Speed and joint limits on every move, and the arm slows as it nears the handoff point. It lets go only on a pull or "got it", then goes home.
+4. **Stop.** "Stop" freezes the arm until a person resets it.
+5. **Heat.** The thermal guard reads motor temperatures every 2 s while it drives the arm and rests it with torque off.
+
+Success rates by item and lighting go here only once real tries are logged.
 
 ## 7. Roadmap
 

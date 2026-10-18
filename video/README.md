@@ -482,3 +482,23 @@ case only, renders without `--demo` (every frame has the `SIMULATION` bar) and c
 `data/video/out/sim-backup.mp4`, with `sim-backup-summary.json` listing the case, its request-to-hand times and
 every overlay change by output second. Check those against the frames before showing it.
 
+
+## Scripted sim demo (`video/simdemo.py`)
+
+Smooth, keyframed MuJoCo sim for the video, labeled `SIMULATION` (and `SIMULATED RETURN (electromagnet)` during the
+return). Sequence: hemostat into a gloved hand, arm home; Mayo scissors into the hand, arm home; scalpel carry with a
+stop mid-move (`STOPPED`), then continue to the hand, arm home; simulated return of the hemostat (the hand sets it on
+the table, the arm picks it up with an electromagnet, puts it back in its slot, goes home). No safe spot. The arm slows
+over the last few centimeters to the hand. Wrist roll is fixed at 0 in every keyframe (moving jaw on top, like the
+real arm holding a tool from above). Fixed camera at distance 1.45; overlay is the small tag plus one caption line.
+
+```bash
+.venv/bin/python -m video.simdemo segments                              # each segment's start and arm-home time (s)
+.venv/bin/python -m video.simdemo sheet --every 1 --out /tmp/sheet.png  # contact sheet, --start/--end to zoom in
+.venv/bin/python -m video.simdemo render --draft --fps 15 --out /tmp/draft.mp4   # ~20 s quick look
+.venv/bin/python -m video.simdemo render --out data/video/kit/sim/simdemo-final.mp4  # 1080p 30 fps
+```
+
+Needs `sim/models/so101` (run `python -m sim.fetch_model`, or symlink it into a worktree). Per-segment clips for
+`video/roughcut.py` are cut from the final with ffmpeg at the `segments` times: `sim-hemostat.mp4`,
+`sim-scissors.mp4`, `sim-stop.mp4`, `sim-return.mp4` in `data/video/kit/sim/`.

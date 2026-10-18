@@ -1,6 +1,8 @@
 # Scrub: the full context pack (read this first, all of it)
 
-Written Sun Oct 18, about 3 AM, for any Claude chat working on Scrub that is missing context. Part 1 is the summary you need to act. Part 2 appends the full text of every doc that matters (proposal, overview, business case, pitch, Devpost, Q&A, demo, design system, integration status, state, what's left, research, video plans, hacker guide summary), so you never have to guess. When Part 1 and a doc disagree on **current status**, `docs/INTEGRATION.md` and `team/LEFT.md` in the repo win, because they change hourly. Pull the repo before acting.
+Written Sun Oct 18, about 3 AM, for any Claude chat working on Scrub that is missing context. Part 1 is the summary you need to act. Part 2 appends the full text of every doc that matters (proposal, overview, business case, pitch, Devpost, Q&A, demo, design system, integration status, state, what's left, research, video plans, hacker guide summary), so you never have to guess. When Part 1 and a doc disagree on **current status**, `team/STATE.md` and `team/LEFT.md` in the repo win. Pull the repo before acting.
+
+**Scope as of 7 AM Oct 18 (overrides anything below, Part 2 most of all):** three instruments only (scalpel handle, hemostat, Mayo scissors). No safe spot. No hand detection or tracking; the arm slows as it nears the handoff point. After each handoff the arm goes straight home. The return in the video is a simulated electromagnet pickup, labeled; the real return is manual. No Tiger Data, Backboard or GoDaddy. Picks on the real arm are skills we taught it (demo replays); 0 Perceptron deployments as of 07:10.
 
 ---
 
@@ -20,13 +22,13 @@ Written Sun Oct 18, about 3 AM, for any Claude chat working on Scrub that is mis
 | Anish | UW CS, robot learning research. Arm, training, the pitch lead | His grandmother's story, the problem, the close. Faces the judge, calls "go to backup" |
 | Caiden | SFU, robotics, ~3 years of internships. The arm lives on his Mac; runs the agent passes; controller, voice, tools | His grandpa's story, narrates the video, the build. Runs the laptop |
 | Evan | Tray, lamp, data log, Devpost and the video edit | Short parts |
-| Brandon | Vision; plays the clinician's hand. May be away; Evan covers | Short part (hand tracking) |
+| Brandon | Vision; plays the clinician's hand. May be away; Evan covers | Short part (vision) |
 
 Never state anyone's age. Use they/them for anyone whose pronouns aren't stated.
 
 ## 3. Scrub in one paragraph
 
-Scrub is a robot arm that works as a surgeon's second pair of hands. The surgeon asks for an instrument out loud, over a phone call on speaker. The SO-101 arm picks it from the tray, brings it to the surgeon's open hand handle first, and lets go when they pull it or say "got it". Scalpels never go hand to hand: Scrub sets them on a fixed safe spot and says "scalpel down". When the surgeon sets an instrument in the return spot, Scrub puts it back in its slot. It keeps a running count checked by an overhead camera, reads the paper count sheet, and texts a case summary at the end. The pick is learned (Perceptron's Isaac 0.5 model fine-tuned on our demonstrations), backed up by vision-adjusted taught picks; the move to the hand is planned from a hand tracker. It's a research and training prototype, not a medical device.
+Scrub is a robot arm that works as a surgeon's second pair of hands. The surgeon asks for an instrument out loud, over a phone call on speaker. The SO-101 arm picks it from a tray of three (scalpel handle, hemostat, Mayo scissors), carries it to the handoff point, slows down as it gets there, and lets go when they pull it or say "got it". Then it goes straight home. It keeps a running count and reads the paper count sheet. The pick is a skill we taught it from our own demonstrations (no Perceptron model is deployed). Putting a tool back is manual on the real arm; the video shows a simulated electromagnet return. It's a research and training prototype, not a medical device.
 
 ## 4. The problem, with every number we're allowed to say (sourced)
 
@@ -53,8 +55,8 @@ Business numbers (from `docs/BUSINESS.md`, all **assumptions** unless sourced): 
 ## 5. Tracks (what we enter and what each needs to be true)
 
 - **Title: Community Kitchen** (accessibility, health, civic). The Devpost draft ticks it. Prizes are pick-one items (Switch 2, PS5, AirPods Pro 3, and so on).
-- **Sponsored (max 3):** Perceptron Robotics (fine-tune their model on an SO-101; judged on creativity, task difficulty, technical execution; video of the working arm required), Perceptron Perception (their vision API: detect, OCR, captions, video events; we use detect on the tray and hand, OCR for count sheets, tray tags and pack labels, captions on event clips), Photon ($700 / $300, plus $400 best voice agent; needs a real call and real texts). If all three are real, those are the three; otherwise swap in whichever passes.
-- **Non-sponsored:** DubHacks NEXT ($200 + interview; `docs/BUSINESS.md`), MLH Gemini API, MLH MongoDB Atlas, MLH Vultr, MLH Commit Fellowship (form after submitting), MLH DEV writing. Tiger Data, Backboard and GoDaddy were dropped (no keys or domain).
+- **Sponsored (max 3):** Perceptron Robotics (their model and an SO-101; fine-tuning allowed, not required; judged on creativity, task difficulty, technical execution; video of the working arm required; we show taught-skill picks and say the training state plainly), Perceptron Perception (their vision API: we use detect for the tray check and OCR for the count sheet), Photon ($700 / $300, plus $400 best voice agent; needs a real call on +1 785 867 1047).
+- **Non-sponsored:** DubHacks NEXT ($200 + interview; `docs/BUSINESS.md`), MLH Gemini API, MLH MongoDB Atlas, MLH Vultr, MLH Commit Fellowship (form after submitting), MLH DEV writing (a post after the event).
 - **Claim a track only if `docs/INTEGRATION.md` says PASS.**
 
 ## 6. The system (how it fits together)
@@ -62,8 +64,8 @@ Business numbers (from `docs/BUSINESS.md`, all **assumptions** unless sourced): 
 ```
 phone on speaker -> Photon number -> ElevenLabs voice agent (Custom LLM) -> voice/ (TypeScript, Gemini: words -> one command from the tray's fixed list; "stop" skips Gemini)
                                                                                   |
-vision/ (overhead camera: tray slots, hand, OCR reads, clip captions; Perceptron API) -> controller/ (FastAPI :8000, the only thing that moves the arm) -> arm/ -> SO-101
-                                                                                  |                                            (Perceptron Isaac model via run_skill, taught picks, IK)
+vision/ (overhead camera: tray slots, OCR reads, clip captions; Perceptron API) -> controller/ (FastAPI :8000, the only thing that moves the arm) -> arm/ -> SO-101
+                                                                                  |                                            (taught picks / demo replays; Perceptron model via run_skill once deployed)
 ledger/ (MongoDB Atlas: every event, trial, read, thermal sample; public judge page on Vultr) <- controller events
 sim/ (MuJoCo SO-101 + table, :8002) stands in for the arm and the overhead camera
 video/ (cuts the demo video from real footage and ledger events; simcine re-renders sim runs at 1080p)
@@ -74,26 +76,25 @@ Ports: controller 8000, vision 8001, sim 8002, voice 3000, ledger 8080, recorder
 ## 7. Where things really stand (about 3 AM; check INTEGRATION.md and LEFT.md for newer)
 
 Working:
-- Software combed and audited; every Critical and High finding fixed with tests. Sim backup run is CLEAN (all three handovers, scalpel to the safe spot, return, count).
+- Software combed and audited; every Critical and High finding fixed with tests. Sim backup run was clean at 3 AM (the safe-spot step it then had is now cut).
 - Perceptron robotics key works. **Quota: 5 successful training jobs per team, 0 used, 0 deployments** (checked via `GET /v1/jobs` at 2:05 AM; `team/LEFT.md` saying 2 were used is wrong).
-- Perceptron detect works (about 1.8 s per call). Gemini works. ElevenLabs speech works. MongoDB Atlas works (database `scrub`: about 63,600 events, mostly fake-arm and sim tests; 3,800 thermal samples; 8 recorded episodes, all "pick the spatula" tests). Vultr public page works. Hugging Face works. MediaPipe and MuJoCo work.
+- Perceptron detect works (about 1.8 s per call). Gemini works. ElevenLabs speech works. MongoDB Atlas works (database `scrub`: about 63,600 events, mostly fake-arm and sim tests; 3,800 thermal samples; 8 recorded episodes, all "pick the spatula" tests). Vultr public page works. Hugging Face works. MuJoCo works.
 - New tonight: shared hardware layer for the live arm (retried reads, joint limits, gripper torque by situation, thermal guard, release on pull, rest and wake), taught skills, the ops page and the doctor command, OCR reading (count sheets, tray tags, pack labels), clip captions, dataset video QA, a recording station, all pages restyled on one design system, plan files moved to `team/`.
 
 Not done (the critical path):
 - **No surgical training data yet** and no training run. Chat A (`team/RUN-TRAIN.md`) records the hemostat (30 to 40 episodes) and starts run 1, then all surgical items for run 2.
 - **The phone call isn't proven** (ElevenLabs agent id, Photon line and SIP). Chat B (`team/RUN-PHOTON.md`) must finish it by 6 AM.
-- **Smart pick** (vision-located, three grasp methods, grasp check and retry, per-item method chosen from data, sharps safe zone enforced): Chat C (`team/RUN-SMART-PICK.md`).
+- **Smart pick** (vision-located, three grasp methods, grasp check and retry, per-item method chosen from data): Chat C (`team/RUN-SMART-PICK.md`).
 - **Data analysis and the real numbers** for the pitch: Chat D (`team/RUN-DATA.md`).
-- Arm poses (`carry`, `safe_spot`), slot boxes and camera-to-arm calibration, the wrist camera's frame rate (18 to 23 fps; needs about 30).
+- Arm poses (`carry`), slot boxes and camera-to-arm calibration, the wrist camera's frame rate (18 to 23 fps; needs about 30).
 
 ## 8. The demo plan
 
 Three ready levels (`team/DEMO.md`), each labeled honestly on screen:
-1. Live real arm: the fine-tuned model for items that passed their real tries, vision-adjusted taught picks for the rest.
-2. Live real arm, taught picks only.
-3. The sim (and the 1080p sim video) next to the recorded real-arm video.
+1. Live real arm with taught picks (demo replays). A model pick only if a deployment exists.
+2. The recorded real-arm video, with the sim inserts labeled SIMULATION.
 
-One line everywhere: **"The fine-tuned model picks; our code keeps it safe and carries it to the hand."** Every pick on the dashboard shows its `skill_source`. Every number on screen or in the Devpost comes from the ledger or the dataset; if there is no real number yet, skip the sentence.
+One line everywhere: **"The pick is a skill we taught it; our code keeps it safe and carries it to the handoff point."** Every pick on the dashboard shows its `skill_source`. Every number on screen or in the Devpost comes from the ledger or the dataset; if there is no real number yet, skip the sentence.
 
 ## 9. The pitch (current draft: `PITCH-FINAL.md`, Part 2)
 
@@ -105,16 +106,16 @@ Scrub's pages look like things already in an operating room: a nurse-station sta
 - `paper`: background `#ece8dd`, ink `#14130f`, mute `#625f55`, hairline `#b9b4a4`, red `#c8201a` (stop, sharps, high alarm), amber `#9a5b00` (waiting, stale), green `#1d6a38` (ok), cyan `#0e6f86` (info).
 - `monitor`: background `#0f1110`, ink `#e8e6df`, red `#ff4b3e`, amber `#ffb02e`, green `#3ad17a`, cyan `#4cc9e8`.
 - Fonts: **Archivo** (labels, headings, 900 for the SCRUB brand) and **IBM Plex Mono** (numbers, times, codes, logs). Tabular numerals, real units.
-- Components: masthead with a 4px ink rule; sections with a 2px rule and small-caps label; big mono readouts with units; the step strip (FIND, PICK, CHECK, HAND, WAIT, RELEASE, HOME); item rows with codes like HEM-01; a mono event log; square buttons, 44px tall, STOP solid red and always visible; full-width alarm banners; plain-sentence empty states.
+- Components: masthead with a 4px ink rule; sections with a 2px rule and small-caps label; big mono readouts with units; the step strip on the dashboard (FIND, PICK, CHECK, HAND, WAIT, RELEASE, HOME); item rows with codes like HEM-01; a mono event log; square buttons, 44px tall, STOP solid red and always visible; full-width alarm banners; plain-sentence empty states.
 - Never: shadows, gradients, glass, bento cards, emojis, Inter or Geist, em dashes in copy. Corners 0 to 2px. Motion only on state change. Color only carries meaning. Copy in the voice of the room ("Count 2 of 3", "Mayo scissors, curved").
-- The video uses the same look: Archivo and Plex Mono overlays, the step strip, and a SIMULATION label on any sim shot.
+- The video uses plain type: a small SIMULATION tag on any sim shot and plain captions, no step strip.
 
 ## 11. Video assets that exist
 
-- `data/video/out/sim-cinematic.mp4` on Anish's laptop (also in the workspace `video/` folder): 40 s, 1080p, a recorded sim run re-rendered in MuJoCo with steel instruments, a drape, a gloved hand, shadows, a following camera, captions and the step strip, labeled SIMULATION. Re-make it with `python -m video.simcine record` then `render`.
+- `data/video/out/sim-cinematic.mp4` on Anish's laptop (also in the workspace `video/` folder): 40 s, 1080p, an older sim render labeled SIMULATION (it predates the scope change). The current sim is `video/simdemo.py`. Re-make it with `python -m video.simcine record` then `render`.
 - `data/video/out/sim-backup.mp4` on Evan's Mac: 68.8 s screen capture of the sim and dashboard.
 - The video tool (`python -m video ...`): corners, ingest, topdown (plane warp, photo plate, joint reconstruction), clean, find, overlay, cards, render, preview. EDLs in `video/edl/`.
-- Still needed: real-arm footage (shots A1 to A8 in `team/VIDEO.md`), the phone call screen recording, the training montage, the Perceptron unedited roll.
+- Still needed: real-arm footage, shots V1 to V11 in `team/HANDOFF-7AM.md`.
 
 ## 12. Writing rules for anything the team will read or say
 
@@ -123,6 +124,8 @@ Short and plain. No em dashes. No "it's not X, it's Y". No rhetorical questions,
 ---
 
 # PART 2: the full documents
+
+> **These are 3 AM snapshots.** They predate the 7 AM scope change and still mention the safe spot, hand tracking, the bench tray, Tiger Data, Backboard, GoDaddy and fine-tuned picks. None of that is current. Use Part 1 and the live repo docs.
 
 Contents of Part 2:
 

@@ -1,5 +1,7 @@
 # Contracts
 
+> **Demo scope (Oct 18 morning):** the demo uses three instruments (scalpel handle, hemostat, Mayo scissors), has no sharps safe spot and no hand tracking (the arm slows as it nears the handoff point), and the arm goes home after each handoff. Return on the real arm is manual. The safe-spot, hand and other-setting fields below still exist in the code; they are not part of the demo and we don't claim them.
+
 Every part codes against these. Build against fake inputs that match them, and things connect on the first try.
 
 **Changing a contract:** say it in the group chat first, then edit this file. Caiden owns this file because the controller is where everything meets. Adding an optional field is fine without asking. Renaming or removing a field needs everyone's OK.

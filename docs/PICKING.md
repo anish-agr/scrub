@@ -1,5 +1,7 @@
 # Picking: how Scrub chooses and checks a pick
 
+> **Demo scope (Oct 18 morning):** the demo uses three instruments (scalpel handle, hemostat, Mayo scissors), has no sharps safe spot and no hand tracking (the arm slows as it nears the handoff point), and the arm goes home after each handoff. Return on the real arm is manual. The sharps safe-zone flow below is still in the code but is not used or claimed in the demo. No Perceptron model is deployed, so `model` never runs.
+
 `--skills smart` picks each instrument with the method that has the best measured record for that item, checks every grasp, and retries once with the next method. Sharps never go to a hand, whatever the method or the voice command.
 
 Code: `controller/picker.py` (choice), `controller/core.py` (`_pick_smart` and the sharp flow), `arm/grasp.py` (the grasp methods and the safe-zone rules), `vision/locate.py` (`GET /locate`, `GET /safe_zone` on vision). Contract fields: `docs/CONTRACTS.md`.
@@ -8,7 +10,7 @@ Code: `controller/picker.py` (choice), `controller/core.py` (`_pick_smart` and t
 
 | `skill_source` | What moves the arm | Needs |
 | --- | --- | --- |
-| `model` | The fine-tuned Perceptron deployment through `run_skill` | `PERCEPTRON_DEPLOYMENT_ID` with a live deployment |
+| `model` | A Perceptron deployment through `run_skill` (none exists as of 07:10 Oct 18) | `PERCEPTRON_DEPLOYMENT_ID` with a live deployment |
 | `taught_adjusted` | The item's taught waypoints, with the at-slot waypoints shifted by the located offset: IK on the measured shift in the arm frame, or a shoulder_pan nudge from the mm offset; item rotation goes to wrist_roll. Shifts over 4 cm or a located confidence under 0.3 are ignored and it plays as taught | `arm/skills/<setting>/<item>-pick.json` (`docs/TEACH.md`) |
 | `ik` | A top-down grasp computed from the located pose: approach 6 cm above, descend, close, lift, carry | `vision/calibration.json` (the located pose in the arm frame) and a verified rig |
 | `taught` | The taught waypoints as recorded (kept for `--skills taught` and as a prior) | a taught skill |
@@ -28,7 +30,7 @@ All of them run through the same 30 Hz playback, joint limits, gripper torque, t
 `controller/picker.py` reads the ledger (MongoDB `scrub.events`, else the local ledger buffer) and keeps only rows with `arm: "real"` and no `test` tag. Rows from before Oct 18, 3 AM have no `arm` field, so none count. That includes the 24 fake "real" rows that tests wrote to Atlas (`team/NOTES-DATA.md`). Each command is one try per method used. For each item it ranks the available methods:
 
 - by the lower bound of the 95% Wilson interval on the success rate, then by median request-to-hand time;
-- `model` goes first when its lower bound is at least the best other's, so the fine-tuned model runs wherever it earns it;
+- `model` goes first when its lower bound is at least the best other's, so a deployed model would run wherever it earns it;
 - a method needs **10 real tries** on an item before its rate can move it. Until then the default order holds: `model` (only with a deployment) > `taught_adjusted` (only with a taught skill) > `ik`;
 - rows under the current lighting decide alone once there are at least 5 of them.
 
@@ -60,4 +62,4 @@ Fill this table from `python -m controller.picker --setting surgical` after the 
 
 ## For the pitch (honest, today)
 
-"Scrub chooses how to pick each instrument from its own measured record, checks every grasp with the gripper and the wrist camera, and retries with a different method. The scalpel only ever goes to a taped safe zone it checks with the camera first." Don't claim a per-item method ("the fine-tuned model picks the hemostat") until the table above has real numbers.
+"On the real arm each pick is a skill we taught it from our own demonstrations, and the gripper checks the grasp before it carries." Don't claim a per-item method or a model pick until the table above has real numbers and a deployment exists.

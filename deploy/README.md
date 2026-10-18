@@ -1,5 +1,15 @@
 # deploy
 
+## Redeploy the judge page now (Brandon, Oct 18)
+
+Only Brandon's laptop has its SSH key on the server (Caiden's Mac gets `Permission denied (publickey)`). From the repo root on Brandon's laptop, with `MONGODB_URI` in `.env`:
+
+```
+git pull origin main; powershell -File deploy/push_public.ps1 -Target root@144.202.95.111
+```
+
+Then check `curl -s http://144.202.95.111/ | findstr "safe spot Isaac Tiger Backboard GoDaddy bench"` prints nothing, and the nav shows Count, Cases, Table card. Until this runs, the live page still shows the old text (safe spot, bench tray, fine-tuned Isaac doing the picks, the Photon number, Tiger Data, Backboard, GoDaddy).
+
 Owner: Brandon (handed E6's server from Evan). `deploy/` only.
 
 `check_env.py` reads the repo-root `.env` and prints which keys each laptop needs, then probes each service. It prints PASS or FAIL. It does not print key values.
@@ -54,15 +64,7 @@ On Windows: `powershell -File deploy/push_public.ps1 -Target root@SERVER_IP`.
 
 Either copies `ledger/` (without `buffer.jsonl`) and `deploy/` to `/opt/scrub`, writes a server `.env` that holds only `MONGODB_URI` and `SCRUB_PUBLIC_URL`, and runs `deploy/setup_public.sh`. Shell scripts are sent with Unix line endings. If `ufw` is on, the script opens ports 80 and 443 and leaves 8080 closed. This is the only server path (`ledger/install_public.sh` calls the same script). Open `http://SERVER_IP/`. The count and the two tables should match `python -m ledger serve` on the laptop.
 
-The server at `144.202.95.111` is already serving `http://144.202.95.111/` from MongoDB. HTTPS waits on the domain.
-
-### GoDaddy (MLH offer)
-
-1. Open the MLH GoDaddy Registry offer from the DubHacks sponsor page and sign in, or create the account. Buy one cheap domain the team can say out loud.
-2. My Products, the domain, DNS (Manage DNS).
-3. Type A, Name `@`, Value `SERVER_IP`, TTL 600. If an A record for `@` already parks the domain, edit it instead of adding a second one.
-4. Type CNAME, Name `www`, Value `@`, TTL 600.
-5. Wait a few minutes.
+The server at `144.202.95.111` is already serving `http://144.202.95.111/` from MongoDB. There is no domain yet, so the page is HTTP only.
 
 ### HTTPS
 

@@ -1,5 +1,7 @@
 # How to train Scrub (one page to share)
 
+> **Demo scope (Oct 18 morning):** the demo uses three instruments (scalpel handle, hemostat, Mayo scissors), has no sharps safe spot and no hand tracking (the arm slows as it nears the handoff point), and the arm goes home after each handoff. Return on the real arm is manual. The safe-spot ending for the scalpel below is out of scope; record the scalpel like the other picks, ending at the handoff point.
+
 This is the plain version. Every command with every flag is in `docs/BRINGUP.md` sections 6 to 8. Run all of this on **the laptop the arm is plugged into** (the Mac), from the repo root, after `source .venv/bin/activate` (plain `python` is not on the Mac's PATH without it).
 
 The checklist for the operator (the person or agent helping at the arm) is the section "Operator checklist" at the end of this page.
@@ -24,7 +26,7 @@ The checklist for the operator (the person or agent helping at the arm) is the s
 
 | Tray | Item | "pick the X" | "return the X" |
 | --- | --- | --- | --- |
-| Operating room | scalpel | 20 (to the safe spot) | 10 |
+| Operating room | scalpel | 20 | 10 |
 | Operating room | hemostat | 20 | 10 |
 | Operating room | Mayo scissors | 20 | 10 |
 | Bench | needle-nose pliers | 15 | 10 |
@@ -89,7 +91,7 @@ Keys: robotics uses `PERCEPTRON_TEAM_API_KEY`, vision uses `PERCEPTRON_API_KEY`,
 - One process owns the follower port and each camera. Stop teleop before recording or replay.
 - State and action are six values in this order: `shoulder_pan.pos`, `shoulder_lift.pos`, `elbow_flex.pos`, `wrist_flex.pos`, `wrist_roll.pos`, `gripper.pos`. Five joints in degrees, gripper 0 closed to 100 open.
 - Cameras are exactly `observation.images.side` and `observation.images.wrist`. The side camera sees the whole task, the wrist camera sees the grasp. Check with images, not metadata. Fix glare and occlusion before collecting more.
-- Tape the base, tray, slots, camera mounts and the separate safe spot. Keep them fixed for every batch and both runs. Move the item a little inside its slot; do not move the layout or a camera.
+- Tape the base, tray, slots and camera mounts. Keep them fixed for every batch and both runs. Move the item a little inside its slot; do not move the layout or a camera.
 - Do one slow teleop move first if the setup is new. Stop on unexpected direction, jerk or collision risk.
 
 ### Per-light targets

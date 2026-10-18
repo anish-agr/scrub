@@ -1,5 +1,7 @@
 # Scrub: tonight's bring-up
 
+> **Demo scope (Oct 18 morning):** the demo uses three instruments (scalpel handle, hemostat, Mayo scissors), has no sharps safe spot and no hand tracking (the arm slows as it nears the handoff point), and the arm goes home after each handoff. Return on the real arm is manual. Steps below that teach `safe_spot` or use other trays are not needed for the demo.
+
 The arm is on the Mac. Run every command from the repository root in zsh, with the
 repo venv active (it has LeRobot and Feetech; plain `python` is not on this Mac's PATH):
 

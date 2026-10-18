@@ -89,6 +89,32 @@ def allowed_tasks() -> list[str]:
     return out
 
 
+def voice_items() -> list[dict]:
+    """For the page's voice control: each item's pick instruction and the words that name it (name, id, aliases
+    from settings/*.json, plus *.local.json clinic words). Surgical first."""
+    sdir = EXPLORE.parent / "settings"
+    out, seen = [], set()
+    files = sorted(sdir.glob("*.json"), key=lambda f: (f.name.startswith("dental"), not f.name.startswith("surgical"), f.name))
+    for f in files:
+        if ".local." in f.name:
+            continue
+        try:
+            items = json.loads(f.read_text()).get("items", [])
+            local = sdir / f.name.replace(".json", ".local.json")
+            extra = json.loads(local.read_text()).get("aliases", {}) if local.exists() else {}
+        except (OSError, ValueError):
+            continue
+        for it in items:
+            task = it.get("pick_instruction")
+            if not task or task in seen:
+                continue
+            seen.add(task)
+            words = [it.get("name", ""), it.get("id", "").replace("_", " "), *it.get("aliases", []),
+                     *(extra.get(it.get("id"), []) if isinstance(extra, dict) else [])]
+            out.append({"item": it.get("id"), "task": task, "words": sorted({w.lower() for w in words if w}, key=len, reverse=True)})
+    return out
+
+
 def check_task(task: str, any_task: bool = False) -> tuple[bool, str | None]:
     """(ok, why not). Training data needs the exact instruction the model is told later."""
     t = (task or "").strip()
@@ -428,6 +454,10 @@ class Station:
         self.down: set = set()                   # camera roles not sending frames
         self.down_since: dict = {}               # role -> when it went down
         self.restart_requested = False           # set when a hung camera needs a fresh process
+        try:
+            self.voice_items = voice_items()     # words that name each item, for the page's voice control
+        except Exception:  # noqa: BLE001
+            self.voice_items = []
         self._restart_hint = 0.0
         self.stalls: dict = {}
         self.cam_new: dict = {}                  # role -> new frames seen since start
@@ -635,6 +665,11 @@ class Station:
 
     def _dispatch(self, action: str, task, payload=None):
         payload = payload or {}
+        if action == "page_voice":  # the page's Talk is listening (heartbeat): station_voice.py stays quiet
+            self.page_voice_t = time.time() if payload.get("on") else 0.0
+            return True, "page voice " + ("on" if payload.get("on") else "off")
+        if payload.get("heard"):  # from the page's voice control: say what triggered it
+            self.note(f"voice: {str(payload['heard'])[:80]!r} -> {action}")
         if action in ("kill", "home", "reconnect") and self.auto is not None:
             self._auto_abort(action)
         if action == "run":
@@ -1272,6 +1307,8 @@ class Station:
                 "cooling": self.cooling is not None, "guard": arm_ui.S.get("guard"),
                 "grip_health": arm_ui.S.get("grip_health"), "root": str(self.root), "warnings": warn,
                 "any_task": self.any_task, "task_ok": self.task in self.allowed, "allowed_tasks": self.allowed,
+                "voice_items": self.voice_items,
+                "page_voice": time.time() - getattr(self, "page_voice_t", 0.0) < 12,
                 "use_degrees": self.use_degrees(), "counts": self.counts(), "qa": qa,
                 "last_qa": qa[-1] if qa else None,
                 "rerecord": [f"RE-RECORD episode {r['episode']}: {'; '.join(r['reasons'])}" for r in qa
@@ -1361,7 +1398,7 @@ def make_handler(st: Station):
             except ValueError:
                 body = {}
             out = st.control(str(body.get("action", "")), body.get("task"),
-                             payload={k: body[k] for k in ("driver", "args", "result", "question_id", "side") if k in body})
+                             payload={k: body[k] for k in ("driver", "args", "result", "question_id", "side", "heard", "on") if k in body})
             self._send(200, json.dumps(out).encode(), "application/json")
 
         def _stream(self, name: str):

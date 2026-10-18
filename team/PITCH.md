@@ -1,37 +1,33 @@
 # Pitch
 
-Three minutes, spoken over the live demo. The beats and times match the demo console (`http://localhost:8000/demo`) and the table in `team/DEMO.md`. Questions are in `team/QNA.md`.
+Under three minutes, spoken at the table over the live arm (or over the video on the laptop if the arm can't run there). The table plan and the failure fixes are in `team/DEMO.md`. Questions are in `team/QNA.md`.
 
-Fill every `[measured]` from the dashboard tables (`GET /stats`) on Sunday morning. If a number is not on the dashboard yet, skip the sentence. Never guess a number.
+Every number in this file is in the Sources table below or in `team/FACTS-0718.md`. If a number isn't in one of those, skip the sentence. Never guess a number.
 
-## Which level this script is for
+## What we say about the pick
 
-This script is level 1 of `team/DEMO.md`: the live real arm, the fine-tuned model for the items that passed their real tries, taught skills for the rest, every pick labeled on the dashboard. One line goes in everywhere: "The fine-tuned model picks; our code keeps it safe and carries it to the hand."
+The pick on the real arm is a skill we taught it from our own recorded demonstrations. The voice request plays the averaged demonstration for that instrument (`voice/src/station.ts`, `explore/station/autopick.py` mode `average`). Say it that way: "a skill we taught it from our demonstrations".
 
-Every claim below must run at the table or be in the Perceptron video. Real-try success rates are "to fill from the ledger" until the ledger has them; skip the sentence if it is still empty.
-
-- Level 2 (taught only): say "In this run the pick is a skill we taught by hand, labeled on the screen. The fine-tuned model is shown in our video." Do not say the model is running.
-- Level 3 (sim next to the video): say "This arm is a simulation. The video beside it is the real arm running our fine-tuned model." Same safety and controller story.
-- In the 2:00 beat, "we fine-tuned Perceptron's Isaac model" holds only for the items that are `model` on the dashboard. For a `taught` item say "this one is a taught skill".
+No Perceptron training job has run on those demonstrations: 0 jobs and 0 deployments at 07:20 (`team/FACTS-0718.md` c). No model pick is on the arm or in the video. Don't say "fine-tuned model picks". If someone asks, the answer is in `team/QNA.md` question 1.
 
 ## Who does what
 
-| Person | Where they stand | Speaks | Also does |
+| Person | Where | Speaks | Also does |
 | --- | --- | --- | --- |
-| Anish | Next to the judge, facing them | The problem, "This is Scrub", the second tray, the close | Calls "go to backup" if the arm dies |
-| Caiden | At the demo laptop, one hand near Space | Sharps and stop, the judge's turn, the return and the count | Runs the console keys and the stop key |
-| Evan | Beside the lamp and the spare tray | The lighting test and the tables (short) | Lamp on and off, swaps trays, resets the tray |
-| Brandon | Across the tray from the arm, as the clinician | Hand tracking (short) | Asks for each instrument on the phone, takes the handoffs |
+| Anish | Next to the judge, facing them | The problem, "This is Scrub", the close | Calls "go to the video" if the arm can't run |
+| Caiden | At the laptop | The handoff, stop and continue, the safety rules | Runs the station page and the voice server; KILL is Esc on the station page |
+| Evan | Beside the tray | The return and the video shots (short) | Puts instruments back between judges, starts the video on the second laptop |
+| Brandon | Across the tray from the arm, in the lab coat and gloves | The clinician's lines | Asks for each instrument, takes the handoffs |
 
 ## The script
 
-Spoken words only. About 400 words, which is about 3 minutes at 130 words a minute.
+About 330 spoken words, about 2:30 at 130 words a minute. That leaves time for the arm.
 
-**0:00 The problem (Anish).** Brandon stands with his hands busy.
+**0:00 The problem (Anish).**
 
 > Every operation has a scrub tech. They hand the surgeon each instrument and keep the count. Hospitals can't hire enough of them. A surgical tech job takes about 120 days to fill.
 >
-> So the surgeon looks away from the patient, puts down what they're holding, and searches the tray. And when an instrument is missing, the case waits. One study found those delays ran about ten minutes.
+> Without one, the surgeon looks away from the patient and searches the tray. When an instrument is missing, the case waits. One study found those delays ran about ten minutes a case.
 
 **0:30 The first handoff (Anish, then Brandon).**
 
@@ -39,75 +35,77 @@ Spoken words only. About 400 words, which is about 3 minutes at 130 words a minu
 
 Brandon: "Hemostat."
 
-> Scrub picks it from the tray with the fine-tuned model [if the dashboard says `model` for the hemostat; otherwise say "with a skill we taught"]. The fine-tuned model picks; our code keeps it safe and carries it to the hand, handle first, and lets go when he pulls. The dashboard times every handoff and labels the source.
-
-**0:50 Sharps and stop (Caiden).** Brandon: "Scalpel."
-
-> Scalpels never go hand to hand. Nurses and techs get cut most often while passing sharps. US hospital staff have about 385,000 needle and sharps injuries a year. So Scrub sets the scalpel on a safe spot and says "scalpel down." Anyone can say stop, and the arm freezes until a person resets it.
-
-**1:05 The judge's turn (Caiden, then Brandon).**
-
-> Your turn. Ask for the scissors.
-
-The judge asks. The Mayo scissors arrive in their hand.
-
-Brandon:
-
-> A camera over the tray finds your open hand ten times a second. The arm slows down near it. If your hand leaves, the arm holds still.
-
-**1:20 Return and count (Caiden).** Brandon sets the hemostat in the return spot.
-
-> Done with a tool? Set it in the return spot. Scrub puts it back in its slot by itself. It also keeps the count. That matters. A Mayo Clinic study found an item left inside a patient about once in every 5,500 operations. Most of those counts had been called correct.
-
-**1:40 Glare and the tables (Evan).** Evan turns the lamp on over the tray.
-
-> Operating lights are bright, and steel throws glare. So we test every item in bright, normal and dim light. Brandon, ask again.
-
-Brandon asks for any instrument. It arrives.
-
-> Every try is saved in MongoDB. This table is live. [measured] percent in bright light, [measured] in normal. The range next to each one shows how sure we are.
-
-**2:00 A second tray (Anish).** Evan turns the lamp off and swaps to the bench tray. Caiden presses `2`. Brandon: "Needle-nose pliers."
-
-> Scrub is built for the operating room. But this is a robotics bench tray. Same arm, same code. The bench tray is not part of tonight's real-arm tries. Say this beat only if the bench tray ran on the real arm today; otherwise skip it and use the sim or the video. Time to add a tray: [to fill from the ledger].
-
-**2:30 The close (Brandon, Caiden, Anish).** Brandon: "Count." Then: "End of case."
-
 Caiden:
 
-> It reads back what's still out. When the case ends, the summary comes as a text on the same phone.
+> It picks the hemostat with a skill we taught it from our own demonstrations on this arm. It carries it to the handoff point at a capped speed and holds the handle out. It lets go when he pulls, or when he says "let go". Then it goes straight home on its own.
 
-Anish:
+**1:00 The scissors, with a stop (Caiden, then Brandon).**
 
-> Scrub runs on an open-source arm that costs a few hundred dollars. We'd sell it per operating room, starting with surgery centers. It helps scrub techs. It doesn't replace them. This is a research prototype, not a medical device. Questions?
+Brandon: "Mayo scissors." Partway through the move, Brandon: "Stop."
+
+> Anyone can say stop. The arm freezes where it is, still holding the scissors, and waits.
+
+Brandon: "Continue." The scissors arrive, he pulls, the arm goes home.
+
+> "Continue" picks up where it left off. If something is wrong, KILL cuts the motors at once.
+
+**1:30 How it stays safe (Caiden).**
+
+> Every move is speed-capped and kept inside each joint's range. The gripper stops squeezing once it touches the tool. It reads the motor temperatures every two seconds, and if one reaches 60 degrees it goes home and turns its motors off until it cools.
+
+**1:45 The return and the video (Evan).**
+
+> Done with a tool? On the real arm today, a person puts it back. That's labeled manual return in our video. The video also shows the returns in simulation, using an electromagnet pickup, labeled as simulation, and the shots we can't do at the table.
+
+No lighting line. Lighting isn't logged per try on the real arm (`team/FACTS-0718.md` d), so don't give lighting results.
+
+**2:05 The close (Anish).**
+
+> Scrub runs on an open-source arm that costs a few hundred dollars. We'd start in surgical training labs, where there's no patient, then surgery centers. It helps scrub techs. It doesn't replace them. It's a research prototype, not a medical device. Questions?
 
 ## If a beat fails
 
-Keep talking. The fix for each beat is in the "If it fails" column of `team/DEMO.md`. A stop is a feature: say so.
+Keep talking. The fix for each beat is in `team/DEMO.md`. A stop is a feature, so say so.
+
+## The short version (60 seconds)
+
+> Hospitals can't hire enough scrub techs. A surgical tech job takes about 120 days to fill. This is Scrub. You ask out loud.
+
+Brandon: "Hemostat." The arm hands it over and goes home.
+
+> That pick is a skill we taught it from our demonstrations. It lets go when you pull, goes home on its own, and freezes when anyone says stop. It's a research prototype. Questions?
+
+## Do not say
+
+- A safe spot, or "scalpels never go hand to hand". The safe-spot step is gone.
+- That it tracks the hand, or holds when the hand moves away. The camera frame rate is too low to track a hand. The arm goes to a fixed handoff point and holds the tool out. "Slows near the handoff point" is coded only in the controller that drives the sim (`controller/core.py:42`, `SPEED_NEAR`); on the real arm say "at a capped speed".
+- That a fine-tuned model does the picks.
+- A second tray (bench or dental). Three instruments only: scalpel, hemostat, Mayo scissors.
+- That it texts a case summary, keeps working if a motor goes down, or returns tools by itself on the real arm.
+- Tiger Data, Backboard or GoDaddy.
+- That Scrub prevents retained items, replaces scrub techs, is sterile, or is ready for patients. Anything about FDA being easy.
 
 ## Sources
 
-Every number above was checked against its source on Oct 17, 2026. Say only these numbers.
+Every outside number was checked against its source on Oct 17, 2026. Say only these numbers.
 
 | What we say | Source |
 | --- | --- |
-| A surgical tech job takes about 120 days to fill | Periop Leader (OR Manager) survey, Aug 28, 2024: "Filling a surgical technologist position takes an average of 120 days." https://www.periopleader.com/survey-staffing-woes-ease-slightly-but-challenges-remain/ (excerpt shown on https://periopleader.com/tag/surgical-technologists) |
-| Instrument delays ran about ten minutes | Nichol et al., BMC Surgery 2024, 7 pediatric operating rooms: "The average length of delays per case was 10.16 min." Most errors were missing instruments. https://doi.org/10.1186/s12893-024-02407-1 |
-| About 385,000 needle and sharps injuries a year to US hospital staff | CDC Sharps Safety: "approximately 385,000 needlesticks and other sharps-related injuries to hospital-based healthcare personnel each year." https://www.cdc.gov/sharpssafety/ |
-| Nurses and techs get cut most often while passing sharps | American Nurse, citing data from 87 US hospitals: injuries to nurses and technicians "most often occurred when they passed or disassembled devices." https://www.myamericannurse.com/practical-strategies-to-prevent-surgical-sharps-injuries/ |
-| An item left inside about once in 5,500 operations, most with a correct count | Cima et al., J Am Coll Surg 2008 (Mayo Clinic, 191,168 operations): "approximately 1:5,500 operations", and 21 of 34 (62%) had a count reported as correct. https://pubmed.ncbi.nlm.nih.gov/18589366/ and https://psnet.ahrq.gov/issue/incidence-and-characteristics-potential-and-actual-retained-foreign-object-events-surgical |
+| A surgical tech job takes about 120 days to fill | Periop Leader (OR Manager) survey, Aug 28, 2024: "Filling a surgical technologist position takes an average of 120 days." https://www.periopleader.com/survey-staffing-woes-ease-slightly-but-challenges-remain/ |
+| Instrument delays ran about ten minutes a case | Nichol et al., BMC Surgery 2024, 7 pediatric operating rooms: "The average length of delays per case was 10.16 min." Most errors were missing instruments. https://doi.org/10.1186/s12893-024-02407-1 |
 
-Also checked, used in `team/QNA.md` and `team/NEXT-PASS-PROMPT.md` (section "Earlier next-steps notes") only:
+What the arm does, checked in code on Oct 18:
 
-| What we say | Source |
+| What we say | Where |
 | --- | --- |
-| About 8,600 openings a year for surgical assistants and technologists | US Bureau of Labor Statistics, Occupational Outlook Handbook (2025 to 2035): "About 8,600 openings for surgical assistants and technologists are projected each year, on average, over the decade." https://www.bls.gov/ooh/healthcare/surgical-technologists.htm |
-| Hands-free passing used at least 75% of the time: 35% fewer incidents | Stringer et al., Public Health Reports 2009: "the HFT-associated reduction in rate was 35%" (cuts, glove tears and contamination together). https://pmc.ncbi.nlm.nih.gov/articles/PMC2708668/ |
-| Operating room time costs about $36 a minute | Childers and Maggard-Gibbons, JAMA Surgery 2018: "The mean cost of OR time was $36 to $37 per minute using financial data from California's short-term general and specialty hospitals in FY2014." https://jamanetwork.com/journals/jamasurgery/fullarticle/2673385 |
-| RoboNurse-VLA, a 2024 research robot scrub nurse driven by voice | arXiv 2409.19590, submitted Sep 29, 2024. https://arxiv.org/abs/2409.19590 |
+| Our own numbers | `team/FACTS-0718.md`: 29 recorded episodes, 24 usable, 9.0 minutes (`docs/DATA.md`, 06:49). Real handoffs taken by a hand with the jaw checked empty: 2, both scalpel (06:39, 07:02). Hemostat offered twice, no confirmed handoff. Mayo scissors: 0 episodes, 0 runs. Ledger real-arm tries: 0 |
+| The pick plays the averaged demonstrations for that instrument | `voice/src/station.ts` (`run` with `mode: "average"`), `explore/station/autopick.py` `average_demos` |
+| Lets go on a pull, or on "let go" / "got it" | `explore/station/autopick.py` `_handoff_tick` (load change, jaw moved, or a joint pushed 2 degrees, held 0.15 s); `voice/src/station.ts` (`release`) |
+| Goes home after the handoff | `explore/station/autopick.py` (`handed over; home, motors off`) |
+| "Stop" freezes in place, "continue" resumes | `voice/src/station.ts` (stop sends `pause`, continue sends `resume`); `explore/station/station.py` `_dispatch` (`frozen where it is`); `autopick.py` `pause`, `tick` holds every joint |
+| KILL cuts the motors | `explore/station/station.py` `_kill_now` (broadcast torque off) |
+| Speed cap and joint range | `autopick.py:42` `MAX_DEG_S = 45` (peak per joint); `explore/arm_session.py:222-223, 484-491` motor speed cap and acceleration; `station.py:234` `max_relative_target=15.0`; `station.py:1467` calls `explore/arm_session.py:209-219` `clamp_follower` (every goal kept inside the calibrated range) |
+| Gripper stops at contact plus a small squeeze | `explore/arm_session.py` `GRIP_SQUEEZE`, `guard_gripper` |
+| Temperatures every 2 s; at 60 C it goes home, motors off; cooled at 50 C | `explore/arm_session.py` `guard_joints` (2.0 s read); `arm/thermal.py` `COOL_TRIP, COOL_RESUME = 60, 50`; `explore/station/station.py` `_thermal` |
 
-Do not say on stage: that Scrub prevents retained items (it adds a second check), that it replaces scrub techs, that it is ready for patients, or anything about FDA being easy. See `explore/research/SURGEON_RESEARCH.md` section 6.
-
-## Demo video (2 to 3 minutes, required)
-
-The shot list and the edit plan are in `team/DEVPOST.md` ("Video shot list" and "Video edit plan"). The spoken track can reuse this script. Anish records the separate Perceptron arm video: one unedited roll of picks and returns across items and lighting, with the success table at the end.
+The other outside numbers (8,600 openings, 385,000 sharps injuries, 1 in 5,500 retained items, $36 an OR minute, 35% fewer incidents with hands-free passing) are sourced in `team/CONTEXT.md` Part 1, section 4. Use them only in answers (`team/QNA.md`).
