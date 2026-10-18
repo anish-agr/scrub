@@ -7,14 +7,16 @@
 Cameras are picked by name (OpenCV's numbers change when a camera is replugged).
 
 Opens a live recorder page at http://localhost:8090 (cameras, phase and countdown, joints, claw guard,
-warnings, and Next / Re-record / Stop buttons that work like LeRobot's arrow keys).
+warnings, Next / Re-record / Stop buttons that work like the arrow keys, and a saved setup photo
+to ghost over the side camera so the tray goes back in the same place).
 
 First eases the follower to the leader's pose over --ease-s seconds (torque stays on), so it doesn't
 jump when LeRobot starts. Gripper guard: if the claw is told to close but stops moving for
 GRIP_STALL_S (something is in the jaws), it holds at the contact point plus a small squeeze instead
 of pushing into overload, until the leader opens past that point. The dataset still records the
 leader's action (LeRobot's default). Records into one local dataset (--root, appended to with --resume when it
-exists), never pushes to the Hub. Ports and ids match the calibration in ~/.cache/huggingface/lerobot.
+exists), never pushes to the Hub. Each saved episode's wall-clock loop rate and camera fps go to
+<root>-cadence.json, the --cadence-report that `python -m arm.train pipeline` checks. Ports and ids match the calibration in ~/.cache/huggingface/lerobot.
 """
 import argparse
 import faulthandler
@@ -217,7 +219,9 @@ def main() -> None:
                f"--dataset.root={a.root}", f"--dataset.single_task={a.task}",
                f"--dataset.num_episodes={a.episodes}", "--dataset.fps=30",
                f"--dataset.episode_time_s={a.episode_s}", f"--dataset.reset_time_s={a.reset_s}",
-               "--dataset.push_to_hub=false"]
+               "--dataset.push_to_hub=false",
+               # encode video while recording: ~11 s between episodes instead of ~18, loop stays 30 Hz
+               "--dataset.streaming_encoding=true", "--dataset.encoder_threads=2"]
         if (Path(a.root) / "meta" / "info.json").exists():
             cmd.append("--resume=true")
     else:

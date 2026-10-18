@@ -29,8 +29,10 @@ S = {"mode": "teleop", "phase": "starting", "task": None, "episode": None, "sess
 frames: dict = {}                 # camera name -> latest RGB frame
 cam_ticks: dict = {}              # camera name -> deque of hardware read times
 loop_ticks: deque = deque(maxlen=60)
+cam_counts: dict = {}             # camera name -> hardware frames read since start
 events: dict = {}
 stalls: dict = {}                 # camera name -> stalls this episode
+ep = {"t0": None, "obs": 0, "cam0": {}, "pending": None}  # wall-clock evidence for the episode
 cfg = {"root": None, "episode_s": None, "reset_s": None, "cams": {}}
 lock = threading.Lock()
 
@@ -54,6 +56,55 @@ class _LogHandler(logging.Handler):
         msg = record.getMessage()
         if len(msg) < 300 and "\n" not in msg:
             note(msg)
+
+
+def cadence_path():
+    return Path(f"{cfg['root']}-cadence.json") if cfg["root"] else None
+
+
+def _end_episode() -> None:
+    """Close the recording window: control-loop rate and each camera's real fps, by the wall clock."""
+    if ep["t0"] is None:
+        return
+    dt = time.perf_counter() - ep["t0"]
+    if dt > 0.5:
+        ep["pending"] = {
+            "measured_fps": round(ep["obs"] / dt, 2), "seconds": round(dt, 2), "frames_observed": ep["obs"],
+            "camera_fps": {k: round((cam_counts.get(k, 0) - ep["cam0"].get(k, 0)) / dt, 1) for k in cam_counts},
+            "camera_stalls": dict(stalls), "recorded_at": time.strftime("%Y-%m-%dT%H:%M:%S%z")}
+    ep["t0"] = None
+
+
+def _write_cadence(index: int) -> None:
+    """One entry per saved episode in <root>-cadence.json, the file arm.train's check reads."""
+    entry, path = ep.pop("pending", None), cadence_path()
+    ep["pending"] = None
+    if not entry or not path:
+        return
+    try:
+        data = json.loads(path.read_text()) if path.exists() else {"episodes": []}
+    except ValueError:
+        data = {"episodes": []}
+    data["episodes"] = [e for e in data["episodes"] if e.get("episode_index") != index]
+    data["episodes"].append({"episode_index": index, **entry})
+    data["episodes"].sort(key=lambda e: e["episode_index"])
+    path.write_text(json.dumps(data, indent=1))
+    bad = [k for k, v in entry["camera_fps"].items() if v < 29]
+    note(f"episode {index}: loop {entry['measured_fps']} Hz" + (f", slow camera: {', '.join(bad)}" if bad else ""))
+
+
+def reference_path() -> Path:
+    return Path(f"{cfg['root']}-reference-side.jpg") if cfg["root"] else Path.home() / "scrub-reference-side.jpg"
+
+
+def save_reference() -> bool:
+    with lock:
+        f = frames.get("side")
+    if f is None:
+        return False
+    cv2.imwrite(str(reference_path()), cv2.cvtColor(f, cv2.COLOR_RGB2BGR))
+    note(f"reference saved: {reference_path()}")
+    return True
 
 
 _handler = _LogHandler(level=logging.INFO)
@@ -80,6 +131,8 @@ def install(mode: str, task, episodes, episode_s, reset_s, root, cams: dict) -> 
     def observed(self):
         obs = get_obs(self)
         loop_ticks.append(time.perf_counter())
+        if ep["t0"] is not None:
+            ep["obs"] += 1
         with lock:
             for k, v in obs.items():
                 if isinstance(v, np.ndarray) and v.ndim == 3:
@@ -97,6 +150,7 @@ def install(mode: str, task, episodes, episode_s, reset_s, root, cams: dict) -> 
         frame = read_hw(self)
         name = cfg["cams"].get(self.config.index_or_path, str(self.config.index_or_path))
         cam_ticks.setdefault(name, deque(maxlen=60)).append(time.perf_counter())
+        cam_counts[name] = cam_counts.get(name, 0) + 1
         return frame
     OpenCVCamera._read_from_hardware = counted
 
@@ -110,10 +164,15 @@ def install(mode: str, task, episodes, episode_s, reset_s, root, cams: dict) -> 
             if text.startswith("Recording episode"):
                 S["episode"] = int(text.split()[-1])
                 stalls.clear()
+                ep.update(t0=time.perf_counter(), obs=0, cam0=dict(cam_counts), pending=None)
                 phase("recording", cfg["episode_s"])
             elif text.startswith("Reset"):
+                _end_episode()
                 phase("resetting", cfg["reset_s"])
+            elif text.startswith("Re-record"):
+                ep.update(t0=None, pending=None)
             elif text.startswith("Stop recording"):
+                _end_episode()
                 phase("saving")
             return say(text, *a, **kw)
         rec.log_say = said
@@ -121,9 +180,12 @@ def install(mode: str, task, episodes, episode_s, reset_s, root, cams: dict) -> 
         save = LeRobotDataset.save_episode
 
         def saved(self, *a, **kw):
+            _end_episode()  # the last episode has no reset phase
+            index = self.meta.total_episodes  # the index this save will get
             phase("saving")
             out = save(self, *a, **kw)
             S["session_done"] += 1
+            _write_cadence(index)
             return out
         LeRobotDataset.save_episode = saved
 
@@ -159,13 +221,22 @@ def _dataset() -> dict | None:
         return {"root": str(root), "episodes": 0, "frames": 0}
 
 
+def _last_cadence():
+    path = cadence_path()
+    try:
+        return json.loads(path.read_text())["episodes"][-1] if path and path.exists() else None
+    except (ValueError, IndexError, KeyError):
+        return None
+
+
 def status() -> dict:
     _attach_log()
     with lock:
         cams = {k: {"brightness": round(float(v[::8, ::8].mean())), "fps": _rate(cam_ticks.get(k, deque()))}
                 for k, v in frames.items()}
         out = {k: (list(v) if isinstance(v, deque) else v) for k, v in S.items()}
-    out.update(cameras=cams, loop_hz=_rate(loop_ticks), dataset=_dataset(), now=time.time())
+    out.update(cameras=cams, loop_hz=_rate(loop_ticks), dataset=_dataset(), now=time.time(),
+               reference=reference_path().exists(), last_episode=_last_cadence())
     warn = []
     for k, c in cams.items():
         if c["brightness"] < 25:
@@ -212,12 +283,18 @@ class Handler(BaseHTTPRequestHandler):
             self._send(200, HTML.read_bytes(), "text/html; charset=utf-8")
         elif self.path == "/status":
             self._send(200, json.dumps(status()).encode(), "application/json")
+        elif self.path == "/reference.jpg":
+            p = reference_path()
+            self._send(200, p.read_bytes(), "image/jpeg") if p.exists() else self._send(404, b"none", "text/plain")
         elif self.path.startswith("/stream/"):
             self._stream(self.path.split("/")[-1])
         else:
             self._send(404, b"not found", "text/plain")
 
     def do_POST(self):
+        self.path = urlsplit(self.path).path
+        if self.path == "/reference":
+            return self._send(200, json.dumps({"ok": save_reference()}).encode(), "application/json")
         if self.path != "/control":
             return self._send(404, b"not found", "text/plain")
         n = int(self.headers.get("Content-Length") or 0)
