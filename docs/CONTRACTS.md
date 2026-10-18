@@ -74,7 +74,23 @@ Every part codes against these. Build against fake inputs that match them, and t
 - `source` is one of `voice`, `keyboard`, `dashboard`, or `auto` (the controller's own return when an item sits in the return spot, F1; it appears only on `command` events, never in a POST).
 - `got_it` means release now (the voice fallback for release on pull).
 - `method` (optional, `handover` and `return`): `"model"`, `"taught_adjusted"`, `"ik"` or `"taught"` forces the first grasp method under `--skills smart` (`controller/trials.py` uses it for N tries per method). Ignored in judge mode and in other `--skills` modes. A method the item can't use now (no deployment, no taught skill) gets `accepted: false`, `reason` "method unavailable". The `command` event repeats it.
+- `instance` (optional, `handover`): a selection hint, for example `{"variant": "phillips"}`, `{"side": "left"}`, `{"side": "right"}`, `{"side": "closest"}` or `{"slot": 2}`. Slots are one-based. A variant selects a configured item, while side or slot selects a physical instance. The selected hint is passed to the picker and locate step. Left and right mean the surgeon's view of the tray. A mounted camera must have its surgeon orientation configured, not guessed from the operator's screen.
+- `question_id` (optional): echo the controller-issued question id when answering its pending question. A superseded or expired id cannot authorize a pick. Voice-only name questions do not send their local question id as a controller answer.
 - The voice server never sends an item that isn't in the current setting. Gemini's schema only allows those ids.
+
+If more than one candidate matches, no pick is authorized. The controller may return
+an optional `clarify` object in the `/command` reply and emits a `clarify` event.
+An offer of a single remaining instrument may include `confirm: true`, accepting
+yes or no before any movement.
+Voice keeps the pending question per call or text thread, not across callers.
+The next answer sends a handover with the chosen item and instance. A question
+expires after 15 seconds: "I'll wait for you to ask again." Cancel drops the
+question. Stop uses `/stop` immediately, even while a question is pending.
+
+`POST /clarify` (optional) logs voice questions and answers through the normal
+controller event stream. It does not move the arm. Body fields are `type`
+(`clarify` or `clarify_answer`), and optional `say`, `item`, `candidates`,
+`question_id`, `answer`, `answer_ms` and `context`.
 
 ## State (`GET /state`)
 
@@ -95,6 +111,7 @@ Every part codes against these. Build against fake inputs that match them, and t
 ```
 
 - `out_camera` (optional): what the camera says is out, from the latest fresh TrayState: items whose slot is empty, minus anything sitting in the return spot. `null` when there's no fresh TrayState. `count` compares it with `out` and says if they disagree.
+- `out_instances` (optional): outstanding physical identities alongside the existing `out` item list. Multiple handed instances of the same item must remain counted separately; returning one must not remove another person's instrument. Pick, handover and return events may carry `instance` to identify which copy changed hands.
 - `sheet` (optional): the last count sheet read this case, `{"tray", "items": {"<item id>": {"expected", "initial", "closing"}}, "method", "t"}`, or `null`. Counts are integers or `null` when the box is empty or unreadable.
 - `packs` (optional): pack labels read this case, `[{"item", "lot", "expires", "expired"}]`. `expires` is `YYYY-MM-DD` or `null`.
 - `case_id` (optional): the current case, `<setting>-<unix start seconds>`. A new case starts when the controller starts, when the setting changes and on `POST /reset` with `clear_count`.
@@ -144,6 +161,7 @@ Every part codes against these. Build against fake inputs that match them, and t
 - `stale` (optional): `true` when the Perceptron call failed or timed out and the local slot check could not answer; the body is the last good read with a new `t`. The controller treats a stale TrayState, or one older than `TRAY_STALE_S` (default 8 s, set in `.env`), as no camera reading (the count and the grasp check fall back to the gripper and `out`).
 - `detector` (optional): `perceptron` when `/v1/detect` answered within its timeout (6 s unless `VISION_DETECT_TIMEOUT_S` is set), `local` when that call was slow, failed, or out of credits and each slot was judged full or empty from the image, `none` when neither answered and `stale` is true.
 - Perceptron gives no confidence, so a fresh read uses `1.0`.
+- Multiple physical instances may be supplied as separate present slot rows for the same `item`. Optional per-row `slot` (one-based), `variant`, `side` or instance metadata identify them. Never collapse two detections into one before asking which one.
 
 ## Hand (vision to the controller, about 10 times a second)
 
@@ -180,6 +198,7 @@ Every part codes against these. Build against fake inputs that match them, and t
 ```
 
 - `type` is one of `command`, `step`, `picked`, `handed`, `set_down`, `released`, `returned`, `missed`, `count`, `stopped`, `error`.
+- Optional types `clarify` and `clarify_answer` record each question and answer. A question carries `say`, `item`, `candidates` and `question_id`. Each candidate can carry `item` (item id), `label`, `variant`, `side`, `slot` and `instance` (the handover hint). Answers carry `question_id`, `answer` and `answer_ms` (elapsed milliseconds). Cancellation and timeout are answers too, with no handover. `context` optionally identifies the call or text thread. These events use the same WebSocket and ledger path as all other events.
 - Optional `type` `read`: the result of a reading command, with a `read` object `{"kind": "count_sheet" | "tray_tag" | "pack_label", "ok", "method": "qr" | "perceptron" | "gemini" | null, "latency_ms", ...}` plus the reader's fields (vision `POST /read/*`). Its `say` is the spoken answer. Optional extras: for a count sheet `compare` (`"closing"`, `"initial"` or `null`) and `mismatch` (closing mode `[{"item", "sheet", "scrub"}]`, initial mode `[{"item", "sheet", "expected"}]`); for a tray tag `switched` (bool); `error` when vision can't be reached.
 - `read.source` (optional) is `"photo"` when the result came from a texted photo through `POST /read_result`.
 - `sheet_mismatch` (optional) on `count` events, when a count sheet was read this case: `[{"item", "sheet", "scrub"}]`, where the sheet's count and Scrub's count of that item on the tray differ.
@@ -244,6 +263,13 @@ Vision reads the controller's `GET /state`, `GET /setting` and `GET /events/rece
 Slot and return-spot boxes start as `null` and get filled once the camera is mounted (Brandon marks them; Evan commits the numbers).
 
 Optional overlay `settings/<id>.local.json`: `{"aliases": {"<item id>": ["word", ...]}}`, clinic-taught words, written only by the controller (`POST /alias`). The controller merges it into the setting it loads (added lowercase, deduped, unknown ids ignored), so `GET /setting` and `POST /setting` return the merged file. Code never writes `<id>.json`.
+
+Optional item fields: `group` is a shared request word, and `variant` is the short
+distinguishing word. For example, the bench items `flathead_screwdriver` and
+`phillips_screwdriver` share `"group": "screwdriver"` and have variants `flathead`
+and `Phillips`. "Screwdriver" asks a question; "Phillips" selects one. Existing
+names, aliases and exact pick/return instructions stay unchanged. The surgical
+training tray has no added example items.
 
 ## Arm interface (Python, the controller imports it)
 
