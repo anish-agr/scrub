@@ -60,8 +60,20 @@ def load() -> None:
     load_dotenv(ROOT / ".env")
 
 
+# Same fallbacks as voice/src/config.ts: the Spectrum names work when the Photon names are empty.
+ALIASES = {"PHOTON_PROJECT_ID": "SPECTRUM_PROJECT_ID", "PHOTON_API_KEY": "SPECTRUM_PROJECT_SECRET"}
+
+
+def value(name: str) -> str:
+    """The key's value, or its alias's. Never print the result."""
+    found = os.getenv(name, "").strip()
+    if not found and name in ALIASES:
+        found = os.getenv(ALIASES[name], "").strip()
+    return found
+
+
 def present(name: str) -> bool:
-    return bool(os.getenv(name, "").strip())
+    return bool(value(name))
 
 
 def redact(text: str) -> str:
@@ -105,6 +117,15 @@ def check_robotics() -> tuple[str, str, str]:
         return row("Perceptron robotics", False, type(exc).__name__)
 
 
+def detect_verdict(status: int) -> tuple[bool, str]:
+    """The test image is 1x1, so a good key can answer 400. 401 and 403 mean the key is bad."""
+    if status == 400:
+        return True, "key ok, HTTP 400 on test image"
+    if status == 200:
+        return True, "HTTP 200"
+    return False, f"HTTP {status}"
+
+
 def check_detect() -> tuple[str, str, str]:
     blocked = need("PERCEPTRON_API_KEY")
     if blocked:
@@ -126,7 +147,7 @@ def check_detect() -> tuple[str, str, str]:
             headers={"Authorization": f"Bearer {os.environ['PERCEPTRON_API_KEY']}"},
             timeout=20,
         )
-        ok, detail = http_ok(response)
+        ok, detail = detect_verdict(response.status_code)
         return row("Perceptron detect", ok, detail)
     except httpx.HTTPError as exc:
         return row("Perceptron detect", False, type(exc).__name__)
@@ -177,11 +198,11 @@ def check_photon() -> tuple[str, str, str]:
         blocked = need(name)
         if blocked:
             return ("Photon", *blocked[1:])
-    project = os.environ["PHOTON_PROJECT_ID"].strip()
+    project = value("PHOTON_PROJECT_ID")
     try:
         response = httpx.get(
             f"https://api.photon.codes/v1/projects/{project}",
-            headers={"Authorization": f"Bearer {os.environ['PHOTON_API_KEY']}"},
+            headers={"Authorization": f"Bearer {value('PHOTON_API_KEY')}"},
             timeout=20,
         )
         ok, detail = http_ok(response)
@@ -240,7 +261,7 @@ def key_lines() -> list[str]:
             lines.append(f"  {service}")
             for name, required in keys:
                 if present(name):
-                    state = "set"
+                    state = "set" if os.getenv(name, "").strip() else f"set (as {ALIASES[name]})"
                 elif required:
                     state = "MISSING"
                 else:

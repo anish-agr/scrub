@@ -14,6 +14,7 @@ if ! grep -q '^MONGODB_URI=.\+' .env; then
   echo "MONGODB_URI is empty in .env" >&2
   exit 1
 fi
+chmod 600 .env
 export DEBIAN_FRONTEND=noninteractive
 apt-get update
 apt-get install -y python3 python3-venv python3-pip nginx certbot python3-certbot-nginx
