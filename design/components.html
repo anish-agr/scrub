@@ -1,0 +1,29 @@
+<!doctype html>
+<!-- STYLE: Swiss status board and medical device HMI. Static component samples. -->
+<html lang="en" data-theme="paper">
+<head>
+  <meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>Scrub component sheet</title><link rel="stylesheet" href="scrub.css">
+  <style>
+    main{display:grid;gap:24px;grid-template-columns:repeat(2,minmax(0,1fr))}
+    .full{grid-column:1/-1}.camera-frame{display:grid;place-items:center}
+    .actions{display:flex;gap:8px;flex-wrap:wrap}
+    @media(max-width:700px){main{grid-template-columns:minmax(0,1fr)}}
+  </style>
+</head>
+<body class="scrub-ui">
+  <header class="masthead"><div><b class="wordmark">SCRUB</b><span class="subtitle">OR 4 · Component samples</span></div><div class="clock"><b class="mock">SAMPLE</b><br>T+00:12:40</div><button id="theme">Monitor theme</button></header>
+  <div class="banner">STOPPED · ARM FROZEN · Reset before moving</div>
+  <main>
+    <section><p class="kicker">Readouts</p><div class="readouts"><div class="readout">6.4 <small>s</small></div><div class="readout">3 / 3</div></div></section>
+    <section><p class="kicker">Buttons</p><div class="actions"><button>Count</button><button aria-pressed="true">Pressed</button><button disabled>Unavailable</button></div><button class="stop">Stop</button></section>
+    <section class="full"><p class="kicker">Step strip</p><ol class="step-strip"><li>FIND</li><li>PICK</li><li>CHECK</li><li class="current">HAND</li><li>WAIT</li><li>RELEASE</li><li>HOME</li></ol><ol class="step-strip"><li>FIND</li><li class="failed">PICK FAILED</li></ol></section>
+    <section><p class="kicker">Instrument row</p><div class="instrument-row"><b>Hemostat, Kelly</b><span class="code">SLOT 02</span><span class="state good">ON TRAY</span><span class="code">HEM-01</span></div><div class="instrument-row"><b>Scalpel handle</b><span class="code">SLOT 01</span><span class="state sharp">SAFE SPOT</span><span class="code">SCA-01</span></div></section>
+    <section><p class="kicker">Event log</p><ol class="event-log"><li><time>12:40:06</time><b class="good">HANDED</b><span>Hemostat, 6.4 s</span></li><li><time>12:40:08</time><b class="bad">STOPPED</b><span>Arm frozen.</span></li></ol></section>
+    <section><p class="kicker">Measured results sample</p><table><thead><tr><th>Item</th><th>Rate</th><th>Tries</th><th>95% range</th></tr></thead><tbody><tr><td>Hemostat</td><td>83%</td><td>10/12</td><td>[55-95]</td></tr></tbody></table><p class="empty-note">No real-arm tries yet. Tables fill as tests run.</p></section>
+    <section><p class="kicker">Camera panel</p><div class="camera-frame"><span class="camera-label">CAM OVERHEAD · 30 FPS · BRIGHT</span><p class="empty-note">No camera connected to this sample sheet.</p></div></section>
+  </main>
+  <div class="banner warning">VISION STALE · Check the tray before continuing</div>
+  <footer>Team Scrub · DubHacks '26 <a href="#">Terms</a><a href="#">Privacy</a></footer>
+  <script>document.getElementById('theme').onclick=e=>{const root=document.documentElement;root.dataset.theme=root.dataset.theme==='paper'?'monitor':'paper';e.target.textContent=root.dataset.theme==='paper'?'Monitor theme':'Paper theme'};</script>
+</body></html>
