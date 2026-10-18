@@ -214,3 +214,25 @@ def test_replay_driver():
     r2.start(st)
     r2.abort()
     assert r2.tick(st, {}) is None
+
+
+def test_camera_hang_restart_rule(monkeypatch):
+    """A camera down 15+ s restarts the station only when parked/off, idle of runs and saves, and plugged in."""
+    import threading
+    import station as STN
+    s = STN.Station.__new__(STN.Station)
+    notes = []
+    s.note = notes.append
+    s.down, s.down_since, s.restart_requested, s._restart_hint = {"wrist"}, {"wrist": time.time() - 20}, False, 0.0
+    s.saving, s.auto, s.stop_evt = False, None, threading.Event()
+    monkeypatch.setattr(STN.A, "CAM_SPECS", {1: ("wrist", "icspring")})
+    s.state = "idle"  # motors on: never restart under it
+    s._camera_restart_check()
+    assert not s.restart_requested and "press Home" in notes[-1]
+    s.state, s._restart_hint = "parked", 0.0
+    monkeypatch.setattr(STN.A, "find_camera", lambda spec: None)  # unplugged: ask, don't loop
+    s._camera_restart_check()
+    assert not s.restart_requested and "not plugged in" in notes[-1]
+    monkeypatch.setattr(STN.A, "find_camera", lambda spec: 1)
+    s._camera_restart_check()
+    assert s.restart_requested and s.stop_evt.is_set()
