@@ -52,7 +52,15 @@ GRIP_LOAD_MAX = 300  # raw |Present_Load| (LeRobot caps the gripper near 500): a
 GRIP_LOAD_S = 1.0    # straining this long eases the claw open a unit per loop, before overload trips
 GRIP_TEMP_WARN = 55  # deg C: warn on the page
 GRIP_TEMP_EASE = 62  # deg C: open the claw until it cools (STS3215 shuts itself off near 70)
-GRIP_BACKOFF = 4.0   # on an overload reply, open this much per loop until the servo stops reporting it
+GRIP_BACKOFF = 4.0
+# Gripper torque by situation (Torque_Limit, 0-1000 = 0-100%; LeRobot's cap is 500). It drew ~100 mA all the
+# time while still, closed 86% of a session, and ran 3-8 C hotter than the other joints.
+GRIP_TORQUE_IDLE = 150   # closed on nothing and still: enough to stay shut
+GRIP_TORQUE_HOLD = 350   # holding an object: plenty for a spatula or an instrument
+GRIP_TORQUE_MOVE = 500   # moving / opening: LeRobot's limit
+GRIP_CLOSED_POS = 6.0    # at or below this the jaws are shut on nothing
+GRIP_IDLE_S = 1.5
+GRIP_DEAD_ZONE = 3       # encoder steps either side (factory 1): stop chasing sub-degree errors   # on an overload reply, open this much per loop until the servo stops reporting it
 
 
 DROP_TARGET = [None, False]  # camera index for the SCRUB_DROP_CAMERA drill, done flag
@@ -64,6 +72,7 @@ COOL_TRIP, COOL_RESUME = 60, 50
 COOL_PLATEAU_S = 180  # no further drop for this long while <= COOL_TRIP - 5: resume anyway
 REST = {"shoulder_lift": -98.0, "elbow_flex": 92.0, "wrist_flex": 70.0}  # folded, just off the stops
 REST_DEG_S = 30.0
+ROLL_LIMIT_DEG = 150.0  # wrist_roll is calibrated over a full turn; stay this far inside the ends
 LAST_ERROR = Path.home() / "scrub-logs" / "last-error.txt"  # a crashed session's reason, for the page
 CAM_SPECS: dict = {}         # starting OpenCV index -> (role, name spec), to find a camera again after a replug
 
@@ -170,6 +179,20 @@ def tolerate_camera_stalls() -> None:
         OpenCVCamera.connect = connect_and_arm
 
 
+def retry_bus_reads() -> None:
+    """LeRobot reads the bus with zero retries, so one dropped reply ("There is no status packet")
+    ends the session (Oct 17: twice in one hour, leader and follower). Retry a read up to 3 times."""
+    from lerobot.motors.motors_bus import MotorsBus
+    sync_read, read = MotorsBus.sync_read, MotorsBus.read
+
+    def sync_read_retry(self, data_name, motors=None, *, normalize=True, num_retry=0):
+        return sync_read(self, data_name, motors, normalize=normalize, num_retry=max(num_retry, 3))
+
+    def read_retry(self, data_name, motor, *, normalize=True, num_retry=0):
+        return read(self, data_name, motor, normalize=normalize, num_retry=max(num_retry, 3))
+    MotorsBus.sync_read, MotorsBus.read = sync_read_retry, read_retry
+
+
 def lenient_motor_check() -> None:
     """LeRobot's start-up check pings each motor once and counts a reply carrying an error flag
     (angle out of range, overload) as a missing motor. A motor that answers is there: retry a
@@ -198,6 +221,8 @@ def joint_limits(bus) -> dict:
         mid = (c.range_min + c.range_max) / 2
         lo, hi = ((r - mid) * 360 / 4095 for r in (c.range_min, c.range_max))
         out[m] = (lo + 1, hi - 1)
+    if "wrist_roll" in out:  # full-turn joint: keep clear of the encoder end (Oct 17: 4200 > 4095, overload)
+        out["wrist_roll"] = (max(out["wrist_roll"][0], -ROLL_LIMIT_DEG), min(out["wrist_roll"][1], ROLL_LIMIT_DEG))
     return out
 
 
@@ -230,15 +255,22 @@ TEMP_WARN, TEMP_RELAX = 55, 62  # deg C: warn on the page; stop pushing with tha
 ARM_JOINTS = ("shoulder_pan", "shoulder_lift", "elbow_flex", "wrist_flex", "wrist_roll")
 
 
+THERMAL_META: dict = {}  # task, dataset root, mode: set in main(), goes in the `session` row
+
+
+def _tlog():
+    import thermal_log
+    return thermal_log.get({"source": "arm_session", "pid": os.getpid(), **THERMAL_META,
+                            "settings": {"COOL_TRIP": COOL_TRIP, "COOL_RESUME": COOL_RESUME, "GENTLE_ACCEL": GENTLE_ACCEL,
+                                         "GENTLE_SPEED": GENTLE_SPEED, "DEADBAND_DEG": DEADBAND_DEG,
+                                         "JOINT_LOAD_MAX": JOINT_LOAD_MAX, "GAP_DEG": GAP_DEG,
+                                         "EASE_DEG_S": EASE_DEG_S, "GRIP_SQUEEZE": GRIP_SQUEEZE}})
+
+
 def _thermal_row(row: dict) -> None:
     """One telemetry row to ~/scrub-logs/thermal and MongoDB (explore/thermal_log.py). Never raises."""
     try:
-        import thermal_log
-        thermal_log.get({"source": "arm_session", "pid": os.getpid(),
-                         "settings": {"COOL_TRIP": COOL_TRIP, "COOL_RESUME": COOL_RESUME, "GENTLE_ACCEL": GENTLE_ACCEL,
-                                      "GENTLE_SPEED": GENTLE_SPEED, "DEADBAND_DEG": DEADBAND_DEG,
-                                      "JOINT_LOAD_MAX": JOINT_LOAD_MAX, "GAP_DEG": GAP_DEG,
-                                      "EASE_DEG_S": EASE_DEG_S, "GRIP_SQUEEZE": GRIP_SQUEEZE}}).write(row)
+        _tlog().write(row)
     except Exception:  # noqa: BLE001 - telemetry must never stop the arm
         pass
 
@@ -259,6 +291,11 @@ def _start_cooldown(temps: dict) -> None:
     COOLDOWN.parent.mkdir(parents=True, exist_ok=True)
     COOLDOWN.write_text(json.dumps({"t": time.time(), "temps": temps, "hot": hot}))
     _thermal_row({"kind": "event", "event": "cooldown_trip", "temps": temps, "hot": hot})
+    try:
+        import arm_ui
+        arm_ui.ep["why"] = "cooldown"
+    except Exception:  # noqa: BLE001
+        pass
     print(f"COOL-DOWN: {', '.join(f'{m} {t} C' for m, t in hot.items())}: folding to rest, torque off, "
           f"resuming at {COOL_RESUME} C", flush=True)
     _say("My motors are hot. I'm folding up to cool down.")
@@ -394,6 +431,11 @@ def guard_joints() -> None:
                 ph, hz = arm_ui.S.get("phase"), arm_ui._rate(arm_ui.loop_ticks)
             except Exception:  # noqa: BLE001
                 ph, hz = None, None
+            try:
+                import thermal_log
+                thermal_log.track_temps(st["temp"])  # peak temperature per motor for the episode_end row
+            except Exception:  # noqa: BLE001
+                pass
             _thermal_row({"kind": "sample", "phase": ph, "loop_hz": hz, "motors": {
                 m: {"temp": st["temp"].get(m), "load": int(loads.get(m, 0)), "pos": round(float(pos.get(m, 0)), 1),
                     "goal": round(float(action.get(m + ".pos", 0)), 1) if (m + ".pos") in action else None,
@@ -418,6 +460,9 @@ def guard_joints() -> None:
             for m in self.bus.motors:  # RAM registers: no torque cycling (a raised arm would drop)
                 self.bus.write("Acceleration", m, GENTLE_ACCEL)
                 self.bus.write("Goal_Velocity", m, GENTLE_SPEED)
+            with self.bus.torque_disabled("gripper"):  # EEPROM; only the claw relaxes for a moment
+                self.bus.write("CW_Dead_Zone", "gripper", GRIP_DEAD_ZONE)
+                self.bus.write("CCW_Dead_Zone", "gripper", GRIP_DEAD_ZONE)
             print(f"gentle mode: acceleration {GENTLE_ACCEL}, speed cap {GENTLE_SPEED} steps/s", flush=True)
         except Exception as e:  # noqa: BLE001 - LeRobot's defaults still work
             print(f"gentle mode not applied ({type(e).__name__})", flush=True)
@@ -429,6 +474,11 @@ def guard_joints() -> None:
         """Keeping torque on stops a raised arm falling, but at rest it only keeps the motors
         pushing into the base. Folded at rest: torque off. Raised: hold where it is, no push."""
         try:
+            if START.exists():  # preview ending because recording starts: keep holding, no limp arm
+                raw = self.bus.sync_read("Present_Position", normalize=False)
+                self.bus.sync_write("Goal_Position", raw, normalize=False)
+                print("exit: preview over, holding the pose for the recording", flush=True)
+                return disconnect(self, *a, **kw)
             if COOLDOWN.exists():
                 _fold_to_rest(self.bus)
                 print("exit: folded to rest for the cool-down, torque off", flush=True)
@@ -483,7 +533,7 @@ def guard_gripper() -> None:
     """Patch SOFollower.send_action so a blocked claw times out to a gentle hold."""
     from lerobot.robots.so_follower.so_follower import SOFollower
     send = SOFollower.send_action
-    st = {"hold": None, "ref": None, "since": 0.0}
+    st = {"hold": None, "ref": None, "since": 0.0, "grasp": None, "empty": True}
 
     def guarded(self, action):
         goal = action.get("gripper.pos")
@@ -505,6 +555,8 @@ def guard_gripper() -> None:
         st["pos"] = pos
         now = time.perf_counter()
         load, temp = _grip_health(self.bus, st, now)
+        if st["grasp"] is not None and load is not None:
+            st["grasp"]["peak"] = max(st["grasp"]["peak"], load)
         if (load is not None and load > GRIP_LOAD_MAX) or (temp is not None and temp >= GRIP_TEMP_EASE):
             st["strain"] = st.get("strain") or now
             if now - st["strain"] > GRIP_LOAD_S or (temp is not None and temp >= GRIP_TEMP_EASE):
@@ -521,6 +573,7 @@ def guard_gripper() -> None:
             if goal >= st["hold"] + GRIP_SQUEEZE:  # leader opened past the contact point: let go
                 st["hold"], st["ref"] = None, None
                 print("gripper guard: released", flush=True)
+                _grasp_end(st, pos, goal, load, temp, now)
                 _guard_ui(False, None)
             else:
                 action = {**action, "gripper.pos": max(goal, st["hold"])}
@@ -532,11 +585,74 @@ def guard_gripper() -> None:
                 action = {**action, "gripper.pos": st["hold"]}
                 print(f"gripper guard: blocked at {pos:.0f}, holding at {st['hold']:.0f}", flush=True)
                 _guard_ui(True, round(st["hold"]))
+                _grasp_start(st, pos, goal, load, temp, now)
         else:
             st["ref"] = None
+        _grip_empty(st, pos, goal, load, temp)
+        _grip_torque(self.bus, st, pos, action["gripper.pos"], now)
         return send(self, action)
 
     SOFollower.send_action = guarded
+
+
+def _grasp_start(st: dict, pos, goal, load, temp, now: float) -> None:
+    """The claw closed on an object (the guard's blocked detection). Never raises."""
+    try:
+        import thermal_log
+        st["grasp"] = {"t0": now, "peak": load or 0}
+        thermal_log.EP["grasps"] += 1
+        thermal_log.event("grasp_start", pos=round(pos, 1), goal=round(goal, 1), load=load, temp=temp,
+                          torque_limit=GRIP_TORQUE_HOLD, n_in_episode=thermal_log.EP["grasps"])
+    except Exception:  # noqa: BLE001
+        pass
+
+
+def _grasp_end(st: dict, pos, goal, load, temp, now: float) -> None:
+    """The leader opened past the contact point: the object was let go. Never raises."""
+    try:
+        import thermal_log
+        g, st["grasp"] = st["grasp"], None
+        if g:
+            thermal_log.event("grasp_end", duration_s=round(now - g["t0"], 2), peak_load=g["peak"],
+                              pos=round(pos, 1), goal=round(goal, 1), load=load, temp=temp)
+    except Exception:  # noqa: BLE001
+        pass
+
+
+def _grip_empty(st: dict, pos, goal, load, temp) -> None:
+    """Fully closed on nothing (once per close; re-armed when the claw opens). Never raises."""
+    try:
+        if st["hold"] is not None:
+            return
+        if pos <= GRIP_CLOSED_POS and goal <= pos + 1.0:
+            if not st["empty"]:
+                import thermal_log
+                st["empty"] = True
+                thermal_log.EP["empty_closes"] += 1
+                thermal_log.event("claw_closed_empty", pos=round(pos, 1), goal=round(goal, 1), load=load, temp=temp)
+        elif pos > GRIP_CLOSED_POS + 2:
+            st["empty"] = False
+    except Exception:  # noqa: BLE001
+        pass
+
+
+def _grip_torque(bus, st: dict, pos: float, goal: float, now: float) -> None:
+    """Idle shut -> 15%, holding something -> 35%, otherwise 50%. Writes only when the level changes."""
+    if st["hold"] is not None and pos > GRIP_CLOSED_POS:
+        want = GRIP_TORQUE_HOLD
+    elif pos <= GRIP_CLOSED_POS and goal <= pos + 1.0:
+        st["shut"] = st.get("shut") or now
+        want = GRIP_TORQUE_IDLE if now - st["shut"] > GRIP_IDLE_S else GRIP_TORQUE_MOVE
+    else:
+        st["shut"] = None
+        want = GRIP_TORQUE_MOVE
+    if want != st.get("torque"):
+        try:
+            bus.write("Torque_Limit", "gripper", want)
+            st["torque"] = want
+            _thermal_row({"kind": "event", "event": "gripper_torque", "torque_limit": want, "pos": round(pos, 1)})
+        except Exception:  # noqa: BLE001 - keep LeRobot's limit
+            pass
 
 
 def ease(follower_port: str, leader_port: str, seconds: float) -> None:
@@ -632,6 +748,39 @@ def bus_ok(port: str) -> bool:
     return not silent_motors(port)
 
 
+def stuck_motors(port: str) -> list[str]:
+    """Follower motors that LeRobot's start-up would refuse: an overload/angle flag, usually because the
+    joint sits past its range (the target is clamped, it strains, the flag sticks). Says what to do."""
+    import scservo_sdk as scs
+    names = ["shoulder_pan", "shoulder_lift", "elbow_flex", "wrist_flex", "wrist_roll", "gripper"]
+    out = []
+    ph = scs.PortHandler(port)
+    try:
+        if not ph.openPort():
+            return []
+        ph.setBaudRate(1_000_000)
+        pk = scs.PacketHandler(0)
+        for i, n in enumerate(names, 1):
+            _m, comm, err = pk.ping(ph, i)
+            if comm != scs.COMM_SUCCESS or not err & 0x30:
+                continue
+            pos = pk.read2ByteTxRx(ph, i, 56)[0]
+            lo, hi = pk.read2ByteTxRx(ph, i, 9)[0], pk.read2ByteTxRx(ph, i, 11)[0]
+            pos = -(pos & 0x7FFF) if pos & 0x8000 else pos
+            if (lo or hi) and not lo <= pos <= hi:
+                out.append(f"{n} past its range ({pos} outside {lo}-{hi}): turn it back by hand (torque is off)")
+            else:
+                pk.write2ByteTxRx(ph, i, 42, pos)  # a fresh target at the present position clears overload
+    except Exception:  # noqa: BLE001
+        return []
+    finally:
+        try:
+            ph.closePort()
+        except Exception:  # noqa: BLE001
+            pass
+    return out
+
+
 def silent_motors(port: str) -> list[int]:
     """Motor ids 1-6 that don't answer a ping, [0] if the port won't open (only while no session owns it)."""
     import scservo_sdk as scs
@@ -656,6 +805,8 @@ def missing_devices(a) -> list[str]:
     for name, port in (("follower arm", a.follower), ("leader arm", a.leader)):
         if not os.path.exists(port):
             out.append(f"{name} USB ({Path(port).name})")
+        elif name == "follower arm" and (stuck := stuck_motors(port)):
+            out.extend(stuck)
         elif silent := silent_motors(port):
             if silent == [0] or len(silent) == 6:
                 out.append(f"{name} motors (power or cable)")
@@ -740,6 +891,8 @@ def supervise(a, argv: list) -> None:
                     return
                 if live["proc"] is not None and not START.exists():
                     START.touch()
+                    _thermal_row({"kind": "event", "event": "control", "action": "enter_start", "accepted": True,
+                                  "phase": "preview"})
                     live["proc"].send_signal(2)  # SIGINT: the preview ends, recording starts
                     continue
                 try:
@@ -924,6 +1077,13 @@ def main() -> None:
     start_log()
     if not os.environ.get("SCRUB_CHILD"):
         return supervise(a, sys.argv[1:])
+    THERMAL_META.update(task=a.task, root=str(a.root) if a.task else None,
+                        mode="record" if a.task and os.environ.get("SCRUB_PREVIEW") != "1" else
+                        "preview" if a.task else "teleop")
+    try:
+        _tlog()  # opens the log now: the session row carries task, root and mode
+    except Exception:  # noqa: BLE001
+        pass
 
     # keep holding on exit: LeRobot's default drops torque and a raised arm falls
     robot = [f"--robot.type=so101_follower", f"--robot.port={a.follower}", "--robot.id=scrub_follower",
@@ -967,6 +1127,7 @@ def main() -> None:
         cmd = ["lerobot-teleoperate", *robot, *teleop, "--fps=30"]
 
     lenient_motor_check()
+    retry_bus_reads()
     ease(a.follower, a.leader, a.ease_s)
     print(" ".join(cmd), flush=True)
     clamp_follower()  # innermost: the gripper guard below sees and sends clamped goals
@@ -985,12 +1146,36 @@ def main() -> None:
     else:
         from lerobot.scripts.lerobot_teleoperate import main as run
     sys.argv = cmd  # same arguments as the CLI, run in this process so the guard applies
+    reason = "completed"
     try:
         run()
     except BaseException as e:
         if not isinstance(e, (KeyboardInterrupt, SystemExit)):
             LAST_ERROR.write_text(f"{type(e).__name__}: {str(e).strip().splitlines()[0][:160] if str(e).strip() else ''}")
+            reason = f"error: {type(e).__name__}"
+        else:
+            reason = "interrupted" if isinstance(e, KeyboardInterrupt) else "exit"
         raise
+    finally:
+        _session_end(reason)
+
+
+def _session_end(reason: str) -> None:
+    """Last row of a session, then wait briefly for MongoDB. Never raises."""
+    try:
+        import thermal_log
+        saved = None
+        try:
+            import arm_ui
+            saved = arm_ui.S.get("session_done")
+        except Exception:  # noqa: BLE001
+            pass
+        if os.path.exists(str(COOLDOWN)):
+            reason = f"{reason} (cooldown)"
+        _thermal_row({"kind": "event", "event": "session_end", "reason": reason, "episodes_saved": saved})
+        thermal_log.flush()
+    except Exception:  # noqa: BLE001
+        pass
 
 
 if __name__ == "__main__":

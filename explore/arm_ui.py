@@ -35,9 +35,57 @@ cam_counts: dict = {}             # camera name -> hardware frames read since st
 events: dict = {}
 stalls: dict = {}                 # camera name -> stalls this episode
 down: set = set()                 # cameras not sending frames right now
-ep = {"t0": None, "obs": 0, "cam0": {}, "pending": None}  # wall-clock evidence for the episode
+ep = {"t0": None, "obs": 0, "cam0": {}, "pending": None,  # wall-clock evidence for the episode
+      "open": False, "start": None, "index": None, "why": None}  # telemetry: episode in progress, why it ended
 cfg = {"root": None, "episode_s": None, "reset_s": None, "cams": {}}
 lock = threading.Lock()
+
+
+def _tevent(kind: str, **fields) -> None:
+    """Telemetry event row (explore/thermal_log.py). Never raises."""
+    try:
+        import thermal_log
+        thermal_log.event(kind, **fields)
+    except Exception:  # noqa: BLE001
+        pass
+
+
+def _episode_begin(index) -> None:
+    try:
+        import thermal_log
+        thermal_log.EP.update(active=True, grasps=0, empty_closes=0, peak_temps={})
+        ep.update(open=True, start=time.perf_counter(), index=index, why=None)
+        _tevent("episode_start", episode=index, task=S["task"], root=str(cfg["root"]) if cfg["root"] else None)
+    except Exception:  # noqa: BLE001
+        pass
+
+
+def _episode_finish(default: str = "done") -> None:
+    """episode_end row, once per episode. The reason is the first of: an explicit cause (camera_down,
+    cooldown, a guard discard), the page/keyboard flags (rerecord, stop), the time cap, else `default`."""
+    try:
+        if not ep["open"]:
+            return
+        import thermal_log
+        ep["open"] = False
+        dur = time.perf_counter() - ep["start"]
+        if ep["why"]:
+            reason = ep["why"]
+        elif events.get("rerecord_episode"):
+            reason = "rerecord"
+        elif events.get("stop_recording"):
+            reason = "stop"
+        elif cfg["episode_s"] and dur >= cfg["episode_s"] - 0.5:
+            reason = "timeout"
+        else:
+            reason = default
+        E = thermal_log.EP
+        E["active"] = False
+        _tevent("episode_end", episode=ep["index"], reason=reason, duration_s=round(dur, 2),
+                frames=ep["obs"], grasps=E["grasps"], empty_closes=E["empty_closes"],
+                peak_temps=dict(E["peak_temps"]))
+    except Exception:  # noqa: BLE001
+        pass
 
 
 def note(line: str) -> None:
@@ -99,6 +147,7 @@ def discard_episode(reason: str) -> None:
     if S["phase"] == "recording" and events and not events.get("rerecord_episode"):
         events["rerecord_episode"] = True
         events["exit_early"] = True
+        ep["why"] = ep["why"] or reason
         note(f"episode discarded ({reason})")
 
 
@@ -114,10 +163,13 @@ def camera_down(index, is_down: bool) -> None:
     if is_down and S["phase"] == "recording" and events and not events.get("rerecord_episode"):
         events["rerecord_episode"] = True
         events["exit_early"] = True
+        ep["why"] = ep["why"] or "camera_down"
         note("episode discarded (camera down)")
 
 
 def phase(name: str, seconds=None) -> None:
+    if name != S["phase"]:
+        _tevent("phase", **{"from": S["phase"], "to": name})
     S["phase"], S["phase_started"], S["phase_s"] = name, time.time(), seconds
 
 
@@ -240,13 +292,18 @@ def install(mode: str, task, episodes, episode_s, reset_s, root, cams: dict) -> 
                 stalls.clear()
                 ep.update(t0=time.perf_counter(), obs=0, cam0=dict(cam_counts), pending=None)
                 phase("recording", cfg["episode_s"])
+                _episode_begin(S["episode"])
             elif text.startswith("Reset"):
                 _end_episode()
+                _episode_finish()
                 phase("resetting", cfg["reset_s"])
             elif text.startswith("Re-record"):
+                _episode_finish()
+                _tevent("episode_discarded", episode=ep["index"], reason=ep["why"] or "rerecord")
                 ep.update(t0=None, pending=None)
             elif text.startswith("Stop recording"):
                 _end_episode()
+                _episode_finish()
                 phase("saving")
             return say(text, *a, **kw)
         rec.log_say = said
@@ -255,11 +312,15 @@ def install(mode: str, task, episodes, episode_s, reset_s, root, cams: dict) -> 
 
         def saved(self, *a, **kw):
             _end_episode()  # the last episode has no reset phase
+            _episode_finish()
             index = self.meta.total_episodes  # the index this save will get
             phase("saving")
+            cad = dict(ep["pending"] or {})
             out = save(self, *a, **kw)
             S["session_done"] += 1
             _write_cadence(index)
+            _tevent("episode_saved", episode=index, frames=cad.get("frames_observed"),
+                    duration_s=cad.get("seconds"), cadence=cad or None, session_done=S["session_done"])
             return out
         LeRobotDataset.save_episode = saved
 
@@ -373,6 +434,12 @@ def status() -> dict:
 
 
 def control(action: str) -> bool:
+    ok = _control(action)
+    _tevent("control", action=action, accepted=bool(ok), phase=S["phase"])
+    return ok
+
+
+def _control(action: str) -> bool:
     if action == "start" and S["mode"] == "preview":
         import os
         import signal

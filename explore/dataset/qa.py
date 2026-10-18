@@ -42,12 +42,22 @@ MAX_SAMPLED_FRAMES = 40    # frames per camera per episode for blur/brightness
 LEVEL = {"PASS": 0, "WARN": 1, "FAIL": 2}
 
 
+def _read_all(pattern):
+    """Every readable parquet file; a file still being written by a live recording is skipped."""
+    frames = []
+    for f in sorted(glob.glob(pattern, recursive=True)):
+        try:
+            frames.append(pd.read_parquet(f))
+        except Exception as e:  # noqa: BLE001
+            print(f"skipping {os.path.relpath(f)} ({type(e).__name__}: still being written?)")
+    return pd.concat(frames)
+
+
 def load_meta(root):
     info = json.load(open(os.path.join(root, "meta/info.json")))
-    eps = pd.concat([pd.read_parquet(f) for f in
-                     sorted(glob.glob(os.path.join(root, "meta/episodes/**/*.parquet"), recursive=True))])
-    data = pd.concat([pd.read_parquet(f) for f in
-                      sorted(glob.glob(os.path.join(root, "data/**/*.parquet"), recursive=True))])
+    eps = _read_all(os.path.join(root, "meta/episodes/**/*.parquet"))
+    data = _read_all(os.path.join(root, "data/**/*.parquet"))
+    eps = eps[eps["episode_index"].isin(data["episode_index"].unique())]  # only episodes with readable frames
     return info, eps.sort_values("episode_index").reset_index(drop=True), data
 
 

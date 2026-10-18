@@ -86,7 +86,7 @@ body{padding:12px;display:flex;flex-direction:column;gap:12px;min-height:100vh}
     <div id="btns">
       <button id="b-next" data-a="next">Next episode<small>&rarr;</small></button>
       <button id="b-rerecord" class="warn" data-a="rerecord">Re-record<small>&larr;</small></button>
-      <button id="b-stop" class="warn" data-a="stop">Stop<small>Esc</small></button>
+      <button id="b-stop" class="warn" data-a="stop">End session<small>saves, then quits</small></button>
     </div>
     <div class="card">
       <div id="joints"></div>
@@ -177,7 +177,7 @@ function render(s){
   if(!show)disarm();
 }
 function disarm(){armed=null;clearTimeout(armTimer);
-  [["rerecord","Re-record"],["stop","Stop"]].forEach(([a,t])=>{const b=$("b-"+a);b.classList.remove("confirm");b.firstChild.textContent=t;});}
+  [["rerecord","Re-record"],["stop","End session"]].forEach(([a,t])=>{const b=$("b-"+a);b.classList.remove("confirm");b.firstChild.textContent=t;});}
 async function act(a){
   if($("btns").style.display!=="flex")return;
   if(a!=="next"){
