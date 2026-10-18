@@ -2,7 +2,7 @@
 
 A robot arm that passes instruments by voice. Built at DubHacks '26 (Oct 17 to 18, 2026).
 
-A clinician asks for an instrument out loud. The SO-101 arm picks it from the tray, carries it to the handoff point, slows down as it gets there, and lets go when they pull or say "got it." Then it goes straight home on its own. Scrub keeps a running count and reads back what's out.
+A clinician asks for an instrument out loud. The SO-101 arm picks it from the tray, carries it to a fixed handoff point at a capped speed, and lets go when they pull or say "got it." Then it goes straight home on its own. Scrub keeps a running count and reads back what's out.
 
 The tray holds three instruments: scalpel handle, hemostat and Mayo scissors. On the real arm, putting an instrument back is manual. The demo video shows a simulated electromagnet return, labeled as simulation.
 

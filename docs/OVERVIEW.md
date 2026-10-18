@@ -8,7 +8,7 @@ DubHacks '26, Oct 17 to 18, 2026. Team: Anish, Caiden, Brandon, Evan.
 
 ## 1. Scrub in one paragraph
 
-Scrub is a robot arm that works as a surgeon's second pair of hands. The surgeon asks for an instrument out loud. The SO-101 arm picks it from a tray of three (scalpel handle, hemostat, Mayo scissors), carries it to the handoff point, slows down as it gets there, and lets go when the surgeon pulls it or says "got it". Then it goes straight home on its own. Scrub keeps a running count of what's out and reads it back on request. On the real arm the picks are skills we taught it from our own recorded demonstrations (demo replays). We also recorded data to fine-tune Perceptron's Isaac 0.5 model, but no model is deployed (0 deployments as of 07:10 Oct 18), so no pick on the arm comes from a model. Putting an instrument back is manual on the real arm; the video shows a simulated electromagnet return, labeled as simulation.
+Scrub is a robot arm that works as a surgeon's second pair of hands. The surgeon asks for an instrument out loud. The SO-101 arm picks it from a tray of three (scalpel handle, hemostat, Mayo scissors), carries it to a fixed handoff point at a capped speed, and lets go when the surgeon pulls it or says "got it". Then it goes straight home on its own. Scrub keeps a running count of what's out and reads it back on request. On the real arm the picks are skills we taught it from our own recorded demonstrations (demo replays). We also recorded data to fine-tune Perceptron's Isaac 0.5 model, but no model is deployed (0 deployments as of 07:10 Oct 18), so no pick on the arm comes from a model. Putting an instrument back is manual on the real arm; the video shows a simulated electromagnet return, labeled as simulation.
 
 ## 2. The problem
 
@@ -23,7 +23,7 @@ Sources and numbers: `team/PROPOSAL.md` (sources section), `docs/BUSINESS.md`, `
 
 | The surgeon | Scrub |
 | --- | --- |
-| Says "hemostat" (or "Kelly", "grab me the kelly") | Picks it, checks the grasp, lifts it, carries it to the handoff point and slows down as it gets there |
+| Says "hemostat" (or "Kelly", "grab me the kelly") | Picks it, checks the grasp, lifts it, carries it to a fixed handoff point at a capped speed |
 | Takes it (pulls) or says "got it" | Opens the gripper and goes straight home, then logs the time from request to hand. A pull is read from the grip load changing while the arm holds still at the handoff point (release on pull) |
 | Puts a used instrument back | On the real arm this is manual: a person sets it back in its slot. The video shows a simulated return (electromagnet pickup), labeled as simulation |
 | Says "count" / "what's out" | Reads back what's out, checked against the camera |
@@ -53,7 +53,7 @@ Every pick and return carries a skill source on its events, `model` (a Perceptro
 | --- | --- |
 | **Surgical first.** Operating room tray: scalpel handle, hemostat, Mayo scissors | The strongest story (staffing, counts, sharps) and the instruments we have |
 | **Only the surgical tray.** Other settings files in `settings/` are not part of the demo | We have three real instruments and limited arm time |
-| **Handoff goes to a fixed handoff point, and the arm slows as it nears it.** No hand detection | The cameras' frame rate is too low to track a moving hand |
+| **Handoff goes to a fixed handoff point, at a capped speed.** No hand detection | The cameras' frame rate is too low to track a moving hand |
 | **No sharps safe spot.** The scalpel safe-spot step was cut | The arm can't do it reliably |
 | **After each handoff the arm goes straight home** | Keeps the arm out of the way and short holds keep the motors cool |
 | **Return is manual on the real arm.** The video shows a simulated electromagnet return, labeled | A gripper return wasn't reliable in time |
@@ -103,7 +103,7 @@ Every pick and return carries a skill source on its events, `model` (a Perceptro
 
 - **Other trays.** Only the surgical tray (three instruments) is demoed.
 - **Sharps safe spot.** Cut from the routine, the sim and the docs.
-- **Hand detection.** The camera frame rate is too low; the arm slows near the handoff point instead.
+- **Hand detection.** The camera frame rate is too low; the arm goes to a fixed handoff point instead.
 - **The idea prototypes.** The gallery in `team/prototypes/` is inspiration only and moves out before the repo goes public.
 - **Claims with no real use behind them.** Any track claim that `docs/INTEGRATION.md` cannot prove with a command is cut.
 
@@ -167,7 +167,7 @@ Targets per item are in `docs/TRAINING.md`. The step-by-step operator walkthroug
 
 - Stop works from every state, by voice, the stop button or the spacebar, and skips everything else.
 - After a stop, a person must reset before Scrub moves again.
-- Speed and joint limits on every move, and the arm slows as it nears the handoff point.
+- Speed and joint limits on every move, capped at 45 degrees a second on the real arm.
 - A grasp check before carrying, and release only on a pull or "got it".
 - The thermal guard reads motor temperatures every 2 s while it drives the arm and rests it with torque off.
 - After each handoff the arm goes straight home.
@@ -251,7 +251,7 @@ Start with surgery centers and training labs. Sell per operating room per month,
 | Chunk | 30 future moves (1 second) the model returns per request |
 | RTC | Real-time chunking: how new chunks blend with the moves already being played |
 | Cadence | How many frames per second recording really achieved. Must be about 30 |
-| Handoff point | Where the arm holds an instrument out; it slows as it gets there |
+| Handoff point | Where the arm holds an instrument out |
 | Ledger | The log of every event and result (MongoDB) |
 | Case | One procedure from start to "end of case"; has a `case_id` |
 | Fake arm / sim arm / real arm | Controller modes: instant fake responses, the MuJoCo simulation, or the real SO-101 |

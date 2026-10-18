@@ -44,7 +44,7 @@ BEATS = [
                 (None, "\"Hemostat.\""),
                 ("Anish", "This is Scrub. You ask out loud. It picks the hemostat with a skill we "
                           "taught it."),
-                ("Anish", "It slows down as it nears the handoff point and holds the handle out."),
+                ("Anish", "It moves at a capped speed and holds the handle out at a fixed point."),
                 ("Anish", "It lets go when you pull, then goes straight home on its own.")]),
     dict(slot="V2", sim=["sim-scissors.mp4"], title="Mayo scissors",
          film="Same as V1 with the Mayo scissors.",
@@ -162,7 +162,7 @@ def draw_cards():
         "1. You ask for an instrument out loud.",
         "2. Gemini turns what you said into one instrument from the tray.",
         "3. Perceptron's vision finds it on the tray.",
-        "4. The arm runs a skill we taught it, then slows as it nears the handoff point.",
+        "4. The arm runs a skill we taught it, at a capped speed, to a fixed handoff point.",
         "5. It lets go when you pull and goes home on its own.",
         "6. Every try is logged."]).save(out / "how-1.png")
     _page("What keeps it in bounds", [

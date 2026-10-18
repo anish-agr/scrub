@@ -7,7 +7,7 @@ What works today, true only. What's left is in `team/LEFT.md`. Tool-by-tool proo
 - Scope: three instruments (scalpel handle, hemostat, Mayo scissors), surgical tray only.
 - Real arm: the recording station (`explore/station/`, port 8090) runs the SO-101 and both cameras; at 07:25 it was parked, side camera 30 fps, wrist camera 22.8 fps.
 - Real picks: "Pick & hand over" replays an averaged path from our recorded demos per instrument (`explore/station/autopick.py`). This is a skill we taught it, not a model.
-- Moves are minimum-jerk with a 45 deg/s peak (1.6x slower above 52 C), so the arm slows as it nears the handoff point.
+- Moves are minimum-jerk with a 45 deg/s peak (1.6x slower above 52 C). No slow zone near the hand on the real arm; only the controller and sim have one.
 - The arm holds at the handoff point, lets go on a pull or "let go"/"got it", checks the jaw closed on nothing, and goes home.
 - Voice to the real arm: with the station up, voice finds it on localhost:8090 and sends handover, let go, stop, continue, return to home and kill to it (commits 774e2da, 5bd0b37, 380b970).
 - Stop: "stop" freezes the arm where it is; "continue" resumes; the controller needs `POST /reset` after a stop.

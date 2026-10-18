@@ -4,7 +4,7 @@ The words below are the captions and the narration in `video/roughcut.py` (the `
 
 Record one line per voice memo, quiet room, and name it exactly as in the left column (`python -m video.roughcut --lines` prints the same list). Drop it in `data/video/kit/real/`; it plays under its line on the next rebuild. Lines in quotes with no speaker are said on camera (the ask) and are captioned only over a real take.
 
-Scope: three instruments (scalpel, hemostat, Mayo scissors). No safe spot. No hand tracking: the arm slows down as it nears the handoff point. Picks are skills we taught it (recorded demonstrations), not a trained model. Return on the real arm is manual; the electromagnet return is simulation only and labeled so.
+Scope: three instruments (scalpel, hemostat, Mayo scissors). No safe spot. No hand tracking: the arm goes to a fixed handoff point at a capped speed (45 degrees a second at most). Only the simulation slows on the last stretch. Picks are skills we taught it (recorded demonstrations), not a trained model. Return on the real arm is manual; the electromagnet return is simulation only and labeled so.
 
 ## Title (3 s)
 
@@ -18,7 +18,7 @@ Card: "Scrub. A robot arm that passes surgical instruments when you ask." No one
 | V11-Anish-2 | Anish | When nobody is there, the surgeon looks away from the patient and searches the tray. |
 | (on camera) | lab coat | "Hemostat." |
 | V11-Anish-3 | Anish | This is Scrub. You ask out loud. It picks the hemostat with a skill we taught it. |
-| V11-Anish-4 | Anish | It slows down as it nears the handoff point and holds the handle out. |
+| V11-Anish-4 | Anish | It moves at a capped speed and holds the handle out at a fixed point. |
 | V11-Anish-5 | Anish | It lets go when you pull, then goes straight home on its own. |
 
 A real Photon call is unconfirmed. Don't say "on the phone" or "phone call" in narration or on a card unless a real call is on video; then Anish-3 can become "You ask out loud, on a phone call." The thermal guard reads motor temperatures every 2 s; if you add a number to the thermal line, use that one.
