@@ -8,7 +8,7 @@ const API = (Q.get('api') || (location.protocol.startsWith('http') ? location.or
 const CAMS = { vision: Q.get('cam') || 'http://localhost:8001/stream', sim: 'http://localhost:8002/stream' };
 const $ = id => document.getElementById(id);
 
-const SETTING_IDS = { surgical: 'Operating room', dental: 'Dental office', bench: 'Robotics bench' };
+const SETTING_IDS = { surgical: 'Operating room', bench: 'Robotics bench' };
 const LIGHTS = ['bright', 'normal', 'dim'];
 const RAIL = ['finding', 'picking', 'checking', 'moving_to_hand', 'setting_down', 'waiting_for_pull', 'releasing', 'returning', 'homing'];
 const LABEL = { idle: 'Idle', finding: 'Finding', picking: 'Picking', checking: 'Checking grip', moving_to_hand: 'To the hand',

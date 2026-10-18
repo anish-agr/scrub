@@ -78,7 +78,7 @@ The real arm is `python -m controller --real-arm`. It needs the arm plugged in, 
 | Perceptron Robotics | SO-101 arm, Isaac 0.5 model trained on our demonstrations |
 | Perceptron Perception | Overhead camera: full slots and the return spot |
 | Photon | The phone call, and the summary text on the same thread |
-| DubHacks NEXT | Later plan: a monthly fee per dental chair |
+| DubHacks NEXT | Later plan: a monthly fee per operating room |
 | MLH Gemini API | Speech becomes one command from the current tray |
 | MLH MongoDB Atlas | The event log and the success tables |
 | MLH Vultr | The public page |

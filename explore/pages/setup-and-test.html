@@ -103,7 +103,7 @@ curl -XPOST localhost:8032/scene/reset; curl -XPOST localhost:8031/reset
 
 <section>
 <div class="sh"><span class="no">4</span><h2>Which item is which: OCR or not</h2><span class="who">Brandon / decision</span></div>
-<p><b>Recommendation: no OCR.</b> Surgical instruments carry no text a camera can read from overhead. The only markings are tiny laser-etched catalog codes, a few mm tall. Dental tools and bench tools are the same.</p>
+<p><b>Recommendation: no OCR.</b> Surgical instruments carry no text a camera can read from overhead. The only markings are tiny laser-etched catalog codes, a few mm tall. Bench tools are the same.</p>
 <p>What the code already does is better. <code>vision/tray.py</code> asks Perceptron's detector for the item by name ("scalpel", "hemostat", "mayo scissors"), then checks the detection against that item's slot box. That gives two signals that should agree:</p>
 <div class="tw"><table>
 <tr><th>Signal</th><th>Strength</th><th>Weakness</th></tr>
