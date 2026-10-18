@@ -3,7 +3,7 @@
 import { readFileSync } from "node:fs";
 import path from "node:path";
 import { REPO_DIR } from "./config.js";
-import { getSetting } from "./controller.js";
+import { getSetting, postAlias, type AliasReply } from "./controller.js";
 
 export interface Item { id: string; name: string; aliases: string[]; sharp: boolean }
 export interface Setting { id: string; label: string; items: Item[] }
@@ -40,6 +40,25 @@ const CACHE_MS = 30_000;
 let cache: { setting: Setting; at: number } | null = null;
 export const forgetSetting = () => { cache = null; };
 
+// X6: POST /alias, then drop the cache so the next turn (Gemini's list and the local match) sees the new word.
+export async function teach(item: string, alias: string, post = postAlias): Promise<AliasReply> {
+  const r = await post(item, alias);
+  if (r.ok) forgetSetting();
+  return r;
+}
+
+// Controller down: settings/<id>.json plus the clinic's settings/<id>.local.json aliases, like the controller merges them.
+function withOverlay(s: Setting): Setting {
+  try {
+    const extra = JSON.parse(readFileSync(path.join(REPO_DIR, "settings", `${s.id}.local.json`), "utf8")).aliases || {};
+    for (const it of s.items) for (const a of extra[it.id] || []) {
+      const w = String(a).toLowerCase().trim();
+      if (w && !it.aliases.includes(w)) it.aliases.push(w);
+    }
+  } catch { /* none, or broken: ignored */ }
+  return s;
+}
+
 export async function currentSetting(lastId: string): Promise<Setting> {
   if (cache && cache.setting.id === lastId && Date.now() - cache.at < CACHE_MS) return cache.setting;
   try {
@@ -47,6 +66,6 @@ export async function currentSetting(lastId: string): Promise<Setting> {
     cache = { setting, at: Date.now() };
     return setting;
   } catch { /* controller down */ }
-  try { return fromFile(JSON.parse(readFileSync(path.join(REPO_DIR, "settings", `${lastId}.json`), "utf8"))); } catch { /* not there yet */ }
+  try { return withOverlay(fromFile(JSON.parse(readFileSync(path.join(REPO_DIR, "settings", `${lastId}.json`), "utf8")))); } catch { /* not there yet */ }
   return FALLBACK[lastId] || FALLBACK.surgical;
 }

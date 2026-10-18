@@ -54,6 +54,9 @@ export async function postSetting(id: string): Promise<{ status: number; setting
     body: JSON.stringify({ setting: id }), signal: AbortSignal.timeout(3000) });
   return { status: res.status, setting: res.ok ? await res.json() : null };
 }
+// X6: teach a clinic word. Always 200: {"ok", "say", "reason"} (a conflict is ok: false with the line to say).
+export interface AliasReply { ok: boolean; say: string; reason?: string | null }
+export const postAlias = (item: string, alias: string): Promise<AliasReply> => call("POST", "/alias", { item, alias });
 // For GET /health: is the controller up? Never throws.
 export const controllerUp = (): Promise<boolean> =>
   fetch(CONTROLLER_URL + "/state", { signal: AbortSignal.timeout(1000) }).then((r) => r.ok, () => false);

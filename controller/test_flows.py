@@ -1,8 +1,12 @@
 """Forces each failure case on the fake arm. Run: .venv/bin/python -m controller.test_flows"""
+import json
+import shutil
+import tempfile
 import threading
 import time
+from pathlib import Path
 
-from . import core, lines
+from . import core, lines, settings
 from .core import Controller
 from .fake_arm import FakeArm
 
@@ -685,6 +689,106 @@ def tray_check_route_and_vision_down():
             os.environ.pop("VISION_URL", None)
         else:
             os.environ["VISION_URL"] = old
+
+
+class scratch_settings:
+    """settings.SETTINGS_DIR pointed at a temp copy of settings/*.json, so overlays never land in the repo."""
+    def __enter__(self):
+        self.real, self.tmp = settings.SETTINGS_DIR, tempfile.TemporaryDirectory()
+        d = Path(self.tmp.name) / "settings"
+        d.mkdir()
+        for f in self.real.glob("*.json"):
+            if not f.name.endswith(".local.json"):
+                shutil.copy(f, d / f.name)
+        settings.SETTINGS_DIR = d
+        return d
+
+    def __exit__(self, *exc):
+        settings.SETTINGS_DIR = self.real
+        self.tmp.cleanup()
+
+
+@test
+def overlay_adds_aliases():
+    with scratch_settings() as d:
+        evan = (d / "surgical.json").read_bytes()
+        (d / "surgical.local.json").write_text(json.dumps(
+            {"aliases": {"hemostat": ["Snap", "crile", "kelly"], "bovie": ["pen"], "scalpel": ["Number Ten"]}}))
+        s = settings.load("surgical")
+        hemo = settings.item(s, "hemostat")["aliases"]
+        assert "crile" in hemo and hemo.count("snap") == 1 and hemo.count("kelly") == 1, hemo
+        assert "number ten" in settings.item(s, "scalpel")["aliases"]
+        assert settings.item(s, "bovie") is None and len(s["items"]) == 3  # unknown ids ignored
+        assert (d / "surgical.json").read_bytes() == evan
+        assert "crile" not in json.loads(evan)["items"][1]["aliases"]
+
+
+@test
+def broken_overlay_is_ignored():
+    with scratch_settings() as d:
+        (d / "surgical.local.json").write_text("{not json")
+        clean = settings.load("surgical")
+        assert [i["id"] for i in clean["items"]] == ["scalpel", "hemostat", "mayo_scissors"]
+        (d / "dental.local.json").write_text('{"aliases": {"explorer": "probe"}}')  # not a list: skipped
+        assert settings.item(settings.load("dental"), "explorer")["aliases"] == settings.item(
+            json.loads((d / "dental.json").read_text()), "explorer")["aliases"]
+
+
+@test
+def post_alias_writes_and_reloads():
+    from fastapi.testclient import TestClient
+    from .server import make_app
+    with scratch_settings() as d:
+        evan = (d / "surgical.json").read_bytes()
+        ctl, arm = make(pull_s=0.5)
+        client = TestClient(make_app(ctl))
+        ctl.submit(dict(HANDOVER))  # busy: teaching still works and doesn't touch the arm
+        assert wait_for(lambda: ctl.step not in ("idle",))
+        busy, out, case = ctl.step, list(ctl.out), ctl.case_id
+        r = client.post("/alias", json={"item": "hemostat", "alias": "The Crile"}).json()
+        assert r["ok"] and r["say"] == "Got it: crile means the hemostat.", r
+        assert json.loads((d / "surgical.local.json").read_text()) == {"aliases": {"hemostat": ["crile"]}}
+        assert "crile" in settings.item(client.get("/setting").json(), "hemostat")["aliases"]
+        assert ctl.case_id == case and ctl.out == out
+        r = client.post("/alias", json={"item": "hemostat", "alias": "crile"}).json()  # again: fine, no duplicate
+        assert r["ok"] and json.loads((d / "surgical.local.json").read_text())["aliases"]["hemostat"] == ["crile"]
+        assert not list(d.glob("*.tmp")), list(d.iterdir())
+        assert (d / "surgical.json").read_bytes() == evan
+        assert wait_for(lambda: ctl.step == "idle" and ctl.cmd is None, 8)
+        _, evs = run(ctl, {"action": "handover", "item": "hemostat", "heard": "crile please"})
+        assert busy != "idle" and "released" in types(evs), (busy, types(evs))
+        ctl.set_setting("dental")  # the overlay is per tray
+        assert "crile" not in str(client.get("/setting").json())
+        ctl.set_setting("surgical")
+        assert "crile" in settings.item(ctl.setting, "hemostat")["aliases"]
+
+
+@test
+def post_alias_refuses_conflicts():
+    from fastapi.testclient import TestClient
+    from .server import make_app
+    with scratch_settings() as d:
+        ctl, arm = make()
+        client = TestClient(make_app(ctl))
+        r = client.post("/alias", json={"item": "mayo_scissors", "alias": "clamp"}).json()
+        assert not r["ok"] and r["say"] == "Clamp already means the hemostat.", r
+        r = client.post("/alias", json={"item": "scalpel", "alias": "hemostat"}).json()
+        assert not r["ok"] and r["say"] == "Hemostat already means the hemostat.", r
+        r = client.post("/alias", json={"item": "hex_key", "alias": "allen"}).json()
+        assert not r["ok"] and r["say"] == lines.NOT_IN_SETTING
+        r = client.post("/alias", json={"item": "hemostat", "alias": " the "}).json()
+        assert not r["ok"] and r["say"] == lines.BAD_ALIAS
+        assert not (d / "surgical.local.json").exists()
+        r = client.post("/alias", json={"item": "hemostat", "alias": "kelly"}).json()  # already its word: ok, no write
+        assert r["ok"] and not (d / "surgical.local.json").exists()
+
+
+@test
+def unknown_hints_at_teaching():
+    ctl, arm = make()
+    r = ctl.submit({"action": "unknown", "heard": "hand me the bovie"})
+    assert not r["accepted"] and r["say"] == "Which instrument? You can say: call the hemostat a kelly.", r
+    assert ctl.history[-1]["say"] == r["say"]
 
 
 def main():
