@@ -1,5 +1,6 @@
 """Forces each failure case on the fake arm. Run: .venv/bin/python -m controller.test_flows"""
 import json
+import os
 import shutil
 import tempfile
 import threading
@@ -302,6 +303,66 @@ def tracking_on_but_no_hand():
     stop.set()
     assert lines.SHOW_HAND in says(evs) and says(evs)[-1] == lines.no_hand("hemostat"), says(evs)
     assert arm.moves == []
+
+
+@test
+def hand_seen_but_path_blocked_says_so():
+    """M11: an open, seen hand with the path blocked sets down with "Something's in the way", not "No hand"."""
+    ctl, arm = make()
+    stop = threading.Event()
+    hand_feed(ctl, stop, clear=lambda: False)
+    _, evs = run(ctl, HANDOVER)
+    stop.set()
+    assert says(evs)[-1] == lines.path_blocked_down("hemostat") == "Something's in the way. Hemostat is at the safe spot.", says(evs)
+    assert arm.moves == [] and "set_down" in types(evs)
+
+
+@test
+def count_survives_a_restart():
+    """H2: out and case_id saved on change to a temp file and restored by a new controller (same setting, fresh)."""
+    import json
+    import tempfile
+    with tempfile.TemporaryDirectory() as d:
+        path = os.path.join(d, "state.json")
+        ctl, arm = make()
+        ctl.state_file, ctl._state_pool = path, core.ThreadPoolExecutor(1)  # make() leaves it off
+        run(ctl, HANDOVER)
+        wait_for(lambda: os.path.exists(path) and json.load(open(path))["out"] == ["hemostat"])
+        saved = json.load(open(path))
+        assert saved["case_id"] == ctl.case_id and saved["setting"] == "surgical", saved
+        n = len(os.listdir(d))
+        mtime = os.stat(path).st_mtime_ns
+        run(ctl, {"action": "count"})  # nothing changed: no write
+        time.sleep(0.2)
+        assert os.stat(path).st_mtime_ns == mtime and len(os.listdir(d)) == n
+        again = Controller(RecordingArm(motion_s=0.1), fake_arm=True, state_file=path)
+        assert again.out == ["hemostat"] and again.case_id == ctl.case_id, (again.out, again.case_id)
+        assert again.submit({"action": "count"})["say"] == "Out: hemostat."
+        other = Controller(RecordingArm(motion_s=0.1), fake_arm=True, setting_id="bench", state_file=path)
+        assert other.out == [] and other.case_id != ctl.case_id  # another tray: a fresh case
+        json.dump({**saved, "t": time.time() - 7 * 3600}, open(path, "w"))
+        old = Controller(RecordingArm(motion_s=0.1), fake_arm=True, state_file=path)
+        assert old.out == [], old.out  # over 6 h old: a fresh case
+        open(path, "w").write("{not json")
+        assert Controller(RecordingArm(motion_s=0.1), fake_arm=True, state_file=path).out == []
+
+
+@test
+def tray_check_falls_back_to_the_controllers_tray():
+    """M3: no vision process (sim, backup): a fresh TrayState the controller holds answers the tray check."""
+    from . import settings, traycheck
+    surgical = settings.load("surgical")
+    slots = [{"item": i["id"], "present": True} for i in surgical["items"]]
+    tray_state = {"setting": "surgical", "slots": slots, "t": time.time()}
+    v = traycheck.from_tray(tray_state, time.time())
+    r = traycheck.check(surgical, fetch=lambda: v)
+    assert r["ok"] and r["available"] and r["say"].startswith("Tray's ready"), r
+    tray_state["slots"][0]["present"] = False
+    r = traycheck.check(surgical, fetch=lambda: traycheck.from_tray(tray_state, time.time()))
+    assert not r["ok"] and r["say"] == "Missing the scalpel.", r
+    assert traycheck.from_tray(tray_state, time.time() - 5) is None  # older than 3 s
+    assert traycheck.from_tray({**tray_state, "stale": True}, time.time()) is None
+    assert traycheck.from_tray(None, 0.0) is None and traycheck.from_tray({"slots": []}, time.time()) is None
 
 
 @test
@@ -788,8 +849,21 @@ def post_alias_refuses_conflicts():
 def unknown_hints_at_teaching():
     ctl, arm = make()
     r = ctl.submit({"action": "unknown", "heard": "hand me the bovie"})
-    assert not r["accepted"] and r["say"] == "Which instrument? You can say: call the hemostat a kelly.", r
+    # Not "a kelly": that word already works. The hint is a word this tray doesn't have yet.
+    assert not r["accepted"] and r["say"] == "Which instrument? You can say: call the hemostat a crile.", r
     assert ctl.history[-1]["say"] == r["say"]
+    import copy
+    ctl.setting = copy.deepcopy(ctl.setting)  # never touch a shared settings dict
+    ctl.setting["items"][1]["aliases"].append("crile")  # taught since: the next example word
+    assert ctl._unknown_line() == "Which instrument? You can say: call the hemostat a grabber."
+
+
+@test
+def plural_names_read_right():
+    assert lines.returned("hemostat") == "Hemostat back in its slot."
+    assert lines.returned("mayo scissors") == "Mayo scissors back in their slot."
+    assert lines.returned("wire cutters") == "Wire cutters back in their slot."
+    assert lines.no_hand("needle-nose pliers") == "No hand. Needle-nose pliers are at the safe spot."
 
 
 def errors(ctl, start=0):

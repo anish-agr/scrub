@@ -1,16 +1,24 @@
 """python -m controller [--fake-arm | --real-arm] [--port 8000] [--setting surgical|bench] [--judge]"""
 import argparse
+import os
+import signal
 import threading
 from pathlib import Path
 
 import uvicorn
 from dotenv import load_dotenv
 
-load_dotenv(Path(__file__).resolve().parent.parent / ".env")
+ROOT = Path(__file__).resolve().parent.parent
+load_dotenv(ROOT / ".env")
+GRACE_S = 2  # on SIGTERM or Ctrl-C, uvicorn waits this long for open WebSockets (voice, the dashboard), then exits
 
 from . import core  # noqa: E402
 from .core import Controller  # noqa: E402
 from .server import make_app  # noqa: E402
+
+
+def _interrupt(*_):
+    raise KeyboardInterrupt
 
 
 def main() -> None:
@@ -40,10 +48,19 @@ def main() -> None:
     else:
         from .fake_arm import FakeArm
         arm = FakeArm(motion_s=a.motion_s, auto_pull_s=a.pull_s or None)
+    # SCRUB_STATE_FILE: where the count is saved across a restart; empty turns it off. Default: one file per port
+    # under data/ (ignored), so a second stack on another port never picks up this one's count.
+    state_file = os.environ.get("SCRUB_STATE_FILE")
+    if state_file is None:
+        state_file = ROOT / "data" / f"controller-state-{a.port}.json"
     arm.connect()
-    ctl = Controller(arm, fake_arm=not a.real_arm, setting_id=a.setting, judge=a.judge)
+    ctl = Controller(arm, fake_arm=not a.real_arm, setting_id=a.setting, judge=a.judge, state_file=state_file or None)
     print(f"controller: {'real' if a.real_arm else 'sim' if a.sim_arm else 'fake'} arm, setting {a.setting} "
           f"({ctl.setting['_source']}), ledger {'on' if core.ledger else 'off'}{', judge mode' if a.judge else ''}", flush=True)
+    # SIGTERM acts like Ctrl-C, so the finally below always disconnects the arm (frees the serial port). In the sim
+    # the servers run in threads and uvicorn installs no handlers; otherwise uvicorn re-raises the signal once it
+    # has shut down, and with the default handler that killed the process before the finally ran.
+    signal.signal(signal.SIGTERM, _interrupt)
     try:
         if a.sim_arm:  # MuJoCo GL needs the main thread: controller API in a thread, frame grabber here
             from sim.server import Grabber, create_app
@@ -51,8 +68,10 @@ def main() -> None:
             vision = SimVision(arm, ctl)  # TrayState from the sim, Hand when POST /sim/hand {"on": true}
             vision.start()
             grabber = Grabber(arm)
-            sim = uvicorn.Server(uvicorn.Config(create_app(arm, grabber), host="127.0.0.1", port=a.sim_port, log_level="warning"))
-            api = uvicorn.Server(uvicorn.Config(make_app(ctl, vision.routes), host="0.0.0.0", port=a.port, log_level="warning"))
+            sim = uvicorn.Server(uvicorn.Config(create_app(arm, grabber), host="127.0.0.1", port=a.sim_port,
+                                                log_level="warning", timeout_graceful_shutdown=GRACE_S))
+            api = uvicorn.Server(uvicorn.Config(make_app(ctl, vision.routes), host="0.0.0.0", port=a.port,
+                                                log_level="warning", timeout_graceful_shutdown=GRACE_S))
             for srv in (sim, api):
                 threading.Thread(target=srv.run, daemon=True).start()
             print(f"sim viewer: http://localhost:{a.sim_port}/web/viewer.html", flush=True)
@@ -63,9 +82,13 @@ def main() -> None:
             finally:
                 api.should_exit = sim.should_exit = True
         else:
-            uvicorn.run(make_app(ctl), host="0.0.0.0", port=a.port, log_level="warning")
+            uvicorn.run(make_app(ctl), host="0.0.0.0", port=a.port, log_level="warning",
+                        timeout_graceful_shutdown=GRACE_S)
+    except KeyboardInterrupt:
+        pass
     finally:
         arm.disconnect()
+        print("controller: arm disconnected", flush=True)
 
 
 main()
