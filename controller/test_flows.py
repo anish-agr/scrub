@@ -1652,6 +1652,76 @@ def judge_mode_refuses_reads():
 
 
 @test
+def photo_read_result_sets_the_sheet_packs_and_tray():
+    from fastapi.testclient import TestClient
+    from . import server
+    with scratch_settings():
+        ctl, _ = make()
+        client = TestClient(server.make_app(ctl))
+        logged = []
+
+        class Ledger:
+            log = staticmethod(logged.append)
+        saved, core.ledger = core.ledger, Ledger
+        try:
+            rows = {"scalpel": (1, 1, 1), "hemostat": (1, 1, 0), "mayo_scissors": (2, 2, 2)}
+            r = client.post("/read_result", json={"kind": "count_sheet", "result": sheet(rows), "source": "photo",
+                                                  "heard": "count sheet"}).json()
+            assert r["ok"] and r["say"] == "Sheet says 0 hemostats back, I count 1.", r
+            assert r["read"]["source"] == "photo" and r["read"]["compare"] == "closing" and r["read"]["method"] == "perceptron", r
+            assert ctl.state()["sheet"]["items"]["hemostat"]["closing"] == 0
+            ev = next(e for e in reversed(ctl.history) if e["type"] == "read")
+            assert ev["read"]["source"] == "photo" and ev["command_id"] is None and ev["say"] == r["say"], ev
+            assert wait_for(lambda: any(x["type"] == "read" and x["read"]["source"] == "photo" for x in logged))
+        finally:
+            core.ledger = saved
+        _, evs = run(ctl, {"action": "count"})
+        c = next(e for e in evs if e["type"] == "count")
+        assert c["sheet_mismatch"] == [{"item": "hemostat", "sheet": 0, "scrub": 1}], c
+
+        pack = {"ok": True, "method": "gemini", "latency_ms": 1200, "labels": [
+            {"item": "mayo_scissors", "lot": "A12", "expires": "2026-09-30", "expired": True}]}
+        r = client.post("/read_result", json={"kind": "pack_label", "result": pack, "source": "photo"}).json()
+        assert r["say"] == "Expired: mayo scissors pack, 2026-09-30. Don't open it.", r
+        assert ctl.state()["packs"] == [{"item": "mayo_scissors", "lot": "A12", "expires": "2026-09-30", "expired": True}]
+
+        r = client.post("/read_result", json={"kind": "count_sheet", "result": {"ok": False, "error": "blurry"}}).json()
+        assert not r["ok"] and r["say"] == lines.CANT_READ_SHEET, r
+
+        tag = {"ok": True, "method": "qr", "latency_ms": 20, "tray": "bench", "text": "scrub:tray:bench"}
+        r = client.post("/read_result", json={"kind": "tray_tag", "result": tag, "source": "photo"}).json()
+        assert r["say"] == "This is the robotics bench tray. Switched." and r["read"]["switched"], r
+        assert ctl.setting["id"] == "bench" and ctl.state()["sheet"] is None
+
+        assert client.post("/read_result", json={"kind": "receipt", "result": tag}).status_code == 400
+        ctl.set_judge(True)
+        n = len(ctl.history)
+        r = client.post("/read_result", json={"kind": "pack_label", "result": pack}).json()
+        assert not r["ok"] and r["say"] == lines.JUDGE_ONLY and r["reason"] == "judge mode", r
+        assert len(ctl.history) == n and ctl.state()["packs"] == []
+
+
+@test
+def stop_never_waits_on_a_photo_read_result():
+    from fastapi.testclient import TestClient
+    from . import server
+    ctl, _ = make()
+    client = TestClient(server.make_app(ctl))
+    gate, real = threading.Event(), ctl._read_pack
+    ctl._read_pack = lambda read: (gate.wait(3), real(read))[1]
+    pack = {"ok": True, "labels": [{"item": "scalpel", "expires": "2027-01-31", "expired": False}]}
+    th = threading.Thread(target=lambda: client.post("/read_result", json={"kind": "pack_label", "result": pack}), daemon=True)
+    th.start()
+    time.sleep(0.1)
+    t0 = time.time()
+    assert client.post("/stop").json() == {"accepted": True}
+    assert time.time() - t0 < 0.5 and ctl.step == "stopped"
+    gate.set()
+    th.join(3)
+    assert ctl.state()["packs"][0]["item"] == "scalpel"
+
+
+@test
 def read_events_and_captions_go_to_the_ledger():
     from fastapi.testclient import TestClient
     from . import server

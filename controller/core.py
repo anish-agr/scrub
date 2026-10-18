@@ -532,6 +532,20 @@ class Controller:
                          else lines.pack(name, row["expires"]))
         return " ".join(parts)
 
+    def read_result(self, kind: str, result: dict | None, heard: str | None = None, source: str | None = "photo") -> dict:
+        """POST /read_result: vision's answer for a texted photo, run like a camera read minus the fetch.
+        Sets `sheet` / `packs` and may switch the tray, then emits the `read` event. {"ok", "say", "read"}.
+        Blocking (a tray switch rebuilds the sim scene): the server runs it off the event loop."""
+        if self.judge:
+            return {"ok": False, "say": lines.JUDGE_ONLY, "read": None, "reason": "judge mode"}
+        res = result if isinstance(result, dict) else {}
+        fields = {k: v for k, v in res.items() if k not in ("kind", "t", "say")}
+        read = {"kind": kind, "method": None, "latency_ms": None, **fields, "ok": bool(res.get("ok")),
+                "source": source or "photo"}
+        say = {"count_sheet": self._read_sheet, "tray_tag": self._read_tray, "pack_label": self._read_pack}[kind](read)
+        self.emit("read", say=say, item=None, command_id=None, read=read, heard=heard)
+        return {"ok": read["ok"], "say": say, "read": read}
+
     def _new_case(self) -> str:
         """CONTRACTS: case_id = <setting>-<unix start seconds>. A new case starts with no sheet or pack read."""
         self.sheet, self.packs = None, []

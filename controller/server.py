@@ -10,7 +10,7 @@ from fastapi.responses import HTMLResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 
-from . import armview, core, traycheck
+from . import armview, core, reads, traycheck
 from .core import Controller
 
 DASHBOARD = Path(__file__).resolve().parent.parent / "dashboard"
@@ -62,6 +62,13 @@ class Judge(BaseModel):
     on: bool
 
 
+class ReadResult(BaseModel):
+    kind: str
+    result: Optional[dict] = None
+    source: Optional[str] = "photo"
+    heard: Optional[str] = None
+
+
 def make_app(ctl: Controller, extra=None) -> FastAPI:
     """extra(app) adds routes before the dashboard mount at / (which would shadow them)."""
     app = FastAPI(title="Scrub controller")
@@ -111,6 +118,13 @@ def make_app(ctl: Controller, extra=None) -> FastAPI:
     async def alias(body: Alias):
         """X6: teach a clinic word ("call the hemostat a clamp"). {"ok", "say", "reason"}; saved in settings/<id>.local.json."""
         return await asyncio.to_thread(ctl.add_alias, body.item, body.alias)
+
+    @app.post("/read_result")
+    async def read_result(body: ReadResult):
+        """A texted photo read by vision (voice/): the same sheet, pack and tray rules as a camera read. Off the loop."""
+        if body.kind not in reads.KINDS.values():
+            raise HTTPException(400, f"unknown kind {body.kind!r}")
+        return await asyncio.to_thread(ctl.read_result, body.kind, body.result, body.heard, body.source)
 
     @app.post("/judge")
     async def judge(body: Judge):
