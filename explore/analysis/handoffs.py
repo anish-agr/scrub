@@ -170,7 +170,14 @@ def build(data: dict, charts_dir) -> dict:
     ok_real = sum(t["ok"] for t in real_t)
     times = [t["time"] for t in real_t if t["ok"] and t["time"] is not None]
     handed_q = 'db.events.countDocuments({type:"handed", fake_arm:false})'
-    summary = {"definition": DEFINITION, "real_rows": len(real_ev), "trusted": trusted, "why": why,
+    # Untagged rows after the tags started: some controller build left fake_arm out (06:32 on Oct 18, voice,
+    # 11 s pick to set-down). Possibly the real arm, but unproven, so shown apart and never in the numbers.
+    untagged_ev = [e for e in events if start is not None and "fake_arm" not in e and (e.get("t") or 0) >= start
+                   and not (e.get("sim") or e.get("sim_arm"))]
+    untagged_t = tries_from(untagged_ev)
+    summary = {"untagged_rows": len(untagged_ev), "untagged_tries": len(untagged_t),
+               "untagged_table": table(untagged_t), "untagged_miss_reasons": reasons(untagged_t),
+               "definition": DEFINITION, "real_rows": len(real_ev), "trusted": trusted, "why": why,
                "table": t_real, "sim_table": t_sim, "miss_reasons": mr, "method_ranking": rank_real,
                "sim_method_ranking": rank_sim, "real_tries": len(real_t), "sim_tries": len(sim_t)}
     charted = False
@@ -186,6 +193,13 @@ def build(data: dict, charts_dir) -> dict:
     if not trusted:
         md += ["Do not quote these as real results. The pitch says \"no real data yet\".", ""]
     md += ["### Miss reasons (real-tagged)", ""] + ([f"- {m['reason']}: {m['n']}" for m in mr] or ["- none"]) + [""]
+    if untagged_t:
+        md += [f"### Untagged after tags started (possibly the real arm, unproven): {len(untagged_ev)} rows, "
+               f"{len(untagged_t)} tries", "",
+               "These rows carry no `fake_arm` field, so the controller that wrote them did not say which arm it ran. "
+               "Not counted as real. A `set_down` counts as a success here, including \"No hand ... safe spot\".", ""]
+        md += md_table(table(untagged_t))
+        md += ["Miss reasons: " + ("; ".join(f"{m['reason']} ({m['n']})" for m in reasons(untagged_t)) or "none"), ""]
     md += [f"### Simulation (fake and sim arms, never real): {len(sim_ev)} rows, {len(sim_t)} tries", ""]
     md += md_table(t_sim)
     md += ["### Simulation miss reasons", ""] + ([f"- {m['reason']}: {m['n']}" for m in reasons(sim_t)[:10]] or ["- none"]) + [""]

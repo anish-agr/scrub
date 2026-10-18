@@ -30,7 +30,7 @@ const SETTINGS = {
   },
 };
 
-const SHOWN_SETTINGS = ["surgical", "bench"];
+const SHOWN_SETTINGS = ["surgical"];
 
 const STEP_LABEL = {
   idle: "Idle",
@@ -245,7 +245,7 @@ function renderItems() {
     button.type = "button";
     button.dataset.action = "handover";
     button.dataset.item = item.id;
-    button.textContent = item.sharp ? `${item.name} (safe spot)` : item.name;
+    button.textContent = item.name;
     row.appendChild(button);
   });
 }

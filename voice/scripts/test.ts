@@ -195,7 +195,7 @@ assert.equal(localText("Switch to the bench tray", surgical).setting, "bench");
 assert.equal(settingAsked("start a robotics case"), "bench");
 assert.equal(settingAsked("switch to the operating room tray"), "surgical");
 assert.equal(settingAsked("start a dental case"), "dental");  // recognised, only to say it isn't set up
-assert.ok(!HELP.includes("dental") && HELP.includes("bench"));
+assert.ok(!HELP.includes("dental") && !HELP.includes("bench"));
 assert.equal(localText("surgical case", surgical).kind, "setting");
 assert.equal(localText("add a second hemostat to the surgical tray", surgical).kind, "restock");  // not a switch
 assert.equal(settingAsked("grab me the kelly"), null);
@@ -221,7 +221,7 @@ assert.equal(await switchSetting("bench", fakePost(404)), "I don't have a bench 
 assert.equal(await switchSetting("bench", fakePost(403)), JUDGE);  // the controller refused it in judge mode
 assert.equal(await switchSetting("bench", async () => { throw new Error("down"); }), "I can't reach the arm controller.");
 assert.equal(await switchSetting("dental", fakePost(200)), notSetUp("dental"));  // never posted
-assert.ok(!/dental/i.test(notSetUp("dental")) && /surgical and bench/.test(notSetUp("dental")));  // never names the hidden tray
+assert.ok(!/dental/i.test(notSetUp("dental")) && /surgical tray: scalpel, hemostat and Mayo scissors/.test(notSetUp("dental")));  // never names the hidden tray
 assert.deepEqual(posted, ["bench", "bench", "bench", "bench", "bench"]);
 const switched: string[] = [];
 const switchDeps = { ...deps, switchTo: async (id: string) => { switched.push(id); return switchSetting(id, fakePost(200)); } };

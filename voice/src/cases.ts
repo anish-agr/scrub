@@ -11,7 +11,7 @@ export const KNOWN_SETTINGS = [...SETTING_IDS, ...HIDDEN_SETTINGS];
 export const BUSY = "The arm is busy. Stop or wait, then try again.";
 export const JUDGE = JUDGE_LINE;
 // Never names the hidden tray back to the user: dental is not shown by voice or text.
-export const notSetUp = (_id: string) => "That tray isn't set up for this demo. I have the surgical and bench trays.";
+export const notSetUp = (_id: string) => "That tray isn't set up for this demo. I have the surgical tray: scalpel, hemostat and Mayo scissors.";
 
 const norm = (x: string) => x.toLowerCase().replace(/[^a-z0-9 ]/g, " ").replace(/\s+/g, " ").trim();
 // Words that name each tray (the id first).

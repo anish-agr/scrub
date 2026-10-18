@@ -61,6 +61,11 @@ html,body{margin:0;background:var(--paper);color:var(--ink);font:400 16px/1.35 v
 .cam .chip{position:absolute;right:0;bottom:0;background:rgba(0,0,0,.7);padding:3px 8px;font:500 13px var(--m);color:#e8e6df}
 .cam .chip.bad{background:var(--amber);color:#111}
 
+#t-log{list-style:none;margin:12px 0 0;padding:0;display:flex;flex-direction:column;gap:6px;max-height:340px;overflow:auto}
+#t-log li{display:flex;gap:10px;font:500 15px var(--m);line-height:1.35}
+#t-log .who{flex:0 0 52px;font:800 11px var(--f);letter-spacing:.1em;text-transform:uppercase;color:var(--mute);padding-top:3px}
+#t-log .scrub{color:var(--green)} #t-log .arm{color:var(--mute)}
+#t-voice.on{background:var(--green);color:#0b1a10;border-color:var(--green)}
 .panel{margin-top:14px;border-top:2px solid var(--ink);padding-top:12px}
 h2{font:800 12px var(--f);letter-spacing:.14em;text-transform:uppercase;color:var(--mute);margin:0 0 8px}
 .row{display:flex;gap:10px;align-items:center;flex-wrap:wrap}
@@ -107,6 +112,7 @@ select,#r-args{font:500 15px var(--m);background:var(--paper2);color:var(--ink);
 #b-kill{background:var(--red);color:#fff;border:3px solid #fff;font:900 34px var(--f);letter-spacing:.1em;padding:22px 10px}
 #b-kill small{color:#fff;opacity:.85}
 .pair{display:grid;grid-template-columns:1fr 1fr;gap:8px}
+#b-voice.on{background:var(--green);color:#0b1a10;border-color:var(--green)}
 #b-reconnect.urgent{background:var(--amber);color:#111;border-color:var(--amber)}
 #temps{display:grid;grid-template-columns:repeat(3,1fr);gap:4px}
 .t{font:500 11px var(--m);color:var(--mute);padding:4px 6px;border:1px solid var(--hair)}
@@ -128,7 +134,7 @@ kbd{border:1px solid var(--hair);padding:0 4px;font:inherit}
 <body class="scrub-ui">
 <div id="top">
   <div id="mark">Scrub Station</div>
-  <div id="tabs"><button id="tab-record" class="on">Record</button><button id="tab-run">Run</button></div>
+  <div id="tabs"><button id="tab-record" class="on">Record</button><button id="tab-run">Run</button><button id="tab-talk">Talk</button></div>
   <div id="state">Connecting</div>
   <div id="clock" class="mono"></div>
   <div id="stats"></div>
@@ -201,6 +207,24 @@ kbd{border:1px solid var(--hair);padding:0 4px;font:inherit}
       </div>
       <div id="tally"></div>
     </section>
+    <section id="p-talk" class="panel" hidden>
+      <h2>Talk to Scrub</h2>
+      <p class="mute" style="margin:4px 0 10px;font-size:14px">Always listening while on. Say or type: "get the hemostat", "kelly", "stop", "continue", "return to home", "kill", "let go". Instrument words come from the settings.</p>
+      <div class="grid2">
+        <button id="t-voice" class="big">Start listening<small>one click: microphone and Scrub's voice on</small></button>
+        <button id="t-letgo" class="big">Let go<small>opens the jaw while it holds the item out</small></button>
+      </div>
+      <div class="grid2" style="margin-top:8px">
+        <button id="t-home">Return to home<small>stops what it is doing, goes home, motors off</small></button>
+        <button id="t-stop">Stop<small>freezes where it is (say "continue" to go on)</small></button>
+      </div>
+      <div id="t-status" class="mute" style="margin-top:8px;font-size:14px;min-height:1.3em"></div>
+      <form id="t-form" class="row" style="margin-top:8px;gap:8px;display:flex">
+        <input id="t-text" placeholder="Or type a command and press Enter" autocomplete="off" style="flex:1;min-width:0;font:500 15px var(--m);background:var(--paper2);color:var(--ink);border:1px solid var(--hair);padding:8px 10px">
+        <button style="width:auto;padding:8px 16px">Send</button>
+      </form>
+      <ul id="t-log"></ul>
+    </section>
   </div>
 
   <aside id="rail">
@@ -210,6 +234,8 @@ kbd{border:1px solid var(--hair);padding:0 4px;font:inherit}
       <button id="b-home">Home<small>glide home, motors off</small></button>
     </div>
     <button id="b-reconnect">Reconnect<small>cameras + arms: parks, saves, restarts (~15 s)</small></button>
+    <button id="b-voice">Voice: off<small>click to listen: say "get the hemostat", "stop", "continue", "return to home", "kill", "let go"</small></button>
+    <div id="voice-heard" class="mute" style="font-size:13px;min-height:1.2em"></div>
     <div><h2>Motors °C</h2><div id="temps"></div></div>
     <details id="d-joints"><summary>Joints</summary><div id="joints"></div></details>
     <details id="d-log"><summary>Log</summary><div id="log"></div></details>
@@ -239,7 +265,8 @@ function flash(m){const f=$("flash");f.hidden=false;f.textContent=m;clearTimeout
 function setMode(m){
   mode=m; try{localStorage.setItem("station-mode",m);}catch(e){}
   $("tab-record").classList.toggle("on",m==="record"); $("tab-run").classList.toggle("on",m==="run");
-  $("p-record").hidden=m!=="record"; $("p-run").hidden=m!=="run";
+  $("tab-talk").classList.toggle("on",m==="talk");
+  $("p-record").hidden=m!=="record"; $("p-run").hidden=m!=="run"; $("p-talk").hidden=m!=="talk";
   if(m==="run")loadDrivers();
   if(st)render(st);
 }
@@ -349,7 +376,7 @@ function renderRun(s){
 
 function render(s){
   // a running driver pins the Run tab; recording pins Record
-  if(s.state==="running"&&mode!=="run")setMode("run");
+  if(s.state==="running"&&mode!=="run"&&mode!=="talk")setMode("run");  // Talk stays up while it runs
   if(s.state==="recording"&&mode!=="record")setMode("record");
   $("tab-run").disabled=s.state==="recording"; $("tab-record").disabled=s.state==="running";
 
@@ -395,12 +422,132 @@ setInterval(()=>{if(mode==="run"&&st&&st.state!=="running")loadDrivers();},15000
 
 $("tab-record").onclick=()=>setMode("record");
 $("tab-run").onclick=()=>setMode("run");
+$("tab-talk").onclick=()=>setMode("talk");
 $("b-toggle").onclick=()=>send("toggle");
 $("b-discard").onclick=()=>send("discard");
 $("b-kill").onclick=()=>send("kill");
 $("b-home").onclick=()=>send("home");
 $("b-wake").onclick=()=>send("wake");
 $("b-reconnect").onclick=()=>send("restart");
+
+/* ---------- voice: always listening once switched on; commands go straight to /control ----------
+   Item words (names, aliases, clinic words) come from settings via /status voice_items. A clear command
+   fires on the interim words (no wait for the browser to end the phrase); chatter is ignored. */
+const VMIS=[[/\b(e-?mail ?set|he ?mo ?stat|hemo ?stats?|hemoglobin|hemostatic|demo ?stat|he most at|he must at)\b/g,"hemostat"],
+            [/\b(scal ?pull|scalp all|scalpal)\b/g,"scalpel"]];
+const vEsc=w=>w.replace(/[.*+?^${}()|[\]\\]/g,"\\$&");
+let vRec=null,vOn=false,vRunning=false,vTalking=false,vBusy=false;
+const vSent=new Set();
+function vIntent(text){
+  let t=" "+text.toLowerCase()+" ";
+  for(const [re,w] of VMIS) t=t.replace(re,w);
+  if(/\bkill\b/.test(t)) return {a:"kill",say:"Motors off."};
+  if(/\b(stop|freeze|hold on|hang on|halt|pause)\b/.test(t)) return {a:"pause",say:"Stopped."};
+  if(/\b(let go|let it go|drop it|release|got it)\b/.test(t)) return {a:"release",say:"Letting go."};
+  if(/\b(return (to )?home|go (back )?(to )?home|back (to )?home|head home|home position)\b/.test(t)||/^\s*home\s*$/.test(t))
+    return {a:"home",say:"Going home.",final:true};
+  if(/\b(continue|resume|keep going|carry on|go ahead)\b/.test(t)) return {a:"resume",say:"Continuing."};
+  // an instrument word picks only right after a request ("get the kelly", "can I have the scalpel": the
+  // request within 3 words before it) or on its own ("kelly"), so chatter with "handle" in it doesn't move the arm
+  const short=t.trim().split(/\s+/).length<=3;
+  const REQ="\\b(get|grab|hand|give|pass|bring|fetch|need|want|have|take)\\b(\\s+(me|us|the|a|an|that|this|my|your|another|other))*\\s+";
+  for(const it of (st&&st.voice_items)||[])
+    for(const w of it.words)
+      if(new RegExp((short?"":REQ)+"\\b"+vEsc(w)+"\\b").test(t)) return {a:"pick",task:it.task,say:"Getting the "+w+"."};  // the word they used
+  return null;
+}
+function talkLog(who,text,cls){
+  const ul=$("t-log"); if(!ul) return;
+  const li=el("li"); li.append(el("span","who",who), el("span",cls||who,text)); ul.prepend(li);
+  while(ul.children.length>60) ul.lastChild.remove();
+}
+function vSay(text){
+  if(text) talkLog("scrub",text);
+  if(!text||!("speechSynthesis" in window)) return;
+  speechSynthesis.cancel();
+  const u=new SpeechSynthesisUtterance(text);
+  vTalking=true; try{vRec&&vRec.stop();}catch(e){}
+  u.onend=u.onerror=()=>{vTalking=false;vStart();};
+  speechSynthesis.speak(u);
+}
+const vSleep=ms=>new Promise(r=>setTimeout(r,ms));
+let vLast={key:"",t:0};
+async function vDo(it,text){
+  const key=it.a+":"+(it.task||""), now=Date.now();
+  if(key===vLast.key&&now-vLast.t<4000) return;   // the same command heard twice (interim + final, restarts)
+  vLast={key,t:now};
+  $("voice-heard").textContent="heard: "+text+"  ->  "+(it.task||it.a);
+  talkLog("you",text); talkLog("arm",it.task?("run: "+it.task):it.a,"arm");
+  if(it.a!=="pick"){
+    const r=await send(it.a,{heard:text});
+    vSay(r&&r.ok===false?(it.a==="release"?"I'm not holding anything.":it.a==="resume"?"Nothing to continue.":r.msg):it.say);
+    return;
+  }
+  if(vBusy||(st&&st.state==="running")){vSay("I'm already moving.");return;}
+  vBusy=true; vSay(it.say);
+  try{
+    if(!st||st.state!=="idle"){
+      await send("wake",{heard:text});
+      for(let i=0;i<24;i++){await vSleep(250);try{const s=await (await fetch("/status",{cache:"no-store"})).json();st=s;if(s.state==="idle")break;}catch(e){}}
+    }
+    const r=await send("run",{driver:"autopick",args:{mode:"average",task:it.task},heard:text});
+    if(r&&r.ok===false) vSay(/no usable demos/.test(r.msg||"")?"I haven't learned that one yet.":"The arm isn't ready.");
+  }finally{vBusy=false;}
+}
+function vStart(){
+  if(!vRec||!vOn||vTalking||vRunning) return;
+  try{vRec.start();vRunning=true;vSent.clear();}catch(e){}   // result numbers restart with each session
+}
+function vInit(){
+  const SR=window.SpeechRecognition||window.webkitSpeechRecognition;
+  if(!SR){flash("This browser has no speech recognition (use Chrome or Safari)");return false;}
+  vRec=new SR(); vRec.lang="en-US"; vRec.interimResults=true; vRec.continuous=true;
+  vRec.onresult=e=>{
+    for(let i=e.resultIndex;i<e.results.length;i++){
+      const r=e.results[i], text=r[0].transcript, it=vIntent(text);
+      if(!r.isFinal){$("voice-heard").textContent="hearing: "+text;$("t-status").textContent="hearing: "+text;}
+      if(r.isFinal&&!it) talkLog("you",text+"  (not a command)","arm");
+      // fire on the first words that make it clear; "go home" waits for the finished phrase (no half-heard homes)
+      if(it&&!vSent.has(i)&&(r.isFinal||!it.final)){vSent.add(i);vDo(it,text);}
+      if(r.isFinal) vSent.delete(i);
+    }
+  };
+  vRec.onerror=e=>{if(e.error==="not-allowed"){vOn=false;vShow();flash("Microphone blocked: allow it in the address bar");}};
+  vRec.onend=()=>{vRunning=false;setTimeout(vStart,200);};
+  return true;
+}
+function vShow(){
+  const b=$("b-voice");b.classList.toggle("on",vOn);b.firstChild.textContent=vOn?"Voice: listening":"Voice: off";
+  const t=$("t-voice");t.classList.toggle("on",vOn);t.firstChild.textContent=vOn?"Listening - click to stop":"Start listening";
+  $("t-status").textContent=vOn?"Listening. Just talk.":"Not listening. Type below, or click Start listening.";
+}
+// While listening, tell the station every 4 s (station_voice.py stays quiet then: one voice), and say once when
+// a run has ended and the arm is home, so the next command can follow.
+function vBeat(on){fetch("/control",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({action:"page_voice",on})}).catch(()=>{});}
+setInterval(()=>{if(vOn)vBeat(true);},4000);
+let vPrevState=null;
+setInterval(()=>{
+  if(!st) return;
+  if(vOn&&vPrevState==="running"&&["parked","off"].includes(st.state)&&!vBusy) vSay("Ready for the next one.");
+  if(vOn&&vPrevState==="homing"&&st.state==="parked"&&!vBusy) vSay("Ready for the next one.");
+  vPrevState=st.state;
+},500);
+function vToggle(){
+  if(!vRec&&!vInit()) return;
+  vOn=!vOn; vShow();
+  vBeat(vOn);
+  if(vOn){vSay("Listening.");vStart();} else {try{vRec.stop();}catch(e){} speechSynthesis.cancel();}
+}
+$("b-voice").onclick=vToggle;
+$("t-voice").onclick=vToggle;
+$("t-home").onclick=()=>{talkLog("you","(Return to home button)");vLast={key:"",t:0};vDo({a:"home",say:"Going home."},"return to home");};
+$("t-stop").onclick=()=>{talkLog("you","(Stop button)");vLast={key:"",t:0};vDo({a:"pause",say:"Stopped."},"stop");};
+$("t-letgo").onclick=()=>{talkLog("you","(Let go button)");vDo({a:"release",say:"Letting go."},"let go");};
+$("t-form").addEventListener("submit",e=>{
+  e.preventDefault(); const text=$("t-text").value.trim(); $("t-text").value=""; if(!text) return;
+  const it=vIntent(text);
+  if(it) vDo(it,text); else {talkLog("you",text); vSay("Say an instrument, stop, continue, return to home, kill, or let go.");}
+});
 $("b-qaack").onclick=()=>send("qa_ack");
 $("r-driver").onchange=driverFields;
 $("b-run").onclick=()=>{

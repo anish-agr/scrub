@@ -5,11 +5,11 @@ function clock(t) {
 function paint(report) {
     const tiger = report.source === "tiger";
   const word = document.getElementById("source-word");
-  word.textContent = tiger ? "Tiger Data hypertable" : "Local ledger";
+  word.textContent = tiger ? "Time-series table" : "Local ledger";
   word.className = tiger ? "status-word live" : "status-word wait";
   document.getElementById("source-text").textContent = tiger
-    ? "These minutes are read from the scrub_handoff hypertable in Tiger Data."
-    : "Tiger Data is not connected, so these minutes are counted from the ledger. The page switches to the hypertable once the database is set.";
+    ? "These minutes are read from the scrub_handoff time-series table."
+    : "These minutes are counted from the ledger.";
   const bars = document.getElementById("bars");
   const buckets = Array.isArray(report.buckets) ? report.buckets : [];
   bars.replaceChildren();

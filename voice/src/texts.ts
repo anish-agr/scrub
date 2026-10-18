@@ -24,7 +24,7 @@ type Kind = typeof KINDS[number];
 export interface TextIntent { kind: Kind; item: string | null; qty: number; setting: string | null; alias?: string }
 
 export const RESTOCKS_FILE = path.join(VOICE_DIR, "restocks.jsonl");
-export const HELP = `Text me "add a hemostat to the surgical tray", "what's out?", "switch to the bench tray" or "summary".`;
+export const HELP = `Text me "add a hemostat to the surgical tray", "what's out?" or "summary".`;
 const name = (id: string) => id.replace(/_/g, " ");
 
 export async function parseText(text: string, setting: Setting): Promise<TextIntent> {
