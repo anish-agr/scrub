@@ -11,17 +11,29 @@ LAYOUT = HERE / "layout.json"
 SCENES = HERE / "scenes"
 ARM_SRC = HERE / "models" / "so101" / "so101_new_calib_camera.xml"
 
-# item id -> (geom xml with {c} for color, rgba). Long axis along y, lying on the table.
+# item id -> (list of geom xml, rgba). Long axis along y, lying on the table (yaw 0).
 ITEMS = {
-    "hemostat": ('type="capsule" fromto="0 -0.035 0 0 0.035 0" size="0.006"', "0.75 0.75 0.8 1"),
-    "scalpel": ('type="box" size="0.004 0.035 0.003"', "0.9 0.2 0.2 1"),
-    "mayo_scissors": ('type="capsule" fromto="0 -0.045 0 0 0.045 0" size="0.007"', "0.6 0.65 0.7 1"),
-    "mouth_mirror": ('type="capsule" fromto="0 -0.04 0 0 0.04 0" size="0.004"', "0.5 0.8 0.9 1"),
-    "explorer": ('type="capsule" fromto="0 -0.04 0 0 0.04 0" size="0.003"', "0.8 0.7 0.3 1"),
-    "cotton_pliers": ('type="capsule" fromto="0 -0.04 0 0 0.04 0" size="0.005"', "0.7 0.5 0.8 1"),
-    "needle_nose_pliers": ('type="capsule" fromto="0 -0.05 0 0 0.05 0" size="0.008"', "0.9 0.5 0.1 1"),
-    "wire_cutters": ('type="capsule" fromto="0 -0.05 0 0 0.05 0" size="0.008"', "0.2 0.6 0.3 1"),
-    "hex_key": ('type="box" size="0.004 0.03 0.004"', "0.3 0.3 0.35 1"),
+    "hemostat": (['type="capsule" fromto="0 -0.035 0 0 0.035 0" size="0.006"'], "0.75 0.75 0.8 1"),
+    "scalpel": (['type="box" size="0.004 0.035 0.003"'], "0.9 0.2 0.2 1"),
+    "mayo_scissors": (['type="capsule" fromto="0 -0.045 0 0 0.045 0" size="0.007"'], "0.6 0.65 0.7 1"),
+    "mouth_mirror": (['type="capsule" fromto="0 -0.04 0 0 0.04 0" size="0.004"'], "0.5 0.8 0.9 1"),
+    "explorer": (['type="capsule" fromto="0 -0.04 0 0 0.04 0" size="0.003"'], "0.8 0.7 0.3 1"),
+    "cotton_pliers": (['type="capsule" fromto="0 -0.04 0 0 0.04 0" size="0.005"'], "0.7 0.5 0.8 1"),
+    # bench tools: two handles that splay apart, a narrow nose or a head
+    "needle_nose_pliers": ([
+        'type="capsule" fromto="-0.012 -0.055 0 -0.004 -0.005 0" size="0.005"',
+        'type="capsule" fromto="0.012 -0.055 0 0.004 -0.005 0" size="0.005"',
+        'type="capsule" fromto="0 -0.005 0 0 0.055 0" size="0.0035"'], "0.9 0.5 0.1 1"),
+    "wire_cutters": ([
+        'type="capsule" fromto="-0.014 -0.05 0 -0.005 -0.005 0" size="0.0055"',
+        'type="capsule" fromto="0.014 -0.05 0 0.005 -0.005 0" size="0.0055"',
+        'type="box" pos="0 0.012 0" size="0.009 0.014 0.005"'], "0.2 0.6 0.3 1"),
+    "hex_key": ([
+        'type="capsule" fromto="0 -0.03 0 0 0.03 0" size="0.0025"',
+        'type="capsule" fromto="0 -0.03 0 0.02 -0.03 0" size="0.0025"'], "0.3 0.3 0.35 1"),
+    "screwdriver": ([
+        'type="capsule" fromto="0 -0.06 0 0 -0.015 0" size="0.009"',
+        'type="capsule" fromto="0 -0.015 0 0 0.055 0" size="0.0025"'], "0.85 0.15 0.15 1"),
 }
 PARK = (0.0, 0.0, -1.0)  # items of other settings wait out of sight
 
@@ -55,14 +67,21 @@ def _patched_arm():
     return re.sub(r'(<body name="wrist_camera"[^>]*>)', r"\1" + cam, s, count=1)
 
 
-def slot_position(layout, item):
-    """Return the (x, y) slot of an item in the active setting, or None."""
+def tray_slot(layout, item):
+    """The (x, y) tray slot of an item in the active setting, or None."""
     items = layout["setting_items"][layout["setting"]]
     return layout["slots"][items.index(item)] if item in items else None
 
 
+def slot_position(layout, item):
+    """Where the item is meant to be picked from: its tray slot, unless a test bench moved it
+    (layout["_item_xy"], set by SimArm.set_item_pose, never written to layout.json)."""
+    moved = layout.get("_item_xy", {}).get(item)
+    return list(moved) if moved else tray_slot(layout, item)
+
+
 def item_start(layout, item):
-    xy = slot_position(layout, item)
+    xy = tray_slot(layout, item)
     return (xy[0], xy[1], 0.01) if xy else PARK
 
 
@@ -77,10 +96,10 @@ def build(layout=None):
     tw, th = L["tray"]["size"]
     oc = L["overhead_cam"]
     bodies = []
-    for item, (geom, rgba) in ITEMS.items():
+    for item, (geoms, rgba) in ITEMS.items():
         x, y, z = item_start(L, item)
-        bodies.append(f'    <body name="item_{item}" mocap="true" pos="{x} {y} {z}">'
-                      f'<geom {geom} rgba="{rgba}" contype="0" conaffinity="0"/></body>')
+        g = "".join(f'<geom {geom} rgba="{rgba}" contype="0" conaffinity="0"/>' for geom in geoms)
+        bodies.append(f'    <body name="item_{item}" mocap="true" pos="{x} {y} {z}">{g}</body>')
     marks = [("return_spot", L["return_spot"], "0.2 0.5 0.9 0.6"), ("safe_spot", L["safe_spot"], "0.9 0.2 0.2 0.6")]
     marks_xml = "\n".join(
         f'    <geom name="{n}" type="cylinder" size="0.04 0.0005" pos="{p[0]} {p[1]} 0.0006" rgba="{c}" contype="0" conaffinity="0"/>'
