@@ -16,8 +16,8 @@ Judges watch this video to decide whether the robot works. The tool may change h
 | --- | --- |
 | Clips | Phone videos, screen recordings, `arm/video.py` per-try clips, LeRobot `side`/`wrist` episode videos. Dropped into `data/video/raw/` (git-ignored) |
 | Photos | 20 to 40 stills of the table and tray from above and at angles, 60% overlap. `data/video/photos/` |
-| Events | The ledger (MongoDB or `ledger/buffer.jsonl`): every step, item, request-to-hand time, with timestamps |
-| Joint angles | The LeRobot dataset (`~/scrub-dataset`) and `/arm/pose` logs, for the reconstruction |
+| Events | The ledger by default: `LEDGER_BUFFER` or `ledger/buffer.jsonl`, else Atlas through `ledger/` when `MONGODB_URI` is set. Every step, item, request-to-hand time, with timestamps. Each row is real, simulation (sim arm), fake (fake arm), synthetic (fixture) or unknown (untagged); sim rows label the video `SIMULATION` |
+| Joint angles | The LeRobot dataset (`SCRUB_DATASET`, else `~/scrub-dataset`, where `arm/record.py` and `explore/station` record) and `/arm/pose` logs, for the reconstruction |
 | Layout | `settings/*.json` slots, `sim/layout.json`, `vision/calibration.json` |
 
 ## Commands (`python -m video <command>`)
@@ -42,7 +42,8 @@ Judges watch this video to decide whether the robot works. The tool may change h
     - `video/edl/demo.yaml`: the 2-minute demo, following the timings in `docs/DEVPOST.md`, with slots for each shot (A1 to A8, N1 to N8) and treatment per shot (clean, topdown, side-by-side, picture-in-picture with the dashboard)
     - `video/edl/perceptron-arm.yaml`: the unedited arm roll for the Perceptron track, cleaned only, with the success table end card
 9. **`preview`**: a low-resolution fast render of any EDL so the team can check the cut in seconds.
-10. **`export-ledger`**: writes `data/video/events.jsonl` from the ledger (Atlas through `MONGODB_URI`, plus `ledger/buffer.jsonl`), so `find`, `overlay` and `render` read our real events.
+10. **`export-ledger`**: writes `data/video/events.jsonl` from the ledger (Atlas through `MONGODB_URI`, plus `ledger/buffer.jsonl`), so `find`, `overlay` and `render` read our real events. Every command prints which ledger or dataset it read.
+11. **`python -m video.sim_backup capture` / `build`**: the labeled `SIMULATION` backup video from a running `run_all backup` sim stack, one clean case, to `data/video/out/sim-backup.mp4`. Commands in `video/README.md`.
 
 ## Tech
 
