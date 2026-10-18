@@ -1419,6 +1419,7 @@ def ops_page_and_design_are_served():
     client = TestClient(server.make_app(ctl))
     r = client.get("/ops")
     assert r.status_code == 200 and "<" in r.text
+    assert "renderReads" in r.text and 'id="packs"' in r.text  # the Reads panel
     assert client.get("/design/scrub.css").status_code == 200
     st = client.get("/state").json()
     assert {"skills", "latency_ms", "arm_telemetry"} <= set(st), st
