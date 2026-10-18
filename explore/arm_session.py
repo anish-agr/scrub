@@ -56,6 +56,10 @@ GRIP_BACKOFF = 4.0   # on an overload reply, open this much per loop until the s
 
 
 DROP_TARGET = [None, False]  # camera index for the SCRUB_DROP_CAMERA drill, done flag
+COOLDOWN = Path.home() / "scrub-logs" / "cooldown.json"  # written when a motor trips the cool-down
+COOL_TRIP, COOL_RESUME = 60, 45  # deg C: fold to rest and stop at COOL_TRIP; resume once all <= COOL_RESUME
+REST = {"shoulder_lift": -98.0, "elbow_flex": 92.0, "wrist_flex": 70.0}  # folded, just off the stops
+REST_DEG_S = 30.0
 LAST_ERROR = Path.home() / "scrub-logs" / "last-error.txt"  # a crashed session's reason, for the page
 CAM_SPECS: dict = {}         # starting OpenCV index -> (role, name spec), to find a camera again after a replug
 
@@ -222,6 +226,48 @@ TEMP_WARN, TEMP_RELAX = 55, 62  # deg C: warn on the page; stop pushing with tha
 ARM_JOINTS = ("shoulder_pan", "shoulder_lift", "elbow_flex", "wrist_flex", "wrist_roll")
 
 
+def _say(text: str, key=None) -> None:
+    try:
+        import arm_voice
+        arm_voice.say(text, key=key, every=30) if key else arm_voice.say(text)
+    except Exception:  # noqa: BLE001 - silence is fine
+        pass
+
+
+def _start_cooldown(temps: dict) -> None:
+    """A motor hit COOL_TRIP: end the session (the arm folds to rest on disconnect) and let the
+    supervisor wait for it to cool. A recording throws away only the episode in progress."""
+    import json
+    hot = {m: t for m, t in temps.items() if t >= COOL_TRIP}
+    COOLDOWN.parent.mkdir(parents=True, exist_ok=True)
+    COOLDOWN.write_text(json.dumps({"t": time.time(), "temps": temps, "hot": hot}))
+    print(f"COOL-DOWN: {', '.join(f'{m} {t} C' for m, t in hot.items())}: folding to rest, torque off, "
+          f"resuming at {COOL_RESUME} C", flush=True)
+    _say("My motors are hot. I'm folding up to cool down.")
+    try:
+        import arm_ui
+        arm_ui.note(f"COOL-DOWN at {max(hot.values())} C")
+        if arm_ui.events:  # recording: discard this episode, stop after it, keep the rest
+            arm_ui.events.update(rerecord_episode=True, exit_early=True, stop_recording=True)
+            return
+    except ImportError:
+        pass
+    raise KeyboardInterrupt  # teleop: LeRobot disconnects (and we fold to rest) on Ctrl-C
+
+
+def _fold_to_rest(bus) -> None:
+    """Move slowly to the folded rest pose (pan, roll and claw stay put), then torque off."""
+    lim = joint_limits(bus)
+    here = bus.sync_read("Present_Position")
+    goal = {m: min(lim[m][1], max(lim[m][0], REST.get(m, here[m]))) if m in lim else here[m] for m in here}
+    n = max(1, int(max(abs(goal[m] - here[m]) for m in here) / REST_DEG_S * 30))
+    for i in range(1, n + 1):
+        bus.sync_write("Goal_Position", {m: here[m] + (goal[m] - here[m]) * i / n for m in here})
+        time.sleep(1 / 30)
+    time.sleep(1.0)
+    bus.disable_torque()
+
+
 def guard_joints() -> None:
     """A blocked joint (the folded rest pose against the base or table, an object in the way) keeps
     its motor stalled at the current limit until it overheats and trips overload, one motor after
@@ -245,6 +291,10 @@ def guard_joints() -> None:
                 st["temp"] = {k: int(v) for k, v in self.bus.sync_read("Present_Temperature", normalize=False).items()}
             except Exception:  # noqa: BLE001
                 pass
+        hottest = max(st["temp"].values(), default=0)
+        if hottest >= COOL_TRIP and not st.get("cooling"):
+            st["cooling"] = True
+            _start_cooldown(st["temp"])
         action = dict(action)
         for m in ARM_JOINTS:
             k = m + ".pos"
@@ -345,6 +395,10 @@ def guard_joints() -> None:
         """Keeping torque on stops a raised arm falling, but at rest it only keeps the motors
         pushing into the base. Folded at rest: torque off. Raised: hold where it is, no push."""
         try:
+            if COOLDOWN.exists():
+                _fold_to_rest(self.bus)
+                print("exit: folded to rest for the cool-down, torque off", flush=True)
+                return disconnect(self, *a, **kw)
             p = self.bus.sync_read("Present_Position")
             if p["shoulder_lift"] <= -90 and p["elbow_flex"] >= 85:
                 self.bus.disable_torque()
@@ -635,6 +689,8 @@ def supervise(a, argv: list) -> None:
     arm_ui.cfg["root"] = a.root if record else None
     start_eps = dataset_episodes(a.root) if record else 0
     restarts, opened, serving, shown = 0, False, False, None
+    if COOLDOWN.exists():  # left from a cool-down that was interrupted: finish it first
+        cool_down(a, arm_ui)
     try:
         while True:
             missing = missing_devices(a)
@@ -679,6 +735,10 @@ def supervise(a, argv: list) -> None:
             except KeyboardInterrupt:
                 proc.wait(timeout=15)
                 return
+            if COOLDOWN.exists():
+                cool_down(a, arm_ui)  # returns with the page server stopped
+                serving = False
+                continue
             if rc == 0:
                 print("session finished", flush=True)
                 return
@@ -697,6 +757,57 @@ def supervise(a, argv: list) -> None:
     finally:
         if serving:
             arm_ui.stop_server()
+
+
+def motor_temps(port: str) -> dict:
+    """Follower motor temperatures by id (only while no session owns the port)."""
+    import scservo_sdk as scs
+    ph = scs.PortHandler(port)
+    out = {}
+    try:
+        if ph.openPort():
+            ph.setBaudRate(1_000_000)
+            pk = scs.PacketHandler(0)
+            for i in range(1, 7):
+                t, comm, _ = pk.read1ByteTxRx(ph, i, 63)
+                if comm == scs.COMM_SUCCESS:
+                    out[i] = t
+    except Exception:  # noqa: BLE001
+        pass
+    finally:
+        try:
+            ph.closePort()
+        except Exception:  # noqa: BLE001
+            pass
+    return out
+
+
+def cool_down(a, arm_ui) -> None:
+    """Torque is off and the arm is folded. Show the temperatures until every motor is at or below
+    COOL_RESUME, then return so the supervisor starts the session again."""
+    if not a.no_ui:
+        arm_ui.S["phase"] = "cooling"
+        arm_ui.start_server()
+    started, said = time.time(), 0
+    while True:
+        temps = motor_temps(a.follower)
+        hot = max(temps.values()) if temps else None
+        mins = (time.time() - started) / 60
+        msg = (f"COOLING DOWN: hottest motor {hot} C, resumes at {COOL_RESUME} C ({mins:.0f} min so far)"
+               if hot is not None else "COOLING DOWN: can't read the motors (power?)")
+        arm_ui.S["waiting"] = [msg]
+        print(msg, flush=True)
+        if hot is not None and hot <= COOL_RESUME:
+            COOLDOWN.unlink(missing_ok=True)
+            _say("Cooled down. Starting again.")
+            print("cool-down done: restarting the session", flush=True)
+            if not a.no_ui:
+                arm_ui.stop_server()
+            return
+        if time.time() - said > 120:
+            _say(f"Cooling down. Hottest motor {hot} degrees." if hot else "Cooling down.")
+            said = time.time()
+        time.sleep(10)
 
 
 def camera_index(spec: str) -> int:
@@ -734,7 +845,9 @@ def main() -> None:
 
     # keep holding on exit: LeRobot's default drops torque and a raised arm falls
     robot = [f"--robot.type=so101_follower", f"--robot.port={a.follower}", "--robot.id=scrub_follower",
-             "--robot.disable_torque_on_disconnect=false"]
+             "--robot.disable_torque_on_disconnect=false",
+             # LeRobot's own cap on how far a goal may lead the arm per step (degrees): no wrap spikes
+             "--robot.max_relative_target=15"]
     teleop = [f"--teleop.type=so101_leader", f"--teleop.port={a.leader}", "--teleop.id=scrub_leader"]
     cams = {k: camera_index(v) for k, v in (("side", a.side), ("wrist", a.wrist)) if v is not None}
     CAM_SPECS.update({idx: (role, getattr(a, role)) for role, idx in cams.items()})
