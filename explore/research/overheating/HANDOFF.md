@@ -95,6 +95,16 @@ Home (measured Oct 18, folded, stays put with torque off: `explore/home_pose.py 
 ```
 Degrees: pan 2.8, lift -102.2, elbow 97.7, wrist_flex 72.3, wrist_roll -9.3, gripper 4.8. Also in `explore/home_pose.json`.
 
+### Oct 18 upstream sync note
+
+Upstream commit `319161a` separately added situational **gripper** Torque_Limit values
+150 (idle shut), 350 (holding), 500 (moving), plus gripper CW/CCW dead zone 3.
+The Oct 17 audit below predates those changes and does **not** validate them. Statements
+below about unimplemented register experiments describe the audit's work at that time;
+the body-joint experiments in the table are still separate from these gripper changes.
+Do not revert or stack settings to recreate old data. Record the current commit/settings
+for a fresh baseline, then keep exactly those settings for the fan-only comparison.
+
 ### Oct 17 continuation: telemetry audit; baseline still required
 
 Read MongoDB with `thermal_analyze.py --hours 12` from Anish's Windows checkout
