@@ -136,6 +136,33 @@ tested here. Install its workshop-approved source checkout with Feetech/camera
 extras in the arm environment, then verify these imports there. The dependency
 file here covers offline tests/client code, not LeRobot's heavy hardware stack.
 
+## Pre-open instruction sessions (R3)
+
+`Arm.prepare(instructions)` is optional; the base arm contract is unchanged.
+Call it in the controller's worker (for example, `await asyncio.to_thread(arm.prepare,
+instructions)`), **not** on the FastAPI event loop. Supply exact recorded task
+strings for the active setting. It returns the unique prepared strings, never
+tokens. No motor connection, camera capture or motion is performed by this hook.
+
+Each instruction gets its own contract-pinned session/grant. Repeating the same
+set reuses sessions; changing settings closes obsolete ones. `run_skill` selects
+the prepared session instead of opening a grant on first use, and still resets
+sequence/RTC history between runs. `prepare([])` releases the prepared set, and
+disconnect deletes all cached sessions. Ordinary unprepared instructions retain
+the previous one-on-demand-session behavior.
+
+Deployment/contract changes invalidate all old grants. A locally known TTL expiry
+requests a fresh grant; idle expiry on the server can happen sooner and remains
+a runtime failure/reset/regrant case, not something local pre-opening can prevent.
+If preparing a new set partially fails, newly opened sessions are closed and the
+previous good set is retained. Freeze cancels preparation without rearming or
+allowing a late grant to restart motion. The method shares the operation lock
+with skills/motion, so it may wait for a running skill; `freeze()` stays nonblocking.
+
+Test: `python -m unittest arm.test_prepare -v` (11 tests, fake sessions, no key).
+Caiden can call the optional hook when settings change via `getattr`; no
+`controller/` or `docs/CONTRACTS.md` edits were made here.
+
 ## Before hardware
 
 ### Hand-guided teaching (R2)

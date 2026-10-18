@@ -23,6 +23,8 @@ Agents: the first unchecked box in your person's section is the next task. Tick 
 - [ ] P6 Commit Fellowship form
 - [x] R1 training pipeline: local preflight/cadence, resumable HF registration, validation, training/follow, matching ready deployment and `.env` update; `python -m unittest arm.test_pipeline -v` passes 10 offline tests. Commands/evidence format in `arm/README.md`; no real job submitted.
 - [x] R2 torque-off hand-guided teaching: `python -m arm.teach --port <port> --supported-and-empty`, h/c/s poses and a/b FK region corners, atomic rig updates with hardware verification cleared. `python -m unittest arm.test_teach -v` passes 8 offline tests; no real torque operation run.
+- [x] R3 optional `Arm.prepare(instructions)`: instruction-bound session cache, reuse/cleanup/expiry/context handling, freeze-safe transactional preparation. `python -m unittest arm.test_prepare -v` passes 11 offline tests, including reuse by the real playback loop with fake joints. Base contract and Caiden's files unchanged.
+  - Full owned arm suite: 55/55 offline tests pass; `python -m arm --dry-run --self-test` still succeeds. R4 waits for Anish to confirm the arm is plugged in and the Robotics team key is in `.env`.
 
 ## Caiden
 
