@@ -1,12 +1,12 @@
-# What's left (Sat 4:05 PM)
+# What's left (Sat 5:05 PM)
 
-Evan's tasks (E1 to E7) aren't listed here; he's on them. `docs/STATUS.md` stays the checklist; this file is the gap list. Whoever finishes an item deletes it here in the same commit.
+Evan's tasks (E1 to E7) aren't listed here; he's on them. As of 5 PM he has pushed settings, the dashboard, the ledger, the tables page and a Devpost draft, and `controller.test_flows` (28/28) and `vision.test_vision` still pass with them in. `docs/STATUS.md` stays the checklist; this file is the gap list. Whoever finishes an item deletes it here in the same commit.
 
 ## Blockers only people can clear
 
 | What | Blocks | Who |
 | --- | --- | --- |
-| **Perceptron Robotics team key.** The key we have works on the vision API (`api.perceptron.inc`) but gets 401 on `robotics.perceptron.inc`. Get the team key from Perceptron staff and put it in `PERCEPTRON_TEAM_API_KEY` | training (A5, A10), live inference (A6), `python -m arm.train capabilities` | Anish |
+| **Perceptron Robotics team key (coming soon).** The key we have is the vision key (`api.perceptron.inc`, in `PERCEPTRON_API_KEY`); it gets 401 on `robotics.perceptron.inc`. When the team key arrives it goes in `PERCEPTRON_TEAM_API_KEY`, then run `python -m arm.train capabilities` | training (A5, A10), live inference (A6), `python -m arm.train capabilities` | Anish |
 | **Photon number** answering calls | C3, the voice prize, the summary text | Caiden |
 | **Arm physical setup:** ports, both cameras (`side`, `wrist`), calibration with fixed ids, tray and cameras taped | all recording, A6 to A8 live, B5, B6 | Anish + one person |
 | **Overhead camera for `vision/`:** a third USB webcam, separate from `side` and `wrist` | B5, B6, B8 | Brandon |
@@ -23,6 +23,7 @@ Evan's tasks (E1 to E7) aren't listed here; he's on them. `docs/STATUS.md` stays
 | L6 | `arm/check_setup.py` (ports, cameras at 640x480 at 30 fps, real fps, one test frame each) and `arm/record.py` (builds and runs `lerobot-record` with `use_degrees=true`, fps 30, episode 25 s, reset 10 s, one repo `<HF_USER>/scrub`, `--resume` when it exists, appends to `docs/DATA-LOG.md`, `--print-only`). Anish allows these two new files in `arm/` | `arm/check_setup.py`, `arm/record.py` |
 | L7 | One command that starts the whole stack for a demo or test: controller (fake, sim or real arm), vision (real or `--fake`), voice, and opens the dashboard. Plus a full-stack smoke test on the sim arm | `controller/run_all.py` |
 | L8 | README "Running it" section with the real commands, once L7 works | `README.md` (Anish allows) |
+| L10 | Full-stack check with Evan's parts: the controller serves `dashboard/`, events reach the ledger (buffer file when Mongo is down), `GET /stats` returns the tables, settings load. Report mismatches to Evan rather than editing his folders | read only outside `controller/` |
 | L9 | P2: the 5-slide backup deck outline and slide text in `docs/SLIDES.md`; system diagram as an image | `docs/SLIDES.md`, `explore/` |
 
 ## Needs the arm (people, with agents helping)
