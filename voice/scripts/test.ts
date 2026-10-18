@@ -163,7 +163,7 @@ assert.deepEqual(caseFacts().passed, {});  // a new case after the text
 const linked: [string, string][] = [];
 const r2 = await endCase(async (to, text) => { linked.push([to, text]); return true; }, async () => "Count: everything is back on the tray.", "https://scrub.example/");
 assert.equal(linked.length, 2);
-assert.deepEqual(linked[1], ["+15555550123", `Case replay: https://scrub.example/?case=surgical-${start}`]);
+assert.deepEqual(linked[1], ["+15555550123", `Case replay: https://scrub.example/case.html?id=surgical-${start}`]);
 assert.equal(r2.link, linked[1][1]);
 assert.equal(caseLink(null, "https://scrub.example"), null);
 assert.equal(caseLink(`surgical-${start}`, ""), null);
@@ -172,7 +172,7 @@ await endCase(async (_to, text) => { notSent.push(text); throw new Error("photon
 assert.deepEqual(notSent, ["x"]);  // the summary failed: no link text after it
 // A "summary" text gets the link on its own line after the summary.
 assert.equal(await closeCaseWithLink(async () => "Count: everything is back on the tray.", "https://scrub.example"),
-  `Count: everything is back on the tray.\n\nCase replay: https://scrub.example/?case=surgical-${start}`);
+  `Count: everything is back on the tray.\n\nCase replay: https://scrub.example/case.html?id=surgical-${start}`);
 assert.equal(await closeCaseWithLink(async () => "Count: everything is back on the tray.", ""), "Count: everything is back on the tray.");
 // No case_id on events: the current behaviour, one case until "end of case".
 newCase();

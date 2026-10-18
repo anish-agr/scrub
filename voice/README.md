@@ -42,7 +42,7 @@ Code in `src/texts.ts`; `npm test` runs it against a fake message stream and fak
 
 The end-of-case text (saying "end of case" on the call, or `POST /summary`) goes to the number that called (`Caller:` in the agent's system prompt) or else `PHOTON_SUMMARY_TO`, on that same thread. It names the case: count first, then `Scrub case: surgical, started 2:41 PM (23 min)`, the items used, what was passed, set down or failed, and the median request-to-hand time. Events are grouped by the controller's `case_id` (a new `case_id` starts a new case); without it, one case runs until "end of case".
 
-Case link: with `SCRUB_PUBLIC_URL` set (non-secret, `.env` or shell, e.g. the dashboard's public URL), a second short text follows the summary: `Case replay: <SCRUB_PUBLIC_URL>/?case=<case_id>`. A "summary" text gets the same line after the summary in its reply. Unset, or no `case_id` from the controller: nothing extra.
+Case link: with `SCRUB_PUBLIC_URL` set (non-secret, `.env` or shell, the ledger public page's URL), a second short text follows the summary: `Case replay: <SCRUB_PUBLIC_URL>/case.html?id=<case_id>` (Evan's replay page on the ledger public site). A "summary" text gets the same line after the summary in its reply. Unset, or no `case_id` from the controller: nothing extra.
 
 ## Tunnel
 
