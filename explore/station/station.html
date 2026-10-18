@@ -183,6 +183,15 @@ kbd{border:1px solid var(--hair);padding:0 4px;font:inherit}
       </div>
       <div id="runhint" class="mute" style="margin-top:8px;font-size:14px"></div>
       <div id="runlive" hidden><div id="runtext"></div><div class="prog"><i id="runprog"></i></div></div>
+      <section id="which-one" class="panel" aria-live="polite" aria-labelledby="which-title" hidden>
+        <h2 id="which-title">Which one? Arm holding still</h2>
+        <p id="which-question"></p>
+        <p id="which-orientation" class="mute"></p>
+        <div class="pair">
+          <button id="b-left">My left<small>surgeon-relative</small></button>
+          <button id="b-right">My right<small>surgeon-relative</small></button>
+        </div>
+      </section>
       <div id="lastrun" hidden>
         <div id="lasttext"></div>
         <div class="row" style="margin-top:8px"><span class="mute">Did it grab it?</span>
@@ -304,6 +313,16 @@ function renderRun(s){
   if(running&&run){const d=run.driver_status||{};
     $("runtext").textContent=`${run.driver} · ${d.phase||""} · ${d.detail||""} · ${fmt(run.seconds||0)}`;
     $("runprog").style.width=Math.round(100*(d.progress||0))+"%";}
+  const question=running&&run&&run.driver_status&&run.driver_status.question;
+  $("which-one").hidden=!question;
+  if(question){
+    $("which-question").textContent=question.say;
+    $("which-orientation").textContent=question.orientation+` Answer within ${question.timeout_s} seconds.`;
+    ["left","right"].forEach(side=>{
+      $("b-"+side).disabled=answering===question.id;
+      $("b-"+side).dataset.question=question.id;
+    });
+  }
   const last=(s.runs||[]).slice(-1)[0];
   $("lastrun").hidden=running||!last;
   if(last&&!running){
@@ -354,7 +373,7 @@ function render(s){
 async function poll(){
   try{const r=await fetch("/status",{cache:"no-store"}); if(!r.ok)throw 0; st=await r.json(); fails=0;
     $("disc").hidden=true; render(st);}
-  catch(e){if(++fails>=3){$("disc").hidden=false;$("state").className="";$("state").textContent="Offline";}}
+  catch(e){if(++fails>=3){$("disc").hidden=false;$("state").className="";$("state").textContent="Offline";$("which-one").hidden=true;}}
 }
 setInterval(poll,250); poll();
 setInterval(()=>{if(mode==="run"&&st&&st.state!=="running")loadDrivers();},15000);
@@ -389,6 +408,14 @@ $("b-cal").onclick=()=>{
   if(!calArmed){calArm(true);return;}            // two clicks: it sweeps the jaw over the whole tray
   calArm(false); send("run",{driver:"autopick",args:{mode:"calibrate"}});
 };
+let answering=null;
+async function answerChoice(side,question_id){
+  if(answering===question_id)return;
+  answering=question_id; $("b-left").disabled=$("b-right").disabled=true;
+  await send("clarify_answer",{question_id,side});
+  answering=null;
+}
+["left","right"].forEach(side=>$("b-"+side).onclick=()=>answerChoice(side,$("b-"+side).dataset.question));
 $("b-grab").onclick=()=>send("mark",{result:"grabbed"});
 $("b-miss").onclick=()=>send("mark",{result:"missed"});
 document.querySelectorAll("button").forEach(b=>b.addEventListener("click",()=>b.blur()));  // Space never double-fires
@@ -399,6 +426,10 @@ $("task").addEventListener("keydown",e=>{if(e.key==="Enter"){e.preventDefault();
 document.addEventListener("keydown",e=>{
   if(e.key==="Escape"){e.preventDefault();send("kill");return;}       // works even while typing
   const typing=document.activeElement&&["INPUT","SELECT"].includes(document.activeElement.tagName);
+  const q=st&&st.state==="running"&&st.run&&st.run.driver_status&&st.run.driver_status.question;
+  if(!typing&&mode==="run"&&q&&q.count>2&&e.key.toLowerCase()==="c"){
+    e.preventDefault();if(!e.repeat)answerChoice("closest",q.id);return;
+  }
   if(typing||mode!=="record")return;                                   // Space never starts anything on the Run tab
   if(e.key===" "){e.preventDefault();if(!e.repeat)send("toggle");}
   else if(e.key==="Backspace"){e.preventDefault();if(!e.repeat)send("discard");}
