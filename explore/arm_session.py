@@ -75,6 +75,12 @@ COOLDOWN = Path.home() / "scrub-logs" / "cooldown.json"  # written when a motor 
 COOL_TRIP, COOL_RESUME = 60, 50
 COOL_PLATEAU_S = 180  # no further drop for this long while <= COOL_TRIP - 5: resume anyway
 REST = {"shoulder_lift": -98.0, "elbow_flex": 92.0, "wrist_flex": 70.0}  # folded, just off the stops
+try:  # the saved home pose (explore/home_pose.py save) replaces it: pan, roll and claw too
+    _HOME = json.loads((Path(__file__).with_name("home_pose.json")).read_text())["deg"]
+    REST = {m: v for m, v in _HOME.items() if m != "gripper"}
+    REST["shoulder_lift"] = max(REST["shoulder_lift"], -100.0)  # just off the stop; it settles the rest unpowered
+except (OSError, ValueError, KeyError):
+    _HOME = None
 REST_DEG_S = 30.0
 ROLL_LIMIT_DEG = 150.0  # wrist_roll is calibrated over a full turn; stay this far inside the ends
 LAST_ERROR = Path.home() / "scrub-logs" / "last-error.txt"  # a crashed session's reason, for the page
@@ -496,7 +502,8 @@ def guard_joints() -> None:
                 print("exit: folded to rest for the cool-down, torque off", flush=True)
                 return disconnect(self, *a, **kw)
             p = self.bus.sync_read("Present_Position")
-            if p["shoulder_lift"] <= -90 and p["elbow_flex"] >= 85:
+            near_home = _HOME is not None and all(abs(p[m] - _HOME[m]) <= 12 for m in ("shoulder_lift", "elbow_flex"))
+            if near_home or (p["shoulder_lift"] <= -90 and p["elbow_flex"] >= 85):
                 self.bus.disable_torque()
                 print("exit: arm folded at rest, torque off so the motors cool", flush=True)
             else:

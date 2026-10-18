@@ -239,6 +239,24 @@ def no_load_reading_waits_for_got_it():
 
 
 @test
+def rests_at_home_then_wakes_for_the_next_command():
+    """After a handover it goes home, waits REST_AFTER_S, rests (torque off), and wakes for the next one."""
+    import controller.core as core
+    old, core.REST_AFTER_S = core.REST_AFTER_S, 0.3
+    try:
+        ctl, arm = make()
+        _, evs = run(ctl, dict(HANDOVER))
+        assert "released" in types(evs), types(evs)
+        assert wait_for(lambda: ctl.state()["resting"], 3.0), "never rested after going home"
+        assert arm.resting
+        _, evs = run(ctl, dict(HANDOVER))
+        assert "released" in types(evs), types(evs)
+        assert getattr(arm, "rest_count", 0) >= 1
+    finally:
+        core.REST_AFTER_S = old
+
+
+@test
 def pull_detected_when_load_drops():
     ctl, arm = make(pull_s=None)
     t0 = [None]
