@@ -170,6 +170,20 @@ def tolerate_camera_stalls() -> None:
         OpenCVCamera.connect = connect_and_arm
 
 
+def retry_bus_reads() -> None:
+    """LeRobot reads the bus with zero retries, so one dropped reply ("There is no status packet")
+    ends the session (Oct 17: twice in one hour, leader and follower). Retry a read up to 3 times."""
+    from lerobot.motors.motors_bus import MotorsBus
+    sync_read, read = MotorsBus.sync_read, MotorsBus.read
+
+    def sync_read_retry(self, data_name, motors=None, *, normalize=True, num_retry=0):
+        return sync_read(self, data_name, motors, normalize=normalize, num_retry=max(num_retry, 3))
+
+    def read_retry(self, data_name, motor, *, normalize=True, num_retry=0):
+        return read(self, data_name, motor, normalize=normalize, num_retry=max(num_retry, 3))
+    MotorsBus.sync_read, MotorsBus.read = sync_read_retry, read_retry
+
+
 def lenient_motor_check() -> None:
     """LeRobot's start-up check pings each motor once and counts a reply carrying an error flag
     (angle out of range, overload) as a missing motor. A motor that answers is there: retry a
@@ -429,6 +443,11 @@ def guard_joints() -> None:
         """Keeping torque on stops a raised arm falling, but at rest it only keeps the motors
         pushing into the base. Folded at rest: torque off. Raised: hold where it is, no push."""
         try:
+            if START.exists():  # preview ending because recording starts: keep holding, no limp arm
+                raw = self.bus.sync_read("Present_Position", normalize=False)
+                self.bus.sync_write("Goal_Position", raw, normalize=False)
+                print("exit: preview over, holding the pose for the recording", flush=True)
+                return disconnect(self, *a, **kw)
             if COOLDOWN.exists():
                 _fold_to_rest(self.bus)
                 print("exit: folded to rest for the cool-down, torque off", flush=True)
@@ -967,6 +986,7 @@ def main() -> None:
         cmd = ["lerobot-teleoperate", *robot, *teleop, "--fps=30"]
 
     lenient_motor_check()
+    retry_bus_reads()
     ease(a.follower, a.leader, a.ease_s)
     print(" ".join(cmd), flush=True)
     clamp_follower()  # innermost: the gripper guard below sees and sends clamped goals
