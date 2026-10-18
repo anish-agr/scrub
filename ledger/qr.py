@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import argparse
 import os
 from pathlib import Path
 
@@ -41,6 +42,7 @@ def write_qr(url: str | None = None) -> str:
 
 
 def main() -> None:
+    argparse.ArgumentParser(prog="python -m ledger.qr", description=__doc__).parse_args()
     target = write_qr()
     print(f"wrote {PNG}")
     print(f"points at {target}")
