@@ -61,16 +61,17 @@ The return spot uses the same overlap test against `return_spot`.
 
 ## Latency and limits
 
-From the docs, not from a timed call on our key:
+Confirmed on live call using `PERCEPTRON_API_KEY`:
 
 | Limit | Value |
 | --- | --- |
-| Request timeout we use | 2 seconds (`vision/tray.py`). The controller treats a TrayState older than 3 seconds as unknown, so a slow call must still post the last state inside that window. |
+| Measured latency | 3.11 seconds (live round-trip call to `/v1/detect` on 640x480 frame) |
+| Request timeout we use | 4.0 seconds (`vision/tray.py`). Raised from 2.0 seconds to accommodate live API latency. |
 | Body size | 20 MiB (docs) |
 | Categories | 256 |
-| Our tray period | 1 second, so a lift shows up on the next successful call (under about 2 seconds) |
+| Our tray period | 1 second, so a lift shows up on the next successful call |
 | Confidence | not returned |
 
 When a call fails or exceeds the timeout, the last good TrayState is posted again with `"stale": true`. That field is optional and extra; the rest of the body still matches `docs/CONTRACTS.md`.
 
-Fill in a measured latency here after the first real call with the team key.
+Live testing confirmed `POST https://api.perceptron.inc/v1/detect` accepts the data URL payload, respects `reasoning_effort: "none"`, and returns pixel bounding boxes within 3.11 seconds.

@@ -97,6 +97,9 @@ class Runtime:
     detections: list = field(default_factory=list)
     last_good_tray: dict | None = None
     other_hand_boxes: list = field(default_factory=list)
+    lighting: dict | None = None
+    last_posted_lighting: str | None = None
+    lighting_period: float = 1.0
     lock: threading.Lock = field(default_factory=threading.Lock)
 
     def preview_jpeg(self) -> bytes:
@@ -167,6 +170,7 @@ def publish_hand(runtime: Runtime) -> dict | None:
             "open": open_palm,
             "palm_px": palm,
             "target": target,
+            "target_px": aim,
             "path_clear": clear,
             "t": now,
         }
@@ -235,6 +239,47 @@ def publish_tray(runtime: Runtime) -> dict | None:
     return payload
 
 
+def classify_lighting(mean_b: float) -> tuple[str, float]:
+    """Map frame mean brightness to (lighting_tag, estimated_lux).
+    dim: < 60 (~80 lux)
+    bright: > 180 (~1200 lux)
+    normal: 60-180 (~450 lux)
+    """
+    if mean_b > 180.0:
+        tag = "bright"
+        lux = round(min(1800.0, 1000.0 + (mean_b - 180.0) * 10.0), 1)
+    elif mean_b < 60.0:
+        tag = "dim"
+        lux = round(max(20.0, mean_b * 1.5), 1)
+    else:
+        tag = "normal"
+        lux = round(100.0 + (mean_b - 60.0) * (800.0 / 120.0), 1)
+    return tag, lux
+
+
+def publish_lighting(runtime: Runtime) -> dict | None:
+    latest = runtime.grabber.latest()
+    if latest is None:
+        return None
+    frame, _t = latest
+    mean_b = float(frame.mean())
+    tag, lux = classify_lighting(mean_b)
+    data = {
+        "lighting": tag,
+        "lux": lux,
+        "brightness": round(mean_b, 1),
+        "t": time.time(),
+    }
+    with runtime.lock:
+        runtime.lighting = data
+        should_post = runtime.last_posted_lighting != tag
+        if should_post:
+            runtime.last_posted_lighting = tag
+    if should_post:
+        runtime.poster.post("/lighting", {"lighting": tag, "lux": lux})
+    return data
+
+
 def _loop(stop: threading.Event, period: float, fn, runtime: Runtime, name: str):
     while not stop.is_set():
         started = time.monotonic()
@@ -251,6 +296,7 @@ def start_loops(runtime: Runtime) -> threading.Event:
     stop = threading.Event()
     threading.Thread(target=_loop, args=(stop, runtime.hand_period, publish_hand, runtime, "hand"), name="hand", daemon=True).start()
     threading.Thread(target=_loop, args=(stop, runtime.tray_period, publish_tray, runtime, "tray"), name="tray", daemon=True).start()
+    threading.Thread(target=_loop, args=(stop, runtime.lighting_period, publish_lighting, runtime, "lighting"), name="lighting", daemon=True).start()
     return stop
 
 
@@ -272,6 +318,7 @@ def build_runtime(
     repo: Path | None = None,
     calibration_path: Path | None = None,
     heights_path: Path | None = None,
+    fake_calibration: bool = False,
 ) -> Runtime:
     repo = repo or ROOT
     controller_url = controller_url or os.environ.get("CONTROLLER_URL", "http://localhost:8000")
@@ -279,6 +326,11 @@ def build_runtime(
     if detector is None:
         detector = PerceptronDetector(api_key)
     calibration_path = calibration_path or (repo / "vision" / "calibration.json")
+    cal = load_calibration(calibration_path)
+    if cal is None and fake_calibration:
+        from vision.calibrate import synthetic_calibration
+
+        cal = synthetic_calibration()
     heights_path = heights_path or (repo / "vision" / "hand_heights.json")
     grabber = FrameGrabber(capture).start()
     deadline = time.monotonic() + 2.0
@@ -292,7 +344,7 @@ def build_runtime(
         repo=repo,
         setting_id=os.environ.get("VISION_SETTING", "surgical"),
         hand_source=fake_hands,
-        calibration=load_calibration(calibration_path),
+        calibration=cal,
         heights=load_heights(heights_path),
         heights_path=heights_path,
         clinician=os.environ.get("CLINICIAN") or None,

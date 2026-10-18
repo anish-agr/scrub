@@ -21,7 +21,7 @@ from vision.hand import hand_is_open, palm_center, synthetic_landmarks
 from vision.heights import height_for
 from vision.mark_slots import boxes_from_clicks, format_for_evan, labeled_boxes
 from vision.service import build_runtime, publish_hand, publish_tray, remember_clinician, start_loops
-from vision.tray import fallback_setting, gripper_and_obstacles, tray_from_detections
+from vision.tray import FakeDetector, fallback_setting, gripper_and_obstacles, tray_from_detections
 
 
 class RecordingPoster:
@@ -399,7 +399,6 @@ class PreviewServerTests(unittest.TestCase):
         self.assertIn("/stream", page.text)
         runtime.grabber.stop()
 
-
 class ToolingTests(unittest.TestCase):
     def test_fake_mark_writes_settings_for_all_three_trays(self):
         from vision.mark_slots import main
@@ -544,6 +543,200 @@ class ToolingTests(unittest.TestCase):
         self.assertIn("stale_rate", rows[0])
         self.assertIn(",bright,", rows[1])
         self.assertIn(",dim,", rows[2])
+
+
+class VisionFixesTests(unittest.TestCase):
+    def test_qa04_synthetic_hand_gives_real_target_in_fake_mode(self):
+        capture = FakeCapture()
+        lock_controls(capture)
+        runtime = build_runtime(
+            capture,
+            fake_hands=lambda _f: [synthetic_landmarks(True)],
+            detector=FakeDetector(),
+            fake_calibration=True,
+        )
+        msg = publish_hand(runtime)
+        runtime.grabber.stop()
+        self.assertTrue(msg["seen"])
+        self.assertIsNotNone(msg["target"])
+        self.assertEqual(len(msg["target"]), 3)
+        self.assertAlmostEqual(msg["target"][0], 0.22, places=2)
+        self.assertAlmostEqual(msg["target"][1], -0.10, places=2)
+        self.assertAlmostEqual(msg["target"][2], 0.18, places=2)
+        self.assertIsNotNone(msg["target_px"])
+
+    def test_qa05_fake_detector_detects_all_nine_instruments(self):
+        detector = FakeDetector()
+        frame = np.zeros((480, 640, 3), dtype=np.uint8)
+        # Surgical
+        surg = detector.detect(frame, ["scalpel", "hemostat", "mayo scissors"])
+        surg_items = {d["mention"] for d in surg}
+        self.assertEqual(surg_items, {"scalpel", "hemostat", "mayo scissors"})
+        # Dental
+        dent = detector.detect(frame, ["mouth mirror", "explorer", "cotton pliers"])
+        dent_items = {d["mention"] for d in dent}
+        self.assertEqual(dent_items, {"mouth mirror", "explorer", "cotton pliers"})
+        # Bench
+        bench = detector.detect(frame, ["needle nose pliers", "wire cutters", "hex key"])
+        bench_items = {d["mention"] for d in bench}
+        self.assertEqual(bench_items, {"needle nose pliers", "wire cutters", "hex key"})
+        # Total distinct items across all settings is 9
+        all_items = surg_items | dent_items | bench_items
+        self.assertEqual(len(all_items), 9)
+
+    def test_qa06_slot_depletion_and_return_spot(self):
+        detector = FakeDetector()
+        frame = np.zeros((480, 640, 3), dtype=np.uint8)
+        cats = ["scalpel", "hemostat", "mayo scissors"]
+
+        # Initial: all detected
+        dets = detector.detect(frame, cats)
+        mentions = [d["mention"] for d in dets]
+        self.assertIn("hemostat", mentions)
+
+        # Hemostat picked: slot emptied
+        detector.empty_slot("hemostat")
+        dets = detector.detect(frame, cats)
+        mentions = [d["mention"] for d in dets]
+        self.assertNotIn("hemostat", mentions)
+        self.assertIn("scalpel", mentions)
+
+        # Hemostat in return spot
+        detector.set_return_spot("hemostat")
+        dets = detector.detect(frame, cats)
+        return_dets = [d for d in dets if d["point_box"]["top_left"]["x"] == 400]
+        self.assertEqual(len(return_dets), 1)
+        self.assertEqual(return_dets[0]["mention"], "hemostat")
+
+        # Returned: slot filled, return spot cleared
+        detector.fill_slot("hemostat")
+        detector.set_return_spot(None)
+        dets = detector.detect(frame, cats)
+        mentions = [d["mention"] for d in dets]
+        self.assertIn("hemostat", mentions)
+        return_dets = [d for d in dets if d["point_box"]["top_left"]["x"] == 400]
+        self.assertEqual(len(return_dets), 0)
+
+    def test_v1_mark_slots_fake_mode_all_three_trays(self):
+        from vision.mark_slots import apply_boxes_to_setting, mark_setting
+        from vision.tray import load_setting
+
+        tmp = Path(tempfile.mkdtemp())
+        for setting_id in ["surgical", "dental", "bench"]:
+            out_file = tmp / f"marked_{setting_id}.json"
+            marked = mark_setting(setting_id, repo=Path("."), fake=True, out_path=out_file)
+            self.assertEqual(len(marked["slots"]), 3)
+            self.assertEqual(len(marked["return_spot"]), 4)
+            self.assertTrue(out_file.exists())
+
+            setting = load_setting(Path("."), setting_id)
+            applied = apply_boxes_to_setting(setting, marked)
+            for item in applied["items"]:
+                self.assertIsNotNone(item["slot"])
+                self.assertEqual(len(item["slot"]), 4)
+            self.assertIsNotNone(applied["return_spot"])
+            self.assertEqual(len(applied["return_spot"]), 4)
+
+    def test_v2_calibrate_page42_pairs_and_rms_error(self):
+        from vision.calibrate import main as cal_main, reprojection_error_m, rms_error_m
+
+        tmp = Path(tempfile.mkdtemp())
+        pairs_file = tmp / "pairs.json"
+        out_cal = tmp / "calibration.json"
+        pairs_data = {
+            "image_points": [[100, 80], [500, 80], [500, 400], [100, 400], [300, 240]],
+            "arm_points": [[0.10, 0.08, 0.18], [0.50, 0.08, 0.18], [0.50, 0.40, 0.18], [0.10, 0.40, 0.18], [0.30, 0.24, 0.18]],
+            "hand_height_m": 0.18,
+            "rms_mm": 0.1,
+        }
+        pairs_file.write_text(json.dumps(pairs_data), encoding="utf-8")
+        cal_main(["--pairs", str(pairs_file), "--out", str(out_cal)])
+        self.assertTrue(out_cal.exists())
+        cal = json.loads(out_cal.read_text(encoding="utf-8"))
+        self.assertIn("rms_error_m", cal)
+        self.assertIn("max_error_m", cal)
+        self.assertLess(cal["max_error_m"], 0.02)
+        self.assertLess(cal["rms_error_m"], 0.02)
+
+    def test_v3_lighting_test_mode_and_csv(self):
+        from vision.hand import HandTracker
+        from vision.lighting import run_lighting_test
+
+        capture = FakeCapture()
+        lock_controls(capture)
+        grabber = __import__("vision.camera", fromlist=["FrameGrabber"]).FrameGrabber(capture).start()
+        tracker = HandTracker(None)
+        tracker.detect = lambda _f: [synthetic_landmarks(True)]
+        detector = FakeDetector()
+        tmp_csv = Path(tempfile.mkdtemp()) / "lighting_test.csv"
+        try:
+            res = run_lighting_test(
+                grabber,
+                detector,
+                tracker,
+                ["scalpel", "hemostat"],
+                label="normal",
+                duration_s=0.25,
+                out_csv=tmp_csv,
+            )
+            self.assertEqual(res["lighting"], "normal")
+            self.assertGreater(res["detection_rate"], 0.8)
+            self.assertGreater(res["hand_tracking_rate"], 0.8)
+            self.assertEqual(res["stale_rate"], 0.0)
+            self.assertTrue(tmp_csv.exists())
+        finally:
+            grabber.stop()
+
+    def test_f5_lighting_classification_and_publishing(self):
+        from vision.service import classify_lighting, publish_lighting
+
+        self.assertEqual(classify_lighting(200.0)[0], "bright")
+        self.assertEqual(classify_lighting(120.0)[0], "normal")
+        self.assertEqual(classify_lighting(40.0)[0], "dim")
+
+        capture = FakeCapture()
+        lock_controls(capture)
+        runtime = build_runtime(capture, fake_hands=lambda _f: [], detector=FakeDetector())
+        poster = RecordingPoster()
+        runtime.poster = poster
+        res = publish_lighting(runtime)
+        runtime.grabber.stop()
+        self.assertIn("lighting", res)
+        self.assertIn("lux", res)
+        posted = [p for path, p in poster.posts if path == "/lighting"]
+        self.assertEqual(len(posted), 1)
+
+        client = _client(runtime)
+        resp = client.get("/lighting")
+        self.assertEqual(resp.status_code, 200)
+        self.assertIn("lighting", resp.json())
+
+    def test_f6_draw_annotations_boxes_confidence_return_spot_target(self):
+        from vision.draw import annotate
+
+        frame = np.zeros((480, 640, 3), dtype=np.uint8)
+        hand = {
+            "seen": True,
+            "open": True,
+            "palm_px": [320, 240],
+            "target_px": [300, 220],
+            "path_clear": True,
+        }
+        tray = {
+            "slots": [{"item": "hemostat", "present": True, "box": [100, 80, 240, 140]}],
+            "return_spot": {"item": "scalpel", "box": [400, 300, 520, 380]},
+        }
+        detections = [
+            {
+                "mention": "hemostat",
+                "confidence": 0.94,
+                "point_box": {"top_left": {"x": 100, "y": 80}, "bottom_right": {"x": 240, "y": 140}},
+            }
+        ]
+        annotated = annotate(frame, hand, tray, detections)
+        self.assertEqual(annotated.shape, (480, 640, 3))
+        # Non-black pixels drawn
+        self.assertGreater(int(annotated.sum()), 1000)
 
 
 def _free_port() -> int:
