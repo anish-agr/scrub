@@ -8,6 +8,7 @@ hand is seen, how often tray detection returns, and how often that call fails
 from __future__ import annotations
 
 import csv
+import sys
 import time
 from pathlib import Path
 
@@ -286,20 +287,29 @@ def main(argv: list[str] | None = None) -> None:
                 def hand_source(frame, tracker=tracker):
                     return tracker.detect(frame)
 
-            sample = sample_rates(
-                grabber,
-                detector,
-                hand_source,
-                categories_for(fallback_setting("surgical")),
-                args.seconds,
-            )
+            labels = ("bright", "normal", "dim") if args.all_conditions else (args.label,)
+            for index, label in enumerate(labels):
+                if args.all_conditions and not args.fake and index:
+                    if not sys.stdin.isatty():
+                        raise SystemExit(
+                            "Change the lamp and run one --label at a time. "
+                            "--all-conditions only pauses between lamps in a terminal."
+                        )
+                    input(f"Set the lamp to {label}, then press Enter. ")
+                sample = sample_rates(
+                    grabber,
+                    detector,
+                    hand_source,
+                    categories_for(fallback_setting("surgical")),
+                    args.seconds,
+                )
+                append_csv(Path(args.csv), label, args.seconds, sample)
+                print(
+                    f"{label}: frames {sample['frames']} hand {sample['hand_rate']:.0%} "
+                    f"detect {sample['detect_rate']:.0%} stale {sample['stale_rate']:.0%}"
+                )
         finally:
             grabber.stop()
-        append_csv(Path(args.csv), args.label, args.seconds, sample)
-        print(
-            f"{args.label}: frames {sample['frames']} hand {sample['hand_rate']:.0%} "
-            f"detect {sample['detect_rate']:.0%} stale {sample['stale_rate']:.0%}"
-        )
         print(f"appended {args.csv}")
         return
 

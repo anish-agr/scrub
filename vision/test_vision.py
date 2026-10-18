@@ -173,6 +173,26 @@ class StreamTests(unittest.TestCase):
         self.assertTrue(health["exposure_locked"])
         self.assertTrue(health["camera"])
 
+    def test_unplugged_camera_keeps_the_last_frame_and_reports_down(self):
+        from vision.camera import FrameGrabber
+
+        capture = FakeCapture()
+        grabber = FrameGrabber(capture).start()
+        deadline = time.monotonic() + 1
+        while grabber.latest() is None and time.monotonic() < deadline:
+            time.sleep(0.01)
+        self.assertIsNotNone(grabber.latest())
+        capture.unplugged = True
+        deadline = time.monotonic() + 1.5
+        while grabber.reads_ok and time.monotonic() < deadline:
+            time.sleep(0.02)
+        self.assertFalse(grabber.reads_ok)
+        held = grabber.latest()[1]
+        time.sleep(0.3)
+        self.assertTrue(grabber._thread.is_alive())
+        self.assertEqual(grabber.latest()[1], held)
+        grabber.stop()
+
 
 class TrayTests(unittest.TestCase):
     def test_lifting_an_item_clears_the_slot_within_one_tick(self):
@@ -823,6 +843,46 @@ class ExtensionTests(unittest.TestCase):
         self.assertIn("wrong_slot", body)
         self.assertIn("summary", body)
         runtime.grabber.stop()
+
+    def test_slow_detect_does_not_freeze_hand_or_tray_check(self):
+        class SleepDetector:
+            def __init__(self):
+                self.started = threading.Event()
+
+            def detect(self, _frame, _categories):
+                self.started.set()
+                time.sleep(1.5)
+                raise RuntimeError("detect hung")
+
+        capture = FakeCapture()
+        lock_controls(capture)
+        detector = SleepDetector()
+        runtime = build_runtime(
+            capture,
+            fake_hands=lambda _frame: [synthetic_landmarks(True)],
+            detector=detector,
+        )
+        runtime.poster = RecordingPoster()
+        publish_hand(runtime)
+        worker = threading.Thread(target=publish_tray, args=(runtime,))
+        worker.start()
+        try:
+            self.assertTrue(detector.started.wait(2))
+            client = _client(runtime)
+            client.get("/health")
+            started = time.monotonic()
+            hand = client.get("/vision/hand")
+            check = client.get("/tray_check")
+            self.assertLess(time.monotonic() - started, 0.5)
+            self.assertEqual(hand.status_code, 200)
+            self.assertTrue(hand.json()["seen"])
+            self.assertEqual(check.status_code, 200)
+            worker.join(3)
+            tray = client.get("/vision/tray").json()
+            self.assertTrue(tray.get("stale"))
+            self.assertTrue(client.get("/tray_check").json()["stale"])
+        finally:
+            runtime.grabber.stop()
 
     def test_x4_clip_recording_and_event_metadata(self):
         from vision.clips import ClipManager
