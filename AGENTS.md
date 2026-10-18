@@ -26,7 +26,7 @@ Scrub: an SO-101 robot arm that passes instruments by voice. Built Oct 17 to 18,
 | --- | --- |
 | `controller/`, `voice/`, `explore/`, `docs/SLIDES.md`, `docs/CONTRACTS.md`, `.env.example`, `.gitignore` | Caiden |
 | `arm/`, `docs/ARM.md`, `docs/PLAN.md`, `docs/TASKS.md`, `docs/PITCH.md` | Anish |
-| `vision/`, `docs/PERCEPTRON.md` | Brandon |
+| `vision/`, `docs/PERCEPTRON-ROBOTICS.md` (Part 2) | Brandon |
 | `dashboard/`, `ledger/`, `settings/`, `docs/DATA-LOG.md`, `docs/DEVPOST.md` | Evan |
 | `docs/STATUS.md` | everyone, own section only |
 
@@ -57,7 +57,7 @@ Scrub: an SO-101 robot arm that passes instruments by voice. Built Oct 17 to 18,
 | ElevenLabs agents | https://elevenlabs.io/docs |
 | Gemini structured output | https://ai.google.dev/gemini-api/docs/structured-output |
 | MediaPipe hand landmarker (use the Tasks API) | https://ai.google.dev/edge/mediapipe/solutions/vision/hand_landmarker |
-| Perceptron vision API and fine-tuning | from the workshop; Brandon writes what works into `docs/PERCEPTRON.md` |
+| Perceptron vision API and fine-tuning | from the workshop; Brandon writes what works into `docs/PERCEPTRON-ROBOTICS.md` (Part 2) |
 
 If a doc page and these files disagree, the doc page wins for the API and these files win for our design.
 

@@ -73,6 +73,35 @@ def make_hardware(follower: str, leader: str, side: str, wrist: str):
     return robot, teleop
 
 
+def tolerate_status_errors() -> None:
+    """A motor sitting a hair past its calibrated range (the elbow at home: 3041 vs max 3037) flags an
+    angle error on every reply. LeRobot then raises on writes the motor already carried out, and
+    disable_torque()/enable_torque() stop at that motor, so KILL, Motors on and Reconnect failed
+    (Oct 18). Keep the write (it was delivered), log the flag once per motor/register, retry real
+    comm failures twice."""
+    from lerobot.motors.motors_bus import MotorsBus
+    write = MotorsBus.write
+    seen = set()
+
+    def tolerant(self, data_name, motor, value, *, normalize=True, num_retry=0):
+        try:
+            return write(self, data_name, motor, value, normalize=normalize, num_retry=max(num_retry, 2))
+        except RuntimeError as e:  # comm succeeded; the reply carried a status flag
+            if (motor, data_name) not in seen:
+                seen.add((motor, data_name))
+                print(f"bus: {motor} flagged '{str(e).strip()[-60:]}' on {data_name} write (applied, continuing)",
+                      flush=True)
+    MotorsBus.write = tolerant
+
+
+def broadcast_torque_off(bus) -> None:
+    """Torque off on every motor in one broadcast packet (ID 254, no reply), so no flag can block it."""
+    try:
+        bus.packet_handler.write1ByteTxOnly(bus.port_handler, 254, 40, 0)
+    except Exception:  # noqa: BLE001
+        pass
+
+
 def reconnect_hardware(robot, teleop) -> None:
     """Best effort: reopen both motor buses without touching the cameras or the dataset."""
     for dev in (robot, teleop):
@@ -410,10 +439,12 @@ class Station:
 
     def _kill_now(self) -> None:
         self.killed = True
+        broadcast_torque_off(self.robot.bus)  # first: one packet, no reply needed
         try:
             self.robot.bus.disable_torque()
         except Exception as e:  # noqa: BLE001
-            self.note(f"KILL: torque off failed ({type(e).__name__}): unplug the follower power")
+            broadcast_torque_off(self.robot.bus)
+            self.note(f"KILL: per-motor torque off errored ({type(e).__name__}); broadcast torque off sent")
 
     def _kill(self) -> None:
         self._kill_now()
@@ -826,6 +857,7 @@ def main() -> None:
     start_log()
     A.lenient_motor_check()
     A.retry_bus_reads()
+    tolerate_status_errors()
     while True:  # a port just released by another recorder, or a motor blip: wait and try again
         wait_for_devices(a)
         try:

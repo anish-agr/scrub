@@ -2,42 +2,26 @@
 
 Owner: Anish. The workshop is the source of truth. Where it differs from below, the workshop wins and this file gets updated.
 
-## Workshop notes (fill in at 12:30)
+## Workshop notes
 
-| Question | Answer |
-| --- | --- |
-| How long is each arm slot? When are ours? | |
-| Overnight arm time? | we have the arm the whole competition |
-| Where does the arm live? Can we bring our tray, lamp and towel? | |
-| Cameras on the arm setup (wrist, front, overhead)? Can we add a USB webcam? | |
-| Does the gripper report load (for release on pull)? | |
-| How long does a 1,000-step run take? Steps for 75 to 225 episodes? | |
-| Can one dataset hold several instructions? | |
-| Demos per item they suggest? | |
-| Image augmentation (brightness, contrast) in their pipeline? | |
-| One model with a different text instruction per item? | |
-| Predict latency per action chunk? | |
-| Vision API: endpoint, keys, rate limits | |
-| Does LeRobot's end-effector control work on the SO-101 (for `move_to`)? | |
-| Does the arm come to judging, or do we demo at their station? | |
+The full notes from the workshop deck are in `explore/research/isaac-workshop-notes.md` (sections 2 and 5). Where they differ from this file, the notes win, except limits that the live API reports (see "Capabilities with our team key"). Answers we have:
+
+- Arm time: we have the arm the whole competition.
+- One dataset can hold several instructions, and the model follows the instruction text. We use one dataset, `<hf user>/scrub`.
+- The model gives positions only, no gripper load. We read load from the Feetech bus.
+- Predict latency per chunk is about 283 ms at p95. A 1,000-step run takes about 45 minutes plus export.
+- Open: image augmentation in their pipeline, whether the arm comes to judging (see the message for Perceptron staff in `docs/DEMO.md`), and whether LeRobot's end-effector control works on the SO-101 (we use our own IK in `arm/kinematics.py`).
 
 ## Perceptron's format
 
-### A2 capabilities check (Oct 17)
+### A2 capabilities check (Oct 18)
 
-Ran `python -m arm.train capabilities` from `dubhacks-2026`.
-Result: exit 1, `Missing PERCEPTRON_TEAM_API_KEY in the repository .env`.
-There is no root `.env` and the variable is not present in the process
-environment. No request was sent and no live capabilities or quotas have been
-verified. Anish must supply the key locally, then rerun the command; record its
-JSON here before marking A2 complete. Do not paste credentials into chat.
+`python -m arm.train capabilities` answers with the team key from this Mac's `.env` (see the limits at the end of this file). `python -m arm.train deployments` returns an empty list, so no model is trained yet.
 
-The client/CLI/uploader are implemented; five offline tests pass with
+The client, CLI and uploader are implemented; five offline tests pass with
 `python -m unittest arm.test_perceptron -v` (control routes checked against the
 saved OpenAPI, auth isolation, multipart inference, upload hashing/batches,
 303 polling, sanitized errors). No dataset was uploaded or training started.
-Anish subsequently authorized continuing A7/A6 without the key; A2's live check
-remains pending.
 
 ### A7 offline kinematics
 
@@ -55,8 +39,9 @@ meters in the configured base frame. `base_to_urdf` maps these coordinates to
 URDF coordinates; `q_urdf_deg = q_lerobot_deg * joint_signs + joint_offsets_deg`.
 Verify this mapping at the real arm before enabling hardware.
 
-`arm/rig.json` is an **unmeasured template**, not a saved calibration. Hardware
-is disabled (`hardware_verified: false`); poses are null. The gripper mapping
+`arm/rig.json` is not a verified calibration. Hardware is disabled
+(`hardware_verified: false`); `home` is a measured folded pose, and `carry`,
+`safe_spot` and the axis signs and offsets are still unmeasured. The gripper mapping
 is deliberately separate from URDF: upstream documents LeRobot 0 closed,
 100 open, whereas our public interface is 0 open, 1 closed. Measure actual
 endpoints on this arm and preserve the raw 0..100 convention for inference.
@@ -76,7 +61,7 @@ or a latched nonblocking freeze (false). Session reset between same-instruction
 runs; changed instruction deletes the old session and requests a new grant.
 Signed Feetech load is read directly, never taken from the policy.
 
-On Python 3.10.11, all 26 offline tests pass:
+On Python 3.10, all 134 offline arm tests pass:
 `python -m unittest discover -s arm -t . -p "test_*.py" -v`.
 `python -m arm --dry-run --self-test` also succeeds with synthetic saved PNGs
 and fake joints, reporting `closed_and_still`. This does not validate the remote
@@ -144,7 +129,7 @@ Perceptron's arms come assembled, so skip `lerobot-setup-motors` unless they say
 
 Per item: 20 pick and 10 return for the operating room, 15 pick and 10 return for the bench. Two people: one on the leader arm, one resetting and logging in `docs/DATA-LOG.md`.
 
-If arm time turns out short, cut in this order: bench put-back, then dim light for bench (dental is dropped). Was: dental put-back, then dim light for dental and bench. Never cut the operating room set.
+If arm time turns out short, cut in this order: bench put-back, then dim light for bench (dental is dropped). Never cut the operating room set.
 
 ## Fine-tuning runs
 
@@ -156,12 +141,13 @@ If arm time turns out short, cut in this order: bench put-back, then dim light f
 
 Instruments lie flat, spaced apart, in the same taped slot every time. If a thin instrument is hard to grip flat, a folded strip of towel under the handle lifts it so the gripper can close around it.
 
-## Capabilities with our team key (Sat 5:45 PM)
+## Capabilities with our team key (live, Oct 18)
 
 `python -m arm.train capabilities` works. Limits:
 - backends: `standard` (`expert_only`, `backbone_lora`, `full`), `shared` (`expert_only`)
 - horizon 30, 30 fps, stride 15, max prefix 12, deadline 400 ms, RTC on or off
 - steps: 1000 only
-- **2 successful jobs per team**
-- max dataset 20 GiB, job timeout 6 h
+- **Successful jobs per team: the API now reports 5.** The workshop said 2, and we still plan only two runs until staff confirm the higher number.
+- GPU budget: 1200 GPU hours for the account, 64.8 used; a `standard` job reserves 48
+- max dataset 20 GiB, job timeout 6 h (production), 2 h (qualification)
 - ready for training: yes

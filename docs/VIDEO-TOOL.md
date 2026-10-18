@@ -42,6 +42,7 @@ Judges watch this video to decide whether the robot works. The tool may change h
     - `video/edl/demo.yaml`: the 2-minute demo, following the timings in `docs/DEVPOST.md`, with slots for each shot (A1 to A8, N1 to N8) and treatment per shot (clean, topdown, side-by-side, picture-in-picture with the dashboard)
     - `video/edl/perceptron-arm.yaml`: the unedited arm roll for the Perceptron track, cleaned only, with the success table end card
 9. **`preview`**: a low-resolution fast render of any EDL so the team can check the cut in seconds.
+10. **`export-ledger`**: writes `data/video/events.jsonl` from the ledger (Atlas through `MONGODB_URI`, plus `ledger/buffer.jsonl`), so `find`, `overlay` and `render` read our real events.
 
 ## Tech
 
