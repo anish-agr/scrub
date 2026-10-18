@@ -74,7 +74,22 @@ def sidecar(path):
 
 
 def provenance(path):
-    doc = read_json(sidecar(path)) if sidecar(path).is_file() else {"kind": "unknown", "operations": []}
+    path = Path(path).resolve()
+    doc = read_json(sidecar(path)) if sidecar(path).is_file() else None
+    if doc is None:
+        # Ingest never modifies source media or writes alongside external inputs.
+        for parent in path.parents:
+            if not parent.is_relative_to(BASE.resolve()):
+                break
+            registry = parent / "manifest.json"
+            if registry.is_file():
+                for entry in read_json(registry).get("assets", []):
+                    if entry["path"] == str(path):
+                        doc = entry["provenance"]
+                        break
+            if doc is not None:
+                break
+    doc = doc or {"kind": "unknown", "operations": []}
     if doc.get("kind") not in {*LABELS, "real"}:
         raise ValueError("Unrecognized source provenance")
     if doc.get("sha256") and digest(path) != doc["sha256"]:
