@@ -69,14 +69,39 @@ function paint(report) {
       out.appendChild(li);
     });
   }
-  $("median").textContent = `Median handoff ${seconds(safe.median_request_to_hand_s)}`;
+  const med = $("median");
+  med.replaceChildren();
+  const label = document.createElement("small");
+  label.textContent = "Median handoff";
+  const medianShown = safe.median_request_to_hand_s != null && tableRows(safe.by_item).length > 0;
+  med.append(label, medianShown ? seconds(safe.median_request_to_hand_s).replace("s", "") : "--");
+  if (medianShown) {
+    const unit = document.createElement("span");
+    unit.className = "unit";
+    unit.textContent = "s";
+    med.appendChild(unit);
+  }
   const itemRows = tableRows(safe.by_item);
   const lightRows = tableRows(safe.by_lighting);
   fillTable("by-item", itemRows, "item");
   fillTable("by-lighting", lightRows, "lighting");
   const rows = itemRows.length + lightRows.length;
+  const tries = itemRows.reduce((sum, row) => sum + (Number(row.attempts) || 0), 0);
+  $("handoffs").textContent = rows ? String(tries) : "--";
+  const word = $("live-word");
+  word.textContent = "live";
+  word.className = "status-word live";
+  $("live-note").textContent = rows
+    ? `Counted from ${tries} real-arm ${tries === 1 ? "try" : "tries"} in the ledger. Updates every 2 seconds.`
+    : "No real-arm handoffs recorded yet. Fake-arm and simulated runs are not counted in the rates. This updates every 2 seconds.";
+  const next = $("next");
+  const guess = safe.next_likely;
+  next.hidden = !(rows && guess && guess.item);
+  if (rows && guess && guess.item) {
+    next.textContent = `After ${nameOf(guess.after)}, the next request is usually ${nameOf(guess.item)} (${percent(guess.share)} of ${guess.n}).`;
+  }
   const empty = $("tables-empty");
-  if (empty) empty.textContent = "No real-arm tries yet.";
+  if (empty) empty.textContent = "No real-arm tries yet. The tables fill as tests run.";
   document.querySelector("main").classList.toggle("has-rows", rows > 0);
   $("status").hidden = true;
 }
@@ -101,7 +126,15 @@ async function loadCases() {
       const li = document.createElement("li");
       const link = document.createElement("a");
       link.href = `case.html?id=${encodeURIComponent(row.case_id)}`;
-      link.textContent = `${row.case_id} · ${row.setting || "case"}`;
+      const id = document.createElement("b");
+      id.textContent = row.case_id;
+      const setting = document.createElement("span");
+      setting.className = "meta";
+      setting.textContent = row.setting || "case";
+      const held = document.createElement("span");
+      held.className = "meta";
+      held.textContent = `${row.n || 0} events · ` + ((row.out || []).map(nameOf).join(", ") || "nothing out");
+      link.append(id, setting, held);
       li.appendChild(link);
       list.appendChild(li);
     });
@@ -118,7 +151,10 @@ async function refresh() {
     paint(report);
   } catch (error) {
     $("status").hidden = false;
-    $("status").textContent = "The ledger is not answering.";
+    $("status").textContent = "The ledger is not answering. Numbers below may be old.";
+    const word = $("live-word");
+    word.textContent = "down";
+    word.className = "status-word down";
   }
 }
 
