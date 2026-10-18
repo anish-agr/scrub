@@ -39,6 +39,7 @@ MJ_PEAK = 1.875
 WARM_C, WARM_SLOW = 52, 1.6   # above this, every move takes 1.6x longer
 JAW_OPEN, JAW_CLOSE = 35.0, 2.0   # the gripper guard stops the close at the handle and holds gently
 HANDOFF_HOLD_S = 3.0      # pause at the handoff spot so someone can see / take it
+OFFER_XYZ = (0.20, 0.10, 0.22)  # where it holds the handle up for a hand (m, arm frame: +y = camera left)
 OFFER_TIMEOUT_S = 45.0    # nobody took it: go home holding it, motors off (holding still heats the servos)
 GRAB_LOAD = 35            # gripper |load| change (or 4x the baseline noise) that means a hand took hold
 GRAB_JAW = 1.2            # ... or the jaw moving this much while we hold it still
@@ -126,6 +127,12 @@ class AutoPick:
         self.mode = args.get("mode", "handoff")
         if self.mode not in ("handoff", "hold"):
             raise ValueError("mode must be 'handoff' (wait for a hand, release, go home) or 'hold' (bring it home)")
+        offer = args.get("offer_xyz", OFFER_XYZ)
+        try:
+            self.offer_xyz = [float(v) for v in offer]
+            assert len(self.offer_xyz) == 3
+        except Exception:  # noqa: BLE001
+            raise ValueError("offer_xyz must be [x, y, z] in metres") from None
         label = args.get("label", "scalpel handle")
         if not isinstance(label, str) or not label.strip():
             raise ValueError("label must be a non-empty string")
@@ -407,6 +414,9 @@ class AutoPick:
             ("grip", grasp, JAW_CLOSE, 0.5, "squeezing the handle"),
             ("lift", lift, JAW_CLOSE, 0.0, "lifting it off the table"),
         ]
+        if self.mode == "handoff":
+            steps.append(("present", self._ik(self.offer_xyz, list(lift.values())), JAW_CLOSE, 0.3,
+                          "up and to the side for a hand"))
         if self.mode == "hold":
             steps += [("handoff", lift, JAW_CLOSE, HANDOFF_HOLD_S, "holding it up for a hand"),
                       ("home", home, JAW_CLOSE, 0.5, "back home, still holding")]
