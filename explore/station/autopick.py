@@ -48,19 +48,40 @@ def pixel_to_table(H, u: float, v: float) -> np.ndarray:
 
 
 def handle_midpoint(bgr, box):
-    """Midpoint and angle (deg, image) of the dark elongated handle inside a detection box."""
+    """Midpoint and angle (deg, image) of the handle inside a detection box. The box can cover two
+    neighbouring rods, so the dark pixels are split into connected shapes and the handle is the
+    biggest elongated one (weighted by darkness, nearer the box centre wins ties)."""
     import cv2
     x1, y1, x2, y2 = [int(round(t)) for t in box]
-    roi = cv2.cvtColor(bgr[max(0, y1):y2, max(0, x1):x2], cv2.COLOR_BGR2GRAY)
+    x1, y1 = max(0, x1), max(0, y1)
+    roi = cv2.cvtColor(bgr[y1:y2, x1:x2], cv2.COLOR_BGR2GRAY)
     if roi.size == 0:
         return (x1 + x2) / 2, (y1 + y2) / 2, None
-    m = roi < np.percentile(roi, 25)
-    ys, xs = np.nonzero(m)
-    if len(xs) < 10:
+    thr = min(np.percentile(roi, 25), float(roi.mean()) - 25)
+    mask = (roi < thr).astype(np.uint8)
+    mask = cv2.morphologyEx(mask, cv2.MORPH_OPEN, np.ones((2, 2), np.uint8))
+    n, lab, st_, cen = cv2.connectedComponentsWithStats(mask, connectivity=8)
+    best, best_score = None, -1.0
+    cx, cy = roi.shape[1] / 2, roi.shape[0] / 2
+    for i in range(1, n):
+        area = st_[i, cv2.CC_STAT_AREA]
+        if area < 12:
+            continue
+        ys, xs = np.nonzero(lab == i)
+        pts = np.c_[xs, ys].astype(float)
+        w, _ = np.linalg.eigh(np.cov(pts.T)) if len(pts) > 2 else (np.array([1, 1]), None)
+        elong = math.sqrt(max(w[1], 1e-6) / max(w[0], 1e-6))
+        if elong < 2.5:
+            continue
+        dark = 255.0 - float(roi[ys, xs].mean())
+        dist = math.hypot(cen[i][0] - cx, cen[i][1] - cy) / max(cx, cy)
+        score = area * dark * (1.0 - 0.3 * dist)
+        if score > best_score:
+            best, best_score = pts, score
+    if best is None:
         return (x1 + x2) / 2, (y1 + y2) / 2, None
-    pts = np.c_[xs, ys].astype(float)
-    c = pts.mean(0)
-    _w, vec = np.linalg.eigh(np.cov(pts.T))
+    c = best.mean(0)
+    _w, vec = np.linalg.eigh(np.cov(best.T))
     d = vec[:, 1]
     return x1 + c[0], y1 + c[1], float(math.degrees(math.atan2(d[1], d[0])))
 
