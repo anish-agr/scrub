@@ -565,7 +565,7 @@ function paintStats(report) {
 async function loadStats() {
   if (!model.live) return;
   try {
-    const response = await fetch("/stats", { cache: "no-store" });
+    const response = await fetch("/stats", { cache: "no-store", signal: AbortSignal.timeout(3000) });
     if (!response.ok) return;
     paintStats(await response.json());
   } catch (error) {
@@ -575,7 +575,7 @@ async function loadStats() {
 
 async function pollState() {
   try {
-    const response = await fetch("/state", { cache: "no-store" });
+    const response = await fetch("/state", { cache: "no-store", signal: AbortSignal.timeout(3000) });
     if (!response.ok) return;
     applyState(await response.json());
   } catch (error) {
@@ -595,7 +595,7 @@ function catalogFrom(document) {
 
 async function pullRecent() {
   try {
-    const response = await fetch("/events/recent?n=40", { cache: "no-store" });
+    const response = await fetch("/events/recent?n=40", { cache: "no-store", signal: AbortSignal.timeout(3000) });
     if (!response.ok) return;
     const events = await response.json();
     if (Array.isArray(events)) events.forEach(pushEvent);
@@ -606,7 +606,7 @@ async function pullRecent() {
 
 async function pullSetting() {
   try {
-    const response = await fetch("/setting", { cache: "no-store" });
+    const response = await fetch("/setting", { cache: "no-store", signal: AbortSignal.timeout(3000) });
     if (!response.ok) return;
     const document = await response.json();
     if (!document || !document.id) return;
@@ -693,7 +693,7 @@ async function pollVision() {
   let tray = null;
   let age = null;
   try {
-    const response = await fetch("/vision", { cache: "no-store" });
+    const response = await fetch("/vision", { cache: "no-store", signal: AbortSignal.timeout(3000) });
     if (response.ok) {
       const body = await response.json();
       tray = body && body.tray ? body.tray : null;
@@ -704,7 +704,7 @@ async function pollVision() {
   }
   if (!tray) {
     try {
-      const response = await fetch(`${visionOrigin()}/vision/tray`, { cache: "no-store" });
+      const response = await fetch(`${visionOrigin()}/vision/tray`, { cache: "no-store", signal: AbortSignal.timeout(3000) });
       if (!response.ok) throw new Error("down");
       tray = await response.json();
     } catch (error) {
@@ -784,7 +784,7 @@ async function connect() {
     setInterval(async () => {
       if (model.live) return;
       try {
-        const response = await fetch("/state", { cache: "no-store" });
+        const response = await fetch("/state", { cache: "no-store", signal: AbortSignal.timeout(3000) });
         if (!response.ok) return;
         goLive(await response.json());
       } catch (err) {
