@@ -237,6 +237,11 @@ def main(argv: list[str] | None = None) -> None:
     import argparse
     import os
 
+    from dotenv import load_dotenv
+
+    from vision.service import ROOT
+
+    load_dotenv(ROOT / ".env")
     parser = argparse.ArgumentParser(description="Mark slot boxes on a tray photo or live frame")
     parser.add_argument("--setting", default="surgical")
     parser.add_argument("--all", action="store_true", help="process the surgical and bench settings (dental is hidden; use --setting dental)")
