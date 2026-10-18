@@ -12,7 +12,7 @@ Evan's tasks (E1 to E7) aren't listed here; he's on them. As of 5 PM he has push
 | Brandon, Cursor chat 1 (Grok) | hardware walkthrough: overhead camera, B5, B6 with Anish, B8 | `.env`, box fields in `settings/*.json`, `vision/calibration.json`, `vision/hand_heights.json`, his STATUS section |
 | Brandon, Cursor chat 2 (Grok) | `deploy/check_env.py`, Vultr and GoDaddy (E6 deploy, from Evan) | `deploy/` |
 | Anish, Antigravity | F5, F6, the vision QA bugs, then G3 and G4. V1 to V3 already landed (Evan's Cursor) | `vision/`, `docs/PERCEPTRON.md`, `docs/QA.md`, `docs/NEXT.md`, `docs/DEV-POST.md` |
-| Caiden, phase 2 (after session 1 ends) | F1 to F4, QA-12 | `controller/`, `voice/` |
+| Caiden, phase 2 (after session 1 ends) | F1 to F4 and QA-12 done; left: the real call and text (C3, C4, C7) | `controller/`, `voice/` |
 
 ## More work (Q, R, G)
 
@@ -32,10 +32,6 @@ From `docs/PROPOSAL.md` (tracks section) and the demo. All of these are in the p
 
 | # | What | Track it serves | Who |
 | --- | --- | --- | --- |
-| F1 | **Auto return:** when TrayState shows an item in the return spot for about 2 seconds and the arm is idle, the controller says "returning the X" and runs the return without a voice command | Perceptron Perception, demo | Caiden phase 2 |
-| F2 | **Count from the camera:** "count" reconciles the controller's `out` list with the latest TrayState (empty slots plus the return spot) and says if they disagree. `GET /state` gains an optional `out_camera` field | Perceptron Perception | Caiden phase 2 |
-| F3 | **Photon texts in:** the same Photon thread accepts texts. "add a second hemostat to the surgical tray" logs a restock to the ledger and replies; "what's out?" replies with the count. Gemini parses it with the same item list | Photon | Caiden phase 2 |
-| F4 | **Call to text memory:** the end-of-case text goes to the number that called and names the case (setting, start time, items used, anything still out, median request-to-hand time). Optional `case_id` on events | Photon | Caiden phase 2 |
 
 ## Extensions (X): more for every track, all planned
 
@@ -69,8 +65,6 @@ From `docs/PROPOSAL.md` ("What's next", the tracks) and `explore/research/04-bui
 | L1 | Codex's 4 handoff items in `arm/README.md` ("Handoff to Caiden"). 8153bd3 covered the latched freeze; check the rest: no gripper load means wait for `got_it` without crashing, a failed `set_down_safe_spot()` is reported (not counted as out), and put-back is done only when tray perception shows the item in its slot (not just `max_s`) | `controller/` |
 | L2 | Pre-open Perceptron robot sessions for the current setting's instructions when the setting changes, so the first motion doesn't wait on a grant. Expose 401/409/503 from the arm as events and spoken lines | `controller/` (calls into `arm/` through the interface only) |
 | L3 | P4 demo mode is in (`GET /demo`, reset with `clear_count`). Left: a "judge mode" that only allows handover, count and stop | `controller/` |
-| L4 | C7: end-of-case summary sent as a Photon text to the same thread. Make it work with a stub until the number exists | `voice/` |
-| L5 | Voice end to end without a phone: a script that sends text to `voice/` the way ElevenLabs would and checks the command reaches the controller and the reply line comes back. Measure latency | `voice/` |
 | L6 | `arm/check_setup.py` (ports, cameras at 640x480 at 30 fps, real fps, one test frame each) and `arm/record.py` (builds and runs `lerobot-record` with `use_degrees=true`, fps 30, episode 25 s, reset 10 s, one repo `<HF_USER>/scrub`, `--resume` when it exists, appends to `docs/DATA-LOG.md`, `--print-only`). Anish allows these two new files in `arm/` | `arm/check_setup.py`, `arm/record.py` |
 | L7 | One command that starts the whole stack for a demo or test: controller (fake, sim or real arm), vision (real or `--fake`), voice, and opens the dashboard. Plus a full-stack smoke test on the sim arm | `controller/run_all.py` |
 | L8 | README "Running it" section with the real commands, once L7 works | `README.md` (Anish allows) |
