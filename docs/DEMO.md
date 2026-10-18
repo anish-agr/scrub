@@ -32,7 +32,7 @@ Commands run from the repo root on Caiden's Mac.
    ```
    .venv/bin/python -m controller.run_all check --url http://localhost:8000 --vision-url http://localhost:8001 --voice-url http://localhost:3000
    ```
-   Everything should read PASS. "handover -> ledger" says SKIP on the real arm. That is expected. The check switches to the bench tray and back, so run it before you lay out the tray.
+   Everything should read PASS. "handover -> ledger" says SKIP on the real arm. That is expected. The check switches to the bench tray and back and clears the count, so run it before you lay out the tray.
 5. Surgical tray on the blue towel: scalpel handle, hemostat, Mayo scissors in their slots. Return spot and safe spot empty.
 6. Lamp off. Overhead camera picture looks normal at `http://localhost:8001/`.
 7. Dashboard `http://localhost:8000/` on the screen facing the judge. Tablet view `/tablet.html` across the room if there is space.
@@ -95,7 +95,7 @@ Skip the scalpel, return, lamp and bench tray in the short version. Show them du
 | MongoDB down | Ledger errors in the terminal | Events go to a local file and upload later. Say that if asked | Evan |
 | Arm dead | No motion, errors, stop will not clear | Anish calls it. Caiden presses Ctrl-C in the run_all terminal, then runs `.venv/bin/python -m controller.run_all backup`. The sim arm plays a full run on the same dashboard. Or press `B` on the console for the backup video, then the slides | Anish decides, Caiden runs |
 
-`run_all backup` will not start while the real-arm controller holds port 8000. Stop it first, or run the backup beside it with `.venv/bin/python -m controller.run_all backup --base-port 8100` and show `http://localhost:8100/`.
+`run_all backup` will not start while the real-arm controller holds port 8000. Stop it first, or run the backup beside it with `.venv/bin/python -m controller.run_all backup --base-port 8100 --offline` (`--offline` matters: without it a second voice server opens a listener on the live Photon line) and show `http://localhost:8100/`.
 
 ## Rules for the table
 

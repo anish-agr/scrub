@@ -189,7 +189,7 @@ python -m arm.check_setup --side C920 --wrist icspring          # Mac; Windows: 
 python -m arm.check_setup --json --out ~/scrub-setup-check/now  # machine output, frames to a folder
 python -m arm.record --task "pick the hemostat" --lighting bright --episodes 5 --print-only
 python -m arm.record --setting surgical --item hemostat --direction put-back --lighting dim --episodes 5
-python -m arm.record --lerobot --follower COM5 --leader COM6 --side 0 --wrist 1 --task "pick the hex key" --lighting normal
+python -m arm.record --lerobot --follower /dev/tty.usbmodem5C821089781 --leader /dev/tty.usbmodem5C821067211 --side C920 --wrist icspring --task "pick the hex key" --lighting normal
 python -m unittest arm.test_record -v
 ```
 
