@@ -9,6 +9,8 @@ Evan's tasks (E1 to E7) aren't listed here; he's on them. As of 5 PM he has push
 | Caiden, session 1 (orchestrator) | L1 to L10 below | `controller/` (except `trials.py`), `voice/`, `arm/check_setup.py`, `arm/record.py`, `controller/run_all.py`, `README.md` "Running it", `docs/SLIDES.md`, `explore/` |
 | Evan, Cursor (Grok only) | E3 to E7 and the dashboard QA bugs. This pass landed the log command, the Devpost draft, the tables page, and V1 to V3. Still needs Evan: Atlas URI, Vultr, GoDaddy, Devpost submit | `dashboard/`, `ledger/`, `settings/`, `docs/DATA-LOG.md`, `docs/DEVPOST.md` |
 | Anish, Codex | R1 to R4, Q1, Q2 below | `arm/` except `check_setup.py` and `record.py`; `docs/BRINGUP.md`; `controller/trials.py` (new file only) |
+| Brandon, Cursor chat 1 (Grok) | hardware walkthrough: overhead camera, B5, B6 with Anish, B8 | `.env`, box fields in `settings/*.json`, `vision/calibration.json`, `vision/hand_heights.json`, his STATUS section |
+| Brandon, Cursor chat 2 (Grok) | `deploy/check_env.py`, Vultr and GoDaddy (E6 deploy, from Evan) | `deploy/` |
 | Anish, Antigravity | F5, F6, the vision QA bugs, then G3 and G4. V1 to V3 already landed (Evan's Cursor) | `vision/`, `docs/PERCEPTRON.md`, `docs/QA.md`, `docs/NEXT.md`, `docs/DEV-POST.md` |
 | Caiden, phase 2 (after session 1 ends) | F1 to F4, QA-12 | `controller/`, `voice/` |
 
