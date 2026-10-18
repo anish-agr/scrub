@@ -1,79 +1,117 @@
-# Next pass: make the demo work no matter what (prompt for Caiden's Claude, Opus 5.5)
+# Next pass: Perceptron track done right, everything integrated (prompt for Caiden's Claude, Opus 5.5)
 
 Say to Claude Code on the arm Mac: "Pull, then follow docs/NEXT-PASS-PROMPT.md exactly. Take as long as it needs."
 
 ---
 
-I'm Caiden on team Scrub at DubHacks '26. It's Sunday after midnight. The final Devpost locks at **10:00 AM** (we submit by 9:30), judging starts 10:30. Pull first.
+I'm Caiden on team Scrub at DubHacks '26. It's Sunday after midnight. The final Devpost locks at **10:00 AM** (we submit by 9:30), judging starts 10:30 in the HUB Ballroom. Pull first.
 
-## Where we really are (read the evidence, then trust it over this list)
+## Read first, then trust the evidence over this file
 
-Read `docs/OVERVIEW.md`, `docs/STATE.md`, `docs/AUDIT.md`, `docs/HARDWARE-TODO.md`, `docs/ACCOUNTS-TODO.md`, `explore/research/overheating/README.md` and `HANDOFF.md`, and `git log --since="12 hours ago" --stat`.
+`docs/OVERVIEW.md`, `docs/STATE.md`, `docs/AUDIT.md`, `docs/HARDWARE-TODO.md`, `docs/ACCOUNTS-TODO.md`, `docs/PERCEPTRON-ROBOTICS.md`, `explore/research/overheating/README.md`, `explore/research/overheating/HANDOFF.md`, `HANDOFF.md`, and `git log --since="12 hours ago" --stat`. Then check the real state on this Mac: `ls ~/scrub-dataset*`, `python -m arm.check_setup --no-cameras`, `python -m arm.train deployments`, `python -m deploy`.
 
-- The software is written and combed: `docs/AUDIT.md` lists every Critical and High finding as fixed with tests.
-- The hardware path is not working yet. As of midnight, by the files: **0 episodes recorded** (`~/scrub-dataset` doesn't exist, `docs/DATA-LOG.md` has no rows), **no training job**, the side camera (C920) isn't seen, the wrist camera runs about 22.6 fps (needs 30), `arm/rig.json` poses are unmeasured, the slot boxes and the camera-to-arm calibration don't exist, the follower overheats when torque stays on, and the robotics team key answered 401 on this Mac (Anish DM'd the working key).
-- Recording 90 episodes plus two training runs is about 4 to 5 hours if nothing breaks. That doesn't fit safely before 9:30.
+At midnight the files said: the software is written and combed (every Critical and High in `docs/AUDIT.md` fixed with tests); 0 episodes in `~/scrub-dataset`; no training job; side camera (C920) not seen; wrist camera about 22.6 fps; `arm/rig.json` unmeasured; no slot boxes or camera-to-arm calibration; the follower overheats with torque on; the team key gave 401 here (Anish DM'd the working one: put it in `.env` as `PERCEPTRON_TEAM_API_KEY` and confirm `python -m arm.train deployments` no longer says 401).
 
-## The goal of this pass
+## The goal
 
-**A judge asks for an instrument on the phone call and the real arm hands it over, reliably, by 8 AM.** Then, as a separate win, show the fine-tuned Perceptron model working on at least one item for the Perceptron Robotics track. Everything else serves those two.
+1. **For the Perceptron Robotics track:** the fine-tuned Isaac model visibly does the pick on the real arm, in a short video and live for the Perceptron judge at our table. They judge creativity, task difficulty and technical execution, and arm teams must submit a short video of the working demo.
+2. **For everything else:** a judge asks for an instrument on the phone call and the real arm hands it over reliably, every time, by 8 AM.
+3. **Every tool and account we signed up for is used in the product for real, and we can show where.**
+
+## What "doing the Perceptron track properly" means (rules for this pass)
+
+- **The model does the manipulation in anything we call the Perceptron demo.** The pick (approach, grasp, lift) comes from Isaac predictions through `arm/real_arm.py` `run_skill`. Our code around it is fine and is the technical-execution story: smoothing, speed and joint limits, the claw guard, the thermal guard, the grasp check, and the planned move from carry to the person's hand. Say it in one line everywhere: "The fine-tuned model picks; our code keeps it safe and carries it to the hand."
+- **Taught skills (scripted waypoints, Phase 2) are a backup, never presented as the model.** Every event carries `skill_source` (`model` or `taught`), the dashboard and ops page show it, and the Perceptron video never contains a taught pick.
+- **Don't burn the quota.** We have 2 successful training jobs. Before any upload: `explore/dataset/qa` and `python -m arm.dataset_check` must pass (cadence about 30 Hz on both cameras, no dark wrist frames, one task string per instruction, episode count as planned). Print the exact plan and wait for the dataset to pass before `arm.train`.
+- **Task difficulty is our edge:** voice request, a learned pick of a thin metal instrument, handle-first handoff to a moving hand, release when pulled, sharps to the safe spot. Make sure each of those is real in the video, or cut the claim.
+- **Every number on screen or in the Devpost comes from the ledger or the dataset.**
+
+## Do we demo live? (answer this and write it into `docs/DEMO.md`)
+
+Yes, plan for both. The video is required and is the thing that's judged no matter what. Perceptron judges come to our table in the Ballroom, so bring the arm, the tray and the lamp to the table if we're allowed to. Write a short message for Anish to send the Perceptron staff (their Discord or in person): can the SO-101 come to the Ballroom table, is there power there, and do they want the live demo or only the video. Until they answer, `docs/DEMO.md` has three ready levels, in this order, each with exact commands and who does what:
+1. Live, real arm, model picks the hemostat (or every item it passes), taught for the rest, labeled.
+2. Live, real arm, taught skills only, labeled.
+3. Sim backup (`python -m controller.run_all backup --offline --loop --pause 2`) next to the recorded real-arm video.
 
 ## How to work
 
-Multi-agent: you orchestrate and run subagents in parallel with strict file scopes (Opus for arm, controller, voice and safety; Sonnet for docs, scripts and pages). Subagents don't commit. You review every diff, run the tests, commit one item at a time, `git pull --rebase` before every push. Before editing a file run `git log -1 --format=%ar -- <file>` and skip it if it changed in the last 10 minutes. Never print or commit keys.
+Multi-agent: you orchestrate and run subagents in parallel with strict file scopes (Opus for arm, controller, voice and safety; Sonnet for docs, scripts and pages). Subagents don't commit. You review every diff, run the tests, commit one item at a time, `git pull --rebase` before every push. Before editing a file run `git log -1 --format=%ar -- <file>` and skip it if someone else changed it in the last 10 minutes. Never print or commit keys. Finish every phase without asking me; write questions into the final report instead.
 
-**Other agents are working right now. Don't touch their files:**
-- Codex: restyling `design/`, `dashboard/`, `ledger/public/`, `sim/web/`, `controller/nurse.html`, `controller/demo.html`
-- Codex: building `video/`
+**Other agents may still be working. Don't touch their files:**
+- Codex: `design/`, `dashboard/`, `ledger/public/`, `sim/web/`, `controller/nurse.html`, `controller/demo.html`, `video/`
 - Brandon's Cursor: `vision/`, `deploy/`
-- Evan: accounts and `docs/DEVPOST.md`, `docs/ACCOUNTS-TODO.md`
+- Evan: `docs/DEVPOST.md`, `docs/DEV-POST.md`, `docs/ACCOUNTS-TODO.md`
 
-You own `arm/`, `controller/` (except those two HTML files), `voice/`, `explore/`, `sim/` (except `sim/web/`), and the docs not listed above. Optional contract fields are fine (write them into `docs/CONTRACTS.md`); never rename or remove a field.
+You own `arm/`, `controller/` (except those two HTML files), `voice/`, `explore/`, `sim/` (except `sim/web/`), `settings/`, and the other docs. Optional contract fields are fine (write them into `docs/CONTRACTS.md`); never rename or remove a field. If another owner's file needs a change, write the exact change into the final report.
 
-## Phase 1: a demo that works without a trained model (do this first)
+## Phase 1: one arm path (the live demo gets the recorder's fixes)
 
-Build **taught skills**: a deterministic pick and return for each instrument that needs no training.
-1. `arm/taught.py`: for each item and direction, a short list of joint waypoints (approach above the slot, descend, close, lift to carry; for return the reverse into the slot), played back with the existing smooth motion, the claw guard, the speed limits and stop. Waypoints come from teaching by hand (`python -m arm.teach` with torque off, a key press saves each waypoint) and live in `arm/skills/<setting>/<item>-<direction>.json`.
-2. A small correction from vision if it's ready: shift the approach by the slot's measured offset. If vision isn't ready, play the taught path as is (the tray is taped).
-3. The controller picks the skill source: `--skills model|taught|auto`. `auto` uses the Perceptron model for an item when a deployment exists and that item passes its last 3 tries, else taught. Every event carries the optional `skill_source` field, and the dashboard and the voice reply never hide which one ran.
-4. Make it gentle on the motors: torque off or low between cases, short holds, the existing thermal guard on, and stop a skill if a motor passes a temperature limit. Use what the overheating research measured.
-5. A teach walkthrough a person can follow in under 15 minutes per item (`docs/TEACH.md`), and a check (`python -m arm.taught --check`) that replays each skill slowly with no instrument.
-6. Test everything in the sim first (`sim/`), then hand me the exact steps for the real arm.
+Right now the reliability work lives in `explore/arm_session.py` (1266 lines: bus reads retried 3x, wrist_roll held to +-150 deg, overload flag cleared at startup, gripper torque by situation 15/35/50%, dead zone 3, thermal telemetry and the cool-down guard, lift and pulled-out detection). The live demo runs through `controller/` -> `arm/real_arm.py`, which has the claw guard and none of the rest.
+1. Move the shared hardware layer into `arm/` (for example `arm/hardware.py` and `arm/thermal.py`): bus retries, joint limits, overload clearing, gripper torque by situation, the thermal guard, and the handoff detector. `explore/arm_session.py` and `arm/real_arm.py` both import it. Keep `arm_session` working: it's the recorder.
+2. In `arm/real_arm.py`: retries on every bus read, stop a skill and go limp-safe when a motor passes the thermal limit from the overheating research, low torque between cases, gripper torque by situation.
+3. Use the pulled-out detector for release: the controller opens the gripper when the grip load collapses while the hand is there (the person took it), or on "got it". Wire it into `controller/core.py` and the WAIT step.
+4. Tests for each with the fake bus, then one run on the sim, then the exact real-arm steps for me.
 
-## Phase 2: the smallest honest training run (for the Perceptron Robotics track)
+## Phase 2: taught skills as the labeled backup
 
-- Plan the minimum that shows a fine-tuned model working: the hemostat only, "pick the hemostat" and "return the hemostat", about 30 to 40 episodes in normal and bright light, recorded with `arm_session` after the cameras pass (`python -m arm.check_setup`: both cameras about 30 fps at 640x480; fix the side camera first; if the wrist camera can't reach 30 fps, find the setting or USB port that does).
-- Run 1 on that. While it trains, finish Phase 1 on the other items. If run 1 works, the hemostat uses `model` and the rest use `taught`; say so plainly in the pitch, the Devpost and the arm video.
-- Run 2 only if there is time and data for more items.
-- Write the plan with exact commands and a timeline into `docs/HARDWARE-TODO.md` (top section "Tonight's plan").
+1. `arm/taught.py`: per item and direction, a few joint waypoints (approach above the slot, descend, close, lift to carry; return is the reverse into the slot), played with the same smooth motion, guards, limits and stop as Phase 1. Taught by hand with `python -m arm.teach` (torque off, a key saves each waypoint), saved in `arm/skills/<setting>/<item>-<direction>.json`.
+2. If vision is ready, shift the approach by the slot's measured offset; if not, play it as taught (the tray is taped).
+3. Controller flag `--skills model|taught|auto`. `auto` uses the model for an item when a deployment exists and that item passed its last 3 real tries, else taught. `skill_source` on every event; the voice reply never hides it.
+4. `docs/TEACH.md` (under 15 minutes per item) and `python -m arm.taught --check` (replays each skill slowly with no instrument).
 
-## Phase 3: what the cameras and models can recognize (measure it, don't guess)
+## Phase 3: the smallest honest training run
 
-Build `explore/recognition/bench.py` (don't edit `vision/`; Brandon's agent owns it) and run it on real frames from the cameras and on saved images of the surgical and bench trays:
-- Perceptron detect (the vision API) per item: found or not, box quality, latency.
-- Gemini with image input: name the instruments in a crop, and check a whole tray against the expected list.
-- OCR (Perceptron OCR or the Apple Vision OCR in `explore/bench/`) on anything with printed text, such as tray labels or an instrument tag, only if it helps.
-- The hand: MediaPipe on gloved hands at the handoff spot.
-Write `docs/RECOGNITION.md`: a table of what each method recognizes, accuracy, latency, and a recommendation of what the live demo should use. If something works clearly better than the current path, write the exact change for Brandon's `vision/` in that doc.
+- Fix the cameras first (`docs/HARDWARE-TODO.md` steps 1 and 2): both about 30 fps at 640x480 in `python -m arm.check_setup`. If the wrist camera can't reach 30, find the USB port, light or setting that does, and write what worked.
+- Record the hemostat only: "pick the hemostat" and "return the hemostat", 30 to 40 episodes in normal and bright light, with `arm.record` (it runs `arm_session`). Log each batch in `docs/DATA-LOG.md`.
+- QA, then run 1. While it trains, finish Phases 1, 2, 4 and 5. When the deployment is ready, run 10 real tries through the controller with `--skills model` and log them; the hemostat goes to `model` only if it passes.
+- Run 2 (more items) only if there's time and clean data before about 5 AM.
+- Put the plan, commands and a timeline at the top of `docs/HARDWARE-TODO.md` ("Tonight's plan") and keep it current.
 
-## Phase 4: one place to watch everything
+## Phase 4: every tool, integrated and proven
 
-- `controller/ops.html` (use `design/scrub.css` if it exists): one page for the person running the demo. Controller step and events, arm temperatures and loads (the thermal telemetry), both camera fps, vision freshness, voice turns, API latencies (Perceptron predict, detect, Gemini), last errors, and the skill source per item.
-- `python -m controller.doctor`: checks every service and log, and asks Gemini to turn the recent errors into a short plain list of what's wrong and what to do. It never sends keys.
-- Promote what's worth keeping from `explore/` into the product (the thermal guard, the useful bits of `arm_session`), and leave the rest.
+Write `docs/INTEGRATION.md`: one row per tool with what it does in Scrub, the file and function that calls it, the command that proves it works, and PASS/FAIL from running it now. Make every row PASS or say exactly what's missing (a key, an account step) and who does it.
 
-## Phase 5: finish the audit and the docs
+| Tool | Where it must be used |
+| --- | --- |
+| Perceptron robotics API | fine-tune (`arm/train.py`, `arm/pipeline.py`), live inference (`arm/real_arm.py`) |
+| Perceptron vision API | detect on the tray and the hand (`vision/`, recognition bench) |
+| Gemini | words to one command (`voice/`), tray check from an image, the doctor's error summary |
+| ElevenLabs | the voice agent on the call (Custom LLM to `voice/`) |
+| Photon | the phone number, the call and the end-of-case text |
+| MongoDB Atlas | the ledger and thermal telemetry |
+| Vultr + GoDaddy | the public page and the case replay link in the text |
+| Tiger Data, Backboard | whatever `docs/ACCOUNTS-TODO.md` says we use them for; if nothing real, say so and drop the track claim |
+| Hugging Face | the dataset upload for training |
+| MediaPipe | the hand at the handoff spot |
+| MuJoCo | the sim backup and the joint-data reconstruction in the video |
+| `video/` | built by Codex; check `python -m video demo-assets` runs end to end and that it reads our real ledger and dataset paths |
 
-- Fix the remaining Medium and Low items in `docs/AUDIT.md` that matter for tomorrow, and mark each.
-- Update `docs/STATE.md`, `docs/STATUS.md`, `docs/HARDWARE-TODO.md` and `docs/DEMO.md` for the skill sources (taught or model), so the demo script matches what will run.
-- Make sure the pitch and Devpost claims match reality: if the model only runs the hemostat, they say that.
+Then make `python -m controller.run_all` start the full real stack in one command (controller, vision, voice, ledger) with the same flags we'll use at judging, and print every URL.
+
+## Phase 5: recognition, measured
+
+`explore/recognition/bench.py` (don't edit `vision/`) on real frames from the cameras and saved tray images: Perceptron detect per item (found, box quality, latency), Gemini image input (name the instruments in a crop; check a tray against the expected list), OCR only if something has printed text, MediaPipe on gloved hands. Write `docs/RECOGNITION.md` with a table (method, what it recognizes, accuracy, latency) and the recommendation for the live demo. If something clearly beats the current path, write the exact change for Brandon's `vision/` there.
+
+## Phase 6: one place to watch everything
+
+- `controller/ops.html` (use `design/scrub.css` if it exists): controller step and events, `skill_source` per item, arm temperatures and loads, both camera fps, vision freshness, voice turns, API latencies (predict, detect, Gemini), last errors. Fold in `explore/thermal_web.py` rather than running two pages.
+- `python -m controller.doctor`: checks every service, key presence (never values) and log, and asks Gemini to turn recent errors into a short plain list of what's wrong and what to do.
+
+## Phase 7: finish the audit and make the words match
+
+- Fix the Medium and Low items in `docs/AUDIT.md` that matter for tomorrow, and mark each.
+- Update `docs/STATE.md`, `docs/STATUS.md` (check the boxes that are really done), `docs/HARDWARE-TODO.md`, `docs/DEMO.md` and `docs/PITCH.md` for what will really run: which items use the model, which use taught, which tools are live.
+- List every claim in `docs/DEVPOST.md` that doesn't match reality in the final report (Evan owns that file).
 
 ## Final report
 
 1. Tests passing per part.
-2. Taught skills: which items are ready in the sim, and the steps to teach them on the real arm.
-3. The training plan with times, and what state it's in.
-4. The recognition table from `docs/RECOGNITION.md` and the recommendation.
-5. What the ops page and doctor show right now.
-6. Audit items fixed and left.
-7. The exact list of what a person has to do next, in order, with who.
+2. Phase 1: which fixes moved into the live path, and the real-arm steps.
+3. Taught skills: items ready in the sim, steps to teach them on the real arm.
+4. Training: episodes recorded, QA result, job state and times, real-try results.
+5. `docs/INTEGRATION.md` table with PASS/FAIL.
+6. The recognition table and recommendation.
+7. What the ops page and doctor show now.
+8. Audit items fixed and left; Devpost claims that need changing.
+9. The demo level we're on and the message for the Perceptron staff.
+10. The exact list of what a person has to do next, in order, with who.
