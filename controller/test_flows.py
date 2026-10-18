@@ -257,6 +257,7 @@ def rests_at_home_then_wakes_for_the_next_command():
         ctl, arm = make()
         _, evs = run(ctl, dict(HANDOVER))
         assert "released" in types(evs), types(evs)
+        run(ctl, {"action": "return", "item": HANDOVER["item"]})  # put it back before asking for it again
         assert wait_for(lambda: ctl.state()["resting"], 3.0), "never rested after going home"
         assert arm.resting
         _, evs = run(ctl, dict(HANDOVER))
@@ -963,6 +964,7 @@ def post_alias_writes_and_reloads():
         assert not list(d.glob("*.tmp")), list(d.iterdir())
         assert (d / "surgical.json").read_bytes() == evan
         assert wait_for(lambda: ctl.step == "idle" and ctl.cmd is None, 8)
+        run(ctl, {"action": "return", "item": "hemostat"})
         _, evs = run(ctl, {"action": "handover", "item": "hemostat", "heard": "crile please"})
         assert busy != "idle" and "released" in types(evs), (busy, types(evs))
         ctl.set_setting("dental")  # the overlay is per tray
@@ -1692,7 +1694,7 @@ def photo_read_result_sets_the_sheet_packs_and_tray():
             assert ctl.state()["sheet"]["items"]["hemostat"]["closing"] == 0
             ev = next(e for e in reversed(ctl.history) if e["type"] == "read")
             assert ev["read"]["source"] == "photo" and ev["command_id"] is None and ev["say"] == r["say"], ev
-            assert wait_for(lambda: any(x["type"] == "read" and x["read"]["source"] == "photo" for x in logged))
+            assert wait_for(lambda: any(x["type"] == "read" and x["read"].get("source") == "photo" for x in logged))
         finally:
             core.ledger = saved
         _, evs = run(ctl, {"action": "count"})
@@ -1989,6 +1991,7 @@ def sharp_zone_blocked_then_clears():
     sd = pick_ev(evs, "set_down")
     assert lines.CLEAR_ZONE in says(evs) and arm.pose == "home", says(evs)
     assert (sd["zone_check"], sd["zone_confirm"]) == ("cleared_after_wait", True), sd
+    run(ctl, {"action": "return", "item": "scalpel"})
     ctl.locator = StubLocator(zones=[{"clear": True, "method": "local"}, {"clear": True, "item_in_zone": None, "method": "local"}])
     _, evs = run(ctl, SCALPEL)
     sd = pick_ev(evs, "set_down")

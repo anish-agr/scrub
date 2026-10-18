@@ -84,6 +84,43 @@ websocat ws://localhost:8000/events      # or open http://localhost:8000/
 
 ## Tuning (`.env`, measure on the real arm first)
 
+### Which one (optional instance selection)
+
+`POST /command` accepts `instance: {variant?: string, side?: "left" | "right" | "closest", slot?: integer}`
+and an optional `question_id`. Fresh repeated tray slots (or `/locate` detecting multiple instances) do not
+enqueue a pick or wake the arm. The reply is `accepted: false`, `reason: "clarification needed"`, plus
+`clarify: {say, item, candidates, question_id}`; the same payload is emitted as a `clarify` event. Candidates
+include `item`, `label`, optional `variant`, `side`, 1-based `slot`, `box`, and an `instance` to echo back.
+Send a new handover with that item's `instance` and the issued `question_id` to answer. The id is required
+when answering a pending controller question; superseded, missing, or expired ids cannot move the arm. Hints must match
+exactly one validated candidate; contradictory, overlapping, or unverified candidates never select the first.
+
+The question expires after 15 seconds (`clarify_timeout` event); there is no waiting motion job to resume.
+A late answer is refused; ask for the instrument again without a hint to start over. Stop clears the question
+and remains latched. `/state.clarify` exposes the live question. The mounted overhead image has the surgeon
+at its bottom: image-left is their left; larger image y is closer. Generated slots sort left-to-right,
+then top-to-bottom; supplied stable slot numbers take precedence. With more than two objects, only the
+unique bottommost one is called `closest`; other choices use slot numbers. Keep that camera orientation.
+
+Side/slot (or same-id variant) choices use IK with the selected located pose: model/plain taught skills ignore
+instance positions. On the real arm, no calibrated finite `arm_xy` or confidence below 0.6 means refusal
+**before wake**. A named settings variant with a distinct item id (Phillips vs flathead) uses that item's normal
+skill instead. An already-out item answers "The hemostat is with you."; a separately detected instance is
+offered as a question rather than silently picked (`confirm: true` for a single remaining candidate, so voice
+accepts yes/no). Only that selected physical candidate is used for the grasp check. Production TrayStates keep
+configured occupancy in `slots` and physical detections in `candidates`; one configured slot never overrides a
+by-sight candidate's identity. Known duplicates remain blocked through stale/local reads or a locate timeout.
+
+`out` stays a unique item-id list. Optional `out_instances: [{item, id, instance}]` on state/events and in the saved
+state records each physical item separately; count says "Out: 2 hemostats." A return removes only its selected
+instance, and `returned.instance` identifies it. An unspecified return with multiple same-item instances asks
+which one before enqueue/wake (auto return does too); it cannot silently erase the physical count.
+
+`POST /clarify` accepts `{type: "clarify" | "clarify_answer", say?, item?, candidates?, question_id?, answer?,
+answer_ms?, context?, confirm?}` (`context` string or object) and broadcasts/logs it through the normal event machinery.
+It is telemetry only: it never changes a motion job or resolves a controller question. Tests:
+`python -m pytest -q controller/test_instances.py vision/test_locate.py`.
+
 | Name | Default | What |
 | --- | --- | --- |
 | `PULL_LOAD_DELTA` | 80 | raw load change, either sign, that counts as a pull |
