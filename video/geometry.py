@@ -93,6 +93,8 @@ def review_corners(image, points):
 
 
 def corners(ws, source, camera, width_mm, height_mm, points=None, headless=False, accept_auto=False):
+    if not camera or any(c not in "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789_-" for c in camera):
+        raise ValueError("Camera label must contain only letters, digits, underscore or hyphen")
     source = ws.source(source)
     media = info(source)
     image = cv2.imread(str(source)) if media["media"] == "image" else frame_at(source)
@@ -122,22 +124,34 @@ def corners(ws, source, camera, width_mm, height_mm, points=None, headless=False
     write_json(path, doc)
     preview = image.copy()
     cv2.polylines(preview, [points.astype(np.int32)], True, (0, 220, 220), 3)
-    if not camera or any(c not in "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789_-" for c in camera):
-        raise ValueError("Camera label must contain only letters, digits, underscore or hyphen")
     cv2.imwrite(str(ws.out(f"previews/corners-{camera}.png")), stamp(preview, provenance(source)))
     return {"corners_file": str(path), "camera": camera, **doc["cameras"][camera]}
 
 
 def tracked_points(previous, current, points):
     """Forward/backward flow; fail closed when the plane can no longer be tracked."""
-    p = np.asarray(points, np.float32).reshape(-1, 1, 2)
+    # Track texture inside the tray, not four aperture-ambiguous edge pixels.
+    region=np.zeros(previous.shape,np.uint8)
+    cv2.fillConvexPoly(region,np.asarray(points,np.int32),255)
+    region=cv2.erode(region,np.ones((9,9),np.uint8))
+    p=cv2.goodFeaturesToTrack(previous,maxCorners=200,qualityLevel=.015,minDistance=8,mask=region)
+    if p is None or len(p)<12:
+        raise ValueError("Insufficient tray texture for optical flow; use locked-tripod --no-track only if actually locked")
     nxt, status, _ = cv2.calcOpticalFlowPyrLK(previous, current, p, None, winSize=(31, 31), maxLevel=3)
-    if nxt is None or not status.all():
+    if nxt is None:
         raise ValueError("Tray tracking lost; split clip and redo corners")
     back, valid, _ = cv2.calcOpticalFlowPyrLK(current, previous, nxt, None, winSize=(31, 31), maxLevel=3)
-    if back is None or not valid.all() or np.max(np.linalg.norm(back-p, axis=2)) > 1.5:
+    if back is None:
         raise ValueError("Inconsistent tray optical flow; split clip and redo corners")
-    result = nxt.reshape(4, 2)
+    keep=status.ravel().astype(bool)&valid.ravel().astype(bool)&(np.linalg.norm(back-p,axis=2).ravel()<1.5)
+    if np.count_nonzero(keep)<12:
+        raise ValueError("Tray texture tracking lost; split clip and redo corners")
+    matrix,inliers=cv2.findHomography(p[keep],nxt[keep],cv2.RANSAC,1.5)
+    if matrix is None or inliers is None or inliers.mean()<.6:
+        raise ValueError("No dominant tray-plane optical flow")
+    result=cv2.perspectiveTransform(np.float32(points)[None],matrix)[0]
     if np.max(np.linalg.norm(result-points, axis=1)) > 35:
         raise ValueError("Camera motion too large for plane tracking")
+    if not .8<abs(cv2.contourArea(result))/abs(cv2.contourArea(np.float32(points)))<1.2:
+        raise ValueError("Tray tracking changed scale implausibly")
     return order_corners(result)

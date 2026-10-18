@@ -6,5 +6,6 @@ PyYAML
 playwright
 mujoco
 pyarrow
+pandas
 # Optional face detection (clean --faces): pip install mediapipe
 # Optional framing review is deliberately not enabled by default.

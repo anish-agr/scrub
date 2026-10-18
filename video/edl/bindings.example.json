@@ -1,0 +1,12 @@
+{
+  "N7": {"source": "raw/N7-tray.mp4", "in_s": 0},
+  "A1": {"source": "overlays/A1.mp4", "in_s": 0},
+  "A2": {"source": "raw/A2-scalpel.mp4", "in_s": 0, "clean": {"audio_clean": true}},
+  "A3": {"source": "raw/A3-return.mp4", "in_s": 0},
+  "A4": {"source": "raw/A4-lighting.mp4", "in_s": 0},
+  "A5": {"source": "raw/A5-bench.mp4", "in_s": 0},
+  "A6": {"source": "raw/A6-count-phone.mp4", "in_s": 0},
+  "A7": {"source": "raw/A7-dashboard.mp4", "in_s": 0},
+  "A8": {"source": "raw/A8-team.mp4", "in_s": 0},
+  "ARM_ROLL": {"source": "raw/arm-roll.mp4", "clean": {"audio_clean": true}}
+}
