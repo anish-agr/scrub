@@ -1,25 +1,32 @@
 <!DOCTYPE html>
-<html lang="en">
+<!-- STYLE: Swiss ruled case replay sheet, time-first event record. -->
+<html lang="en" data-theme="paper">
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>Scrub case</title>
   <link rel="stylesheet" href="style.css">
+  <style>
+    #case-id{font-family:var(--m);letter-spacing:.04em}.summary{max-width:70ch;margin:20px 0 28px}
+    .timeline{max-width:1100px}.timeline li{padding:12px 0}
+  </style>
 </head>
-<body>
+<body class="scrub-ui" data-page="case">
   <header class="top">
-    <span class="mark">Scrub</span>
+    <div><span class="mark">Scrub</span><span class="subtitle">Case replay</span></div>
     <a href="cases.html">Cases</a>
     <span class="pill">replay</span>
   </header>
-  <p id="status" class="banner" hidden></p>
+  <p id="status" class="banner warning" role="status" hidden></p>
   <main>
     <section>
       <p class="kicker" id="case-id">Case</p>
+      <h1>Requests and count</h1>
       <p id="summary" class="summary"></p>
       <ol id="timeline" class="timeline"></ol>
     </section>
   </main>
+  <footer>Team Scrub · DubHacks '26 <a href="#">Terms</a><a href="#">Privacy</a></footer>
   <script src="cases.js"></script>
 </body>
 </html>
