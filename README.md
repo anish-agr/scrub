@@ -4,9 +4,17 @@
 
 A robot arm that hands a surgeon the instrument they ask for out loud, then lets go when they pull. Built at DubHacks '26, Oct 17 to 18, 2026.
 
+<p align="center">
+  <a href="https://www.youtube.com/watch?v=6mdlrXqnG1A"><img src="https://img.youtube.com/vi/6mdlrXqnG1A/maxresdefault.jpg" alt="Watch the Scrub demo on YouTube" width="640"></a>
+</p>
+
+**[Demo video](https://www.youtube.com/watch?v=6mdlrXqnG1A)** · **[Devpost](https://devpost.com/software/scrub-lnth6m)**
+
+Built with an SO-101 arm, LeRobot, Perceptron (detection, OCR and the Isaac fine-tuning pipeline), ElevenLabs, Photon, Google Gemini, MongoDB Atlas and Vultr.
+
 ## What Scrub is
 
-In an operating room the scrub tech passes each instrument the moment it is named and keeps the count of everything on the tray. Hospitals cannot hire enough of them: a surgical tech opening takes about 120 days to fill ([Periop Leader, 2024](https://www.periopleader.com/survey-staffing-woes-ease-slightly-but-challenges-remain/)). When the tech is missing, the surgeon looks away from the patient and searches the tray. Operating room time costs about $36 a minute ([Childers and Maggard-Gibbons, JAMA Surgery 2018](https://jamanetwork.com/journals/jamasurgery/fullarticle/2673385)), and instrument problems, mostly missing instruments, delayed a case about 10 minutes on average in one study ([Nichol et al., BMC Surgery 2024](https://doi.org/10.1186/s12893-024-02407-1)). Scrub takes the fetch-and-hold-out part of that job: you say "get the hemostat" or "scalpel", an SO-101 arm picks it from the tray, holds the handle out at a fixed handoff point and lets go when you pull it or say "let go". It never touches the patient. The business case is.
+In an operating room the scrub tech passes each instrument the moment it is named and keeps the count of everything on the tray. Hospitals cannot hire enough of them: a surgical tech opening takes about 120 days to fill ([Periop Leader, 2024](https://www.periopleader.com/survey-staffing-woes-ease-slightly-but-challenges-remain/)). When the tech is missing, the surgeon looks away from the patient and searches the tray. Operating room time costs about $36 a minute ([Childers and Maggard-Gibbons, JAMA Surgery 2018](https://jamanetwork.com/journals/jamasurgery/fullarticle/2673385)), and instrument problems, mostly missing instruments, delayed a case about 10 minutes on average in one study ([Nichol et al., BMC Surgery 2024](https://doi.org/10.1186/s12893-024-02407-1)). Scrub takes the fetch-and-hold-out part of that job: you say "get the hemostat" or "scalpel", an SO-101 arm picks it from the tray, holds the handle out at a fixed handoff point and lets go when you pull it or say "let go". It never touches the patient.
 
 ## How it works
 
@@ -19,7 +27,7 @@ In an operating room the scrub tech passes each instrument the moment it is name
               |                     |                   |
               v                     v                   v
    controller/ state machine    explore/station/  recording station + autopick
-   (sim/ MuJoCo arm, fake arm)        |  replays the average of our recorded demos
+   (sim/ MuJoCo arm, fake arm)        |  one smooth path learned from our demos
               |                       v
               |                  SO-101 follower (the real arm)
               v
@@ -27,9 +35,10 @@ In an operating room the scrub tech passes each instrument the moment it is name
    ledger/  every event to MongoDB Atlas  ->  dashboard/  web page and tablet view
 ```
 
-- **Voice (`voice/`, TypeScript).** An ElevenLabs agent (reached over a Photon number through SIP) uses our server as its Custom LLM, an OpenAI-style `/v1/chat/completions` endpoint. "Stop", "let go" and known instrument names, including room names ("Kelly" is the hemostat), are matched locally. Anything else goes to Gemini with structured output whose item field is an enum of the current tray's item ids (`voice/src/parse.ts:89-91`), so it cannot name an instrument that is not on the tray. When the station is running (found at `localhost:8090`, or `STATION_URL`), a request goes to it by local match and starts that instrument's averaged replay. The station page's Talk tab does the same in the browser with speech recognition, with Let go, Stop and Return to home buttons under the transcript.
+- **Voice (`voice/`, TypeScript).** An ElevenLabs agent (reached over a Photon number through SIP) uses our server as its Custom LLM, an OpenAI-style `/v1/chat/completions` endpoint. "Stop", "let go" and known instrument names, including room names ("Kelly" is the hemostat), are matched locally. Anything else goes to Gemini with structured output whose item field is an enum of the current tray's item ids (`voice/src/parse.ts:89-91`), so it cannot name an instrument that is not on the tray. When the station is running (found at `localhost:8090`, or `STATION_URL`), a request goes to it by local match and starts the pick for that instrument. The station page's Talk tab does the same in the browser with speech recognition, with Let go, Stop and Return to home buttons under the transcript.
 - **Controller (`controller/`, Python, FastAPI).** A state machine (finding, picking, checking the grasp, moving to the hand, waiting for the pull, releasing, homing) that drives the fake arm and the MuJoCo sim (`sim/`) through one arm interface. `arm/` holds the hardware layer, kinematics, recording and the Perceptron training pipeline.
-- **Recording station (`explore/station/`).** One process opens both arms, both cameras and the LeRobot dataset once, runs a 30 Hz leader-follower teleop loop and records episodes. Its Run tab drives the follower. Autopick's `average` mode is what moved the real arm: it takes every usable demo of one instrument, cuts each at the same moments (start, above the item, grasp, lift, hand-off), resamples each stage and takes the median point by point, then plays it back and holds the instrument out.
+- **Recording station (`explore/station/`).** One process opens both arms, both cameras and the LeRobot dataset once, runs a 30 Hz leader-follower teleop loop and records episodes. Its Run tab drives the follower with autopick.
+- **Autopick (`explore/station/autopick.py`).** Hand-driven teleop demos are jittery and no two are alike, so autopick learns one clean motion per instrument from all of them. It splits every good demo at the same key moments (start, above the item, grasp, lift, hand-off), drops demos whose grasp is far off from the rest, resamples each stage and takes the median point by point, then smooths and retimes the result into minimum-jerk moves. The arm then picks, holds the handle out at the handoff point and lets go when it feels the pull. This `average` mode is what ran on the real arm at the event. Autopick also has a vision mode: Perceptron detect finds the instrument in the side camera, a homography maps it to the table, and inverse kinematics seeded by the nearest demo plans the grasp.
 - **Vision (`vision/`).** Perceptron's `/v1/detect` finds the instruments on the tray (`vision/tray.py`), with a local detector when the API is slow. OCR on `perceptron-mk1.5` with a strict JSON schema reads the printed count sheet and falls back to Gemini (`vision/reading.py`).
 - **Ledger and dashboard (`ledger/`, `dashboard/`).** Every event and the arm's temperature readings go to MongoDB Atlas, buffered to a local file when Atlas is down. The dashboard is a static page on the controller's event socket with a stop button and a tablet view. `ledger/serve.py` serves the read-only public page; `deploy/` sets it up on a Vultr server.
 - `settings/` holds one JSON file per tray (`surgical.json`: scalpel handle, hemostat, Mayo scissors). The API is in `controller/server.py`.
@@ -104,7 +113,7 @@ cd voice && npm test
 | | Status (Oct 18) |
 | --- | --- |
 | Real arm | Runs only through the station (`explore/station`, `explore/arm_session.py`). 35 station runs, 7 of them camera calibration. |
-| Real picks | Replays of our own recorded demonstrations (autopick `average` mode). No pick comes from a model. |
+| Real picks | Autopick `average` mode: one motion per instrument learned from our own demonstrations. The fine-tuned Perceptron model was still training and did not drive these picks. |
 | Real handoffs | 2, both scalpel, where a hand took it and the jaw checked empty: 06:39:20 and 07:02:37. The second was asked for by voice at 07:02:14. The hemostat was offered twice (06:12, 06:22) with no confirmed take. |
 | Perceptron training | 1 fine-tuning job, `job_629682f9575271b687e2c734`, submitted 08:49 Oct 18 by `python -m arm.train pipeline` (`arm/pipeline.py`, `arm/train.py`): Perceptron's pre-trained Isaac checkpoint fine-tuned on our 14-episode "pick the scalpel" dataset, expert_only, 1000 steps. At 09:08: training, step 411 of 1000, 0 deployments. The fine-tuned model has not moved the arm. |
 | Dataset | 29 episodes, 24 usable, 9.0 min: scalpel handle 11, scalpel 5, hemostat 6, tweezers 4, spatula 3 ([docs/DATA.md](docs/DATA.md)). |
