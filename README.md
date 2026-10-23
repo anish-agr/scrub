@@ -119,7 +119,6 @@ cd voice && npm test
 | Dataset | 29 episodes, 24 usable, 9.0 min: scalpel handle 11, scalpel 5, hemostat 6, tweezers 4, spatula 3 ([docs/DATA.md](docs/DATA.md)). |
 | Controller | Runs the MuJoCo sim and the fake arm. Its grasp check and slow zone near the hand were tested there, not on the real arm. |
 | Mayo scissors | Simulation only: 0 demonstrations, 0 real runs. |
-| Returning an instrument | Manual on the real arm. The video's return is the sim, labeled as a simulated electromagnet pickup. |
 | Phone call | A voice command moved the real arm at 07:02:14, but no log shows it came over the Photon number. |
 | Ledger rates | Not real. There are 0 real-arm tries in the ledger; the `fake_arm:false` rows are test data. |
 
@@ -148,8 +147,8 @@ Why these numbers: [explore/research/overheating/README.md](explore/research/ove
 ## Team
 
 - **Anish**: `arm/` (hardware layer, recording, Perceptron training pipeline), `docs/`.
-- **Caiden**: `controller/`, `voice/`, `sim/`, `explore/` (the recording station and autopick).
-- **Brandon**: `vision/`, `deploy/`.
+- **Caiden**: `controller/`, `voice/`, `sim/`, `explore/` (the recording station and autopick), vision (OCR, instrument recognition in `explore/recognition/` and `vision/`), the Perceptron fine-tuning run.
+- **Brandon**: `vision/` (tray detection), `deploy/`.
 - **Evan**: `dashboard/`, `ledger/`, `settings/`, `design/`, `video/`.
 
 ## License
