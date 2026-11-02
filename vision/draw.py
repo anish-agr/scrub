@@ -25,7 +25,6 @@ def annotate(frame, hand: dict | None, tray: dict | None, detections: list | Non
         if return_box:
             x1, y1, x2, y2 = [int(v) for v in return_box]
             if return_item:
-                # Highlight occupied return spot
                 cv2.rectangle(image, (x1, y1), (x2, y2), (0, 255, 255), 3)
                 cv2.putText(image, f"RETURN: {return_item}", (x1, max(16, y1 - 6)), cv2.FONT_HERSHEY_SIMPLEX, 0.55, (0, 255, 255), 2, cv2.LINE_AA)
             else:
@@ -58,7 +57,6 @@ def annotate(frame, hand: dict | None, tray: dict | None, detections: list | Non
         px, py = int(hand["palm_px"][0]), int(hand["palm_px"][1])
         color = (255, 255, 0) if hand.get("open") else (0, 140, 255)
 
-        # Show handoff target if calibrated target exists
         target = hand.get("target")
         target_px = hand.get("target_px")
         if target is not None and target_px and len(target_px) == 2:
@@ -68,7 +66,6 @@ def annotate(frame, hand: dict | None, tray: dict | None, detections: list | Non
             cv2.drawMarker(image, (tx, ty), (0, 255, 0), cv2.MARKER_CROSS, 14, 1, cv2.LINE_AA)
             cv2.putText(image, "target", (tx + 12, ty + 4), cv2.FONT_HERSHEY_SIMPLEX, 0.45, (0, 255, 0), 1, cv2.LINE_AA)
 
-        # Draw palm dot on top
         cv2.circle(image, (px, py), 8, color, -1)
         if hand.get("path_clear") is False:
             cv2.putText(image, "path blocked", (px + 12, py), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 0, 255), 2, cv2.LINE_AA)

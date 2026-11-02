@@ -9,7 +9,7 @@ from urllib.parse import quote, urlparse
 import httpx
 from dotenv import load_dotenv
 
-USER_AGENT = "Scrub-DubHacks2026/0.1 (anish-agr/dubhacks-2026; SO-101)"
+USER_AGENT = "Scrub/0.1 (anish-agr/scrub; SO-101)"
 BASE_URL = "https://robotics.perceptron.inc"
 # Inference timeouts, seconds. A predict past the 400 ms deadline is dropped anyway, so it gets no
 # longer. Opening a robot session can wait on a cold model container; reset and delete sit between

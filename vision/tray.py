@@ -117,7 +117,7 @@ class PerceptronDetector:
     """POST /v1/detect. Boxes come back in pixels. The API does not return confidence.
 
     Frames wider than max_width are shrunk before upload and the boxes are scaled back to the full frame.
-    docs/RECOGNITION.md measured 3.8 to 4.7 s per call on 640x480 trays, so the default timeout is 6 s.
+    A tray call took 3.8 to 4.7 s on 640x480 trays, so the default timeout is 6 s.
     """
 
     def __init__(self, api_key: str, url: str = DETECT_URL, timeout: float = 6.0, max_width: int = 640):

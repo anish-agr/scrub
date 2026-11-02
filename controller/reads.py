@@ -1,8 +1,8 @@
 """Reading (OCR): ask vision's POST /read/<kind> and compare a count sheet with Scrub's own count.
 
 Blocking; the controller runs it on its own thread, never the event loop or the arm worker, so stop never
-waits on it. Vision answers {"ok", "method", "latency_ms", "error", ...the reader's fields} (vision/README.md
-"Reading (OCR)"). Vision down, an HTTP error, a timeout or a body that is not a JSON object give None.
+waits on it. Vision answers {"ok", "method", "latency_ms", "error", ...the reader's fields}.
+Vision down, an HTTP error, a timeout or a body that is not a JSON object give None.
 """
 import os
 

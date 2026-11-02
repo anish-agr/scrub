@@ -1,4 +1,4 @@
-"""Where is the item, really? Centre, rotation and offset from its slot, for smart pick (GET /locate, GET /safe_zone).
+"""Item position: centre, rotation and offset from its slot, for smart pick (GET /locate, GET /safe_zone).
 
 Local check first (OpenCV on the slot crop), Perceptron box second, Gemini only when those two disagree or the answer
 is weak. Never raises over HTTP: a miss is found false, method "none", confidence 0.

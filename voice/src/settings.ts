@@ -1,4 +1,4 @@
-// The current setting's items: from the controller's GET /setting, else settings/<id>.json, else the CONTRACTS ids.
+// The current setting's items: from the controller's GET /setting, else settings/<id>.json, else the default ids.
 // FALLBACK aliases match controller/settings.py's built-in defaults.
 import { readFileSync } from "node:fs";
 import path from "node:path";
@@ -42,7 +42,7 @@ const CACHE_MS = 30_000;
 let cache: { setting: Setting; at: number } | null = null;
 export const forgetSetting = () => { cache = null; };
 
-// X6: POST /alias, then drop the cache so the next turn (Gemini's list and the local match) sees the new word.
+// POST /alias, then drop the cache so the next turn (Gemini's list and the local match) sees the new word.
 // A 403 is the controller refusing it in judge mode: the judge line, not "can't reach". Other errors throw.
 export async function teach(item: string, alias: string, post = postAlias): Promise<AliasReply> {
   const r = await post(item, alias).catch((e: Error) => {

@@ -134,5 +134,5 @@ def routes(app, ctl) -> None:
     async def calibration():
         cal = _calibration()
         if cal is None:
-            raise HTTPException(404, "no vision/calibration.json yet (B6)")
+            raise HTTPException(404, "no vision/calibration.json yet")
         return cal

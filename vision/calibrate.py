@@ -125,7 +125,7 @@ def format_fit(calibration: dict) -> str:
 
 
 def load_pairs(path: Path) -> tuple[list, list, float]:
-    """Read explore page 42's pairs.json. Extra fields are ignored. Arm x,y are meters."""
+    """Read a calibration pairs.json. Extra fields are ignored. Arm x,y are meters."""
     payload = json.loads(path.read_text(encoding="utf-8"))
     image_points = [[float(point[0]), float(point[1])] for point in payload["image_points"]]
     height = payload.get("hand_height_m")

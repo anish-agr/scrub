@@ -13,7 +13,7 @@ from explore.analysis.source import ROOT, arm_kind, tag_start
 from explore.analysis.stats import median, pct
 
 TRUTH = ROOT / "explore" / "recognition" / "props" / "truth.json"
-BENCH = "docs/RECOGNITION.md (Oct 18, rendered props, not photos): count sheets correct (Perceptron, 1.8-2.3 s); " \
+BENCH = "Bench (Oct 18, rendered props, not photos): count sheets correct (Perceptron, 1.8-2.3 s); " \
         "tray tags correct (QR, 0.05 s); pack labels 4 of 4 (Perceptron, 2.4-2.5 s). Upper bound, not live accuracy."
 RULE = ("Reads are split into scored and unscored. Scored = tied to a printed prop in truth.json: "
         "tray_tag always (a failed read counts as scored-incorrect); "

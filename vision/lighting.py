@@ -177,7 +177,6 @@ def run_lighting_test(
         total_frames += 1
         brightnesses.append(float(frame.mean()))
 
-        # Check detection
         try:
             detections = detector.detect(frame, categories)
             if detections:
@@ -185,7 +184,6 @@ def run_lighting_test(
         except Exception:
             stale_count += 1
 
-        # Check hand tracking
         try:
             hands = tracker.detect(frame)
             if hands:

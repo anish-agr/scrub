@@ -43,14 +43,12 @@ def load_episodes(root_path):
     if lerobot_meta.is_v2(root):
         return load_episodes_v2(root)
 
-    # Load episode metadata
     episodes_meta = []
     for f in sorted((root / "meta/episodes").rglob("*.parquet")):
         df = pd.read_parquet(f)
         episodes_meta.append(df)
     episodes_df = pd.concat(episodes_meta, ignore_index=True)
 
-    # Load data files and keep track of which episodes are in which files
     data_files = {}
     for f in sorted((root / "data").rglob("*.parquet")):
         chunk_idx = int(f.parent.name.split('-')[1])
@@ -58,11 +56,9 @@ def load_episodes(root_path):
         key = (chunk_idx, file_idx)
         data_files[key] = f
 
-    # Load task names
     tasks_df = pd.read_parquet(root / "meta/tasks.parquet")
     task_idx_to_name = dict(zip(tasks_df["task_index"], tasks_df.index))
 
-    # Load all episodes
     episodes = []
     for _, row in episodes_df.iterrows():
         ep_idx = int(row['episode_index'])  # the row position is not the episode index across files
@@ -102,7 +98,6 @@ def find_grasp_moment(state_series, gripper_threshold=30.0):
     was_open = gripper_values > gripper_threshold
     is_closed = gripper_values <= gripper_threshold
 
-    # Look for transition from open to closed
     transitions = (was_open[:-1] & is_closed[1:])
     if np.any(transitions):
         grasp_frame = np.where(transitions)[0][0] + 1  # The frame where it's closed
@@ -126,7 +121,6 @@ def compute_forward_kinematics(kin, state):
         try:
             deg_angles = np.asarray(state[:5], dtype=float)
             rad_angles = np.deg2rad(deg_angles * kin.signs + kin.offsets)
-            # Check with 5 degree tolerance
             tolerance_rad = np.deg2rad(5)
             if (rad_angles >= kin.lower - tolerance_rad).all() and (rad_angles <= kin.upper + tolerance_rad).all():
                 OVER_LIMIT["frames"] += 1
@@ -152,7 +146,6 @@ def analyze_variety(episodes, rig_config):
         task_name = ep['task_name']
         data = ep['data']
 
-        # Find grasp moment
         grasp_frame = find_grasp_moment(data['observation.state'])
 
         if grasp_frame is not None and grasp_frame < len(data):
@@ -175,7 +168,6 @@ def analyze_variety(episodes, rig_config):
                     'total_frames': len(data),
                 })
 
-        # Collect all tip positions for path traces
         path_points = []
         for frame_idx, state in enumerate(data['observation.state']):
             xyz = compute_forward_kinematics(kinematics, state)
@@ -200,12 +192,10 @@ def compute_coverage_grid(grasp_points, handoff_region, grid_size=0.05):
     min_pt = np.array(handoff_region['min'])
     max_pt = np.array(handoff_region['max'])
 
-    # Create grid
     nx = int(np.ceil((max_pt[0] - min_pt[0]) / grid_size)) + 1
     ny = int(np.ceil((max_pt[1] - min_pt[1]) / grid_size)) + 1
     nz = int(np.ceil((max_pt[2] - min_pt[2]) / grid_size)) + 1
 
-    # Count points in each cell
     grid = np.zeros((nx, ny, nz), dtype=int)
     occupied = np.zeros((nx, ny, nz), dtype=bool)
 
@@ -219,7 +209,6 @@ def compute_coverage_grid(grasp_points, handoff_region, grid_size=0.05):
             occupied[ix, iy, iz] = True
             grid[ix, iy, iz] += 1
 
-    # Count empty cells in the region
     total_cells = nx * ny * nz
     empty_cells = np.sum(~occupied)
 
@@ -242,13 +231,11 @@ def get_undersampled_regions(coverage, num_suggestions=5):
     min_pt = coverage['min']
     grid_size = coverage['grid_size']
 
-    # Find empty cells
     empty_indices = np.argwhere(~grid)
 
     if len(empty_indices) == 0:
         return []
 
-    # Convert to world coordinates
     suggestions = []
     for idx in empty_indices[:num_suggestions]:
         ix, iy, iz = idx
@@ -269,21 +256,16 @@ def generate_html_report(grasp_points, coverage, task_counts, episode_paths,
                         handoff_region, grasp_frames, suggestions):
     """Generate HTML report with SVG visualizations."""
 
-    # Prepare data for SVG rendering
-    # Top-down (XY) view
     xy_points = [(p['x'], p['y'], p['task_name']) for p in grasp_points]
 
-    # Side (XZ) view
     xz_points = [(p['x'], p['z'], p['task_name']) for p in grasp_points]
 
-    # Get color mapping for tasks
     unique_tasks = sorted(set(p['task_name'] for p in grasp_points))
     task_colors = {
         task: f"hsl({i * 360 / len(unique_tasks)}, 70%, 50%)"
         for i, task in enumerate(unique_tasks)
     }
 
-    # HTML template
     html = f"""<!DOCTYPE html>
 <html lang="en">
 <head>
@@ -514,11 +496,9 @@ def generate_html_report(grasp_points, coverage, task_counts, episode_paths,
                 <p>Arm base at origin, x forward, y left. Handoff region boundary shown.</p>
 """
 
-    # Top-down SVG
     svg_xy = generate_xy_svg(xy_points, handoff_region, task_colors)
     html += f"                {svg_xy}\n"
 
-    # Legend
     html += """                <div class="legend">
 """
     for task in sorted(unique_tasks):
@@ -535,7 +515,6 @@ def generate_html_report(grasp_points, coverage, task_counts, episode_paths,
                 <p>Forward reach and height variation.</p>
 """
 
-    # Side-view SVG
     svg_xz = generate_xz_svg(xz_points, handoff_region, task_colors)
     html += f"                {svg_xz}\n"
     html += """            </div>
@@ -546,7 +525,6 @@ def generate_html_report(grasp_points, coverage, task_counts, episode_paths,
             <p>All episode trajectories overlaid (faded). Shows workspace coverage.</p>
 """
 
-    # Combined XY paths view
     svg_paths = generate_paths_svg(episode_paths, handoff_region)
     html += f"            {svg_paths}\n"
     html += """        </div>
@@ -556,7 +534,6 @@ def generate_html_report(grasp_points, coverage, task_counts, episode_paths,
             <p>5 cm grid cells. Showing occupancy within handoff region.</p>
 """
 
-    # Coverage grid visualization
     svg_coverage = generate_coverage_svg(coverage)
     html += f"            {svg_coverage}\n"
     html += f"""            <p class="mono">
@@ -608,7 +585,6 @@ def generate_html_report(grasp_points, coverage, task_counts, episode_paths,
 
 def generate_xy_svg(points, handoff_region, task_colors):
     """Generate top-down (XY) view SVG."""
-    # Handoff region bounds
     min_x, min_y = handoff_region['min'][0], handoff_region['min'][1]
     max_x, max_y = handoff_region['max'][0], handoff_region['max'][1]
 
@@ -621,7 +597,6 @@ def generate_xy_svg(points, handoff_region, task_colors):
 
     svg = f'<svg viewBox="0 0 {width} {height}" xmlns="http://www.w3.org/2000/svg">\n'
 
-    # Background grid
     grid_step = 0.05  # 5cm
     for i in np.arange(min_x, max_x + grid_step, grid_step):
         x = margin + (i - min_x) * scale
@@ -630,21 +605,18 @@ def generate_xy_svg(points, handoff_region, task_colors):
         y = margin + (i - min_y) * scale
         svg += f'  <line x1="{margin}" y1="{y}" x2="{width - margin}" y2="{y}" stroke="var(--grid)" stroke-width="0.5"/>\n'
 
-    # Handoff region boundary
     x1 = margin
     y1 = margin
     x2 = width - margin
     y2 = height - margin
     svg += f'  <rect x="{x1}" y="{y1}" width="{x2-x1}" height="{y2-y1}" fill="none" stroke="var(--border)" stroke-width="2"/>\n'
 
-    # Plot grasp points
     for x, y, task_name in points:
         px = margin + (x - min_x) * scale
         py = margin + (y - min_y) * scale
         color = task_colors.get(task_name, "#999")
         svg += f'  <circle cx="{px}" cy="{py}" r="4" fill="{color}" opacity="0.7" stroke="var(--fg)" stroke-width="0.5"/>\n'
 
-    # Axes labels
     svg += f'  <text x="{width/2}" y="{height - 5}" text-anchor="middle" font-size="12" fill="var(--fg)">X (m, forward)</text>\n'
     svg += f'  <text x="15" y="{height/2}" text-anchor="middle" font-size="12" fill="var(--fg)" transform="rotate(-90 15 {height/2})">Y (m, left)</text>\n'
 
@@ -665,7 +637,6 @@ def generate_xz_svg(points, handoff_region, task_colors):
 
     svg = f'<svg viewBox="0 0 {width} {height}" xmlns="http://www.w3.org/2000/svg">\n'
 
-    # Background grid
     grid_step = 0.05
     for i in np.arange(min_x, max_x + grid_step, grid_step):
         x = margin + (i - min_x) * scale
@@ -674,21 +645,18 @@ def generate_xz_svg(points, handoff_region, task_colors):
         y = margin + (i - min_z) * scale
         svg += f'  <line x1="{margin}" y1="{y}" x2="{width - margin}" y2="{y}" stroke="var(--grid)" stroke-width="0.5"/>\n'
 
-    # Handoff region boundary
     x1 = margin
     y1 = margin
     x2 = width - margin
     y2 = height - margin
     svg += f'  <rect x="{x1}" y="{y1}" width="{x2-x1}" height="{y2-y1}" fill="none" stroke="var(--border)" stroke-width="2"/>\n'
 
-    # Plot grasp points
     for x, z, task_name in points:
         px = margin + (x - min_x) * scale
         py = margin + (z - min_z) * scale
         color = task_colors.get(task_name, "#999")
         svg += f'  <circle cx="{px}" cy="{py}" r="4" fill="{color}" opacity="0.7" stroke="var(--fg)" stroke-width="0.5"/>\n'
 
-    # Axes labels
     svg += f'  <text x="{width/2}" y="{height - 5}" text-anchor="middle" font-size="12" fill="var(--fg)">X (m, forward)</text>\n'
     svg += f'  <text x="15" y="{height/2}" text-anchor="middle" font-size="12" fill="var(--fg)" transform="rotate(-90 15 {height/2})">Z (m, height)</text>\n'
 
@@ -709,7 +677,6 @@ def generate_paths_svg(episode_paths, handoff_region):
 
     svg = f'<svg viewBox="0 0 {width} {height}" xmlns="http://www.w3.org/2000/svg">\n'
 
-    # Background grid
     grid_step = 0.05
     for i in np.arange(min_x, max_x + grid_step, grid_step):
         x = margin + (i - min_x) * scale
@@ -718,20 +685,17 @@ def generate_paths_svg(episode_paths, handoff_region):
         y = margin + (i - min_y) * scale
         svg += f'  <line x1="{margin}" y1="{y}" x2="{width - margin}" y2="{y}" stroke="var(--grid)" stroke-width="0.5"/>\n'
 
-    # Handoff region boundary
     x1 = margin
     y1 = margin
     x2 = width - margin
     y2 = height - margin
     svg += f'  <rect x="{x1}" y="{y1}" width="{x2-x1}" height="{y2-y1}" fill="none" stroke="var(--border)" stroke-width="2"/>\n'
 
-    # Plot episode paths
     for ep in episode_paths:
         path = ep['path']
         points_str = ' '.join([f"{margin + (p[0] - min_x) * scale},{margin + (p[1] - min_y) * scale}" for p in path])
         svg += f'  <polyline points="{points_str}" fill="none" stroke="#2563eb" stroke-width="1" opacity="0.15"/>\n'
 
-    # Axes labels
     svg += f'  <text x="{width/2}" y="{height - 5}" text-anchor="middle" font-size="12" fill="var(--fg)">X (m, forward)</text>\n'
     svg += f'  <text x="15" y="{height/2}" text-anchor="middle" font-size="12" fill="var(--fg)" transform="rotate(-90 15 {height/2})">Y (m, left)</text>\n'
 
@@ -744,7 +708,6 @@ def generate_coverage_svg(coverage):
     grid = coverage['occupied']
     nx, ny, nz = coverage['shape']
 
-    # Show XY plane at middle Z
     mid_z = nz // 2
     slice_grid = grid[:, :, mid_z]
 
@@ -756,7 +719,6 @@ def generate_coverage_svg(coverage):
 
     svg = f'<svg viewBox="0 0 {width} {height}" xmlns="http://www.w3.org/2000/svg">\n'
 
-    # Plot grid cells
     for ix in range(nx):
         for iy in range(ny):
             x = margin + ix * scale
@@ -783,7 +745,6 @@ def main():
     episodes, task_idx_to_name = load_episodes(args.root)
     print(f"Loaded {len(episodes)} episodes")
 
-    # Load rig configuration
     rig_path = repo_root / "arm/rig.json"
     with open(rig_path) as f:
         rig_config = json.load(f)
@@ -794,21 +755,17 @@ def main():
     if OVER_LIMIT["frames"]:
         print(f"WARNING: {OVER_LIMIT['frames']} frames were past the URDF joint limits (plotted with up to 5 deg slack); check arm/rig.json offsets")
 
-    # Compute coverage
     print("Computing coverage grid...")
     coverage = compute_coverage_grid(grasp_points, rig_config['handoff_region'], grid_size=0.05)
     print(f"Coverage: {coverage['occupied_cells']}/{coverage['total_cells']} cells occupied")
     print(f"Empty cells: {coverage['empty_cells']}")
 
-    # Get suggestions
     suggestions = get_undersampled_regions(coverage, num_suggestions=5)
 
-    # Count points per task
     task_counts = defaultdict(int)
     for pt in grasp_points:
         task_counts[pt['task_name']] += 1
 
-    # Terminal summary
     print("\n--- Grasp Summary ---")
     for task, count in sorted(task_counts.items()):
         pct = 100 * count / len(grasp_points) if grasp_points else 0
@@ -826,12 +783,10 @@ def main():
     for i, sugg in enumerate(suggestions[:3], 1):
         print(f"  {i}. {sugg['description']}")
 
-    # Generate HTML
     print(f"\nGenerating HTML report...")
     html = generate_html_report(grasp_points, coverage, task_counts, episode_paths,
                                rig_config['handoff_region'], grasp_frames, suggestions)
 
-    # Write output
     Path(args.out).parent.mkdir(parents=True, exist_ok=True)
     Path(args.out).write_text(html)
     print(f"Wrote report to {args.out}")

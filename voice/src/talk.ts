@@ -10,7 +10,7 @@ export const TALK_HTML = `<!doctype html>
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Scrub — talk without a phone</title>
+<title>Scrub: talk without a phone</title>
 <style>
   :root { --bg: #f6f7f8; --fg: #16191d; --muted: #5d6670; --card: #fff; --line: #d9dde2; --accent: #0b6e4f; --hot: #c0392b; }
   @media (prefers-color-scheme: dark) {
@@ -40,7 +40,7 @@ export const TALK_HTML = `<!doctype html>
 </head>
 <body>
 <main>
-  <h1>Scrub — talk without a phone</h1>
+  <h1>Scrub: talk without a phone</h1>
   <p class="sub">Always listening while this page is open. Just talk, like on the call: "get the hemostat", "let go", "stop".</p>
   <button id="ptt" type="button">Starting the microphone...</button>
   <div id="status"></div>

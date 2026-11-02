@@ -1,7 +1,7 @@
 """Reference inverse kinematics for the SO-101 (damped least squares).
 
 Reference implementation for Anish's A7 `move_to`; Anish owns the real one.
-Frames: arm base frame, meters, x forward, y left, z up (matches CONTRACTS).
+Frames: arm base frame, meters, x forward, y left, z up (same as the controller).
 Quirk of this MJCF: a POSITIVE shoulder_pan swings the gripper toward -y (right).
 Joint order: shoulder_pan, shoulder_lift, elbow_flex, wrist_flex, wrist_roll, gripper.
 Only the first four joints move; wrist_roll and gripper are copied from q0.

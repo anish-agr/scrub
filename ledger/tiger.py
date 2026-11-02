@@ -1,4 +1,4 @@
-"""Handoff time series for the Tiger Data track.
+"""Handoff time series in Tiger Data.
 
 `TIGER_DATABASE_URL` is a Postgres connection string (Tiger Cloud uses
 `sslmode=require`). When it is set, each handoff is inserted into the

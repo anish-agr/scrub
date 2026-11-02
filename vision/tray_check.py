@@ -1,4 +1,4 @@
-"""Tray verification before a case (X3).
+"""Tray verification before a case.
 
 Compares detected instruments against the active setting's slots and items,
 identifying missing instruments, misplaced instruments (wrong slot), and occupied return spots.

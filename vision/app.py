@@ -146,20 +146,20 @@ def create_app(runtime: Runtime) -> FastAPI:
 
     @app.get("/clips")
     def list_clips(case_id: str | None = None):
-        """List event clips for a case_id (or all cases) (X4)."""
+        """List event clips for a case_id (or all cases)."""
         if not case_id:
             return runtime.clips.all_clips()
         return runtime.clips.get_clips(case_id)
 
     @app.post("/clips/record")
     def record_clip(event: dict):
-        """Explicitly record a short clip around an event (X4)."""
+        """Explicitly record a short clip around an event."""
         clip = runtime.clips.record_event(event)
         return {"ok": True, "clip": clip}
 
     @app.post("/clips/label")
     def label_clips(body: dict):
-        """Label recorded clips for a case using Perceptron (X4)."""
+        """Label recorded clips for a case using Perceptron."""
         case_id = body.get("case_id")
         api_key = body.get("api_key")
         if not case_id:
@@ -169,7 +169,7 @@ def create_app(runtime: Runtime) -> FastAPI:
 
     @app.get("/clips/{case_id}/{filename}")
     def get_clip_file(case_id: str, filename: str):
-        """Serve a recorded video clip or thumbnail image (X4)."""
+        """Serve a recorded video clip or thumbnail image."""
         path = runtime.clips.file_path(case_id, filename)
         if path is None or not path.is_file():
             return Response(status_code=404, content="Clip not found")

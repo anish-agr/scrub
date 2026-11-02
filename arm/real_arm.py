@@ -823,7 +823,7 @@ class Arm:
                     if next_capture <= self._tick():
                         next_capture += ((self._tick() - next_capture) // STRIDE + 1) * STRIDE
             except APIError:
-                # The controller turns this into an error event with the HTTP code (CONTRACTS: Arm).
+                # The controller turns this into an error event with the HTTP code.
                 self.last_reason = "policy_api_error"
                 self.freeze()
                 raise

@@ -1,4 +1,4 @@
-"""Event clip recording and Perceptron video/caption labeling (X4).
+"""Event clip recording and Perceptron video/caption labeling.
 
 Vision maintains a rolling frame buffer and saves short video clips (.mp4)
 around each Event per case_id. After the case, POST /clips/label captions each
@@ -307,7 +307,6 @@ class ClipManager:
         with self._lock:
             buffer_copy = list(self.buffer)
 
-        # Filter frames within [event_t - pre_s, event_t + post_s]
         frames_in_window = [
             frame for (t, frame) in buffer_copy
             if (event_t - pre_s) <= t <= (event_t + post_s)
@@ -318,7 +317,6 @@ class ClipManager:
             if buffer_copy:
                 frames_in_window = [f for (_, f) in buffer_copy[-int((pre_s + post_s) * fps):]]
             else:
-                # Create a placeholder frame
                 frames_in_window = [np.zeros((480, 640, 3), dtype=np.uint8) for _ in range(int(fps))]
 
         case_dir = self.clips_dir / case_id
@@ -329,18 +327,16 @@ class ClipManager:
         clip_path = case_dir / filename
         thumb_path = case_dir / f"{ev_type}_{item}_{int(event_t)}.jpg"
 
-        # Write video using OpenCV VideoWriter
         h, w = frames_in_window[0].shape[:2]
         fourcc = cv2.VideoWriter_fourcc(*"mp4v")
         writer = cv2.VideoWriter(str(clip_path), fourcc, fps, (w, h))
         for f in frames_in_window:
-            # Resize if needed
             if f.shape[:2] != (h, w):
                 f = cv2.resize(f, (w, h))
             writer.write(f)
         writer.release()
 
-        # Save thumbnail (middle frame)
+        # thumbnail: the middle frame
         mid_idx = len(frames_in_window) // 2
         cv2.imwrite(str(thumb_path), frames_in_window[mid_idx])
 

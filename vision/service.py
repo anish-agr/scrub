@@ -204,7 +204,7 @@ def setting_document(runtime: Runtime) -> dict:
 
 
 # A finished detect within the detector timeout is a Perceptron answer. A normal tray call is
-# 3.8 to 4.7 s (docs/RECOGNITION.md), so the cutoff is that timeout (6 s), not a shorter guess.
+# 3.8 to 4.7 s, so the cutoff is that timeout (6 s).
 # Anything slower, or a failed call, uses the local slot check.
 
 

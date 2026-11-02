@@ -325,7 +325,7 @@ VULTR_PAGE = "http://144.202.95.111/"
 
 
 def check_page(name: str, url: str) -> tuple[str, str, str]:
-    """The judge page. A 200 that contains the Scrub title counts as up."""
+    """The public page. A 200 that contains the Scrub title counts as up."""
     if not url:
         return row(name, False, "missing SCRUB_PUBLIC_URL")
     try:
