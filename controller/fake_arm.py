@@ -1,6 +1,6 @@
 """Fake arm: same interface as arm/real_arm.py, sleeps instead of moving.
 
-Failures can be forced for testing (POST /fake/force, see controller/README.md).
+Failures can be forced for testing (POST /fake/force).
 """
 import threading
 import time

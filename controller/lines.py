@@ -1,4 +1,4 @@
-"""Every line Scrub says. Only the controller writes these (CONTRACTS: Event.say). Keep them short."""
+"""Every line Scrub says. Only the controller writes these (Event.say). Keep them short."""
 
 STOPPED = "Stopped."
 UNKNOWN = "Which instrument?"  # no tray item to hint with; see unknown()
@@ -68,7 +68,7 @@ def zone_blocked_back(name): return f"The safe spot stayed blocked. {cap(name)} 
 def _a(word): return ("an " if word[:1] in "aeiou" else "a ") + word
 
 
-def unknown(name, word): return f"Which instrument? You can say: call the {name} {_a(word)}."  # teaching hint (X6)
+def unknown(name, word): return f"Which instrument? You can say: call the {name} {_a(word)}."  # teaching hint
 def alias_added(word, name): return f"Got it: {word} means the {name}."
 def alias_taken(word, name): return f"{cap(word)} already means the {name}."
 BAD_ALIAS = "I didn't catch the word. Say: call the hemostat a crile."
@@ -86,7 +86,7 @@ def camera_gone(names): return f"Camera also sees {_the(names)} gone."
 def camera_back(names): return f"Camera sees {_the(names)} back."
 
 
-# Tray check (X3): GET /tray_check. Names come from the current setting.
+# Tray check: GET /tray_check. Names come from the current setting.
 CANT_CHECK_TRAY = "I can't check the tray right now."
 TRAY_NOT_READY = "The tray isn't ready."
 
@@ -102,7 +102,7 @@ def tray_extra(names): return f"Extra on the tray: {', '.join(names)}."
 def tray_other_setting(seen, current): return f"The camera is checking the {seen} tray, not the {current} tray."
 
 
-# The robot model (Perceptron) refused or is down (L2). Codes from arm/perceptron.py's APIError.
+# The robot model (Perceptron) refused or is down. Codes from arm/perceptron.py's APIError.
 API_KEY_REFUSED = "The robot model key was refused. Check the team key."
 API_BUSY = "The robot model is busy with another session. Try again in a moment."
 API_DOWN = "The robot model is down right now."
@@ -123,7 +123,7 @@ def api_error(code):
 def api_failed(code): return api_error(code) + " Holding."  # a skill failed on it: the arm waits for a reset
 
 
-# Judge mode (L3): a judge may only ask for an instrument, the count, got it or stop.
+# Judge mode: a judge may only ask for an instrument, the count, got it or stop.
 JUDGE_ONLY = "In judge mode I can hand you an instrument, read the count, or stop."
 
 

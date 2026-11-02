@@ -45,15 +45,13 @@ In an operating room the scrub tech passes each instrument the moment it is name
 
 ## Hardware
 
-- SO-101 leader and follower arms, Feetech STS3215 serial servos, follower on a 12 V supply. The servo label variant (7.4 V C001 or a 12 V part) was never checked by hand ([explore/research/overheating/README.md](explore/research/overheating/README.md)).
+- SO-101 leader and follower arms, Feetech STS3215 serial servos, follower on a 12 V supply. The servo label variant (7.4 V C001 or a 12 V part) was never checked by hand.
 - Side camera: Logitech C920 (`--side C920`). Wrist camera: a small USB camera matched by the name part `icspring` (`--wrist icspring`). Both at 640x480, 30 fps requested.
 - Magnets under the tape on the gripper jaw, to hold thin steel instruments.
 - A Mac running the station, both arm buses and both cameras (our wrist camera shared a USB 2.0 hub with them and delivered 22.6 fps).
 
 Cost: about $250 for the arm hardware.
 
-
-Running and recording on the real arm, and what to do when it overheats or drops off the bus: [explore/ARM-RUNBOOK.md](explore/ARM-RUNBOOK.md).
 
 ## Setup
 
@@ -79,7 +77,7 @@ cp .env.example .env                                    # fill in keys; never co
 explore/station/run_station.sh --task "pick the hemostat"
 ```
 
-Open http://localhost:8090. Record tab: teleop and episodes. Run tab: autopick. Talk tab: one click turns on an always-listening microphone. Flags, controls and autopick modes: [explore/station/README.md](explore/station/README.md). Start the voice server beside it (`cd voice && npm run dev`, port 3000) and it finds the station by itself.
+Open http://localhost:8090. Record tab: teleop and episodes. Run tab: autopick. Talk tab: one click turns on an always-listening microphone. Start the voice server beside it (`cd voice && npm run dev`, port 3000) and it finds the station by itself.
 
 **The whole controller stack** (controller 8000, vision 8001, sim viewer 8002, voice 3000; Ctrl-C stops all):
 
@@ -91,7 +89,7 @@ Open http://localhost:8090. Record tab: teleop and episodes. Run tab: autopick. 
 .venv/bin/python -m controller.run_all reset            # clear the count, surgical tray, normal light
 ```
 
-`--real` is `--arm real --vision real --ledger --judge --skills auto` plus a tunnel for the voice server (cloudflared if `voice/.bin/cloudflared` exists, else Pinggy) and points the ElevenLabs agent at it (`controller/run_all.py:70-71, 104-108, 327-340`). The controller then drives the follower through `arm/real_arm.py` if `SO101_PORT` is set, present and free; otherwise it runs the sim arm and says so. Only one process can hold the arm's serial port, so the station and a `--real` controller cannot run at once. The real-arm runs on Oct 18 went through the station. `backup` and `check` refuse to start the real arm. More in [controller/README.md](controller/README.md).
+`--real` is `--arm real --vision real --ledger --judge --skills auto` plus a tunnel for the voice server (cloudflared if `voice/.bin/cloudflared` exists, else Pinggy) and points the ElevenLabs agent at it (`controller/run_all.py:70-71, 104-108, 327-340`). The controller then drives the follower through `arm/real_arm.py` if `SO101_PORT` is set, present and free; otherwise it runs the sim arm and says so. Only one process can hold the arm's serial port, so the station and a `--real` controller cannot run at once. The real-arm runs on Oct 18 went through the station. `backup` and `check` refuse to start the real arm.
 
 Health check of services and keys (names only): `.venv/bin/python -m controller.doctor`. Drive the voice server without a call: `cd voice && npm run say -- "grab me the kelly"`.
 
@@ -116,7 +114,7 @@ cd voice && npm test
 | Real picks | Autopick `average` mode: one motion per instrument learned from our own demonstrations. The fine-tuned Perceptron model was still training and did not drive these picks. |
 | Real handoffs | 2, both scalpel, where a hand took it and the jaw checked empty: 06:39:20 and 07:02:37. The second was asked for by voice at 07:02:14. The hemostat was offered twice (06:12, 06:22) with no confirmed take. |
 | Perceptron training | 1 fine-tuning job, `job_629682f9575271b687e2c734`, submitted 08:49 Oct 18 by `python -m arm.train pipeline` (`arm/pipeline.py`, `arm/train.py`): Perceptron's pre-trained Isaac checkpoint fine-tuned on our 14-episode "pick the scalpel" dataset, expert_only, 1000 steps. At 09:08: training, step 411 of 1000, 0 deployments. The fine-tuned model has not moved the arm. |
-| Dataset | 29 episodes, 24 usable, 9.0 min: scalpel handle 11, scalpel 5, hemostat 6, tweezers 4, spatula 3 ([docs/DATA.md](docs/DATA.md)). |
+| Dataset | 29 episodes, 24 usable, 9.0 min: scalpel handle 11, scalpel 5, hemostat 6, tweezers 4, spatula 3. |
 | Controller | Runs the MuJoCo sim and the fake arm. Its grasp check and slow zone near the hand were tested there, not on the real arm. |
 | Mayo scissors | Simulation only: 0 demonstrations, 0 real runs. |
 | Phone call | A voice command moved the real arm at 07:02:14, but no log shows it came over the Photon number. |
@@ -142,14 +140,44 @@ Controller only (fake arm and sim, not the real arm path):
 - **Release** on a load change or the load collapsing (`core.py:1810-1838`) or on "let go" (`core.py:779-786`).
 - Temperatures every 1 s on `arm/real_arm.py`; a trip stops the skill (`arm/real_arm.py:43, 404-412`).
 
-Why these numbers: [explore/research/overheating/README.md](explore/research/overheating/README.md).
-
 ## Team
 
-- **Anish**: `arm/` (hardware layer, recording, Perceptron training pipeline), `docs/`.
-- **Caiden**: `controller/`, `voice/`, `sim/`, `explore/` (the recording station and autopick), vision (OCR, instrument recognition in `explore/recognition/` and `vision/`), the Perceptron fine-tuning run.
-- **Brandon**: `vision/` (tray detection), `deploy/`.
-- **Evan**: `dashboard/`, `ledger/`, `settings/`, `design/`, `video/`.
+**Anish**
+
+1. Hardware setup and servo tuning on the SO-101
+2. The MuJoCo sim and 3D viewer (`sim/`)
+3. Perceptron client, training pipeline, kinematics and teach mode (`arm/`)
+4. Choosing between matching instruments, across voice, vision and the sim
+5. Trial matrix and tray check
+6. Design system and page styles (`design/`)
+7. Demo video and sim renders (`video/`)
+
+**Caiden**
+
+1. Controller (`controller/`)
+2. Voice server (`voice/`)
+3. Recording station, autopick and dataset tools (`explore/`)
+4. Arm hardware layer and recording (`arm/`)
+5. OCR and instrument recognition
+6. The Perceptron fine-tuning run
+
+**Brandon**
+
+1. Tray detection (`vision/`)
+2. Deployment (`deploy/`)
+
+**Evan**
+
+1. Dashboard (`dashboard/`)
+2. Tray settings (`settings/`)
+3. Ledger (`ledger/`)
+
+**Shared 50/50**
+
+1. `sim/`: Anish and Caiden
+2. `arm/`: Anish and Caiden
+3. `ledger/`: Evan and Caiden
+4. `vision/`: all four of us
 
 ## License
 

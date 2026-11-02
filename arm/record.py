@@ -14,7 +14,7 @@ settings/bench.json (dental is not recorded).
 Backends:
 - default: explore/arm_session.py, the recorder that works on the Mac (supervisor, cameras by
   name, ease-in, gripper and joint guards, per-episode cadence report <root>-cadence.json).
-- --lerobot: the plain `lerobot-record` command from docs/BRINGUP.md section 6 (Windows laptop).
+- --lerobot: the plain `lerobot-record` command (Windows laptop).
 
 After the batch, one row goes to docs/DATA-LOG.md in the `python -m ledger log` format, with the
 number of episodes actually saved (read from <root>/meta/info.json).
@@ -153,7 +153,7 @@ def arm_session_cmd(a, task: str, repo: str, python: str = sys.executable) -> li
 
 
 def lerobot_cmd(a, task: str, repo: str, side_index, wrist_index, resume: bool) -> list[str]:
-    """The lerobot-record command from docs/BRINGUP.md section 6."""
+    """The plain lerobot-record command."""
     cams = (f"{{side: {{type: opencv, index_or_path: {side_index}, width: 640, height: 480, fps: {FPS}}}, "
             f"wrist: {{type: opencv, index_or_path: {wrist_index}, width: 640, height: 480, fps: {FPS}}}}}")
     cmd = ["lerobot-record", "--robot.type=so101_follower", f"--robot.port={a.follower}",

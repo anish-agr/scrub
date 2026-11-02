@@ -44,7 +44,7 @@ def main() -> None:
     a = p.parse_args()
 
     if a.real_arm:
-        from arm import real_arm  # Anish's; only the controller imports arm/
+        from arm import real_arm  # only the controller imports arm/
         arm = (getattr(real_arm, "Arm", None) or getattr(real_arm, "RealArm"))()
     elif a.sim_arm:
         from sim.sim_arm import SimArm

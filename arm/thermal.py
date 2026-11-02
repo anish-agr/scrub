@@ -1,6 +1,6 @@
 """Motor temperatures, the cool-down rule and telemetry rows, shared by real_arm.py and explore/arm_session.py.
 
-Rule (explore/research/overheating): stop and fold to rest when any motor reaches COOL_TRIP; resume when
+Rule: stop and fold to rest when any motor reaches COOL_TRIP; resume when
 every motor is at or below COOL_RESUME, or when cooling has levelled off for COOL_PLATEAU_S at or below
 COOL_TRIP - 5. A powered motor idles at ~45 C (the leader, torque off, reads 45-47 C), so 45 is unreachable.
 """

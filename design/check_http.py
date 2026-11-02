@@ -15,7 +15,7 @@ def main():
     parser.add_argument("--sim", default="http://localhost:8002")
     args = parser.parse_args()
     groups = (
-        (args.controller, ("/", "/tablet.html", "/nurse", "/demo"), "/style.css"),
+        (args.controller, ("/", "/tablet.html", "/nurse"), "/style.css"),
         (args.ledger, tuple(f"/{n}.html" for n in ("index", "cases", "case", "series", "memory", "card")), "/style.css"),
         (args.sim, ("/web/viewer.html", "/web/layout.html"), "/web/style.css"),
     )

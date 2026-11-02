@@ -1,4 +1,4 @@
-"""Tray check (X3): ask vision's GET /tray_check and word the answer. Blocking; the route runs it in a thread.
+"""Tray check: ask vision's GET /tray_check and word the answer. Blocking; the route runs it in a thread.
 
 Vision answers {"ok", "setting", "missing": [ids], "wrong_slot": [{"item", "in_slot_of"}], "extra": [ids],
 "stale", "t"}; anything missing or extra is tolerated. Vision down, 404, timeout or a stale view:

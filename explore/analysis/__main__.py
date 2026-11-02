@@ -47,13 +47,13 @@ def run(fixture: str | None, out: Path) -> dict:
         "# Data: what MongoDB says",
         "",
         f"Read {read_at} from `{data['source'] if data['source'] != 'mongo' else 'MongoDB Atlas, database scrub'}`. "
-        "Regenerate with `.venv/bin/python -m explore.analysis`. Machine-readable copy: `data/analysis.json` "
-        "(committed snapshot `docs/media/data/analysis.json`). Read-only: nothing here edits MongoDB.",
+        "Regenerate with `.venv/bin/python -m explore.analysis`. Machine-readable copy: `data/analysis.json`. "
+        "Read-only: nothing here edits MongoDB.",
         "",
         f"- {ov['events']} events, {ov['episodes']} episodes ({ov['hours_recorded']:.2f} h recorded), {ov['thermal']} thermal rows",
         f"- Events by arm: {kinds}. Tags (`fake_arm`) started {start}; earlier rows are test data (`pretag`).",
         "",
-        "## Pitch and Devpost numbers",
+        "## Headline numbers",
         "",
         "| Number | Value | Query | Read |",
         "| --- | --- | --- | --- |",

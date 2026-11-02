@@ -1,4 +1,4 @@
-"""One command for the whole Scrub stack (L7), the between-judges reset, the sim backup run and the full-stack check (L10).
+"""One command for the whole Scrub stack, the between-judges reset, the sim backup run and the full-stack check.
 
   .venv/bin/python -m controller.run_all                       # fake arm, vision --fake, voice, opens the dashboard
   .venv/bin/python -m controller.run_all --arm sim             # MuJoCo arm (sim_vision stands in for vision/)
@@ -41,7 +41,7 @@ PY = sys.executable
 LEDGER_BUFFER = Path(os.environ.get("LEDGER_BUFFER") or ROOT / "ledger" / "buffer.jsonl")  # read only
 COMMANDS = ("start", "reset", "backup", "check")
 TUNNEL_SCRIPTS = {"pinggy": "tunnel", "cf": "tunnel:cf", "ngrok": "tunnel:ngrok"}
-NO_LINE = "(no line yet: run `cd voice && npm run photon -- setup +1XXXXXXXXXX`, then put PHOTON_LINE in .env; voice/README.md Call setup)"
+NO_LINE = "(no line yet: run `cd voice && npm run photon -- setup +1XXXXXXXXXX`, then put PHOTON_LINE in .env)"
 AGENT_TRIES, AGENT_RETRY_S = 5, 10.0  # a failed agent update is retried this often before run_all gives up loudly
 TUNNEL_QUICK_DEATHS = 5               # a tunnel that dies within 20 s this many times in a row is given up on
 TUNNEL_RE = re.compile(r"https://[A-Za-z0-9.-]+\.(?:pinggy-free\.link|pinggy\.link|pinggy\.online|trycloudflare\.com"
@@ -241,7 +241,7 @@ def url_table(a, public_url: str | None = None, lan: str | None = None, skipped:
               phone: str | None = None) -> list[tuple[str, str]]:
     P, skipped = ports(a), skipped or set()
     c = f"http://localhost:{P['controller']}"
-    rows = [("dashboard", dashboard_url(a)), ("judge console", f"{c}/demo"), ("nurse console", f"{c}/nurse"),
+    rows = [("dashboard", dashboard_url(a)), ("nurse console", f"{c}/nurse"),
             ("ops", f"{c}/ops"),
             ("tablet", f"{c}/tablet.html"), ("state", f"{c}/state")]
     if lan:
@@ -832,7 +832,7 @@ def cmd_backup(a) -> int:
         stack.stop()
 
 
-# ---------------------------------------------------------------- check (L10)
+# ---------------------------------------------------------------- check
 def stats_problems(d) -> list[str]:
     """What the dashboard's paintStats/fillTable read from GET /stats (ledger.stats() shape)."""
     if not isinstance(d, dict):
@@ -923,7 +923,7 @@ def run_checks(url: str, vision_url: str | None = None, voice_url: str | None = 
         if ok and local:
             ok = r.content == (ROOT / "dashboard" / path.lstrip("/")).read_bytes()
         rec(f"GET {path}", ok, f"{r.status_code} {r.headers.get('content-type', '')} {len(r.content)} B")
-    for path in ("/demo", "/nurse"):
+    for path in ("/nurse",):
         r = c.get(path)
         rec(f"GET {path}", r.status_code == 200 and "<html" in r.text.lower()[:500], f"{r.status_code} {len(r.content)} B")
 

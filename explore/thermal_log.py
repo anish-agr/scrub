@@ -11,7 +11,7 @@ did not reach MongoDB stay in the local file and `upload` sends them later (no d
   .venv/bin/python explore/thermal_log.py upload     # send local rows MongoDB hasn't got yet
   .venv/bin/python explore/thermal_log.py idle 30    # log temperatures every 30 s while nothing uses the arm
 
-MongoDB: database from the URI (default "scrub"), collection "thermal". Schema: explore/research/overheating/README.md.
+MongoDB: database from the URI (default "scrub"), collection "thermal".
 """
 from __future__ import annotations
 

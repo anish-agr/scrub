@@ -39,7 +39,7 @@ def camera_floors(value=None):
     """SCRUB_ACCEPT_CAMERA_FPS="wrist=22" lowers one camera's 29 fps floor, on purpose and on the record.
 
     Only for a camera that cannot reach 29 on any port (the timestamps then claim 30 fps while frames
-    repeat). Preflight prints it as a warning and docs/TRAINING.md must say which run used it.
+    repeat). Preflight prints it as a warning.
     """
     import os
     floors = {}

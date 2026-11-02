@@ -176,7 +176,7 @@ def preflight(root, cadence_report, *, qa=None, qa_video=None, accept_qa_fail=""
         result["tasks"] = report.get("tasks", {})
         for cam, floor in (report.get("camera_fps_floors") or {}).items():
             warnings.append(f"{cam} camera accepted down to {floor:g} fps (SCRUB_ACCEPT_CAMERA_FPS): "
-                            "its frames repeat under 30 fps timestamps; say so in docs/TRAINING.md")
+                            "its frames repeat under 30 fps timestamps")
         emit({"local_check": report})
     except Exception as error:  # noqa: BLE001 - a bad dataset is a FAIL reason, not a crash
         report = None

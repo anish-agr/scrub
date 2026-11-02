@@ -12,7 +12,7 @@ from .upload_dataset import batches, manifest, put_file
 class ClientTests(unittest.TestCase):
     def test_control_calls_match_schema(self):
         schema = json.loads((Path(__file__).resolve().parents[1] /
-                             "docs/perceptron-openapi.json").read_text())
+                             "arm/perceptron-openapi.json").read_text())
         calls = []
 
         def handler(request):

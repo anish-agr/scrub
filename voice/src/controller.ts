@@ -118,7 +118,7 @@ export const postRestock = (r: object): Promise<{ ok: boolean }> => call("POST",
 export interface ReadResultReply { ok: boolean; say?: string | null; read?: ScrubEvent["read"]; reason?: string | null }
 export const postReadResult = (kind: string, result: unknown, heard: string | null): Promise<ReadResultReply> =>
   call("POST", "/read_result", { kind, result, source: "photo", heard }, 5000);
-// X3: the controller asks vision (up to 3 s) and words the answer in `say`.
+// Tray check: the controller asks vision (up to 3 s) and words the answer in `say`.
 export interface TrayCheck {
   ok: boolean; say?: string | null; available?: boolean; setting?: string; label?: string; items?: string[];
   missing?: string[]; wrong_slot?: { item: string; in_slot_of?: string | null }[]; extra?: string[]; stale?: boolean | null;
@@ -131,7 +131,7 @@ export async function postSetting(id: string): Promise<{ status: number; setting
     body: JSON.stringify({ setting: id }), signal: AbortSignal.timeout(3000) });
   return { status: res.status, setting: res.ok ? await res.json() : null };
 }
-// X6: teach a clinic word. Always 200: {"ok", "say", "reason"} (a conflict is ok: false with the line to say).
+// Teach a clinic word. Always 200: {"ok", "say", "reason"} (a conflict is ok: false with the line to say).
 export interface AliasReply { ok: boolean; say: string; reason?: string | null }
 export const postAlias = (item: string, alias: string): Promise<AliasReply> => call("POST", "/alias", { item, alias });
 // For GET /health: is the controller up? Never throws.

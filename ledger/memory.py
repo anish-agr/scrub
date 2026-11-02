@@ -1,4 +1,4 @@
-"""What the arm remembers, for the Backboard track.
+"""What the arm remembers.
 
 Each accepted handover is one note. With `BACKBOARD_API_KEY` and
 `BACKBOARD_ASSISTANT_ID` the same note is stored on Backboard, and a question

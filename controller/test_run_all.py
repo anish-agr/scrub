@@ -228,7 +228,6 @@ class TestUrls(unittest.TestCase):
     def test_fake_stack(self):
         t = self.table([])
         self.assertEqual(t["dashboard"], "http://localhost:8000/")
-        self.assertEqual(t["judge console"], "http://localhost:8000/demo")
         self.assertEqual(t["nurse console"], "http://localhost:8000/nurse")
         self.assertEqual(t["tablet"], "http://localhost:8000/tablet.html")
         self.assertEqual(t["ops"], "http://localhost:8000/ops")

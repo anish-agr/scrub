@@ -1,4 +1,4 @@
-"""Full runs against a live controller, for Checkpoint 1 (C5) and the ten-in-a-row check (C8).
+"""Full runs against a live controller, one run or ten in a row.
 
   .venv/bin/python -m controller.smoke                     # one run, simulated pull (fake or sim arm)
   .venv/bin/python -m controller.smoke --runs 10 --human   # real arm: a person takes each item

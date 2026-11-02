@@ -16,7 +16,7 @@ from .sharpness import camera_says_sharp
 from vision import instances  # pure candidate validation; no camera or arm imports
 
 try:
-    import ledger  # Evan's; optional
+    import ledger  # optional
     if not hasattr(ledger, "log"):  # folder exists but nothing in it yet
         ledger = None
 except Exception:  # noqa: BLE001 - run without it
@@ -25,7 +25,7 @@ except Exception:  # noqa: BLE001 - run without it
 HAND_STALE_S = 0.5          # contract: older Hand counts as seen: false
 TRACKING_ACTIVE_S = 5.0     # a Hand posted this recently means vision is running
 # A TrayState older than this is no camera reading (.env TRAY_STALE_S). Vision posts after each Perceptron detect,
-# 3.8 to 4.7 s on 640x480 trays (docs/RECOGNITION.md), so 3 s made most reads stale and a gap over this resets
+# 3.8 to 4.7 s on 640x480 trays, so 3 s made most reads stale and a gap over this resets
 # auto return. 8 s matches vision's own VISION_TRAY_STALE_S.
 TRAY_STALE_S = float(os.environ.get("TRAY_STALE_S") or 8.0)
 TRAY_LAG_S = 1.0            # a TrayState this soon after the pick may show the tray from before it
@@ -44,16 +44,16 @@ MAX_QUEUE = 3
 DEFAULT_SPOT = [0.22, -0.10, 0.18]  # clinician's saved spot when no hand tracking
 REST_AFTER_S = 2.0          # home and nothing queued this long: arm.rest() (torque off) until the next command
 AUTO_RETURN_S = 2.0         # an item in the return spot this long with the arm idle goes back on its own
-PREPARE_TRIES = 3           # pre-opening the robot model's sessions (L2): tries per setting change
+PREPARE_TRIES = 3           # pre-opening the robot model's sessions: tries per setting change
 PREPARE_RETRY_S = 5.0
-JUDGE_ACTIONS = ("handover", "count", "stop", "got_it", "let_go")  # all a judge may ask for (L3)
+JUDGE_ACTIONS = ("handover", "count", "stop", "got_it", "let_go")  # all a judge may ask for
 STATE_MAX_AGE_S = 6 * 3600  # a saved count older than this is from another day: start a fresh case
 SKILL_MODES = ("model", "taught", "auto", "smart")
 TRIES_FILE = Path(os.environ.get("SCRUB_TRIES_FILE") or Path.home() / "scrub-logs" / "skill-tries.json")
 AUTO_TRIES = 3              # --skills auto: the model runs an item once it passed this many real tries in a row
 TRIES_KEPT = 20
 TELEMETRY_S = 1.0           # arm.telemetry() poll period (its own thread; /state reads the cache)
-# --skills smart (controller/picker.py chooses the grasp method per item) and the sharps rules (docs/PICKING.md)
+# --skills smart (controller/picker.py chooses the grasp method per item) and the sharps rules
 LOCATE_S = 2.5              # vision /locate limit; no answer: pick without a located pose
 ABSENT_CONFIDENCE = 0.6     # /locate found: false at or above this from a vision method: not on the tray
 VISION_METHODS = ("local", "perceptron", "gemini")
@@ -113,7 +113,7 @@ def _load_tries(path) -> dict:
 def _taught_available(setting_id: str) -> dict:
     """arm/taught.py's {item: {"pick", "return"}} for this setting; {} until that file exists."""
     try:
-        from arm import taught  # Anish's; only the controller imports arm/
+        from arm import taught  # only the controller imports arm/
         return {k: set(v) for k, v in (taught.available(setting_id) or {}).items()}
     except Exception:  # noqa: BLE001
         return {}
@@ -192,7 +192,7 @@ class Controller:
             print(f"[state] restored case {self.case_id}, out: {self.out or 'nothing'}", flush=True)
         self.lighting = "normal"
         self.lux = None
-        self.judge = judge              # L3: only handover, count, stop and got_it from /command
+        self.judge = judge              # only handover, count, stop and got_it from /command
         self.jobs: deque = deque()
         self.jobs_cv = threading.Condition(self.lock)
         self.gen = 0                    # bumped by stop; running flows abort when it changes
@@ -1011,7 +1011,7 @@ class Controller:
         return {"ok": read["ok"], "say": say, "read": read}
 
     def _new_case(self) -> str:
-        """CONTRACTS: case_id = <setting>-<unix start seconds>. A new case starts with no sheet or pack read."""
+        """case_id = <setting>-<unix start seconds>. A new case starts with no sheet or pack read."""
         self.sheet, self.packs = None, []
         return f"{self.setting['id']}-{int(time.time())}"
 
@@ -1043,13 +1043,13 @@ class Controller:
         return data
 
     def set_judge(self, on: bool) -> None:
-        """L3 judge mode. The step event carries the new `judge` so pages see it change."""
+        """Judge mode. The step event carries the new `judge` so pages see it change."""
         with self.lock:
             self.judge = bool(on)
         self.emit("step", command_id=None)
 
     def _prepare(self) -> None:
-        """L2: pre-open the robot model's sessions for this tray's skills with the arm's optional
+        """Pre-open the robot model's sessions for this tray's skills with the arm's optional
         prepare(instructions). It blocks on the network, so it runs on its own thread, never under
         the lock; stop never waits on it (a freeze cancels it inside the arm)."""
         prepare = getattr(self.arm, "prepare", None)
@@ -1097,7 +1097,7 @@ class Controller:
         return lines.unknown(it["name"], word) if it and word else lines.UNKNOWN
 
     def add_alias(self, item_id: str, alias: str) -> dict:
-        """X6: a clinic-taught word for an item in the current setting. Writes settings/<id>.local.json and
+        """A clinic-taught word for an item in the current setting. Writes settings/<id>.local.json and
         reloads the setting in memory. Works while busy; never touches the arm, out or the case."""
         word = settings.norm(alias or "")
         if self.judge:
@@ -1336,7 +1336,7 @@ class Controller:
         raise Stopped
 
     def _hold(self, say: str, reason: str) -> None:
-        """The hand watcher froze the arm: treat it as a stop. Only a reset rearms it (arm/README.md)."""
+        """The hand watcher froze the arm: treat it as a stop. Only a reset rearms it."""
         with self.lock:
             self.gen += 1
             self.jobs.clear()

@@ -189,7 +189,7 @@ assert.equal(JSON.parse(readFileSync(tmp, "utf8").trim()).item, "hemostat");
 await logRestock(restocks[0], tmp, async () => ({ ok: true }));  // the ledger took it: nothing more in the file
 assert.equal(readFileSync(tmp, "utf8").trim().split("\n").length, 1);
 
-// Switching trays by text (X5): local match, fake POST /setting (ok, 409 busy, 404 unknown, down).
+// Switching trays by text: local match, fake POST /setting (ok, 409 busy, 404 unknown, down).
 assert.deepEqual(localText("start a bench case", surgical), { kind: "setting", item: null, qty: 1, setting: "bench" });
 assert.equal(localText("Switch to the bench tray", surgical).setting, "bench");
 assert.equal(settingAsked("start a robotics case"), "bench");
@@ -363,7 +363,7 @@ assert.match(texted[0][1], /^Still out: hemostat\. Check the count\.\nScrub case
 assert.deepEqual(caseFacts().passed, {});  // a new case after the text
 // Bug: a second summary before any new event said "everything is back on the tray" with the hemostat still out.
 assert.deepEqual(caseFacts().still_out, ["hemostat"]);
-// Case link (X5): a second short text only when SCRUB_PUBLIC_URL is set and the case has a case_id.
+// Case link: a second short text only when SCRUB_PUBLIC_URL is set and the case has a case_id.
 const linked: [string, string][] = [];
 const r2 = await endCase(async (to, text) => { linked.push([to, text]); return true; }, async () => "Count: everything is back on the tray.", "https://scrub.example/");
 assert.equal(linked.length, 2);
@@ -388,7 +388,7 @@ newCase();
 ev("released", { command_id: "x", item: "hemostat" });
 assert.equal(caseFacts().case_id, `surgical-${start}`);  // still the controller's last case
 assert.deepEqual(caseFacts().passed, { hemostat: 1 });
-// Tray check (X3): local phrase match, fake controller replies, fake sender (never Photon).
+// Tray check: local phrase match, fake controller replies, fake sender (never Photon).
 for (const s of ["check the tray", "Can you check the tray?", "is the tray ready", "Tray check", "tray ready?", "is my tray set up"])
   assert.ok(isTrayCheck(s) && !isStop(s), s);
 for (const s of ["grab me the kelly", "what's out", "Tray ready: Operating room, all 3 instruments in place.", "end of case"])
@@ -451,7 +451,7 @@ assert.equal(publicBase("", ""), "");
 assert.equal(publicBase(undefined, undefined), "");
 assert.equal(caseLink("surgical-1760731200", publicBase("", "144.202.95.111")), "Case replay: http://144.202.95.111/case.html?id=surgical-1760731200");
 // The no-phone page: self-contained, posts to /heard, speaks the lines.
-assert.match(TALK_HTML, /<title>Scrub — talk without a phone<\/title>/);
+assert.match(TALK_HTML, /<title>Scrub: talk without a phone<\/title>/);
 for (const s of ["webkitSpeechRecognition", "speechSynthesis", '"/heard"', "401"]) assert.ok(TALK_HTML.includes(s), s);
 assert.ok(!/<script[^>]+src=|<link[^>]+href=/.test(TALK_HTML), "no outside files");
 
@@ -593,7 +593,7 @@ try {
   trayAnswer = MISSING;
   assert.equal(await turn("is the tray ready"), "Missing the scalpel.");
 
-  // X6: teach a word on the call, before Gemini, and the next turn sees it (the 30 s setting cache is dropped).
+  // Teach a word on the call, before Gemini, and the next turn sees it (the 30 s setting cache is dropped).
   hits.length = 0;
   assert.equal(await turn("grab me the crile"), "");  // not a word yet: unknown (the fake controller says nothing)
   hits.length = 0;  // the tray switch above dropped the cache; this turn refilled it
@@ -643,7 +643,7 @@ try {
   // The no-phone page, and its /heard turn is timed like a call.
   const page = await fetch(`${base}/talk`);
   assert.match(page.headers.get("content-type") || "", /text\/html/);
-  assert.match(await page.text(), /<title>Scrub — talk without a phone<\/title>/);
+  assert.match(await page.text(), /<title>Scrub: talk without a phone<\/title>/);
   const timedBefore = out.join("").split("[timing]").length;
   const viaHeard = await (await fetch(`${base}/heard`, { method: "POST", body: JSON.stringify({ text: "what's out" }) })).json();
   assert.deepEqual(viaHeard, { heard: "what's out", say: ["Out: hemostat."] });

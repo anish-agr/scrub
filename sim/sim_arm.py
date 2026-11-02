@@ -1,4 +1,4 @@
-"""SimArm: the CONTRACTS Arm interface on a MuJoCo SO-101. Scripted pick stands in for the Isaac policy."""
+"""SimArm: the controller's Arm interface on a MuJoCo SO-101. Scripted pick stands in for the Isaac policy."""
 import json
 import re
 import threading

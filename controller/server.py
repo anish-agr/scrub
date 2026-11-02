@@ -1,4 +1,4 @@
-"""FastAPI app: the endpoints in docs/CONTRACTS.md."""
+"""FastAPI app for the controller."""
 import asyncio
 import time
 from pathlib import Path
@@ -14,7 +14,6 @@ from . import armview, core, reads, traycheck
 from .core import Controller
 
 DASHBOARD = Path(__file__).resolve().parent.parent / "dashboard"
-DEMO = Path(__file__).resolve().parent / "demo.html"  # judging console
 NURSE = Path(__file__).resolve().parent / "nurse.html"  # live nurse console
 OPS = Path(__file__).resolve().parent / "ops.html"
 DESIGN = Path(__file__).resolve().parent.parent / "design"  # shared scrub.css for every page
@@ -145,7 +144,7 @@ def make_app(ctl: Controller, extra=None) -> FastAPI:
 
     @app.post("/alias")
     async def alias(body: Alias):
-        """X6: teach a clinic word ("call the hemostat a clamp"). {"ok", "say", "reason"}; saved in settings/<id>.local.json."""
+        """Teach a clinic word ("call the hemostat a clamp"). {"ok", "say", "reason"}; saved in settings/<id>.local.json."""
         return await asyncio.to_thread(ctl.add_alias, body.item, body.alias)
 
     @app.post("/read_result")
@@ -198,7 +197,7 @@ def make_app(ctl: Controller, extra=None) -> FastAPI:
 
     @app.get("/tray_check")
     async def tray_check():
-        """X3: vision's GET /tray_check for the current setting, plus the spoken `say`. In a thread: never blocks stop."""
+        """Vision's GET /tray_check for the current setting, plus the spoken `say`. In a thread: never blocks stop."""
         # No vision process (sim, backup): the controller's own fresh TrayState instead.
         fetch = lambda: traycheck.fetch() or traycheck.from_tray(ctl.tray, ctl.tray_at, core.TRAY_STALE_S)  # noqa: E731
         return await asyncio.to_thread(traycheck.check, ctl.setting, fetch)
@@ -237,16 +236,10 @@ def make_app(ctl: Controller, extra=None) -> FastAPI:
         finally:
             ctl.listeners.remove(entry)
 
-    @app.get("/demo", response_class=HTMLResponse)
-    async def demo():
-        """P4 demo console: 1/2 settings (surgical, bench), J judge mode, R reset that clears the count, Space stop, 3:00 cue cards."""
-        return DEMO.read_text()
-
     @app.get("/nurse", response_class=HTMLResponse)
     async def nurse():
         """Nurse console: tray, requests, step track, handoff time per request, what's out, event log."""
-        # The page's tray-age limit follows TRAY_STALE_S. Swapped at serve time: the file keeps its original script,
-        # which design/test_ui.py checks byte for byte.
+        # The page's tray-age limit follows TRAY_STALE_S, swapped in at serve time.
         return NURSE.read_text().replace("tray_age_s>3", f"tray_age_s>{core.TRAY_STALE_S:g}")
 
     @app.get("/ops", response_class=HTMLResponse)
